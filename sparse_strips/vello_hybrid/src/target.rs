@@ -154,21 +154,21 @@ impl FilterTexturePair {
     }
 }
 
-/// A constraint for layer texture pairs.
+/// The bound layer textures for a round.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct LayerTexturePairConstraint {
-    /// Required page for each parity, or no requirement for that parity.
+pub(crate) struct RoundBindings {
+    /// The bound page for each parity.
     pages: [Option<u16>; 2],
 }
 
-impl LayerTexturePairConstraint {
+impl RoundBindings {
     pub(crate) const fn new(id: LayerTextureId) -> Self {
         let mut pages = [None; 2];
         pages[id.texture_parity.get_parity()] = Some(id.page_index);
         Self { pages }
     }
 
-    /// Try to merge this constraint with the other constraint.
+    /// Try to merge this binding with the other one.
     pub(crate) fn merge(mut self, other: Self) -> Option<Self> {
         for (current, required) in self.pages.iter_mut().zip(other.pages) {
             match (*current, required) {
@@ -181,6 +181,7 @@ impl LayerTexturePairConstraint {
         Some(self)
     }
 
+    /// Try to resolve the round bindings into a fixed layer texture pair.
     pub(crate) fn resolve(self) -> LayerTexturePair {
         LayerTexturePair {
             // In case any is `None`, we just bind page 0 which always exist if
@@ -189,6 +190,7 @@ impl LayerTexturePairConstraint {
         }
     }
 
+    /// Return the required textures for this binding.
     pub(crate) fn required_textures(self) -> [Option<LayerTextureId>; 2] {
         core::array::from_fn(|index| {
             self.pages[index].map(|page_index| {
@@ -264,14 +266,14 @@ impl DrawTarget for LayerTextureRegion {
 #[cfg(test)]
 mod tests {
     use super::{
-        LayerTextureId, LayerTexturePair, LayerTexturePairConstraint, LayerTextureRegion,
-        TextureParity, TextureRegion,
+        LayerTextureId, LayerTexturePair, LayerTextureRegion, RoundBindings, TextureParity,
+        TextureRegion,
     };
     use vello_common::geometry::RectU16;
 
     #[test]
     fn texture_pair_constraints() {
-        let constraint = |pages| LayerTexturePairConstraint { pages };
+        let constraint = |pages| RoundBindings { pages };
         let empty = constraint([None, None]);
         let even = constraint([Some(2), None]);
         let odd = constraint([None, Some(5)]);

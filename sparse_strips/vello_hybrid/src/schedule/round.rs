@@ -18,7 +18,7 @@
 //! ## Texture bindings
 //!
 //! All layer work in a round uses the same [`LayerTexturePair`]. Scheduling an operation adds a
-//! [`LayerTexturePairConstraint`] for every page that the operation renders to or samples. Partial
+//! [`RoundBindings`] for every page that the operation renders to or samples. Partial
 //! constraints can be merged, so operations that require only the even or only the odd page can
 //! still batch together. If two operations require different pages of the same parity, their
 //! constraints conflict and the later operation is placed in a subsequent compatible round.
@@ -30,8 +30,8 @@ use super::ScheduleBuffers;
 use crate::draw::Draw;
 use crate::filter::GpuFilterData;
 use crate::target::{
-    LayerTextureId, LayerTexturePair, LayerTexturePairConstraint, LayerTextureRegion,
-    TextureParity, TextureRegion,
+    LayerTextureId, LayerTexturePair, LayerTextureRegion, RoundBindings, TextureParity,
+    TextureRegion,
 };
 use crate::util::{Ranges, VecExt};
 use alloc::vec::Vec;
@@ -137,7 +137,7 @@ pub(super) struct Rounds {
 #[derive(Debug, Default)]
 pub(super) struct Round {
     /// Page required from each layer texture parity.
-    texture_binding: LayerTexturePairConstraint,
+    texture_binding: RoundBindings,
     /// Draw targeting the root output after both layer passes.
     pub(super) root_draw: Draw,
     /// Draw, filter, and blend work for the even and odd layer textures.
@@ -211,7 +211,7 @@ impl Rounds {
     pub(super) fn resolve_binding_point(
         &mut self,
         mut point: SchedulePoint,
-        requirement: LayerTexturePairConstraint,
+        requirement: RoundBindings,
     ) -> SchedulePoint {
         const MAX_ROUNDS: usize = 100_000;
 
@@ -273,9 +273,9 @@ impl FilterTextureRegions {
         }
     }
 
-    pub(crate) fn texture_binding(self) -> LayerTexturePairConstraint {
-        LayerTexturePairConstraint::new(self.original.target)
-            .merge(LayerTexturePairConstraint::new(self.temporary.target))
+    pub(crate) fn texture_binding(self) -> RoundBindings {
+        RoundBindings::new(self.original.target)
+            .merge(RoundBindings::new(self.temporary.target))
             .unwrap()
     }
 }
@@ -316,8 +316,8 @@ mod tests {
     use crate::filter::GpuFilterData;
     use crate::schedule::ScheduleBuffers;
     use crate::target::{
-        LayerTextureId, LayerTexturePair, LayerTexturePairConstraint, LayerTextureRegion,
-        TextureParity, TextureRegion,
+        LayerTextureId, LayerTexturePair, LayerTextureRegion, RoundBindings, TextureParity,
+        TextureRegion,
     };
     use crate::util::VecExt;
     use bytemuck::Zeroable;
@@ -398,9 +398,9 @@ mod tests {
             stage: RoundStage::Even(LayerStage::Draw),
         };
 
-        let even_page_1 = LayerTexturePairConstraint::new(layer_id(TextureParity::Even, 1));
-        let odd_page_2 = LayerTexturePairConstraint::new(layer_id(TextureParity::Odd, 2));
-        let even_page_3 = LayerTexturePairConstraint::new(layer_id(TextureParity::Even, 3));
+        let even_page_1 = RoundBindings::new(layer_id(TextureParity::Even, 1));
+        let odd_page_2 = RoundBindings::new(layer_id(TextureParity::Odd, 2));
+        let even_page_3 = RoundBindings::new(layer_id(TextureParity::Even, 3));
 
         // First round gets assigned even page 1.
         assert_eq!(
@@ -448,9 +448,9 @@ mod tests {
             stage: RoundStage::Odd(LayerStage::Filter),
         };
 
-        let even_page_1 = LayerTexturePairConstraint::new(layer_id(TextureParity::Even, 1));
-        let odd_page_2 = LayerTexturePairConstraint::new(layer_id(TextureParity::Odd, 2));
-        let odd_page_4 = LayerTexturePairConstraint::new(layer_id(TextureParity::Odd, 4));
+        let even_page_1 = RoundBindings::new(layer_id(TextureParity::Even, 1));
+        let odd_page_2 = RoundBindings::new(layer_id(TextureParity::Odd, 2));
+        let odd_page_4 = RoundBindings::new(layer_id(TextureParity::Odd, 4));
 
         assert_eq!(
             rounds.resolve_binding_point(requested, even_page_1),
@@ -493,18 +493,18 @@ mod tests {
 
         rounds.resolve_binding_point(
             point(0),
-            LayerTexturePairConstraint::new(layer_id(TextureParity::Even, 0)),
+            RoundBindings::new(layer_id(TextureParity::Even, 0)),
         );
 
         rounds.resolve_binding_point(
             point(1),
-            LayerTexturePairConstraint::new(layer_id(TextureParity::Even, 1)),
+            RoundBindings::new(layer_id(TextureParity::Even, 1)),
         );
 
         assert_eq!(
             rounds.resolve_binding_point(
                 point(0),
-                LayerTexturePairConstraint::new(layer_id(TextureParity::Even, 2)),
+                RoundBindings::new(layer_id(TextureParity::Even, 2)),
             ),
             point(2)
         );

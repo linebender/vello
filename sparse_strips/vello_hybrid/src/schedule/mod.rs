@@ -126,8 +126,7 @@ use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::schedule::allocate::AllocatedTextureRegion;
 use crate::target::{
-    DrawTarget, LayerTexturePairConstraint, LayerTextureRegion, RootTarget, TextureParity,
-    TextureRegion,
+    DrawTarget, LayerTextureRegion, RootTarget, RoundBindings, TextureParity, TextureRegion,
 };
 use crate::{LayersConfig, RenderError, Scene, blend::BlendStrip};
 use alloc::vec::Vec;
@@ -271,7 +270,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             let draw_point = rounds.build_draw(
                 &mut state,
                 &mut self.storage.buffers.draw_buffers,
-                LayerTexturePairConstraint::new(layer.sample_region.texture.target),
+                RoundBindings::new(layer.sample_region.texture.target),
                 |builder| {
                     builder.push_layer_fill(layer.sample_region, 1.0, None, self.strip_storage);
                 },
@@ -395,7 +394,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         rounds.build_draw(
             state,
             &mut self.storage.buffers.draw_buffers,
-            LayerTexturePairConstraint::default(),
+            RoundBindings::default(),
             |builder| {
                 for draw in &self.recorder.draws[draws.start as usize..draws.end as usize] {
                     builder.push_draw(draw, self.strip_storage, self.paint_resolver);
@@ -564,8 +563,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             .ready
             .next(blend_stage)
             .max(child_layer.ready.next(blend_stage));
-        let blend_binding = LayerTexturePairConstraint::new(parent_region.texture.target)
-            .merge(LayerTexturePairConstraint::new(child_region.texture.target))
+        let blend_binding = RoundBindings::new(parent_region.texture.target)
+            .merge(RoundBindings::new(child_region.texture.target))
             .expect("parent and child layers must have compatible texture parities");
         let blend_point = rounds.resolve_binding_point(blend_point, blend_binding);
 
@@ -608,7 +607,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let draw_point = rounds.build_draw(
             state,
             &mut self.storage.buffers.draw_buffers,
-            LayerTexturePairConstraint::new(child_layer.sample_region.texture.target),
+            RoundBindings::new(child_layer.sample_region.texture.target),
             |builder| {
                 builder.push_layer_fill(
                     child_layer.sample_region,
@@ -774,13 +773,13 @@ impl Rounds {
         &mut self,
         state: &mut TargetScheduleState<T>,
         draw_buffers: &mut DrawBuffers,
-        sampled: LayerTexturePairConstraint,
+        sampled: RoundBindings,
         f: impl FnOnce(&mut DrawBuilder<'_, T>),
     ) -> SchedulePoint {
         let requirement = state
             .draw_state
             .target
-            .texture_binding()
+            .round_bindings()
             .merge(sampled)
             .expect("draw target and sampled layer must have compatible texture parities");
 
@@ -900,7 +899,7 @@ impl TargetScheduleState<LayerTextureRegion> {
 trait ScheduleTarget: DrawTarget {
     fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw;
     fn draw_stage(&self) -> RoundStage;
-    fn texture_binding(&self) -> LayerTexturePairConstraint;
+    fn round_bindings(&self) -> RoundBindings;
 }
 
 impl ScheduleTarget for RootTarget {
@@ -912,8 +911,8 @@ impl ScheduleTarget for RootTarget {
         RoundStage::RootDraw
     }
 
-    fn texture_binding(&self) -> LayerTexturePairConstraint {
-        LayerTexturePairConstraint::default()
+    fn round_bindings(&self) -> RoundBindings {
+        RoundBindings::default()
     }
 }
 
@@ -926,8 +925,8 @@ impl ScheduleTarget for LayerTextureRegion {
         RoundStage::draw(self.texture.target.texture_parity)
     }
 
-    fn texture_binding(&self) -> LayerTexturePairConstraint {
-        LayerTexturePairConstraint::new(self.texture.target)
+    fn round_bindings(&self) -> RoundBindings {
+        RoundBindings::new(self.texture.target)
     }
 }
 
