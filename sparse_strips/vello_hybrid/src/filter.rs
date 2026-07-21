@@ -413,7 +413,7 @@ impl FilterPassPlan {
         for filter in filters {
             let mut builder = FilterPassBuilder::new(filter, texture_size, self);
             if filter.gpu_filter.needs_copy_pass() {
-                builder.push_copy_pass();
+                builder.push_copy_to_scratch_pass();
             }
 
             match filter.gpu_filter.filter_type() {
@@ -520,18 +520,19 @@ impl<'a> FilterPassBuilder<'a> {
         let (src_size, dest_size) = self.apply_pass_dimensions(kind);
         let original = self.op.textures.original;
         let temporary = self.op.textures.temporary;
-        let (src_rect, dest) = if self.current_is_original {
-            (original.rect, temporary)
+        let (src_rect, dest_rect) = if self.current_is_original {
+            (original.rect, temporary.rect)
         } else {
-            (temporary.rect, original)
+            (temporary.rect, original.rect)
         };
         let dest_texture_size = self.texture_size;
         let rect_origin = |rect: RectU16| pack_u16_pair(rect.x0, rect.y0);
         let size = |size: SizeU16| pack_u16_pair(size.width(), size.height());
+
         self.passes.step_mut(self.step).push(FilterInstanceData {
             src_origin: rect_origin(src_rect),
             src_size: size(src_size),
-            dest_origin: rect_origin(dest.rect),
+            dest_origin: rect_origin(dest_rect),
             dest_size: size(dest_size),
             dest_atlas_size: size(dest_texture_size),
             filter_data_offset: self.op.filter_data_offset,
@@ -539,6 +540,7 @@ impl<'a> FilterPassBuilder<'a> {
             original_size: pack_u16_pair(original.rect.width(), original.rect.height()),
             filter_pass_kind: kind,
         });
+
         self.step += 1;
         self.current_is_original = !self.current_is_original;
     }
@@ -553,19 +555,23 @@ impl<'a> FilterPassBuilder<'a> {
         // causes higher pixel differences for some tests compared to vello_cpu, since edge
         // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
         // this more straight-forward approach.
+
         for _ in 0..n_decimations {
             self.emit(pass_kind::DOWNSCALE);
         }
         self.emit(pass_kind::BLUR_H);
 
         let mut final_pass = pass_kind::BLUR_V;
+
         if n_decimations > 0 {
             self.emit(pass_kind::BLUR_V);
             for _ in 0..n_decimations - 1 {
                 self.emit(pass_kind::UPSCALE);
             }
+
             final_pass = pass_kind::UPSCALE;
         }
+
         self.emit(final_pass);
     }
 
@@ -575,7 +581,7 @@ impl<'a> FilterPassBuilder<'a> {
         }
     }
 
-    fn push_copy_pass(&mut self) {
+    fn push_copy_to_scratch_pass(&mut self) {
         let original = self.op.textures.original;
         let target_texture_size = self.texture_size;
         let copy_instance = GpuCopyInstance {
@@ -602,6 +608,7 @@ impl FilterContext {
         let prepared = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
         let data = GpuFilterData::from(&prepared);
         self.filters.push(data);
+
         PreparedGpuFilter { data_offset, data }
     }
 
