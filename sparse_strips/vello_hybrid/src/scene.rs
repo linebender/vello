@@ -126,14 +126,14 @@ pub struct MemorySettings {
 ///
 /// Layers, blend modes, and filters need temporary GPU textures before their results can be
 /// composited into the main scene. This configuration allows you to specify some limits to prevent
-/// excessive allocations for complex or adverserial scenes.
+/// excessive allocations for complex or adversarial scenes.
 ///
 /// In general, Vello Hybrid has the following priorities in that specific order:
 /// - Render as many scenes as possible successfully.
 /// - Use as little memory as possible.
 /// - Be as performant as possible.
 ///
-/// Vello Hybrid will always prefer minimizing memory usage, even if at the cost of worse
+/// Vello Hybrid will by default prefer minimizing memory usage, even if at the cost of worse
 /// performance. However, since the exact tradeoff is very application-dependent,
 /// this configuration still allows you to tune the exact parameters such that better performance
 /// is accepted at the cost of larger memory consumption.
@@ -150,8 +150,8 @@ pub struct LayersConfig {
     /// - `4` for scenes with only single-child layers with potentially blend modes
     ///   or simple filters.
     ///
-    /// Any other type of complex nested scene might need more intermediate textures depending on
-    /// the exact contents.
+    /// Any other type of scene with complex layer nesting might need more intermediate textures,
+    /// depending on the exact contents.
     pub max_textures: Option<usize>,
     /// Minimum width and height of each allocated intermediate texture.
     ///
@@ -171,7 +171,10 @@ pub struct LayersConfig {
     /// Maximum width and height of each allocated intermediate texture.
     ///
     /// This should be at least the size of the main scene (and potentially more to account for
-    /// padding of large filters), unless you explicitly want to reject too large layers.
+    /// padding of large filters), unless you explicitly want to reject too large layers to limit
+    /// peak memory consumption.
+    ///
+    /// Regardless of what this value is set to, device limits will always be respected.
     pub max_texture_size: SizeU16,
 }
 
@@ -248,20 +251,12 @@ impl Scene {
         }
     }
 
-    fn active_width(&self) -> u16 {
-        self.viewport_state.width()
-    }
-
-    fn active_height(&self) -> u16 {
-        self.viewport_state.height()
-    }
-
     fn active_rect(&self) -> Rect {
         Rect::new(
             0.0,
             0.0,
-            f64::from(self.active_width()),
-            f64::from(self.active_height()),
+            f64::from(self.viewport_state.width()),
+            f64::from(self.viewport_state.height()),
         )
     }
 

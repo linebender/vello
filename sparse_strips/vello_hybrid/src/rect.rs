@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Helpers for the rectangle fast path.
+//! Helpers for decomposing rectangles used by the rectangle fast path.
 
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
