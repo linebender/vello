@@ -25,7 +25,7 @@ use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
 use crate::{
     GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
-    blend::{BlendStrip, GpuBlendInstance, gpu_blend_instance},
+    blend::{BlendStrip, GpuBlendInstance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
     gradient_cache::GradientRampCache,
@@ -2558,12 +2558,12 @@ impl WebGlRendererContext<'_> {
                         ..usize::try_from(range.end).unwrap()]
                         .iter()
                         .copied()
-                        .map(|geometry| gpu_blend_instance(blend, Some(geometry), texture_size)),
+                        .map(|strip| GpuBlendInstance::new(blend, Some(strip), texture_size)),
                 );
             } else {
                 self.scratch
                     .blend_instances
-                    .push(gpu_blend_instance(blend, None, texture_size));
+                    .push(GpuBlendInstance::new(blend, None, texture_size));
             }
         }
         if self.scratch.blend_instances.is_empty() {

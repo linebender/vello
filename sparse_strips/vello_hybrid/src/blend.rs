@@ -11,24 +11,6 @@ use bytemuck::{Pod, Zeroable};
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::peniko::{Compose, Mix};
 
-/// A strip for performing a clipped blend operation.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct BlendStrip {
-    /// Atlas-space bounds of the segment.
-    rect: RectU16,
-    /// Alpha texture column index, or `None` for a plain fill segment.
-    alpha_col_idx: Option<u32>,
-}
-
-impl BlendStrip {
-    pub(crate) fn from_fill_segment(rect: RectU16, alpha_col_idx: Option<u32>) -> Self {
-        Self {
-            rect,
-            alpha_col_idx,
-        }
-    }
-}
-
 /// Per-instance data for one blend pass.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -52,8 +34,59 @@ pub(crate) struct GpuBlendInstance {
 }
 
 impl GpuBlendInstance {
+    pub(crate) fn new(
+        blend: &BlendOp,
+        clip_strip: Option<BlendStrip>,
+        parent_texture_size: SizeU16,
+    ) -> Self {
+        let parent_rect = blend.parent_region.texture_rect(blend.blend_bbox);
+        let child_parent_rect = blend
+            .parent_region
+            .texture_rect(blend.child_region.layer_bbox);
+        let geometry = clip_strip.map_or_else(
+            || BlendGeometry {
+                rect: parent_rect,
+                alpha_col_idx: None,
+            },
+            |strip| BlendGeometry {
+                rect: strip.rect,
+                alpha_col_idx: strip.alpha_col_idx,
+            },
+        );
+
+        Self {
+            geometry_origin: pack_u16_pair(geometry.rect.x0, geometry.rect.y0),
+            geometry_size: pack_u16_pair(geometry.rect.width(), geometry.rect.height()),
+            geometry_alpha_col_idx: geometry.alpha_col_idx.unwrap_or(0),
+            parent_texture_size: pack_u16_pair(
+                parent_texture_size.width(),
+                parent_texture_size.height(),
+            ),
+            child_texture_origin: pack_u16_pair(
+                blend.child_region.texture.rect.x0,
+                blend.child_region.texture.rect.y0,
+            ),
+            child_parent_origin: pack_u16_pair(child_parent_rect.x0, child_parent_rect.y0),
+            child_rect_size: pack_u16_pair(
+                blend.child_region.layer_bbox.width(),
+                blend.child_region.layer_bbox.height(),
+            ),
+            blend_config: pack_blend_config(
+                blend.blend_mode.mix,
+                blend.blend_mode.compose,
+                blend.opacity,
+                blend.parent_region.texture.target.texture_parity,
+                blend.child_region.texture.target.texture_parity,
+                geometry.alpha_col_idx.is_some(),
+            ),
+        }
+    }
+
     pub(crate) fn copy_from_scratch(self) -> GpuCopyInstance {
         GpuCopyInstance {
+            // Remember that for blending, the scratch texture
+            // exactly mirrors the allocations of the blend target texture, so they are
+            // the same.
             dest_texture_origin: self.geometry_origin,
             source_texture_origin: self.geometry_origin,
             copy_rect_size: self.geometry_size,
@@ -62,51 +95,21 @@ impl GpuBlendInstance {
     }
 }
 
-pub(crate) fn gpu_blend_instance(
-    blend: &BlendOp,
-    clip_strip: Option<BlendStrip>,
-    parent_texture_size: SizeU16,
-) -> GpuBlendInstance {
-    let parent_rect = blend.parent_region.texture_rect(blend.blend_bbox);
-    let child_parent_rect = blend
-        .parent_region
-        .texture_rect(blend.child_region.layer_bbox);
-    let geometry = clip_strip.map_or_else(
-        || BlendGeometry {
-            rect: parent_rect,
-            alpha_col_idx: None,
-        },
-        |strip| BlendGeometry {
-            rect: strip.rect,
-            alpha_col_idx: strip.alpha_col_idx,
-        },
-    );
+/// A strip for performing a clipped blend operation.
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct BlendStrip {
+    /// Atlas-space bounds of the segment.
+    rect: RectU16,
+    /// Alpha texture column index, or `None` for a plain fill segment.
+    alpha_col_idx: Option<u32>,
+}
 
-    GpuBlendInstance {
-        geometry_origin: pack_u16_pair(geometry.rect.x0, geometry.rect.y0),
-        geometry_size: pack_u16_pair(geometry.rect.width(), geometry.rect.height()),
-        geometry_alpha_col_idx: geometry.alpha_col_idx.unwrap_or(0),
-        parent_texture_size: pack_u16_pair(
-            parent_texture_size.width(),
-            parent_texture_size.height(),
-        ),
-        child_texture_origin: pack_u16_pair(
-            blend.child_region.texture.rect.x0,
-            blend.child_region.texture.rect.y0,
-        ),
-        child_parent_origin: pack_u16_pair(child_parent_rect.x0, child_parent_rect.y0),
-        child_rect_size: pack_u16_pair(
-            blend.child_region.layer_bbox.width(),
-            blend.child_region.layer_bbox.height(),
-        ),
-        blend_config: pack_blend_config(
-            blend.blend_mode.mix,
-            blend.blend_mode.compose,
-            blend.opacity,
-            blend.parent_region.texture.target.texture_parity,
-            blend.child_region.texture.target.texture_parity,
-            geometry.alpha_col_idx.is_some(),
-        ),
+impl BlendStrip {
+    pub(crate) fn from_fill_segment(rect: RectU16, alpha_col_idx: Option<u32>) -> Self {
+        Self {
+            rect,
+            alpha_col_idx,
+        }
     }
 }
 
