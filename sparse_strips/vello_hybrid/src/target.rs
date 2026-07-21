@@ -120,7 +120,7 @@ pub(crate) struct FilterPassBindings {
 
 impl FilterPassBindings {
     pub(crate) const fn new(target: LayerTextureId, temporary: LayerTextureId) -> Self {
-        assert!(target.texture_parity as u8 != temporary.texture_parity as u8);
+        debug_assert!(target.texture_parity as u8 != temporary.texture_parity as u8);
 
         Self { target, temporary }
     }
@@ -161,7 +161,7 @@ pub(crate) struct BlendPassBindings {
 
 impl BlendPassBindings {
     pub(crate) const fn new(target: LayerTextureId, child: LayerTextureId) -> Self {
-        assert!(target.texture_parity as u8 != child.texture_parity as u8);
+        debug_assert!(target.texture_parity as u8 != child.texture_parity as u8);
 
         Self { target, child }
     }
@@ -189,7 +189,9 @@ pub(crate) struct RoundBindings {
 impl RoundBindings {
     pub(crate) const fn new(id: LayerTextureId) -> Self {
         let mut pages = [None; 2];
+        
         pages[id.texture_parity.get_parity()] = Some(id.page_index);
+
         Self { pages }
     }
 
