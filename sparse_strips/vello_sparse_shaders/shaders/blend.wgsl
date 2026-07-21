@@ -40,8 +40,8 @@ const MIX_LUMINOSITY = 15u;
 const BLEND_HAS_ALPHA = 1u << 26u;
 
 struct BlendInstance {
-    @location(0) geometry_xy: u32,
-    @location(1) geometry_extent: u32,
+    @location(0) geometry_origin: u32,
+    @location(1) geometry_size: u32,
     @location(2) geometry_alpha_col_idx: u32,
     @location(3) parent_texture_size: u32,
     @location(4) child_texture_origin: u32,
@@ -76,16 +76,15 @@ fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
     instance: BlendInstance,
 ) -> VertexOutput {
-    let geometry_xy = unpack_u16_pair(instance.geometry_xy);
-    let geometry_extent = unpack_u16_pair(instance.geometry_extent);
+    let geometry_origin = unpack_u16_pair(instance.geometry_origin);
+    let geometry_size = vec2<f32>(unpack_u16_pair(instance.geometry_size));
     let parent_texture_size = unpack_u16_pair(instance.parent_texture_size);
     let child_parent_origin = unpack_u16_pair(instance.child_parent_origin);
     let child_texture_origin = unpack_u16_pair(instance.child_texture_origin);
 
     let x = f32(vertex_index & 1u);
     let y = f32(vertex_index >> 1u);
-    let geometry_size = vec2<f32>(geometry_extent);
-    let parent_texture_xy = vec2<f32>(geometry_xy) + vec2<f32>(x, y) * geometry_size;
+    let parent_texture_xy = vec2<f32>(geometry_origin) + vec2<f32>(x, y) * geometry_size;
     let child_local = parent_texture_xy - vec2<f32>(child_parent_origin);
 
     var out: VertexOutput;
@@ -95,8 +94,8 @@ fn vs_main(
     out.child_rect_size = instance.child_rect_size;
     out.blend_config = instance.blend_config;
     out.tex_coord = vec2<f32>(
-        f32(instance.geometry_alpha_col_idx) + x * f32(geometry_extent.x),
-        y * f32(geometry_extent.y),
+        f32(instance.geometry_alpha_col_idx) + x * geometry_size.x,
+        y * geometry_size.y,
     );
 
     let ndc_x = parent_texture_xy.x * 2.0 / f32(parent_texture_size.x) - 1.0;

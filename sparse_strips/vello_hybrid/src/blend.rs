@@ -16,7 +16,7 @@ use vello_common::tile::Tile;
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct BlendStrip {
     /// Atlas-space segment origin, packed as `u16x2`.
-    xy: u32,
+    origin: u32,
     /// Width of the segment.
     width: u16,
     /// Alpha texture column index, or `None` for a plain fill segment.
@@ -26,7 +26,7 @@ pub(crate) struct BlendStrip {
 impl BlendStrip {
     pub(crate) fn from_fill(rect: RectU16, alpha_col_idx: Option<u32>) -> Self {
         Self {
-            xy: pack_u16_pair(rect.x0, rect.y0),
+            origin: pack_u16_pair(rect.x0, rect.y0),
             width: rect.width(),
             alpha_col_idx,
         }
@@ -38,9 +38,9 @@ impl BlendStrip {
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub(crate) struct GpuBlendInstance {
     /// Atlas-space geometry origin, packed as `u16x2`.
-    pub(crate) geometry_xy: u32,
+    pub(crate) geometry_origin: u32,
     /// Geometry width in the low 16 bits and height in the high 16 bits.
-    pub(crate) geometry_extent: u32,
+    pub(crate) geometry_size: u32,
     /// Alpha texture column index for strip geometry.
     pub(crate) geometry_alpha_col_idx: u32,
     /// Width and height of the parent layer texture, packed as `u16x2`.
@@ -58,9 +58,9 @@ pub(crate) struct GpuBlendInstance {
 impl GpuBlendInstance {
     pub(crate) fn copy_from_scratch(self) -> GpuCopyInstance {
         GpuCopyInstance {
-            target_texture_origin: self.geometry_xy,
-            source_texture_origin: self.geometry_xy,
-            copy_rect_size: self.geometry_extent,
+            target_texture_origin: self.geometry_origin,
+            source_texture_origin: self.geometry_origin,
+            copy_rect_size: self.geometry_size,
             target_texture_size: self.parent_texture_size,
         }
     }
@@ -77,22 +77,22 @@ pub(crate) fn gpu_blend_instance(
         .texture_rect(blend.child_region.layer_bbox);
     let geometry = clip_strip.map_or_else(
         || GpuBlendGeometry {
-            xy: pack_u16_pair(parent_rect.x0, parent_rect.y0),
-            extent: pack_u16_pair(parent_rect.width(), parent_rect.height()),
+            origin: pack_u16_pair(parent_rect.x0, parent_rect.y0),
+            size: pack_u16_pair(parent_rect.width(), parent_rect.height()),
             alpha_col_idx: 0,
             has_alpha: false,
         },
         |strip| GpuBlendGeometry {
-            xy: strip.xy,
-            extent: pack_u16_pair(strip.width, Tile::HEIGHT),
+            origin: strip.origin,
+            size: pack_u16_pair(strip.width, Tile::HEIGHT),
             alpha_col_idx: strip.alpha_col_idx.unwrap_or(0),
             has_alpha: strip.alpha_col_idx.is_some(),
         },
     );
 
     GpuBlendInstance {
-        geometry_xy: geometry.xy,
-        geometry_extent: geometry.extent,
+        geometry_origin: geometry.origin,
+        geometry_size: geometry.size,
         geometry_alpha_col_idx: geometry.alpha_col_idx,
         parent_texture_size: pack_u16_pair(
             parent_texture_size.width(),
@@ -125,9 +125,9 @@ pub(crate) fn gpu_blend_instance(
 #[derive(Debug, Copy, Clone)]
 struct GpuBlendGeometry {
     /// Atlas-space origin packed as `u16x2`.
-    xy: u32,
+    origin: u32,
     /// Width and optional rectangle height packed as `u16x2`.
-    extent: u32,
+    size: u32,
     /// Alpha texture column used by clipped strip geometry.
     ///
     /// Irrelevant if the "alpha-presence" flag is not activated.

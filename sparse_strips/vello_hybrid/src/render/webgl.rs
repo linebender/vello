@@ -839,7 +839,7 @@ pub(crate) struct WebGlPrograms {
 #[derive(Debug)]
 struct FilterPassUniforms {
     filter_data: WebGlUniformLocation,
-    in_tex: WebGlUniformLocation,
+    source_texture: WebGlUniformLocation,
     original_texture: WebGlUniformLocation,
 }
 
@@ -1893,15 +1893,15 @@ fn get_filter_pass_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> F
     let filter_data = gl
         .get_uniform_location(program, filter_shader::fragment::FILTER_DATA)
         .unwrap();
-    let in_tex = gl
-        .get_uniform_location(program, filter_shader::fragment::IN_TEX)
+    let source_texture = gl
+        .get_uniform_location(program, filter_shader::fragment::SOURCE_TEXTURE)
         .unwrap();
     let original_texture = gl
         .get_uniform_location(program, filter_shader::fragment::ORIGINAL_TEXTURE)
         .unwrap();
     FilterPassUniforms {
         filter_data,
-        in_tex,
+        source_texture,
         original_texture,
     }
 }
@@ -2765,7 +2765,7 @@ impl WebGlRendererContext<'_> {
             Some(self.programs.resources.layer_texture(input)),
         );
         self.gl
-            .uniform1i(Some(&self.programs.filter_uniforms.in_tex), 1);
+            .uniform1i(Some(&self.programs.filter_uniforms.source_texture), 1);
 
         self.programs.upload_filter_instances(self.gl, instances);
         self.gl.draw_arrays_instanced(
