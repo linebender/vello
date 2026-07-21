@@ -294,7 +294,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             );
 
             // Once the blit back is done, we can release the temporary layer.
-            self.release_layer(layer, draw_point, rounds);
+            self.clear_and_release_allocation(layer.allocation, draw_point.round, rounds);
         } else {
             for cmd in &self.recorder.nodes {
                 // Remember: Each command node consists of a sequence of draws + an optional layer invocation.
@@ -554,8 +554,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // TODO: As mentioned elsewhere, we should change the recording so that such layers aren't
         // produced in the first place.
         if blend_bbox.is_empty() {
-            let child_ready = child_layer.ready;
-            self.release_layer(child_layer, child_ready, rounds);
+            self.clear_and_release_allocation(
+                child_layer.allocation,
+                child_layer.ready.round,
+                rounds,
+            );
 
             return Ok(());
         }
@@ -623,7 +626,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         );
 
         // And make sure to release the child now that it's been composited into the parent.
-        self.release_layer(child_layer, blend_point, rounds);
+        self.clear_and_release_allocation(child_layer.allocation, blend_point.round, rounds);
 
         // Make sure the layer's ready state accounts for the blend operation.
         parent_state.ready = blend_point;
@@ -659,19 +662,9 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // Now that the child layer has been composited into the parent, don't forget to release
         // the child layer at the end of this round, since its rendered representation does not
         // need to be retained in the layer texture anymore!
-        self.release_layer(child_layer, draw_point, rounds);
-    }
+        self.clear_and_release_allocation(child_layer.allocation, draw_point.round, rounds);
 
-    /// Clear and release a completed layer after its final use at the given schedule point.
-    fn release_layer(&mut self, layer: ScheduledLayer, point: SchedulePoint, rounds: &mut Rounds) {
-        // When releasing the layer, we need to make sure to deallocate and clear the space in the
-        // layer texture.
-
-        assert!(
-            point >= layer.ready,
-            "layer released before it became ready"
-        );
-        self.clear_and_release_allocation(layer.allocation, point.round, rounds);
+        // The parent's ready state is already updated by `build_draw`.
     }
 
     /// Schedule an allocation to be cleared and released after the given round.
