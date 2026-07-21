@@ -226,6 +226,7 @@ struct Scheduler<'a, 'p> {
 }
 
 impl<'a, 'p> Scheduler<'a, 'p> {
+    /// Create a scheduler.
     fn new(
         recorder: &'a CommandRecorder<RecordedDraw>,
         scene_bbox: RectU16,
@@ -248,6 +249,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }
     }
 
+    /// Build the complete dependency-ordered schedule.
     fn build(mut self) -> Result<Schedule, RenderError> {
         let mut rounds = Rounds::default();
         self.schedule_root(&mut rounds)?;
@@ -263,6 +265,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         })
     }
 
+    /// Schedule the root command stream into the configured output target.
     fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
         let target = self.root_render_target;
 
@@ -315,6 +318,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         Ok(())
     }
 
+    /// Schedule an open layer bottom-up and return its completed, still-live allocation.
     fn schedule_layer(
         &mut self,
         mut layer: OpenLayer<'a>,
@@ -409,6 +413,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         Ok(scheduled)
     }
 
+    /// Resolve and schedule the optional child layer referenced by a command node.
     fn prepare_node(
         &mut self,
         cmd: &Node,
@@ -458,6 +463,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }))
     }
 
+    /// Create an unallocated scheduling view of a recorded layer with the given visible bounds.
     fn open_layer(&self, layer: &'a RecordedLayer, bbox: RectU16) -> OpenLayer<'a> {
         let sample = match &layer.kind {
             RecordedLayerKind::Regular => LayerSamplePlacement::regular(bbox),
@@ -474,6 +480,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }
     }
 
+    /// Represent the root command stream as an intermediate layer that can be sampled.
     fn open_root_layer(&self) -> OpenLayer<'a> {
         OpenLayer {
             cmds: &self.recorder.nodes,
@@ -485,10 +492,12 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }
     }
 
+    /// Select the texture group for a recorded layer depth.
     fn layer_texture_parity(&self, layer_depth: usize) -> TextureParity {
         TextureParity::from_parity(layer_depth + usize::from(self.recorder.root_is_blend_target))
     }
 
+    /// Append a recorded draw range to the next compatible draw pass for the target.
     fn push_draws<T: ScheduleTarget>(
         &mut self,
         draws: &core::ops::Range<u32>,
@@ -511,7 +520,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         );
     }
 
-    /// Schedule a composition operation for a layer.
+    /// Compose a completed child into a parent layer.
     fn compose_layer(
         &mut self,
         props: &LayerProps,
@@ -619,7 +628,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         Ok(())
     }
 
-    /// Schedule a composition operation for a layer using src-over blending.
+    /// Compose a completed child by drawing it directly into its parent using source-over.
     fn compose_simple_layer<T: ScheduleTarget>(
         &mut self,
         props: &LayerProps,
@@ -652,6 +661,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         self.release_layer(child_layer, draw_point, rounds);
     }
 
+    /// Clear and release a completed layer after its final use at the given schedule point.
     fn release_layer(&mut self, layer: ScheduledLayer, point: SchedulePoint, rounds: &mut Rounds) {
         // When releasing the layer, we need to make sure to deallocate and clear the space in the
         // layer texture.
@@ -672,7 +682,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         self.cursor.release(layer.allocation, point.round);
     }
 
-    /// Lazily allocate space for an open layer.
+    /// Lazily allocate a target for an open layer and return its scheduling state.
     fn ensure_layer_target<'b>(
         &mut self,
         layer: &'b mut OpenLayer<'a>,
