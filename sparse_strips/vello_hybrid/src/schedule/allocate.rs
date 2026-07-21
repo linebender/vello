@@ -54,10 +54,14 @@ impl Atlases {
     ) -> Option<AllocatedTextureRegion> {
         let parity = request.texture_parity.get_parity();
 
+        // Search for space in all available pages, always preferring lower-index ones.
+        //
         // It's unfortunate the runtime of this will grow linearly with each allocated page
-        // for each allocation request, but since our scheduler is conservative it is unlikely we
-        // will ever have more than 2-3 pages, except for scene graphs that have lots of nested
-        // layers with multiple children.
+        // for every allocation request. But since our scheduler is as conservative as possible,
+        // it is unlikely we will ever have more than 2-3 pages, except for scene graphs that have
+        // lots of nested layers with multiple children. The maximum page count corresponds roughly
+        // to the maximum layer depth, and this will only be reached if every layer in the chain
+        // has more than 1 child.
         for page_index in 0..u16::try_from(self.layer_atlases[parity].len()).unwrap() {
             let id = LayerTextureId::new(request.texture_parity, page_index);
             let atlas = &mut self.layer_atlases[parity][usize::from(page_index)];
@@ -119,13 +123,13 @@ impl Atlases {
     }
 }
 
-/// Atlas allocation requirements for an intermediate layer region.
+/// A request for a layer allocation.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LayerAllocationRequest {
     /// Texture group from which the region must be allocated.
     pub(super) texture_parity: TextureParity,
     /// Size and padding required within the selected atlas.
-    region: RegionAllocationRequest,
+    region: RegionProps,
 }
 
 impl LayerAllocationRequest {
@@ -138,7 +142,7 @@ impl LayerAllocationRequest {
             RecordedLayerKind::Filter { .. } => FILTER_ATLAS_PADDING,
         };
 
-        let region = RegionAllocationRequest {
+        let region = RegionProps {
             size: SizeU16::from_wh(layer.bbox.width(), layer.bbox.height()),
             padding,
         };
@@ -152,7 +156,7 @@ impl LayerAllocationRequest {
     pub(super) fn filter_temporary(layer_region: RectU16, texture_parity: TextureParity) -> Self {
         Self {
             texture_parity,
-            region: RegionAllocationRequest {
+            region: RegionProps {
                 size: SizeU16::from_wh(layer_region.width(), layer_region.height()),
                 padding: FILTER_ATLAS_PADDING,
             },
@@ -160,9 +164,9 @@ impl LayerAllocationRequest {
     }
 }
 
-/// Size and padding of a region requested from one atlas page.
+/// Size and padding of a region allocated from one atlas page.
 #[derive(Debug, Clone, Copy)]
-struct RegionAllocationRequest {
+struct RegionProps {
     /// Size of the usable region.
     size: SizeU16,
     /// Transparent padding reserved around the usable region.
@@ -208,7 +212,7 @@ trait AtlasExt {
     fn allocate_region(
         &mut self,
         target: LayerTextureId,
-        request: RegionAllocationRequest,
+        props: RegionProps,
     ) -> Option<AllocatedTextureRegion>;
 
     fn deallocate_region(&mut self, texture: AllocatedTextureRegion);
@@ -218,12 +222,12 @@ impl AtlasExt for Atlas {
     fn allocate_region(
         &mut self,
         target: LayerTextureId,
-        request: RegionAllocationRequest,
+        props: RegionProps,
     ) -> Option<AllocatedTextureRegion> {
-        let padding = u32::from(request.padding);
-        let width = request.size.width();
-        let height = request.size.height();
-        let allocation_size = SizeU32::from(request.size) + padding * 2;
+        let padding = u32::from(props.padding);
+        let width = props.size.width();
+        let height = props.size.height();
+        let allocation_size = SizeU32::from(props.size) + padding * 2;
         let allocation = self.allocate(allocation_size.width(), allocation_size.height())?;
         let x = u16::try_from(allocation.x + padding).unwrap();
         let y = u16::try_from(allocation.y + padding).unwrap();
@@ -232,7 +236,7 @@ impl AtlasExt for Atlas {
                 target,
                 rect: RectU16::new(x, y, x + width, y + height),
             },
-            request.padding,
+            props.padding,
             allocation.id,
         );
 
@@ -252,9 +256,7 @@ impl AtlasExt for Atlas {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        AtlasExt, Atlases, FILTER_ATLAS_PADDING, LayerAllocationRequest, RegionAllocationRequest,
-    };
+    use super::{AtlasExt, Atlases, FILTER_ATLAS_PADDING, LayerAllocationRequest, RegionProps};
     use crate::scene::LayersConfig;
     use crate::schedule::{LayerSamplePlacement, OpenLayer};
     use crate::target::{LayerTextureId, TextureParity};
@@ -279,7 +281,7 @@ mod tests {
     ) -> LayerAllocationRequest {
         LayerAllocationRequest {
             texture_parity,
-            region: RegionAllocationRequest { size, padding },
+            region: RegionProps { size, padding },
         }
     }
 
@@ -395,7 +397,7 @@ mod tests {
     fn padded_reuse() {
         let mut atlas = Atlas::new(AtlasId::new(0), 8, 8);
         let target = LayerTextureId::new(TextureParity::Even, 0);
-        let request = RegionAllocationRequest {
+        let request = RegionProps {
             size: SizeU16::new(6),
             padding: 1,
         };
@@ -435,7 +437,7 @@ mod tests {
             atlas
                 .allocate_region(
                     target,
-                    RegionAllocationRequest {
+                    RegionProps {
                         size: SizeU16::from_wh(9, 8),
                         padding: 0,
                     },
@@ -446,7 +448,7 @@ mod tests {
             atlas
                 .allocate_region(
                     target,
-                    RegionAllocationRequest {
+                    RegionProps {
                         size: SizeU16::new(8),
                         padding: 1,
                     },
