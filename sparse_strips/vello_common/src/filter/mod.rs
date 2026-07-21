@@ -186,6 +186,14 @@ impl FilterData {
     /// Create precomputed data for a filter and transform.
     pub fn new(filter: Filter, transform: Affine) -> Self {
         fn snapped_padding(expansion: Rect) -> PaddingU16 {
+            debug_assert!(
+                expansion.x0 <= 0.0
+                    && expansion.y0 <= 0.0
+                    && expansion.x1 >= 0.0
+                    && expansion.y1 >= 0.0,
+                "filter expansion must contain the origin"
+            );
+
             // TODO: We technically shouldn't need to snap here. `source_padding` is only
             // used to shift the contents when rendering into the render context, and the
             // final pixmap bbox (which is derived from `filter_expansion` will be snapped
