@@ -7,7 +7,7 @@ use crate::render::webgl::{
     WebGlStateConfig, WebGlStateGuard, create_atlas_texture_array, create_framebuffer_for_texture,
     create_texture,
 };
-use crate::schedule::RootRenderTarget;
+use crate::target::RootTarget;
 use crate::{RenderError, RenderSize, Scene, WebGlRenderer};
 use alloc::{borrow::Cow, format, sync::Arc};
 use core::ops::Deref;
@@ -162,7 +162,7 @@ impl WebGlRenderer {
             &mut probe_image_cache,
             &render_size,
             true,
-            RootRenderTarget::AtlasLayer,
+            RootTarget::AtlasLayer,
         );
         let probe_framebuffer = self
             .programs

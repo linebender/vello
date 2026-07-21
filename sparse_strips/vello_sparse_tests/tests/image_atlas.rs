@@ -4,7 +4,9 @@
 //! Tests for the image/glyph atlas configuration of the WebGL renderer.
 
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{AtlasConfig, AtlasTextureInfo, RenderSettings, Resources, WebGlRenderer};
+use vello_hybrid::{
+    AtlasConfig, AtlasTextureInfo, MemorySettings, RenderSettings, Resources, WebGlRenderer,
+};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
@@ -26,7 +28,10 @@ fn image_atlas_placeholder_is_promoted_on_first_upload() {
         ..AtlasConfig::default()
     };
     let settings = RenderSettings {
-        image_atlas_config: atlas_config,
+        memory_settings: MemorySettings {
+            image_atlas_config: atlas_config,
+            ..MemorySettings::default()
+        },
         ..RenderSettings::default()
     };
     let mut renderer = WebGlRenderer::new_with(&canvas, settings);
@@ -88,7 +93,10 @@ fn image_atlas_upload_larger_than_atlas_fails() {
         ..AtlasConfig::default()
     };
     let settings = RenderSettings {
-        image_atlas_config: atlas_config,
+        memory_settings: MemorySettings {
+            image_atlas_config: atlas_config,
+            ..MemorySettings::default()
+        },
         ..RenderSettings::default()
     };
 
