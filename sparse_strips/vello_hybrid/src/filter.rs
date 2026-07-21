@@ -349,8 +349,8 @@ impl From<&PreparedFilter> for GpuFilterData {
     }
 }
 
-/// Per-instance vertex data for one filter pass.
-#[repr(C, align(16))]
+/// Per-instance data for one filter pass.
+#[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct FilterInstanceData {
     /// Origin of the current ping-pong input region, packed as `u16x2`.

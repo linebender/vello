@@ -5,7 +5,7 @@
 
 use bytemuck::{Pod, Zeroable};
 
-/// Per-instance data for `copy.wgsl`.
+/// Per-instance data for one copy pass.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub(crate) struct GpuCopyInstance {

@@ -33,7 +33,7 @@ impl BlendStrip {
     }
 }
 
-/// Per-instance data for `blend.wgsl`.
+/// Per-instance data for one blend pass.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub(crate) struct GpuBlendInstance {
