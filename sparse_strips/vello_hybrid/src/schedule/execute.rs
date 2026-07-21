@@ -17,12 +17,12 @@ use vello_common::geometry::{RectU16, SizeU16};
 
 /// A backend for executing GPU render passes.
 pub(crate) trait Backend {
-    /// Execute the single opaque pass against the root target with the given strips.
-    ///
-    /// This method is called first before any of the other ones and only once.
+    /// Execute the opaque pass against the root target with the given strips. If this method is
+    /// ever called, it's called before any of the other ones and only once.
     ///
     /// The strips are guaranteed to be non-empty.
     fn opaque_pass(&mut self, strips: &[GpuStrip]);
+
     /// Execute a draw pass against the given target.
     ///
     /// The strips are guaranteed to be non-empty.
@@ -32,10 +32,12 @@ pub(crate) trait Backend {
         external_texture_runs: &[ExternalTextureRun],
         bindings: DrawPassBindings,
     );
+
     /// Execute a clear pass with the given rectangles against the target.
     ///
     /// The clear rectangles are guaranteed to be non-empty.
     fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]);
+
     /// Execute a blend pass between a parent and child texture.
     ///
     /// The blends are guaranteed to be non-empty.
@@ -45,6 +47,7 @@ pub(crate) trait Backend {
         blend_strips: &[BlendStrip],
         bindings: BlendPassBindings,
     );
+
     /// Execute a filter pass according to the filter plan between two textures.
     ///
     /// The filter pass plan is guaranteed to be non-empty.
@@ -99,7 +102,7 @@ impl Rounds {
         filter_plan: &mut FilterPassPlan,
         texture_size: SizeU16,
     ) {
-        // The core loop that ties everything together!
+        // This is the core loop that ties everything together.
 
         // TODO: Currently, we upload data for layers when executing each round. It might be
         // worth exploring whether we can upload the data once in the beginning, and then
@@ -112,20 +115,21 @@ impl Rounds {
             // texture in the same round.
 
             for layer_passes in round.layer_passes(buffers) {
-                // For each layer texture target, we first perform the draws of all layers that are
+                // For each layer texture target, first perform the draws of all layers that are
                 // allocated in this texture.
                 if let Some(pass) = layer_passes.draw {
                     backend.draw_pass(pass.strips, pass.external_texture_runs, pass.bindings);
                 }
 
-                // Next, we apply all filters for layers in this pass.
+                // Next, we apply all filters for layers in this texture.
                 if let Some(pass) = layer_passes.filter {
                     filter_plan.init(pass.filters.iter().copied(), texture_size);
 
                     backend.filter_pass(filter_plan, pass.bindings);
                 }
 
-                // Finally, we apply all blend operations.
+                // Finally, we apply all blend operations of layers in the current texture
+                // that form the backdrop of some child texture.
                 if let Some(pass) = layer_passes.blend {
                     backend.blend_pass(pass.blends, pass.blend_strips, pass.bindings);
                 }
@@ -136,7 +140,7 @@ impl Rounds {
                 backend.draw_pass(pass.strips, pass.external_texture_runs, pass.bindings);
             }
 
-            // And in the end, clear layer regions that are deallocated in this round.
+            // And in the end, clear all layer regions that are deallocated in this round.
             for props in round.clear_passes() {
                 backend.clear_pass(props.target, props.rects);
             }
@@ -339,6 +343,7 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
+
         assert_eq!(
             draws,
             [
