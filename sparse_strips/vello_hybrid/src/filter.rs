@@ -350,7 +350,7 @@ impl From<&PreparedFilter> for GpuFilterData {
 }
 
 /// Per-instance vertex data for filter rendering.
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct FilterInstanceData {
     /// Source origin in the input atlas, packed as `u16x2`.
@@ -369,7 +369,7 @@ pub(crate) struct FilterInstanceData {
     pub original_origin: u32,
     /// Size of the original (unfiltered) content, packed as `u16x2`.
     pub original_size: u32,
-    /// Filter pass kind.
+    /// The filter pass that should be executed.
     pub filter_pass_kind: u32,
 }
 
@@ -483,11 +483,11 @@ struct FilterPassBuilder<'a> {
 
 impl<'a> FilterPassBuilder<'a> {
     fn new(op: FilterOp, texture_size: SizeU16, passes: &'a mut FilterPassPlan) -> Self {
-        let mut sizer = DecimationSizer::default();
-        sizer.reset(
+        let sizer = DecimationSizer::new(
             op.textures.original.rect.width(),
             op.textures.original.rect.height(),
         );
+
         Self {
             op,
             texture_size,
@@ -498,6 +498,7 @@ impl<'a> FilterPassBuilder<'a> {
         }
     }
 
+    /// Compute and update source and destination sizes based on the pass kind.
     fn apply_pass_dimensions(&mut self, kind: u32) -> (SizeU16, SizeU16) {
         match kind {
             pass_kind::DOWNSCALE => {
@@ -518,6 +519,7 @@ impl<'a> FilterPassBuilder<'a> {
         }
     }
 
+    /// Emit one pass, reading from the current region and writing to the other texture parity.
     fn emit(&mut self, kind: u32) {
         let (src_size, dest_size) = self.apply_pass_dimensions(kind);
         let original = self.op.textures.original;
@@ -545,7 +547,16 @@ impl<'a> FilterPassBuilder<'a> {
         self.current_is_original = !self.current_is_original;
     }
 
+    /// Apply the sequences of passes that is needed to create a full Gaussian blur with
+    /// the given number of decimations.
     fn emit_blur_sequence(&mut self, n_decimations: usize) {
+        // TODO: From my experiments, it would very much be worth it to add a
+        // UPSCALE_4x and DOWNSCALE_4x pass, since unlike the CPU we can use bilinear
+        // filtering for sampling and therefore don't need as many samples, and can reduce
+        // the number of render passes for large standard deviations. However, this unfortunately
+        // causes higher pixel differences for some tests compared to vello_cpu, since edge
+        // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
+        // this more straight-forward approach.
         for _ in 0..n_decimations {
             self.emit(pass_kind::DOWNSCALE);
         }
@@ -669,6 +680,10 @@ mod tests {
         GpuOffset::from(&Offset::new(1.0, 2.0)).into()
     }
 
+    fn gpu_flood() -> GpuFilterData {
+        GpuFlood::from(&Flood::new(AlphaColor::new([0.2, 0.4, 0.6, 0.8]))).into()
+    }
+
     fn gpu_blur(std_deviation: f32) -> GpuFilterData {
         GpuGaussianBlur::from(&GaussianBlur::new(std_deviation, EdgeMode::None)).into()
     }
@@ -747,6 +762,24 @@ mod tests {
             [
                 alloc::vec![(0, pass_kind::OFFSET)],
                 alloc::vec![(0, pass_kind::COPY)],
+            ]
+        );
+    }
+
+    #[test]
+    fn single_pass_filters_finish_in_original() {
+        let mut plan = FilterPassPlan::default();
+        plan.init(
+            [filter_op(gpu_offset(), 0), filter_op(gpu_flood(), 1)],
+            SizeU16::new(64),
+        );
+
+        assert!(plan.copy_pass().is_empty());
+        assert_eq!(
+            step_layout(&plan),
+            [
+                alloc::vec![(0, pass_kind::OFFSET), (1, pass_kind::FLOOD)],
+                alloc::vec![(0, pass_kind::COPY), (1, pass_kind::COPY)],
             ]
         );
     }
