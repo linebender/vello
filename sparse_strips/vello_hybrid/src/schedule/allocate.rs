@@ -241,6 +241,8 @@ impl AtlasExt for Atlas {
 
         self.deallocate(
             texture.alloc_id,
+            // TODO: Change the atlas API to not require passing in the width/height again.
+            // This should somehow be tracked internally in the atlas based on the allocation ID.
             u32::from(allocation_region.width()),
             u32::from(allocation_region.height()),
         );

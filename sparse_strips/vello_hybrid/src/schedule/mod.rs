@@ -452,7 +452,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 // Wait until we reach the filter stage.
                 .next(RoundStage::filter(region.texture.target.texture_parity));
 
-            let filter_point = rounds.resolve_binding_point(base_point, textures.texture_binding());
+            let filter_point = rounds.resolve_binding_point(base_point, textures.round_bindings());
 
             rounds.ensure_exists(filter_point.round);
             rounds.round_mut(filter_point.round).push_filter_op(

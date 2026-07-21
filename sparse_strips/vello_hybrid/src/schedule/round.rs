@@ -3,8 +3,8 @@
 
 //! Round execution.
 //!
-//! Complex scenes require multiple rendering passes against different texture targets for
-//! successful rendering. Therefore, rendering a single scene is split into multiple "rounds".
+//! Complex scenes require multiple render passes against different texture targets. Therefore,
+//! rendering a single scene is split into multiple "rounds".
 //!
 //! A [`Round`] is the largest unit of scheduled work that can execute with one fixed pair of
 //! layer texture pages: one page from the even texture group and one from the odd texture group.
@@ -17,11 +17,12 @@
 //!
 //! ## Texture bindings
 //!
-//! All layer work in a round uses the same [`RoundBindings`]. Scheduling an operation adds a
-//! [`RoundBindings`] for every page that the operation renders to or samples. Partial
-//! round bindings can be merged, so operations that require only the even or only the odd page can
-//! still batch together. If two operations require different pages of the same parity, their
-//! bindings conflict and the later operation is placed in a subsequent compatible round.
+//! All layer work in a round uses the same [`RoundBindings`]. Before placing an operation in a
+//! round, the scheduler determines which layer texture pages the operation needs to render to or
+//! sample from. The operation can share the round only if those pages are compatible with the
+//! round's existing bindings. Operations that require only the even or only the odd page can still
+//! batch together. If two operations require different pages of the same parity, their bindings
+//! conflict and the later operation is placed in a subsequent compatible round.
 
 use super::ScheduleBuffers;
 use crate::draw::{Draw, ExternalTextureRun};
@@ -37,131 +38,6 @@ use core::ops::Range;
 use vello_common::geometry::RectU16;
 use vello_common::peniko::BlendMode;
 
-/// Draw work and resolved texture bindings for one pass.
-#[derive(Debug)]
-pub(super) struct DrawPass<'a> {
-    pub(super) strips: RangedSlice<'a, GpuStrip>,
-    pub(super) external_texture_runs: &'a [ExternalTextureRun],
-    pub(super) bindings: DrawPassBindings,
-}
-
-/// Filter work and resolved texture bindings for one pass.
-#[derive(Debug)]
-pub(super) struct FilterPass<'a> {
-    pub(super) filters: RangedSlice<'a, FilterOp>,
-    pub(super) bindings: FilterPassBindings,
-}
-
-/// Blend work and resolved texture bindings for one pass.
-#[derive(Debug)]
-pub(super) struct BlendPass<'a> {
-    pub(super) blends: RangedSlice<'a, BlendOp>,
-    pub(super) blend_strips: &'a [BlendStrip],
-    pub(super) bindings: BlendPassBindings,
-}
-
-/// Clear work and its resolved texture target.
-#[derive(Debug)]
-pub(super) struct ClearPass<'a> {
-    pub(super) target: LayerTextureId,
-    pub(super) rects: &'a [RectU16],
-}
-
-/// Executable work for one non-empty layer-texture pass.
-#[derive(Debug)]
-pub(super) struct LayerPass<'a> {
-    #[allow(dead_code, reason = "only used for a test.")]
-    pub(super) texture_parity: TextureParity,
-    pub(super) draw: Option<DrawPass<'a>>,
-    pub(super) filter: Option<FilterPass<'a>>,
-    pub(super) blend: Option<BlendPass<'a>>,
-}
-
-// Note that the field order of these enums matters since we implement
-// `PartialOrd` and use this to represent the order in which the stages
-// happen.
-
-/// A stage in the execution of a rendering round.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum RoundStage {
-    /// Start of a round, before any rendering stage.
-    Start,
-    /// Draw, filter, or blend stage targeting the even layer texture.
-    Even(LayerStage),
-    /// Draw, filter, or blend stage targeting the odd layer texture.
-    Odd(LayerStage),
-    /// Draw stage targeting the root output.
-    RootDraw,
-}
-
-/// Stages executed for one parity of the layer texture pair.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum LayerStage {
-    /// Render recorded draws and child layer fills.
-    Draw,
-    /// Apply filter passes to rendered layer contents.
-    Filter,
-    /// Apply non-default blend operations.
-    Blend,
-}
-
-impl RoundStage {
-    pub(super) const fn draw(texture_parity: TextureParity) -> Self {
-        match texture_parity {
-            TextureParity::Even => Self::Even(LayerStage::Draw),
-            TextureParity::Odd => Self::Odd(LayerStage::Draw),
-        }
-    }
-
-    pub(super) const fn filter(texture_parity: TextureParity) -> Self {
-        match texture_parity {
-            TextureParity::Even => Self::Even(LayerStage::Filter),
-            TextureParity::Odd => Self::Odd(LayerStage::Filter),
-        }
-    }
-
-    pub(super) const fn blend(texture_parity: TextureParity) -> Self {
-        match texture_parity {
-            TextureParity::Even => Self::Even(LayerStage::Blend),
-            TextureParity::Odd => Self::Odd(LayerStage::Blend),
-        }
-    }
-}
-
-// As for `RoundStage`, the order of fields here is important!
-/// A precise point in the execution timeline of the schedule.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct SchedulePoint {
-    /// Index of the round containing this point.
-    pub(super) round: usize,
-    /// Stage within the round.
-    pub(super) stage: RoundStage,
-}
-
-impl SchedulePoint {
-    pub(super) const fn start(round: usize) -> Self {
-        Self {
-            round,
-            stage: RoundStage::Start,
-        }
-    }
-
-    /// Return the first occurrence of `stage` strictly after this point.
-    pub(super) fn next(self, stage: RoundStage) -> Self {
-        if stage > self.stage {
-            Self {
-                round: self.round,
-                stage,
-            }
-        } else {
-            Self {
-                round: self.round + 1,
-                stage,
-            }
-        }
-    }
-}
-
 /// Completed rounds and the layer texture pages required to execute them.
 #[derive(Debug, Default)]
 pub(super) struct Rounds {
@@ -171,15 +47,91 @@ pub(super) struct Rounds {
     layer_page_counts: [usize; 2],
 }
 
+impl Rounds {
+    pub(super) fn iter(&self) -> core::slice::Iter<'_, Round> {
+        self.rounds.iter()
+    }
+
+    pub(super) const fn layer_page_counts(&self) -> [usize; 2] {
+        self.layer_page_counts
+    }
+
+    pub(super) fn round_mut(&mut self, index: usize) -> &mut Round {
+        &mut self.rounds[index]
+    }
+
+    pub(super) fn push_layer_clear(
+        &mut self,
+        round_idx: usize,
+        texture_parity: TextureParity,
+        rect: RectU16,
+    ) {
+        let parity = texture_parity.get_parity();
+
+        self.rounds[round_idx].layer_texture_clears[parity].push(rect);
+    }
+
+    pub(super) fn require_layer_texture(&mut self, texture: LayerTextureId) {
+        let required = usize::from(texture.page_index) + 1;
+        let page_count = &mut self.layer_page_counts[texture.texture_parity.get_parity()];
+        *page_count = (*page_count).max(required);
+    }
+
+    pub(super) fn ensure_exists(&mut self, round_idx: usize) {
+        while self.rounds.len() <= round_idx {
+            self.rounds.push(Round::default());
+        }
+    }
+
+    pub(super) fn resolve_binding_point(
+        &mut self,
+        mut point: SchedulePoint,
+        requirement: RoundBindings,
+    ) -> SchedulePoint {
+        // This should be more than enough for any sane scene. If it turns out not, we
+        // can always just remove the guard since, _in theory_, it should never be possible
+        // to trigger an endless loop.
+        const MAX_ROUNDS: usize = 40_000;
+
+        for texture in requirement.required_textures().into_iter().flatten() {
+            self.require_layer_texture(texture);
+        }
+
+        loop {
+            // This shouldn't ever happen, unless there is some kind of logic bug. But better
+            // to panic at some point than loop on forever.
+            // TODO: Turn this into an error once we have refactored error handling.
+            if point.round > MAX_ROUNDS {
+                panic!("possible deadlock in scheduler detected");
+            }
+
+            self.ensure_exists(point.round);
+
+            let round = &mut self.rounds[point.round];
+
+            // If the given round has a compatible texture binding, we can fold
+            // into it.
+            if let Some(binding) = round.texture_binding.merge(requirement) {
+                round.texture_binding = binding;
+
+                return point;
+            }
+
+            // Otherwise, keep looking.
+            point.round += 1;
+        }
+    }
+}
+
 /// Operations and texture binding requirements for one rendering round.
 #[derive(Debug, Default)]
 pub(super) struct Round {
     /// Page required from each layer texture parity.
     pub(super) texture_binding: RoundBindings,
-    /// Draw targeting the root output after both layer passes.
-    root_draw: Draw,
     /// Draw, filter, and blend work for the even and odd layer textures.
     layer_texture_passes: [LayerTexturePass; 2],
+    /// Draw targeting the root output after both layer passes.
+    root_draw: Draw,
     /// Regions cleared after all rendering work in this round.
     layer_texture_clears: [Vec<RectU16>; 2],
 }
@@ -205,10 +157,12 @@ impl Round {
                         pass.draw.has_child_layer.then(|| opposite.unwrap()),
                     ),
                 });
+
                 let filter = (pass.filter_ranges.len() != 0).then(|| FilterPass {
                     filters: buffers.filter_ops.ranged(&pass.filter_ranges),
                     bindings: FilterPassBindings::new(target.unwrap(), opposite.unwrap()),
                 });
+
                 let blend = (pass.blend_ranges.len() != 0).then(|| BlendPass {
                     blends: buffers.blend_ops.ranged(&pass.blend_ranges),
                     blend_strips: &buffers.blend_strips,
@@ -298,78 +252,87 @@ impl Round {
     }
 }
 
-impl Rounds {
-    pub(super) fn iter(&self) -> core::slice::Iter<'_, Round> {
-        self.rounds.iter()
-    }
+// Note that the field order of these enums matters since we implement
+// `PartialOrd` and use this to represent the order in which the stages
+// happen.
 
-    pub(super) const fn layer_page_counts(&self) -> [usize; 2] {
-        self.layer_page_counts
-    }
+/// A stage in the execution of a rendering round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum RoundStage {
+    /// Start of a round, before any rendering stage.
+    Start,
+    /// Draw, filter, or blend stage targeting the even layer texture.
+    Even(LayerStage),
+    /// Draw, filter, or blend stage targeting the odd layer texture.
+    Odd(LayerStage),
+    /// Draw stage targeting the root output.
+    RootDraw,
+}
 
-    pub(super) fn round_mut(&mut self, index: usize) -> &mut Round {
-        &mut self.rounds[index]
-    }
+/// Stages executed for one parity of the layer texture pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum LayerStage {
+    /// Render recorded draws.
+    Draw,
+    /// Apply filter passes.
+    Filter,
+    /// Apply non-default blend operations.
+    Blend,
+}
 
-    pub(super) fn push_layer_clear(
-        &mut self,
-        round_idx: usize,
-        texture_parity: TextureParity,
-        rect: RectU16,
-    ) {
-        let parity = texture_parity.get_parity();
-
-        self.rounds[round_idx].layer_texture_clears[parity].push(rect);
-    }
-
-    pub(super) fn require_layer_texture(&mut self, texture: LayerTextureId) {
-        let required = usize::from(texture.page_index) + 1;
-        let page_count = &mut self.layer_page_counts[texture.texture_parity.get_parity()];
-        *page_count = (*page_count).max(required);
-    }
-
-    pub(super) fn ensure_exists(&mut self, round_idx: usize) {
-        while self.rounds.len() <= round_idx {
-            self.rounds.push(Round::default());
+impl RoundStage {
+    pub(super) const fn draw(texture_parity: TextureParity) -> Self {
+        match texture_parity {
+            TextureParity::Even => Self::Even(LayerStage::Draw),
+            TextureParity::Odd => Self::Odd(LayerStage::Draw),
         }
     }
 
-    pub(super) fn resolve_binding_point(
-        &mut self,
-        mut point: SchedulePoint,
-        requirement: RoundBindings,
-    ) -> SchedulePoint {
-        // This should be more than enough for any sane scene. If it turns out not, we
-        // can always just remove the guard since _in theory_, it should never be hit
-        // anyway.
-        const MAX_ROUNDS: usize = 40_000;
-
-        for texture in requirement.required_textures().into_iter().flatten() {
-            self.require_layer_texture(texture);
+    pub(super) const fn filter(texture_parity: TextureParity) -> Self {
+        match texture_parity {
+            TextureParity::Even => Self::Even(LayerStage::Filter),
+            TextureParity::Odd => Self::Odd(LayerStage::Filter),
         }
+    }
 
-        loop {
-            // This shouldn't ever happen, unless there is some kind of logic bug. But better
-            // to panic at some point than loop on forever.
-            // TODO: Turn this into an error once we have refactored error handling.
-            if point.round > MAX_ROUNDS {
-                panic!("possible deadlock in scheduler detected");
+    pub(super) const fn blend(texture_parity: TextureParity) -> Self {
+        match texture_parity {
+            TextureParity::Even => Self::Even(LayerStage::Blend),
+            TextureParity::Odd => Self::Odd(LayerStage::Blend),
+        }
+    }
+}
+
+// As for `RoundStage`, the order of fields here is important!
+/// A precise point in the execution timeline of the schedule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct SchedulePoint {
+    /// Index of the round containing this point.
+    pub(super) round: usize,
+    /// Stage within the round.
+    pub(super) stage: RoundStage,
+}
+
+impl SchedulePoint {
+    pub(super) const fn start(round: usize) -> Self {
+        Self {
+            round,
+            stage: RoundStage::Start,
+        }
+    }
+
+    /// Return the first occurrence of `stage` strictly after this point.
+    pub(super) fn next(self, stage: RoundStage) -> Self {
+        if stage > self.stage {
+            Self {
+                round: self.round,
+                stage,
             }
-
-            self.ensure_exists(point.round);
-
-            let round = &mut self.rounds[point.round];
-
-            // If the given round has a compatible texture binding, we can fold
-            // into it.
-            if let Some(binding) = round.texture_binding.merge(requirement) {
-                round.texture_binding = binding;
-
-                return point;
+        } else {
+            Self {
+                round: self.round + 1,
+                stage,
             }
-
-            // Otherwise, keep looking.
-            point.round += 1;
         }
     }
 }
@@ -383,6 +346,46 @@ pub(super) struct LayerTexturePass {
     filter_ranges: Ranges,
     /// Ranges of blend operations executed after the filters.
     blend_ranges: Ranges,
+}
+
+/// Draw work and resolved texture bindings for one pass.
+#[derive(Debug)]
+pub(super) struct DrawPass<'a> {
+    pub(super) strips: RangedSlice<'a, GpuStrip>,
+    pub(super) external_texture_runs: &'a [ExternalTextureRun],
+    pub(super) bindings: DrawPassBindings,
+}
+
+/// Filter work and resolved texture bindings for one pass.
+#[derive(Debug)]
+pub(super) struct FilterPass<'a> {
+    pub(super) filters: RangedSlice<'a, FilterOp>,
+    pub(super) bindings: FilterPassBindings,
+}
+
+/// Blend work and resolved texture bindings for one pass.
+#[derive(Debug)]
+pub(super) struct BlendPass<'a> {
+    pub(super) blends: RangedSlice<'a, BlendOp>,
+    pub(super) blend_strips: &'a [BlendStrip],
+    pub(super) bindings: BlendPassBindings,
+}
+
+/// Clear work and its resolved texture target.
+#[derive(Debug)]
+pub(super) struct ClearPass<'a> {
+    pub(super) target: LayerTextureId,
+    pub(super) rects: &'a [RectU16],
+}
+
+/// Executable work for one non-empty layer-texture pass.
+#[derive(Debug)]
+pub(super) struct LayerPass<'a> {
+    pub(super) draw: Option<DrawPass<'a>>,
+    pub(super) filter: Option<FilterPass<'a>>,
+    pub(super) blend: Option<BlendPass<'a>>,
+    #[allow(dead_code, reason = "only used for a test.")]
+    pub(super) texture_parity: TextureParity,
 }
 
 /// Original and temporary regions used to ping-pong a filter sequence.
@@ -402,7 +405,7 @@ impl FilterTextureRegions {
         }
     }
 
-    pub(crate) fn texture_binding(self) -> RoundBindings {
+    pub(crate) fn round_bindings(self) -> RoundBindings {
         RoundBindings::new(self.original.target)
             .merge(RoundBindings::new(self.temporary.target))
             .unwrap()
@@ -431,7 +434,7 @@ pub(crate) struct BlendOp {
     pub(crate) blend_bbox: RectU16,
     /// The blend mode that should be applied.
     pub(crate) blend_mode: BlendMode,
-    /// Opacity applied to the child before composition.
+    /// Opacity applied to the child before sampling.
     pub(crate) opacity: f32,
     /// Range of strips used for clipping the blend layer. If `None`, the blend spans its bbox.
     pub(crate) clip_strips: Option<Range<u32>>,

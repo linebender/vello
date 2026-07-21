@@ -189,7 +189,7 @@ pub(crate) struct RoundBindings {
 impl RoundBindings {
     pub(crate) const fn new(id: LayerTextureId) -> Self {
         let mut pages = [None; 2];
-        
+
         pages[id.texture_parity.get_parity()] = Some(id.page_index);
 
         Self { pages }

@@ -59,18 +59,20 @@ impl Cursor {
         // create the new page since we now that advancing the round won't give us more space
         // in the even pool.
 
+        // If we can perform the allocation with our current resources, great!
         if let Some(allocation) = self.allocate_reusing(&request) {
             return Ok(allocation);
         }
 
         // The currently available layer textures do not have enough room to store our layer.
         // Therefore, we need to attempt to create a new one.
-
         self.atlases.add_layer_atlas(request.texture_parity)?;
-        // If this still fails, it means the layer itself is larger than the maximum texture size.
+
         let allocation = self
             .atlases
             .allocate_layer(&request)
+            // If we successfully added a new texture but allocation still fails, it means the layer
+            // itself is larger than the maximum texture size, so it cannot possibly fit.
             .ok_or(AtlasError::NoSpaceAvailable)?;
 
         Ok(Allocation {
@@ -79,8 +81,9 @@ impl Cursor {
         })
     }
 
-    /// Advance the round counter until enough resources have been freed such that
-    /// the given allocation succeeds, if possible.
+    /// Try to accommodate the given layer allocation request, possibly advancing the round counter
+    /// until enough resources have been freed such that the given allocation succeeds, if at all
+    /// possible.
     fn allocate_reusing(&mut self, request: &LayerAllocationRequest) -> Option<Allocation> {
         loop {
             if let Some(allocation) = self.atlases.allocate_layer(request) {
