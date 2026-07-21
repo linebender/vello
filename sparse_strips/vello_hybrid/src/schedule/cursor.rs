@@ -52,6 +52,13 @@ impl Cursor {
         &mut self,
         request: LayerAllocationRequest,
     ) -> Result<Allocation<AllocatedTextureRegion>, AtlasError> {
+        // TODO: This can be optimized further. Currently, we try go through all pending releases
+        // until we have enough space or are forced to create a new texture. However, we don't
+        // consider the parity of the texture request. In case we are requesting an even
+        // texture but all pending releases are odd, we can stay in the same round and just
+        // create the new page since we now that advancing the round won't give us more space
+        // in the even pool.
+
         if let Some(allocation) = self.allocate_reusing(|atlases| atlases.allocate_layer(&request))
         {
             return Ok(allocation);
