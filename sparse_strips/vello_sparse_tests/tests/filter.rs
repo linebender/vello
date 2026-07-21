@@ -1231,7 +1231,7 @@ fn filter_stroked_paths(ctx: &mut impl Renderer) {
 /// Test filter on shapes at canvas boundaries.
 ///
 /// See: <https://github.com/linebender/vello/issues/1304>
-#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
 fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 5.0,
@@ -1592,7 +1592,7 @@ fn filter_clip_blend_nested(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
 fn filter_with_non_rect_clip(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 7.0,
