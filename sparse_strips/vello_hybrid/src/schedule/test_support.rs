@@ -1,6 +1,8 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Helpers for creating tests in the scheduler.
+
 use super::{Backend, Schedule, ScheduleStorage};
 use crate::paint::PaintResolver;
 use crate::scene::LayersConfig;

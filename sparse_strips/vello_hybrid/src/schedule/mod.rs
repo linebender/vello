@@ -541,13 +541,16 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 tile_bounds,
                 &mut self.storage.buffers.blend_strips,
                 |blend_strips, segment| {
-                    blend_strips.push(BlendStrip::from_fill(
+                    blend_strips.push(BlendStrip::from_fill_segment(
                         segment.shift(geometry_shift),
                         Some(segment.alpha_idx / u32::from(Tile::HEIGHT)),
                     ));
                 },
                 |blend_strips, segment| {
-                    blend_strips.push(BlendStrip::from_fill(segment.shift(geometry_shift), None));
+                    blend_strips.push(BlendStrip::from_fill_segment(
+                        segment.shift(geometry_shift),
+                        None,
+                    ));
                 },
             );
 

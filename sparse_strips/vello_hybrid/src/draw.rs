@@ -132,21 +132,25 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         let paint = paint_resolver.pack(&path.paint);
         // Note: This will also advance the depth index for layer root draws even though
         // those _currently_ never use the depth buffer, but it's better to keep the
-        // condition simple.
+        // condition simple, and it's not incorrect to do so.
         let depth_index = self.state.depth_counter.next(paint.opaque);
         let tile_bounds = self.state.target_bbox.to_tile_bounds();
         let geometry_shift = self.state.target.geometry_shift();
 
-        // Note: This method will also take care of culling any strips to the active clip bbox.
+        // Note that this method will also take care of culling any strips to the active clip bbox.
         visit_strip_fill_segments(
             strips,
             tile_bounds,
             self,
             |builder, segment| {
                 let shifted = segment.shift(geometry_shift);
-                let strip = GpuStrip::from_fill(
+                let strip = GpuStrip::from_fill_segment(
                     shifted,
                     Some(segment.col_idx()),
+                    // The paint needs to be sampled at the x/y of the _original_ segment, not
+                    // the shifted one. The shifted accounts for where the segment needs to be
+                    // placed based on the layer bbox and texture region, but the location of
+                    // where the paint is sampled should not be affected by that!
                     paint.payload_at(segment.x0(), segment.y()),
                     paint.paint,
                     depth_index,
@@ -159,9 +163,10 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
             |builder, segment| {
                 let shifted = segment.shift(geometry_shift);
 
-                let strip = GpuStrip::from_fill(
+                let strip = GpuStrip::from_fill_segment(
                     shifted,
                     None,
+                    // See the comment above.
                     paint.payload_at(segment.x0(), segment.y()),
                     paint.paint,
                     depth_index,
@@ -181,7 +186,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         // bounding box. This can happen when a clip path is associated with the layer.
         // Recordings will not cull those for us, so we need to do this manually here.
         // For normal paths, the `visit_strip_fill_segments` method takes care of doing this.
-        // For rectangles, we can do a simple intersection.
+        // For rectangles, we need to do this ourselves and can do a simple intersection.
         let clipped_rect = rect.intersect(self.state.target_bbox.as_rect());
         if clipped_rect.is_zero_area() {
             return;
@@ -206,6 +211,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
 
             let strip = GpuStrip::from_rect(
                 shifted,
+                // See the comment in `push_path`.
                 paint.payload_at(part.rect.x0, part.rect.y0),
                 paint.paint,
                 depth_index,
@@ -231,7 +237,11 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         }
 
         let paint = (COLOR_SOURCE_LAYER << COLOR_SOURCE_SHIFT) | u32::from(pack_opacity(opacity));
+
         if let Some(clip_path) = clip_path {
+            // If a clip path is associated with the layer, simply draw the strips and use the rendered
+            // layer as a fill.
+
             let strips = &strip_storage.strips[clip_path.strip_range.clone()];
             let depth_index = self.state.depth_counter.next(false);
             let tile_bounds = sample_bbox.to_tile_bounds();
@@ -254,6 +264,8 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                 },
             );
         } else {
+            // Otherwise, a simple rect blit covering the whole layer is enough.
+
             let depth_index = self.state.depth_counter.next(false);
 
             let rect_part = RectPart {
@@ -266,6 +278,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                 self.strips,
                 GpuStrip::from_rect(
                     rect_part,
+                    // See the comment in `push_path`.
                     sample.payload_at(sample_bbox.x0, sample_bbox.y0),
                     paint,
                     depth_index,
@@ -284,9 +297,11 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         depth_index: u32,
     ) {
         self.draw.has_child_layer = true;
+        // See the comment in `push_path`.
         let payload = sample.payload_at(segment.x0(), segment.y());
         let shifted = segment.shift(self.state.target.geometry_shift());
-        let strip = GpuStrip::from_fill(shifted, col_idx, payload, paint, depth_index);
+        let strip = GpuStrip::from_fill_segment(shifted, col_idx, payload, paint, depth_index);
+
         self.draw.push(self.strips, strip, None);
     }
 }
@@ -333,7 +348,7 @@ impl<T: DrawTarget> DrawState<T> {
 const RECT_STRIP_FLAG: u32 = 1 << 31;
 
 impl GpuStrip {
-    fn from_fill(
+    fn from_fill_segment(
         rect: RectU16,
         col_idx: Option<u32>,
         payload: u32,
@@ -377,7 +392,7 @@ impl LayerTextureRegion {
     fn payload_at(self, x: u16, y: u16) -> u32 {
         let shift = self.geometry_shift();
         // This should never fail. The shift itself can be negative if the layer bbox doesn't
-        // start at 0, but we only sample values that are within the layer bbox.
+        // start at 0, but we only sample values that are within the layer bbox in the first place.
         let source_x = u16::try_from(x as i32 + shift.0).unwrap();
         let source_y = u16::try_from(y as i32 + shift.1).unwrap();
 
