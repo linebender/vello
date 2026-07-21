@@ -58,10 +58,10 @@ pub(crate) struct GpuBlendInstance {
 impl GpuBlendInstance {
     pub(crate) fn copy_from_scratch(self) -> GpuCopyInstance {
         GpuCopyInstance {
-            target_texture_origin: self.geometry_origin,
+            dest_texture_origin: self.geometry_origin,
             source_texture_origin: self.geometry_origin,
             copy_rect_size: self.geometry_size,
-            target_texture_size: self.parent_texture_size,
+            dest_texture_size: self.parent_texture_size,
         }
     }
 }

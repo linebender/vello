@@ -357,12 +357,12 @@ pub(crate) struct FilterInstanceData {
     pub source_origin: u32,
     /// Size of the source region, packed as `u16x2`.
     pub source_size: u32,
-    /// Origin of the opposite ping-pong target region, packed as `u16x2`.
-    pub target_origin: u32,
-    /// Size of the target region, packed as `u16x2`.
-    pub target_size: u32,
-    /// Dimensions of the target texture page, packed as `u16x2`.
-    pub target_texture_size: u32,
+    /// Origin of the opposite ping-pong destination region, packed as `u16x2`.
+    pub dest_origin: u32,
+    /// Size of the destination region, packed as `u16x2`.
+    pub dest_size: u32,
+    /// Dimensions of the destination texture page, packed as `u16x2`.
+    pub dest_texture_size: u32,
     /// Texel offset into `filter_data` where this filter's data is stored.
     pub filter_data_offset: u32,
     /// Origin of the original region, packed as `u16x2`.
@@ -494,7 +494,7 @@ impl<'a> FilterPassBuilder<'a> {
         }
     }
 
-    /// Compute and update source and target sizes based on the pass kind.
+    /// Compute and update source and destination sizes based on the pass kind.
     fn apply_pass_dimensions(&mut self, kind: u32) -> (SizeU16, SizeU16) {
         match kind {
             pass_kind::DOWNSCALE => {
@@ -517,24 +517,24 @@ impl<'a> FilterPassBuilder<'a> {
 
     /// Emit one pass, reading from the current region and writing to the other texture parity.
     fn emit(&mut self, kind: u32) {
-        let (source_size, target_size) = self.apply_pass_dimensions(kind);
+        let (source_size, dest_size) = self.apply_pass_dimensions(kind);
         let original = self.op.textures.original;
         let temporary = self.op.textures.temporary;
-        let (source_rect, target_rect) = if self.current_is_original {
+        let (source_rect, dest_rect) = if self.current_is_original {
             (original.rect, temporary.rect)
         } else {
             (temporary.rect, original.rect)
         };
-        let target_texture_size = self.texture_size;
+        let dest_texture_size = self.texture_size;
         let rect_origin = |rect: RectU16| pack_u16_pair(rect.x0, rect.y0);
         let size = |size: SizeU16| pack_u16_pair(size.width(), size.height());
 
         self.passes.step_mut(self.step).push(FilterInstanceData {
             source_origin: rect_origin(source_rect),
             source_size: size(source_size),
-            target_origin: rect_origin(target_rect),
-            target_size: size(target_size),
-            target_texture_size: size(target_texture_size),
+            dest_origin: rect_origin(dest_rect),
+            dest_size: size(dest_size),
+            dest_texture_size: size(dest_texture_size),
             filter_data_offset: self.op.filter_data_offset,
             original_origin: rect_origin(original.rect),
             original_size: pack_u16_pair(original.rect.width(), original.rect.height()),
@@ -583,15 +583,12 @@ impl<'a> FilterPassBuilder<'a> {
 
     fn push_copy_to_scratch_pass(&mut self) {
         let original = self.op.textures.original;
-        let target_texture_size = self.texture_size;
+        let dest_texture_size = self.texture_size;
         let copy_instance = GpuCopyInstance {
-            target_texture_origin: pack_u16_pair(original.rect.x0, original.rect.y0),
+            dest_texture_origin: pack_u16_pair(original.rect.x0, original.rect.y0),
             source_texture_origin: pack_u16_pair(original.rect.x0, original.rect.y0),
             copy_rect_size: pack_u16_pair(original.rect.width(), original.rect.height()),
-            target_texture_size: pack_u16_pair(
-                target_texture_size.width(),
-                target_texture_size.height(),
-            ),
+            dest_texture_size: pack_u16_pair(dest_texture_size.width(), dest_texture_size.height()),
         };
 
         self.passes.copy_pass.push(copy_instance);

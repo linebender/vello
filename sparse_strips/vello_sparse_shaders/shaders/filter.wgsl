@@ -99,9 +99,9 @@ fn get_drop_shadow_color(texel2: vec4<u32>) -> u32 { return texel2.z; }
 struct FilterInstanceData {
     @location(0) source_origin: u32,
     @location(1) source_size: u32,
-    @location(2) target_origin: u32,
-    @location(3) target_size: u32,
-    @location(4) target_texture_size: u32,
+    @location(2) dest_origin: u32,
+    @location(3) dest_size: u32,
+    @location(4) dest_texture_size: u32,
     @location(5) filter_data_offset: u32,
     @location(6) original_origin: u32,
     @location(7) original_size: u32,
@@ -113,8 +113,8 @@ struct FilterVertexOutput {
     @location(0) @interpolate(flat) filter_data_offset: u32,
     @location(1) @interpolate(flat) source_origin: vec2<u32>,
     @location(2) @interpolate(flat) source_size: vec2<u32>,
-    @location(3) @interpolate(flat) target_origin: vec2<u32>,
-    @location(4) @interpolate(flat) target_size: vec2<u32>,
+    @location(3) @interpolate(flat) dest_origin: vec2<u32>,
+    @location(4) @interpolate(flat) dest_size: vec2<u32>,
     @location(5) @interpolate(flat) original_origin: vec2<u32>,
     @location(6) @interpolate(flat) filter_pass_kind: u32,
 }
@@ -133,28 +133,28 @@ fn vs_main(
     let y = f32((quad_vertex >> 1u));
     let source_origin = unpack_u16_pair(instance.source_origin);
     let source_size = unpack_u16_pair(instance.source_size);
-    let target_origin = unpack_u16_pair(instance.target_origin);
-    let target_size = unpack_u16_pair(instance.target_size);
-    let target_texture_size = vec2<f32>(unpack_u16_pair(instance.target_texture_size));
+    let dest_origin = unpack_u16_pair(instance.dest_origin);
+    let dest_size = unpack_u16_pair(instance.dest_size);
+    let dest_texture_size = vec2<f32>(unpack_u16_pair(instance.dest_texture_size));
     let original_origin = unpack_u16_pair(instance.original_origin);
     let original_size = unpack_u16_pair(instance.original_size);
 
-    // Decimated passes only write `target_size`, but must also clear the bottom/right border
+    // Decimated passes only write `dest_size`, but must also clear the bottom/right border
     // of stale pixels to transparent so our bilinear taps don't accidentally sample stale pixels.
-    let render_size = min(original_size, target_size + vec2(FILTER_ATLAS_PADDING));
-    let pix_x = f32(target_origin.x) + x * f32(render_size.x);
-    let pix_y = f32(target_origin.y) + y * f32(render_size.y);
+    let render_size = min(original_size, dest_size + vec2(FILTER_ATLAS_PADDING));
+    let pix_x = f32(dest_origin.x) + x * f32(render_size.x);
+    let pix_y = f32(dest_origin.y) + y * f32(render_size.y);
 
-    let ndc_x = pix_x * 2.0 / target_texture_size.x - 1.0;
-    let ndc_y = 1.0 - pix_y * 2.0 / target_texture_size.y;
+    let ndc_x = pix_x * 2.0 / dest_texture_size.x - 1.0;
+    let ndc_y = 1.0 - pix_y * 2.0 / dest_texture_size.y;
 
     var out: FilterVertexOutput;
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.filter_data_offset = instance.filter_data_offset;
     out.source_origin = source_origin;
     out.source_size = source_size;
-    out.target_origin = target_origin;
-    out.target_size = target_size;
+    out.dest_origin = dest_origin;
+    out.dest_size = dest_size;
     out.original_origin = original_origin;
     out.filter_pass_kind = instance.filter_pass_kind;
     return out;
@@ -203,10 +203,10 @@ fn sample_source_checked(
 fn downscale(
     position: vec4<f32>,
     source_origin: vec2<u32>,
-    target_origin: vec2<u32>,
+    dest_origin: vec2<u32>,
 ) -> vec4<f32> {
     let frag_coord = vec2<u32>(position.xy);
-    let rel = vec2<i32>(frag_coord - target_origin);
+    let rel = vec2<i32>(frag_coord - dest_origin);
     let source_rel = vec2<f32>(rel * 2);
     let source_texel = vec2<f32>(source_origin) + source_rel;
     let source_texture_size = vec2<f32>(textureDimensions(source_texture));
@@ -235,12 +235,12 @@ fn downscale(
 fn upscale(
     position: vec4<f32>,
     source_origin: vec2<u32>,
-    target_origin: vec2<u32>,
+    dest_origin: vec2<u32>,
 ) -> vec4<f32> {
     // Same story as for downscaling, but this time even simpler and we can get away with a single texture sample.
 
     let frag_coord = vec2<u32>(position.xy);
-    let rel = vec2<i32>(frag_coord - target_origin);
+    let rel = vec2<i32>(frag_coord - dest_origin);
     let source_base = vec2<f32>(rel / 2);
     let phase = vec2<f32>(rel % 2);
     let source_texture_size = vec2<f32>(textureDimensions(source_texture));
@@ -311,16 +311,16 @@ fn fs_main(
     @location(0) @interpolate(flat) filter_data_offset: u32,
     @location(1) @interpolate(flat) source_origin: vec2<u32>,
     @location(2) @interpolate(flat) source_size: vec2<u32>,
-    @location(3) @interpolate(flat) target_origin: vec2<u32>,
-    @location(4) @interpolate(flat) target_size: vec2<u32>,
+    @location(3) @interpolate(flat) dest_origin: vec2<u32>,
+    @location(4) @interpolate(flat) dest_size: vec2<u32>,
     @location(5) @interpolate(flat) original_origin: vec2<u32>,
     @location(6) @interpolate(flat) filter_pass_kind: u32,
     @builtin(position) position: vec4<f32>,
 ) -> @location(0) vec4<f32> {
     let frag_coord = vec2<u32>(position.xy);
-    let rel_coord = vec2<f32>(frag_coord - target_origin);
+    let rel_coord = vec2<f32>(frag_coord - dest_origin);
     // See the comment in `vs_main`.
-    if rel_coord.x >= f32(target_size.x) || rel_coord.y >= f32(target_size.y) {
+    if rel_coord.x >= f32(dest_size.x) || rel_coord.y >= f32(dest_size.y) {
         return vec4<f32>(0.0);
     }
 
@@ -347,7 +347,7 @@ fn fs_main(
             return sample_source_checked(source_origin, source_size, rel_coord - floor(dxdy + 0.5));
         }
         case PASS_DOWNSCALE: {
-            return downscale(position, source_origin, target_origin);
+            return downscale(position, source_origin, dest_origin);
         }
         case PASS_BLUR_H: {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
@@ -376,7 +376,7 @@ fn fs_main(
             );
         }
         case PASS_UPSCALE: {
-            return upscale(position, source_origin, target_origin);
+            return upscale(position, source_origin, dest_origin);
         }
         case PASS_COMPOSITE_DROP_SHADOW: {
             let filter_texel2 = load_filter_texel(filter_data_offset, 2u);

@@ -9,12 +9,12 @@ use bytemuck::{Pod, Zeroable};
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub(crate) struct GpuCopyInstance {
-    /// Origin in the target texture page, packed as `u16x2`.
-    pub(crate) target_texture_origin: u32,
+    /// Origin in the destination texture page, packed as `u16x2`.
+    pub(crate) dest_texture_origin: u32,
     /// Origin in the source texture page, packed as `u16x2`.
     pub(crate) source_texture_origin: u32,
     /// Width and height of the copied region, packed as `u16x2`.
     pub(crate) copy_rect_size: u32,
-    /// Width and height of the target texture page, packed as `u16x2`.
-    pub(crate) target_texture_size: u32,
+    /// Width and height of the destination texture page, packed as `u16x2`.
+    pub(crate) dest_texture_size: u32,
 }
