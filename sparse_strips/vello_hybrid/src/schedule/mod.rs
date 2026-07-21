@@ -116,7 +116,7 @@ mod test_support;
 
 use self::allocate::{Atlases, LayerAllocationRequest};
 use self::cursor::Cursor;
-pub(crate) use self::execute::{RendererBackend, execute};
+pub(crate) use self::execute::{Backend, execute};
 use self::round::{
     BlendOp, FilterOp, FilterTextureRegions, Round, RoundStage, Rounds, SchedulePoint,
 };
@@ -186,7 +186,7 @@ impl Schedule {
     }
 
     pub(crate) fn layer_page_counts(&self) -> [usize; 2] {
-        self.rounds.layer_page_counts
+        self.rounds.layer_page_counts()
     }
 
     pub(crate) fn scratch_texture(&self) -> bool {
@@ -456,7 +456,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             let filter_point = rounds.resolve_binding_point(base_point, textures.texture_binding());
 
             rounds.ensure_exists(filter_point.round);
-            rounds.rounds[filter_point.round].push_filter_op(
+            rounds.round_mut(filter_point.round).push_filter_op(
                 region.texture.target.texture_parity,
                 &mut self.storage.buffers,
                 FilterOp {
@@ -570,7 +570,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let blend_point = rounds.resolve_binding_point(blend_point, blend_binding);
 
         rounds.ensure_exists(blend_point.round);
-        rounds.rounds[blend_point.round].push_blend_op(
+        rounds.round_mut(blend_point.round).push_blend_op(
             parent_texture_parity,
             &mut self.storage.buffers,
             BlendOp {
@@ -791,7 +791,7 @@ impl Rounds {
         let target_draw = state
             .draw_state
             .target
-            .draw_mut(&mut self.rounds[point.round]);
+            .draw_mut(self.round_mut(point.round));
 
         let mut builder = DrawBuilder::new(target_draw, draw_buffers, &mut state.draw_state);
         f(&mut builder);
@@ -1316,11 +1316,20 @@ mod tests {
         assert_eq!(scheduled.page_counts(), [1, 2]);
         assert_eq!(rounds_view.len(), 3);
         // Round 0 binds the texture where the root is.
-        assert_eq!(rounds_view[0].binding[TextureParity::Odd.get_parity()], 0);
+        assert_eq!(
+            rounds_view[0].binding[TextureParity::Odd.get_parity()],
+            Some(0)
+        );
         // Round 1 binds the texture where the filter layer is.
-        assert_eq!(rounds_view[1].binding[TextureParity::Odd.get_parity()], 1);
+        assert_eq!(
+            rounds_view[1].binding[TextureParity::Odd.get_parity()],
+            Some(1)
+        );
         // Round 0 again binds to the root.
-        assert_eq!(rounds_view[2].binding[TextureParity::Odd.get_parity()], 0);
+        assert_eq!(
+            rounds_view[2].binding[TextureParity::Odd.get_parity()],
+            Some(0)
+        );
     }
 
     #[test]
@@ -1335,7 +1344,7 @@ mod tests {
             let target = region.target;
             assert_eq!(
                 rounds_view[1].binding[target.texture_parity.get_parity()],
-                target.page_index
+                Some(target.page_index)
             );
         }
     }
@@ -1666,11 +1675,11 @@ mod tests {
         assert!(storage.filter_context.is_empty());
         assert_eq!(second_schedule.rounds.rounds.len(), 1);
         let round = &second_schedule.rounds.rounds[0];
-        assert_eq!(round.root_draw.strip_ranges.len(), 1);
-        assert!(round.root_draw.external_texture_runs.is_empty());
-        assert_eq!(round.layer_texture_passes[0].filter_ranges.len(), 0);
-        assert_eq!(round.layer_texture_passes[1].filter_ranges.len(), 0);
-        assert_eq!(round.layer_texture_passes[0].blend_ranges.len(), 0);
-        assert_eq!(round.layer_texture_passes[1].blend_ranges.len(), 0);
+        let root = round
+            .root_draw_pass(&storage.buffers, RootTarget::UserSurface)
+            .unwrap();
+        assert_eq!(root.strips.len(), 1);
+        assert!(root.external_texture_runs.is_empty());
+        assert_eq!(round.layer_passes(&storage.buffers).count(), 0);
     }
 }

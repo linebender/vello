@@ -94,52 +94,48 @@ impl LayerTextureId {
     }
 }
 
-/// The page indices of a pair of even and odd parity textures
-/// that should be bound during a draw call.
+/// Output and optional child input used by a draw pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DrawPassBindings {
+    /// Texture or root surface receiving the draw.
+    pub(crate) target: DrawPassTarget,
+    /// Child layer sampled by the draw, if any.
+    pub(crate) child: Option<LayerTextureId>,
+}
+
+impl DrawPassBindings {
+    pub(crate) const fn new(target: DrawPassTarget, child: Option<LayerTextureId>) -> Self {
+        Self { target, child }
+    }
+}
+
+/// Target and temporary layer textures used by a filter pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct LayerTexturePair {
-    /// Page index bound for the even and odd texture groups.
-    pub(crate) page_indices: [u16; 2],
+pub(crate) struct FilterPassBindings {
+    /// Texture containing the original input and receiving the final result.
+    target: LayerTextureId,
+    /// Opposite-parity texture used for filter ping-ponging.
+    temporary: LayerTextureId,
 }
 
-impl LayerTexturePair {
-    pub(crate) const fn layer_id(self, parity: TextureParity) -> LayerTextureId {
-        LayerTextureId::new(parity, self.page_indices[parity.get_parity()])
-    }
-}
+impl FilterPassBindings {
+    pub(crate) const fn new(target: LayerTextureId, temporary: LayerTextureId) -> Self {
+        assert!(target.texture_parity as u8 != temporary.texture_parity as u8);
 
-/// Pair of texture pages used to ping-pong a filter sequence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct FilterTexturePair {
-    /// Even and odd pages used by the filter sequence.
-    pair: LayerTexturePair,
-    /// Parity of the texture containing the original input and final result.
-    original_parity: TextureParity,
-}
-
-impl FilterTexturePair {
-    pub(crate) const fn new(pair: LayerTexturePair, original_parity: TextureParity) -> Self {
-        Self {
-            pair,
-            original_parity,
-        }
+        Self { target, temporary }
     }
 
-    pub(crate) const fn original(self) -> LayerTextureId {
-        self.pair.layer_id(self.original_parity)
-    }
-
-    pub(crate) const fn pair(self) -> LayerTexturePair {
-        self.pair
+    pub(crate) const fn target(self) -> LayerTextureId {
+        self.target
     }
 
     pub(crate) const fn temporary(self) -> LayerTextureId {
-        self.pair.layer_id(self.original_parity.opposite())
+        self.temporary
     }
 
     pub(crate) const fn input(self, step: usize) -> LayerTextureId {
         if step & 1 == 0 {
-            self.original()
+            self.target()
         } else {
             self.temporary()
         }
@@ -149,7 +145,36 @@ impl FilterTexturePair {
         if step & 1 == 0 {
             self.temporary()
         } else {
-            self.original()
+            self.target()
+        }
+    }
+}
+
+/// Target and child layer textures used by a blend pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct BlendPassBindings {
+    /// Layer serving as the blend backdrop and destination.
+    target: LayerTextureId,
+    /// Child layer serving as the blend source.
+    child: LayerTextureId,
+}
+
+impl BlendPassBindings {
+    pub(crate) const fn new(target: LayerTextureId, child: LayerTextureId) -> Self {
+        assert!(target.texture_parity as u8 != child.texture_parity as u8);
+
+        Self { target, child }
+    }
+
+    pub(crate) const fn target(self) -> LayerTextureId {
+        self.target
+    }
+
+    pub(crate) const fn layer_id(self, parity: TextureParity) -> LayerTextureId {
+        if self.target.texture_parity as u8 == parity as u8 {
+            self.target
+        } else {
+            self.child
         }
     }
 }
@@ -181,13 +206,9 @@ impl RoundBindings {
         Some(self)
     }
 
-    /// Try to resolve the round bindings into a fixed layer texture pair.
-    pub(crate) fn resolve(self) -> LayerTexturePair {
-        LayerTexturePair {
-            // In case any is `None`, we just bind page 0 which always exist if
-            // there is at least one layer.
-            page_indices: self.pages.map(|page| page.unwrap_or(0)),
-        }
+    /// Return the bound texture for a parity, if present.
+    pub(crate) fn layer_id(self, parity: TextureParity) -> Option<LayerTextureId> {
+        self.pages[parity.get_parity()].map(|page_index| LayerTextureId::new(parity, page_index))
     }
 
     /// Return the required textures for this binding.
@@ -197,6 +218,11 @@ impl RoundBindings {
                 LayerTextureId::new(TextureParity::from_parity(index), page_index)
             })
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn page_indices(self) -> [Option<u16>; 2] {
+        self.pages
     }
 }
 
@@ -265,10 +291,7 @@ impl DrawTarget for LayerTextureRegion {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        LayerTextureId, LayerTexturePair, LayerTextureRegion, RoundBindings, TextureParity,
-        TextureRegion,
-    };
+    use super::{LayerTextureId, LayerTextureRegion, RoundBindings, TextureParity, TextureRegion};
     use vello_common::geometry::RectU16;
 
     #[test]
@@ -280,12 +303,7 @@ mod tests {
 
         assert_eq!(even.merge(empty).unwrap().pages, [Some(2), None]);
         assert_eq!(empty.merge(even).unwrap().pages, [Some(2), None]);
-        assert_eq!(
-            even.merge(odd).unwrap().resolve(),
-            LayerTexturePair {
-                page_indices: [2, 5]
-            }
-        );
+        assert_eq!(even.merge(odd).unwrap().pages, [Some(2), Some(5)]);
         assert_eq!(even.merge(even).unwrap().pages, [Some(2), None]);
         assert!(even.merge(constraint([Some(3), None])).is_none());
         assert!(odd.merge(constraint([None, Some(6)])).is_none());

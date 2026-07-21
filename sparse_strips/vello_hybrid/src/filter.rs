@@ -438,10 +438,6 @@ impl FilterPassPlan {
         }
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.steps.as_slice().is_empty()
-    }
-
     pub(crate) fn steps(&self) -> impl Iterator<Item = &[FilterInstanceData]> {
         self.steps.as_slice().iter().map(Vec::as_slice)
     }

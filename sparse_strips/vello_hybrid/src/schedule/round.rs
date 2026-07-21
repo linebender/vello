@@ -17,27 +17,65 @@
 //!
 //! ## Texture bindings
 //!
-//! All layer work in a round uses the same [`LayerTexturePair`]. Scheduling an operation adds a
+//! All layer work in a round uses the same [`RoundBindings`]. Scheduling an operation adds a
 //! [`RoundBindings`] for every page that the operation renders to or samples. Partial
-//! constraints can be merged, so operations that require only the even or only the odd page can
+//! round bindings can be merged, so operations that require only the even or only the odd page can
 //! still batch together. If two operations require different pages of the same parity, their
-//! constraints conflict and the later operation is placed in a subsequent compatible round.
-//!
-//! The fixed pair is also used by filter and blend operations, which may need to access both
-//! parities.
+//! bindings conflict and the later operation is placed in a subsequent compatible round.
 
 use super::ScheduleBuffers;
-use crate::draw::Draw;
+use crate::draw::{Draw, ExternalTextureRun};
 use crate::filter::GpuFilterData;
 use crate::target::{
-    LayerTextureId, LayerTexturePair, LayerTextureRegion, RoundBindings, TextureParity,
-    TextureRegion,
+    BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
+    LayerTextureRegion, RootTarget, RoundBindings, TextureParity, TextureRegion,
 };
-use crate::util::{Ranges, VecExt};
+use crate::util::{RangedSlice, Ranges, VecExt};
+use crate::{GpuStrip, blend::BlendStrip};
 use alloc::vec::Vec;
 use core::ops::Range;
 use vello_common::geometry::RectU16;
 use vello_common::peniko::BlendMode;
+
+/// Draw work and resolved texture bindings for one pass.
+#[derive(Debug)]
+pub(super) struct DrawPass<'a> {
+    pub(super) strips: RangedSlice<'a, GpuStrip>,
+    pub(super) external_texture_runs: &'a [ExternalTextureRun],
+    pub(super) bindings: DrawPassBindings,
+}
+
+/// Filter work and resolved texture bindings for one pass.
+#[derive(Debug)]
+pub(super) struct FilterPass<'a> {
+    pub(super) filters: RangedSlice<'a, FilterOp>,
+    pub(super) bindings: FilterPassBindings,
+}
+
+/// Blend work and resolved texture bindings for one pass.
+#[derive(Debug)]
+pub(super) struct BlendPass<'a> {
+    pub(super) blends: RangedSlice<'a, BlendOp>,
+    pub(super) blend_strips: &'a [BlendStrip],
+    pub(super) bindings: BlendPassBindings,
+}
+
+/// Clear work and its resolved texture target.
+#[derive(Debug)]
+pub(super) struct ClearPass<'a> {
+    pub(super) target: LayerTextureId,
+    pub(super) rects: &'a [RectU16],
+}
+
+/// Executable work for one non-empty layer-texture pass.
+#[derive(Debug)]
+pub(super) struct LayerPass<'a> {
+    #[allow(dead_code, reason = "only used for a test.")]
+    pub(super) texture_parity: TextureParity,
+    pub(super) draw: Option<DrawPass<'a>>,
+    pub(super) filter: Option<FilterPass<'a>>,
+    pub(super) blend: Option<BlendPass<'a>>,
+}
 
 // Note that the field order of these enums matters since we implement
 // `PartialOrd` and use this to represent the order in which the stages
@@ -130,25 +168,101 @@ pub(super) struct Rounds {
     /// Rounds in execution order.
     pub(super) rounds: Vec<Round>,
     /// Required page count for the even and odd texture groups.
-    pub(super) layer_page_counts: [usize; 2],
+    layer_page_counts: [usize; 2],
 }
 
 /// Operations and texture binding requirements for one rendering round.
 #[derive(Debug, Default)]
 pub(super) struct Round {
     /// Page required from each layer texture parity.
-    texture_binding: RoundBindings,
+    pub(super) texture_binding: RoundBindings,
     /// Draw targeting the root output after both layer passes.
-    pub(super) root_draw: Draw,
+    root_draw: Draw,
     /// Draw, filter, and blend work for the even and odd layer textures.
-    pub(super) layer_texture_passes: [LayerTexturePass; 2],
+    layer_texture_passes: [LayerTexturePass; 2],
     /// Regions cleared after all rendering work in this round.
-    pub(super) layer_texture_clears: [Vec<RectU16>; 2],
+    layer_texture_clears: [Vec<RectU16>; 2],
 }
 
 impl Round {
-    pub(super) fn resolve_texture_binding(&self) -> LayerTexturePair {
-        self.texture_binding.resolve()
+    pub(super) fn layer_passes<'a>(
+        &'a self,
+        buffers: &'a ScheduleBuffers,
+    ) -> impl Iterator<Item = LayerPass<'a>> + 'a {
+        self.layer_texture_passes
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, pass)| {
+                let texture_parity = TextureParity::from_parity(index);
+                let target = self.texture_binding.layer_id(texture_parity);
+                let opposite = self.texture_binding.layer_id(texture_parity.opposite());
+
+                let draw = (pass.draw.strip_ranges.len() != 0).then(|| DrawPass {
+                    strips: buffers.draw_buffers.strips.ranged(&pass.draw.strip_ranges),
+                    external_texture_runs: &pass.draw.external_texture_runs,
+                    bindings: DrawPassBindings::new(
+                        DrawPassTarget::Layer(target.unwrap()),
+                        pass.draw.has_child_layer.then(|| opposite.unwrap()),
+                    ),
+                });
+                let filter = (pass.filter_ranges.len() != 0).then(|| FilterPass {
+                    filters: buffers.filter_ops.ranged(&pass.filter_ranges),
+                    bindings: FilterPassBindings::new(target.unwrap(), opposite.unwrap()),
+                });
+                let blend = (pass.blend_ranges.len() != 0).then(|| BlendPass {
+                    blends: buffers.blend_ops.ranged(&pass.blend_ranges),
+                    blend_strips: &buffers.blend_strips,
+                    bindings: BlendPassBindings::new(target.unwrap(), opposite.unwrap()),
+                });
+
+                (draw.is_some() || filter.is_some() || blend.is_some()).then_some(LayerPass {
+                    texture_parity,
+                    draw,
+                    filter,
+                    blend,
+                })
+            })
+    }
+
+    pub(super) fn root_draw_pass<'a>(
+        &'a self,
+        buffers: &'a ScheduleBuffers,
+        target: RootTarget,
+    ) -> Option<DrawPass<'a>> {
+        if self.root_draw.strip_ranges.len() == 0 {
+            return None;
+        }
+
+        let child = self
+            .root_draw
+            .has_child_layer
+            .then(|| self.texture_binding.layer_id(TextureParity::Odd).unwrap());
+
+        Some(DrawPass {
+            strips: buffers
+                .draw_buffers
+                .strips
+                .ranged(&self.root_draw.strip_ranges),
+            external_texture_runs: &self.root_draw.external_texture_runs,
+            bindings: DrawPassBindings::new(DrawPassTarget::Root(target), child),
+        })
+    }
+
+    pub(super) fn clear_passes(&self) -> impl Iterator<Item = ClearPass<'_>> {
+        self.layer_texture_clears
+            .iter()
+            .enumerate()
+            .filter_map(|(index, rects)| {
+                if rects.is_empty() {
+                    return None;
+                }
+
+                let texture_parity = TextureParity::from_parity(index);
+                Some(ClearPass {
+                    target: self.texture_binding.layer_id(texture_parity).unwrap(),
+                    rects,
+                })
+            })
     }
 
     pub(super) fn root_draw_mut(&mut self) -> &mut Draw {
@@ -185,6 +299,18 @@ impl Round {
 }
 
 impl Rounds {
+    pub(super) fn iter(&self) -> core::slice::Iter<'_, Round> {
+        self.rounds.iter()
+    }
+
+    pub(super) const fn layer_page_counts(&self) -> [usize; 2] {
+        self.layer_page_counts
+    }
+
+    pub(super) fn round_mut(&mut self, index: usize) -> &mut Round {
+        &mut self.rounds[index]
+    }
+
     pub(super) fn push_layer_clear(
         &mut self,
         round_idx: usize,
@@ -252,11 +378,11 @@ impl Rounds {
 #[derive(Debug, Default)]
 pub(super) struct LayerTexturePass {
     /// Strip draw executed at the start of the layer pass.
-    pub(super) draw: Draw,
+    draw: Draw,
     /// Ranges of filter operations executed after the draw.
-    pub(super) filter_ranges: Ranges,
+    filter_ranges: Ranges,
     /// Ranges of blend operations executed after the filters.
-    pub(super) blend_ranges: Ranges,
+    blend_ranges: Ranges,
 }
 
 /// Original and temporary regions used to ping-pong a filter sequence.
@@ -314,13 +440,13 @@ pub(crate) struct BlendOp {
 #[cfg(test)]
 mod tests {
     use super::{
-        BlendOp, FilterOp, FilterTextureRegions, LayerStage, RoundStage, Rounds, SchedulePoint,
+        BlendOp, FilterOp, FilterTextureRegions, LayerStage, Round, RoundStage, Rounds,
+        SchedulePoint,
     };
     use crate::filter::GpuFilterData;
     use crate::schedule::ScheduleBuffers;
     use crate::target::{
-        LayerTextureId, LayerTexturePair, LayerTextureRegion, RoundBindings, TextureParity,
-        TextureRegion,
+        LayerTextureId, LayerTextureRegion, RoundBindings, TextureParity, TextureRegion,
     };
     use crate::util::VecExt;
     use bytemuck::Zeroable;
@@ -394,6 +520,44 @@ mod tests {
     }
 
     #[test]
+    fn unused_bindings_do_not_resolve_passes() {
+        let mut round = Round::default();
+        round.texture_binding = RoundBindings::new(layer_id(TextureParity::Even, 2))
+            .merge(RoundBindings::new(layer_id(TextureParity::Odd, 5)))
+            .unwrap();
+
+        assert_eq!(round.layer_passes(&ScheduleBuffers::default()).count(), 0);
+        assert_eq!(round.clear_passes().count(), 0);
+    }
+
+    #[test]
+    fn pass_iterators_skip_empty_parities() {
+        let even = layer_id(TextureParity::Even, 2);
+        let odd = layer_id(TextureParity::Odd, 5);
+        let mut round = Round::default();
+        round.texture_binding = RoundBindings::new(even)
+            .merge(RoundBindings::new(odd))
+            .unwrap();
+
+        let mut buffers = ScheduleBuffers::default();
+        round.push_filter_op(TextureParity::Even, &mut buffers, filter_op(10));
+        round.layer_texture_clears[TextureParity::Odd.get_parity()].push(RectU16::new(0, 0, 8, 8));
+
+        let layer_passes = round.layer_passes(&buffers).collect::<alloc::vec::Vec<_>>();
+        assert_eq!(layer_passes.len(), 1);
+        assert!(layer_passes[0].draw.is_none());
+        assert_eq!(
+            layer_passes[0].filter.as_ref().unwrap().bindings.target(),
+            even
+        );
+        assert!(layer_passes[0].blend.is_none());
+
+        let clear_passes = round.clear_passes().collect::<alloc::vec::Vec<_>>();
+        assert_eq!(clear_passes.len(), 1);
+        assert_eq!(clear_passes[0].target, odd);
+    }
+
+    #[test]
     fn binding_conflicts_even() {
         let mut rounds = Rounds::default();
         let requested = SchedulePoint {
@@ -428,17 +592,12 @@ mod tests {
         );
 
         assert_eq!(
-            rounds.rounds[0].resolve_texture_binding(),
-            LayerTexturePair {
-                page_indices: [1, 2]
-            }
+            rounds.rounds[0].texture_binding.page_indices(),
+            [Some(1), Some(2)]
         );
         assert_eq!(
-            rounds.rounds[1].resolve_texture_binding(),
-            LayerTexturePair {
-                // 0 is just chosen as a dummy here.
-                page_indices: [3, 0]
-            }
+            rounds.rounds[1].texture_binding.page_indices(),
+            [Some(3), None]
         );
         assert_eq!(rounds.layer_page_counts, [4, 3]);
     }
@@ -472,16 +631,12 @@ mod tests {
         );
 
         assert_eq!(
-            rounds.rounds[0].resolve_texture_binding(),
-            LayerTexturePair {
-                page_indices: [1, 2]
-            }
+            rounds.rounds[0].texture_binding.page_indices(),
+            [Some(1), Some(2)]
         );
         assert_eq!(
-            rounds.rounds[1].resolve_texture_binding(),
-            LayerTexturePair {
-                page_indices: [0, 4]
-            }
+            rounds.rounds[1].texture_binding.page_indices(),
+            [None, Some(4)]
         );
         assert_eq!(rounds.layer_page_counts, [2, 5]);
     }
