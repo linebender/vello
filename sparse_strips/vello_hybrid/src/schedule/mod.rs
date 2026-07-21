@@ -818,34 +818,35 @@ impl Rounds {
         sampled_layer: Option<&ScheduledLayer>,
         f: impl FnOnce(&mut DrawBuilder<'_, T>),
     ) -> SchedulePoint {
-        let mut round_bindings = sampled_layer.map_or_else(RoundBindings::default, |layer| {
-            RoundBindings::new(layer.sample_region.texture.target)
-        });
+        let sampled_layer_round_bindings = sampled_layer
+            .map_or_else(RoundBindings::default, |layer| {
+                RoundBindings::new(layer.sample_region.texture.target)
+            });
 
-        round_bindings = state
+        let round_bindings = state
             .draw_state
             .target
             .round_bindings()
-            .merge(round_bindings)
+            .merge(sampled_layer_round_bindings)
             .expect("draw target and sampled layer must have compatible texture parities");
 
-        let next_draw = sampled_layer.map_or_else(
+        // Determine when the draw is safe to execute.
+        let mut draw_point = sampled_layer.map_or_else(
             || state.next_draw(),
             |layer| state.next_draw_after(layer.ready),
         );
-        let point = self.resolve_binding_point(next_draw, round_bindings);
-        state.ready = point;
-        self.ensure_exists(point.round);
+        // While also ensuring the chosen round has a compatible texture binding.
+        draw_point = self.resolve_binding_point(draw_point, round_bindings);
+        state.ready = draw_point;
+        self.ensure_exists(draw_point.round);
+        let target_round = self.round_mut(draw_point.round);
 
-        let target_draw = state
-            .draw_state
-            .target
-            .draw_mut(self.round_mut(point.round));
+        let target_draw = state.draw_state.target.draw_mut(target_round);
 
         let mut builder = DrawBuilder::new(target_draw, draw_buffers, &mut state.draw_state);
         f(&mut builder);
 
-        point
+        draw_point
     }
 }
 
@@ -928,8 +929,9 @@ impl<T: ScheduleTarget> TargetScheduleState<T> {
 
     /// Return the earliest draw point that executes after an external dependency.
     fn next_draw_after(&self, dependency: SchedulePoint) -> SchedulePoint {
-        self.next_draw()
-            .max(dependency.after(self.draw_state.target.draw_stage()))
+        dependency
+            .after_or_at(self.draw_state.target.draw_stage())
+            .max(self.next_draw())
     }
 }
 
