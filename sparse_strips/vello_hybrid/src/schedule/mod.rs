@@ -331,7 +331,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             // First make sure that the child node is scheduled, in case it exists. Unlike for root
             // layers, we need to make sure to do this _before_ pushing any draws.
             // TODO: Similarly to Vello CPU, flatten this to avoid stack overflows for deep layers
-            let child = self.prepare_node(cmd, layer.sample.bbox, rounds)?;
+            let child = self.prepare_node(cmd, layer.sample_placement.dest_bbox, rounds)?;
 
             // Keep this after `prepare_node`: allocating lazily is what makes traversal
             // bottom-up with respect to memory, while still allowing compatible layers to batch.
@@ -396,7 +396,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }
 
         let scheduled = ScheduledLayer {
-            sample_region: layer.sample.resolve(region),
+            sample_region: layer.sample_placement.resolve_sample_region(region),
             allocation: target.allocation,
             ready: target.schedule_state.ready,
         };
@@ -457,7 +457,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
     /// Create an unallocated scheduling view of a recorded layer with the given visible bounds.
     fn open_layer(&self, layer: &'a RecordedLayer, bbox: RectU16) -> OpenLayer<'a> {
-        let sample = match &layer.kind {
+        let sample_placement = match &layer.kind {
             RecordedLayerKind::Regular => LayerSamplePlacement::regular(bbox),
             RecordedLayerKind::Filter { placement, .. } => LayerSamplePlacement::filter(*placement),
         };
@@ -467,7 +467,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             kind: &layer.kind,
             texture_parity: self.layer_texture_parity(layer.depth),
             bbox,
-            sample,
+            sample_placement,
             target: None,
         }
     }
@@ -479,7 +479,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             kind: &REGULAR_LAYER_KIND,
             texture_parity: TextureParity::Odd,
             bbox: self.scene_bbox,
-            sample: LayerSamplePlacement::regular(self.scene_bbox),
+            sample_placement: LayerSamplePlacement::regular(self.scene_bbox),
             target: None,
         }
     }
@@ -756,7 +756,7 @@ struct OpenLayer<'a> {
     /// Bounds that must be rendered into the layer allocation.
     bbox: RectU16,
     /// Placement used when the completed layer is sampled by its parent.
-    sample: LayerSamplePlacement,
+    sample_placement: LayerSamplePlacement,
     /// Lazily allocated target and its scheduling state.
     target: Option<LayerTarget>,
 }
@@ -764,37 +764,42 @@ struct OpenLayer<'a> {
 /// Maps a rendered layer allocation to the region sampled by its parent.
 #[derive(Debug, Clone, Copy)]
 struct LayerSamplePlacement {
-    /// Offset of the sampled contents from the allocation origin.
+    /// Offset within the rendered layer at which the region sampled by the parent begins.
     src_offset: (u16, u16),
-    /// Bounds of the sampled contents in scene coordinates.
-    bbox: RectU16,
+    /// Bounds where the sampled region is placed in the parent.
+    dest_bbox: RectU16,
 }
 
 impl LayerSamplePlacement {
     fn regular(bbox: RectU16) -> Self {
         Self {
             src_offset: (0, 0),
-            bbox,
+            dest_bbox: bbox,
         }
     }
 
     fn filter(placement: FilterLayerPlacement) -> Self {
         Self {
             src_offset: (placement.src_x, placement.src_y),
-            bbox: placement.dest_bbox,
+            dest_bbox: placement.dest_bbox,
         }
     }
 
-    fn resolve(self, allocation: LayerTextureRegion) -> LayerTextureRegion {
+    fn resolve_sample_region(self, allocation: LayerTextureRegion) -> LayerTextureRegion {
         let x0 = allocation.texture.rect.x0 + self.src_offset.0;
         let y0 = allocation.texture.rect.y0 + self.src_offset.1;
 
         LayerTextureRegion {
             texture: TextureRegion {
                 target: allocation.texture.target,
-                rect: RectU16::new(x0, y0, x0 + self.bbox.width(), y0 + self.bbox.height()),
+                rect: RectU16::new(
+                    x0,
+                    y0,
+                    x0 + self.dest_bbox.width(),
+                    y0 + self.dest_bbox.height(),
+                ),
             },
-            layer_bbox: self.bbox,
+            layer_bbox: self.dest_bbox,
         }
     }
 }
