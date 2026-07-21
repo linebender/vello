@@ -101,6 +101,10 @@ impl Rounds {
     ) {
         // The core loop that ties everything together!
 
+        // TODO: Currently, we upload data for layers when executing each round. It might be
+        // worth exploring whether we can upload the data once in the beginning, and then
+        // reference it via slices.
+
         // We iterate over each round separately.
         for round in self.iter() {
             // For each round, we first draw to the even layer texture, then to the odd layer
