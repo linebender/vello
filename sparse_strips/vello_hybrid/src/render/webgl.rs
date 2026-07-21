@@ -44,8 +44,8 @@ use crate::{
     scene::Scene,
     schedule::{RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
     target::{
-        DrawPassTarget, FilterTexturePair, LayerTextureId, LayerTexturePair, RootTarget,
-        TextureParity,
+        BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
+        RootTarget, TextureParity,
     },
 };
 use alloc::sync::Arc;
@@ -2532,8 +2532,7 @@ impl WebGlRendererContext<'_> {
         &mut self,
         blends: RangedSlice<'_, BlendOp>,
         blend_strips: &[BlendStrip],
-        parent_texture_parity: TextureParity,
-        texture_pair: LayerTexturePair,
+        bindings: BlendPassBindings,
     ) {
         if blends.len() == 0 {
             return;
@@ -2609,7 +2608,7 @@ impl WebGlRendererContext<'_> {
             Some(
                 self.programs
                     .resources
-                    .layer_texture(texture_pair.layer_id(TextureParity::Even)),
+                    .layer_texture(bindings.layer_id(TextureParity::Even)),
             ),
         );
         self.gl
@@ -2621,7 +2620,7 @@ impl WebGlRendererContext<'_> {
             Some(
                 self.programs
                     .resources
-                    .layer_texture(texture_pair.layer_id(TextureParity::Odd)),
+                    .layer_texture(bindings.layer_id(TextureParity::Odd)),
             ),
         );
         self.gl
@@ -2643,11 +2642,7 @@ impl WebGlRendererContext<'_> {
 
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            Some(
-                self.programs
-                    .resources
-                    .layer_framebuffer(texture_pair.layer_id(parent_texture_parity)),
-            ),
+            Some(self.programs.resources.layer_framebuffer(bindings.target())),
         );
         self.gl.viewport(
             0,
@@ -2676,7 +2671,7 @@ impl WebGlRendererContext<'_> {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, textures: FilterTexturePair) {
+    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings) {
         if plan.is_empty() {
             return;
         }
@@ -2706,7 +2701,7 @@ impl WebGlRendererContext<'_> {
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
             self.gl.bind_texture(
                 WebGl2RenderingContext::TEXTURE_2D,
-                Some(self.programs.resources.layer_texture(textures.original())),
+                Some(self.programs.resources.layer_texture(bindings.target())),
             );
             self.gl
                 .uniform1i(Some(&self.programs.copy_uniforms.source_texture), 0);
@@ -2740,8 +2735,8 @@ impl WebGlRendererContext<'_> {
         for (step_index, instances) in plan.steps().enumerate() {
             self.do_filter_instance_pass(
                 instances,
-                textures.input(step_index),
-                textures.output(step_index),
+                bindings.input(step_index),
+                bindings.output(step_index),
             );
         }
 
@@ -2843,24 +2838,22 @@ impl RendererBackend for WebGlRendererContext<'_> {
         &mut self,
         strips: RangedSlice<'_, GpuStrip>,
         _external_texture_runs: &[ExternalTextureRun],
-        target: DrawPassTarget,
-        child_layer_texture: Option<LayerTextureId>,
+        bindings: DrawPassBindings,
     ) {
-        self.strip_pass_inner(&[], strips, target, child_layer_texture);
+        self.strip_pass_inner(&[], strips, bindings.target, bindings.child);
     }
 
     fn blend_pass(
         &mut self,
         blends: RangedSlice<'_, BlendOp>,
         blend_strips: &[BlendStrip],
-        parent_texture_parity: TextureParity,
-        texture_pair: LayerTexturePair,
+        bindings: BlendPassBindings,
     ) {
-        self.blend_pass_inner(blends, blend_strips, parent_texture_parity, texture_pair);
+        self.blend_pass_inner(blends, blend_strips, bindings);
     }
 
-    fn filter_pass(&mut self, plan: &FilterPassPlan, textures: FilterTexturePair) {
-        self.filter_pass_inner(plan, textures);
+    fn filter_pass(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings) {
+        self.filter_pass_inner(plan, bindings);
     }
 
     fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) {

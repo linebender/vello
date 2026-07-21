@@ -105,7 +105,7 @@ pub(super) struct DrawView {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct RoundView {
-    pub(super) binding: [u16; 2],
+    pub(super) binding: [Option<u16>; 2],
     pub(super) even: DrawView,
     pub(super) odd: DrawView,
     pub(super) root: DrawView,
@@ -139,7 +139,7 @@ impl ScheduledCase {
             .rounds
             .iter()
             .map(|round| RoundView {
-                binding: round.resolve_texture_binding().page_indices,
+                binding: round.texture_binding_page_indices(),
                 even: self.draw_view(&round.layer_texture_passes[0].draw),
                 odd: self.draw_view(&round.layer_texture_passes[1].draw),
                 root: self.draw_view(&round.root_draw),

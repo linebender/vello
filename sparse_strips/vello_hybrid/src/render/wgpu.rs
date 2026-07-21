@@ -43,8 +43,8 @@ use crate::{
     scene::Scene,
     schedule::{RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
     target::{
-        DrawPassTarget, FilterTexturePair, LayerTextureId, LayerTexturePair, RootTarget,
-        TextureParity,
+        BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
+        RootTarget, TextureParity,
     },
 };
 use alloc::vec::Vec;
@@ -903,9 +903,9 @@ struct Programs {
     /// Cached strip bind groups keyed by target parity and optional child layer page.
     strip_layer_bind_groups: HashMap<(Option<TextureParity>, Option<LayerTextureId>), BindGroup>,
     /// Cached blend bind groups keyed by the pair of layer pages they sample.
-    blend_layer_bind_groups: HashMap<LayerTexturePair, BindGroup>,
+    blend_layer_bind_groups: HashMap<BlendPassBindings, BindGroup>,
     /// Cached filter pair bind groups.
-    filter_pair_bind_groups: HashMap<LayerTexturePair, FilterPairBindGroups>,
+    filter_pair_bind_groups: HashMap<FilterPassBindings, FilterPairBindGroups>,
     /// Pipeline for applying filter effects.
     filter_pipeline: RenderPipeline,
     /// Pipeline for clearing rectangular regions in intermediate textures.
@@ -1002,11 +1002,8 @@ impl WgpuIntermediateTexture {
 }
 
 impl GpuResources {
-    fn layer_views(&self, pair: LayerTexturePair) -> [&WgpuTextureView; 2] {
-        [
-            self.layer_view(pair.layer_id(TextureParity::Even)),
-            self.layer_view(pair.layer_id(TextureParity::Odd)),
-        ]
+    fn layer_views(&self, layer_ids: [LayerTextureId; 2]) -> [&WgpuTextureView; 2] {
+        layer_ids.map(|id| self.layer_view(id))
     }
 
     fn layer_view(&self, id: LayerTextureId) -> &WgpuTextureView {
@@ -2900,16 +2897,14 @@ impl RendererContext<'_> {
         &mut self,
         blends: RangedSlice<'_, BlendOp>,
         blend_strips: &[BlendStrip],
-        parent_texture_parity: TextureParity,
-        texture_pair: LayerTexturePair,
+        bindings: BlendPassBindings,
     ) {
         let texture_size = self.texture_size();
         if blends.len() == 0 {
             return;
         }
         let resources = &self.programs.resources;
-        let blend_layer_bind_group = match self.programs.blend_layer_bind_groups.entry(texture_pair)
-        {
+        let blend_layer_bind_group = match self.programs.blend_layer_bind_groups.entry(bindings) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 let alphas_texture_view = resources
@@ -2918,7 +2913,10 @@ impl RendererContext<'_> {
                 entry.insert(Programs::create_blend_layer_bind_group(
                     self.device,
                     &self.programs.blend_layer_bind_group_layout,
-                    resources.layer_views(texture_pair),
+                    resources.layer_views([
+                        bindings.layer_id(TextureParity::Even),
+                        bindings.layer_id(TextureParity::Odd),
+                    ]),
                     &alphas_texture_view,
                 ))
             }
@@ -3002,10 +3000,7 @@ impl RendererContext<'_> {
             let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Copy Blend Scratch To Layer"),
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    view: self
-                        .programs
-                        .resources
-                        .layer_view(texture_pair.layer_id(parent_texture_parity)),
+                    view: self.programs.resources.layer_view(bindings.target()),
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -3025,18 +3020,24 @@ impl RendererContext<'_> {
         }
     }
 
-    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, textures: FilterTexturePair) {
+    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings) {
         if plan.is_empty() {
             return;
         }
         let resources = &self.programs.resources;
-        let texture_pair = textures.pair();
         if !self
             .programs
             .filter_pair_bind_groups
-            .contains_key(&texture_pair)
+            .contains_key(&bindings)
         {
-            let inputs = resources.layer_views(texture_pair).map(|view| {
+            let target = bindings.target();
+            let temporary = bindings.temporary();
+            let layer_ids = match target.texture_parity {
+                TextureParity::Even => [target, temporary],
+                TextureParity::Odd => [temporary, target],
+            };
+            let layer_views = resources.layer_views(layer_ids);
+            let inputs = layer_views.map(|view| {
                 create_filter_input_bind_group(
                     self.device,
                     &self.programs.filter_input_bind_group_layouts[0],
@@ -3044,7 +3045,7 @@ impl RendererContext<'_> {
                     view,
                 )
             });
-            let copy_sources = resources.layer_views(texture_pair).map(|view| {
+            let copy_sources = layer_views.map(|view| {
                 Programs::create_copy_bind_group(
                     self.device,
                     &self.programs.copy_bind_group_layout,
@@ -3052,14 +3053,14 @@ impl RendererContext<'_> {
                 )
             });
             self.programs.filter_pair_bind_groups.insert(
-                texture_pair,
+                bindings,
                 FilterPairBindGroups {
                     inputs,
                     copy_sources,
                 },
             );
         }
-        let filter_pair_bind_groups = &self.programs.filter_pair_bind_groups[&texture_pair];
+        let filter_pair_bind_groups = &self.programs.filter_pair_bind_groups[&bindings];
 
         let copy_pass = plan.copy_pass();
         if !copy_pass.is_empty() {
@@ -3090,7 +3091,7 @@ impl RendererContext<'_> {
             render_pass.set_bind_group(
                 1,
                 &filter_pair_bind_groups.copy_sources
-                    [textures.original().texture_parity.get_parity()],
+                    [bindings.target().texture_parity.get_parity()],
                 &[],
             );
             render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
@@ -3098,8 +3099,8 @@ impl RendererContext<'_> {
         }
 
         for (step_index, instances) in plan.steps().enumerate() {
-            let input = textures.input(step_index);
-            let output = textures.output(step_index);
+            let input = bindings.input(step_index);
+            let output = bindings.output(step_index);
             encode_filter_pass(
                 self.device,
                 self.encoder,
@@ -3188,15 +3189,14 @@ impl RendererBackend for RendererContext<'_> {
         &mut self,
         strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
-        target: DrawPassTarget,
-        child_layer_texture: Option<LayerTextureId>,
+        bindings: DrawPassBindings,
     ) {
         self.strip_pass_inner(
             &[],
             strips,
             external_texture_runs,
-            target,
-            child_layer_texture,
+            bindings.target,
+            bindings.child,
         );
     }
 
@@ -3204,14 +3204,13 @@ impl RendererBackend for RendererContext<'_> {
         &mut self,
         blends: RangedSlice<'_, BlendOp>,
         blend_strips: &[BlendStrip],
-        parent_texture_parity: TextureParity,
-        texture_pair: LayerTexturePair,
+        bindings: BlendPassBindings,
     ) {
-        self.blend_pass_inner(blends, blend_strips, parent_texture_parity, texture_pair);
+        self.blend_pass_inner(blends, blend_strips, bindings);
     }
 
-    fn filter_pass(&mut self, plan: &FilterPassPlan, textures: FilterTexturePair) {
-        self.filter_pass_inner(plan, textures);
+    fn filter_pass(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings) {
+        self.filter_pass_inner(plan, bindings);
     }
 
     fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) {

@@ -1316,11 +1316,20 @@ mod tests {
         assert_eq!(scheduled.page_counts(), [1, 2]);
         assert_eq!(rounds_view.len(), 3);
         // Round 0 binds the texture where the root is.
-        assert_eq!(rounds_view[0].binding[TextureParity::Odd.get_parity()], 0);
+        assert_eq!(
+            rounds_view[0].binding[TextureParity::Odd.get_parity()],
+            Some(0)
+        );
         // Round 1 binds the texture where the filter layer is.
-        assert_eq!(rounds_view[1].binding[TextureParity::Odd.get_parity()], 1);
+        assert_eq!(
+            rounds_view[1].binding[TextureParity::Odd.get_parity()],
+            Some(1)
+        );
         // Round 0 again binds to the root.
-        assert_eq!(rounds_view[2].binding[TextureParity::Odd.get_parity()], 0);
+        assert_eq!(
+            rounds_view[2].binding[TextureParity::Odd.get_parity()],
+            Some(0)
+        );
     }
 
     #[test]
@@ -1335,7 +1344,7 @@ mod tests {
             let target = region.target;
             assert_eq!(
                 rounds_view[1].binding[target.texture_parity.get_parity()],
-                target.page_index
+                Some(target.page_index)
             );
         }
     }
