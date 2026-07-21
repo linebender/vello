@@ -64,6 +64,34 @@ fn filter_offset_simple(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(skip_multithreaded)]
+fn filter_offset_vertical_only(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 10.0 });
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(10.0, 0.0, 90.0, 80.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_offset_horizontal_only(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 10.0, dy: 0.0 });
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 10.0, 80.0, 90.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_offset_flipped(ctx: &mut impl Renderer) {
+    ctx.set_transform(Affine::translate((100.0, 100.0)) * Affine::scale(-1.0));
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 10.0 });
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(10.0, 0.0, 90.0, 80.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
 fn filter_offset_no_offset(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
     ctx.push_filter_layer(filter);

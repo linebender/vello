@@ -90,13 +90,13 @@ impl ViewportState {
         let width = self
             .strip_generator
             .width()
-            .saturating_add(padding.x0)
-            .saturating_add(padding.x1);
+            .saturating_add(padding.left)
+            .saturating_add(padding.right);
         let height = self
             .strip_generator
             .height()
-            .saturating_add(padding.y0)
-            .saturating_add(padding.y1);
+            .saturating_add(padding.top)
+            .saturating_add(padding.bottom);
         // TODO: Use a pool of strip generators.
         let filter_generator = StripGenerator::new(width, height, self.level);
         let parent_generator = core::mem::replace(&mut self.strip_generator, filter_generator);

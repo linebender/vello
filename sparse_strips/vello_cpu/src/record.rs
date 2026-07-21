@@ -38,7 +38,7 @@ impl RecordedFill {
 }
 
 impl Drawable for RecordedFill {
-    fn bbox(&self, strips: &[Strip]) -> RectU16 {
+    fn bbox(&self, strips: &[Strip]) -> Option<RectU16> {
         strip_bbox(strips)
     }
 }

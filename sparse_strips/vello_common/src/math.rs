@@ -7,6 +7,13 @@ use core::ops::Sub;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 
+/// Round `value` up to the next multiple of `step`.
+#[inline]
+pub(crate) fn snap_up(value: f64, step: u16) -> f64 {
+    let step = f64::from(step);
+    (value / step).ceil() * step
+}
+
 // See https://raphlinus.github.io/audio/2018/09/05/sigmoid.html for a little
 // explanation of this approximation to the erf function.
 /// Approximate the erf function.
