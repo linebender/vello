@@ -456,6 +456,7 @@ impl Renderer {
             &self.paint_idxs,
             &self.schedule_storage.filter_context,
         );
+
         if clear {
             Self::clear_view(encoder, view);
         }
@@ -469,12 +470,14 @@ impl Renderer {
             external_paint_source_bind_groups: HashMap::new(),
             scratch: &mut self.scratch_buffers,
         };
+
         crate::schedule::execute(
             &mut ctx,
             &mut self.schedule_storage,
             schedule,
             root_output_target,
         );
+
         self.gradient_cache.maintain();
 
         Ok(())
@@ -628,6 +631,7 @@ impl Renderer {
         width: u32,
         height: u32,
     ) {
+        // Create a texture view for the specific atlas layer
         let layer_view =
             self.programs
                 .resources
@@ -641,6 +645,7 @@ impl Renderer {
                     mip_level_count: Some(1),
                     base_array_layer: atlas_id.as_u32(),
                     array_layer_count: Some(1),
+                    // Inherit usage from the texture
                     usage: None,
                 });
 
@@ -900,11 +905,11 @@ fn clear_atlas_region(queue: &Queue, renderer: &mut Renderer, rect: &PendingClea
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
-    /// Pipeline for rendering strips to intermediate targets with blending and without depth.
+    /// Intermediate strip pipeline.
     intermediate_strip_pipeline: RenderPipeline,
-    /// Pipeline for rendering alpha strips to the root target with blending and depth testing.
+    /// Root alpha-strip pipeline.
     alpha_strip_pipeline: RenderPipeline,
-    /// Pipeline for rendering opaque strips to the root target with depth testing and writes.
+    /// Root opaque-strip pipeline.
     opaque_strip_pipeline: RenderPipeline,
     /// Depth texture for early-z rejection on the Output target.
     depth_texture: Texture,
@@ -922,29 +927,29 @@ struct Programs {
     atlas_bind_group_layout: BindGroupLayout,
     /// Bind group layout for filter data texture.
     filter_bind_group_layout: BindGroupLayout,
-    /// Bind group layouts for filter input and the original layer texture.
+    /// Filter input layouts.
     filter_input_bind_group_layouts: [BindGroupLayout; 2],
-    /// Sampler used for filter input textures.
+    /// Filter sampler.
     filter_sampler: Sampler,
-    /// Bind group layout for blend operations that sample layer textures.
+    /// Blend bind group layout.
     blend_layer_bind_group_layout: BindGroupLayout,
-    /// Bind group layout for copying between intermediate textures.
+    /// Copy bind group layout.
     copy_bind_group_layout: BindGroupLayout,
-    /// Cached strip bind groups keyed by target kind and optional child layer page.
+    /// Strip bind group cache.
     strip_layer_bind_groups: HashMap<(StripTargetKind, Option<LayerTextureId>), BindGroup>,
-    /// Cached blend bind groups keyed by the pair of layer pages they sample.
+    /// Blend bind group cache.
     blend_layer_bind_groups: HashMap<BlendPassBindings, BindGroup>,
-    /// Cached filter pair bind groups.
+    /// Filter bind group cache.
     filter_pair_bind_groups: HashMap<FilterPassBindings, FilterPairBindGroups>,
     /// Pipeline for applying filter effects.
     filter_pipeline: RenderPipeline,
-    /// Pipeline for clearing rectangular regions in intermediate textures.
+    /// Layer-clear pipeline.
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
     atlas_clear_pipeline: RenderPipeline,
-    /// Pipeline for resolving non-default blend layers into scratch.
+    /// Blend pipeline.
     blend_pipeline: RenderPipeline,
-    /// Pipeline for copying between intermediate textures.
+    /// Copy pipeline.
     copy_pipeline: RenderPipeline,
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
@@ -961,7 +966,7 @@ struct Programs {
 struct GpuResources {
     /// Buffer for [`GpuStrip`] data
     strips_buffer: Buffer,
-    /// Texture for alpha values.
+    /// Alpha texture.
     alphas_texture: Texture,
     /// Textures for atlas data (multiple atlases supported)
     atlas_texture_array: Texture,
@@ -987,25 +992,25 @@ struct GpuResources {
     filter_data_texture: Texture,
     /// Bind group for the filter data texture.
     filter_base_bind_group: BindGroup,
-    /// Dimensions of the intermediate layer and scratch textures.
+    /// Intermediate texture size.
     texture_size: SizeU16,
-    /// Config buffer for rendering strips into the root target.
+    /// Root config buffer.
     view_config_buffer: Buffer,
-    /// Config buffer for rendering strips into a layer texture.
+    /// Layer config buffer.
     layer_config_buffer: Buffer,
 
     /// Placeholder paint-source bind group with a 1x1 dummy atlas texture, used during
     /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
     stub_atlas_bind_group: BindGroup,
 
-    /// Layer texture pages grouped by parity.
+    /// Layer textures by parity.
     layer_textures: [Vec<WgpuIntermediateTexture>; 2],
-    /// Shared scratch texture used for blend output and filter copy passes.
+    /// Scratch texture.
     scratch_texture: Option<ScratchTexture<WgpuIntermediateTexture>>,
-    /// Bind group for sampling filter copy-pass output from scratch.
+    /// Filter bind group for scratch.
     filter_original_bind_group: BindGroup,
 
-    /// Bind group for copying scratch back into layer atlas textures.
+    /// Copy bind group for scratch.
     scratch_copy_bind_group: BindGroup,
 }
 
@@ -1253,21 +1258,20 @@ impl Programs {
             bias: wgpu::DepthBiasState::default(),
         };
 
-        // Intermediate pipelines: depth test OFF, depth write OFF, blending ON.
         let intermediate_strip_pipeline = create_strip_pipeline(
             "Strip Intermediate Pipeline",
             wgpu::TextureFormat::Rgba8Unorm,
             Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
             None,
         );
-        // Alpha pipelines: depth test ON (LessEqual), depth write OFF, blending ON.
+
         let alpha_strip_pipeline = create_strip_pipeline(
             "Strip Alpha Pipeline",
             render_target_config.format,
             Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
             Some(depth_stencil(false)),
         );
-        // Opaque pipelines: depth test ON (LessEqual), depth write ON, blending OFF.
+
         let opaque_strip_pipeline = create_strip_pipeline(
             "Strip Opaque Pipeline",
             render_target_config.format,
@@ -1849,8 +1853,7 @@ impl Programs {
 
         for (index, textures) in self.resources.layer_textures.iter_mut().enumerate() {
             let required_page_count = layer_pages[index];
-            // Note: Currently, `texture_size` only grows across frames, so if this condition
-            // is true it means that the new required size is larger than what we currently have.
+            // Texture size currently only grows across frames.
             if size_changed {
                 for texture in textures.iter_mut() {
                     *texture = Self::create_intermediate_texture(
@@ -3092,7 +3095,6 @@ impl RendererContext<'_> {
                 .map(|rect| gpu_clear_instance(rect, target_size)),
         );
 
-        // Each recorded render pass needs stable vertex contents until command submission.
         let clear_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
