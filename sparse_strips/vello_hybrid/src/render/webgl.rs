@@ -292,6 +292,8 @@ impl WebGlRenderer {
 
         #[cfg(feature = "text")]
         {
+            // TODO: We should sort the rectangles once by atlas
+            // page and then clear per atlas page instead of per rect.
             resources.after_render(self, |renderer, rect| {
                 clear_atlas_region(renderer, rect);
             });
