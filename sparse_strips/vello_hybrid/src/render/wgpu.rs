@@ -468,7 +468,7 @@ impl Renderer {
             view,
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
-            scratch: &mut self.scratch_buffers,
+            scratch_buffers: &mut self.scratch_buffers,
         };
 
         crate::schedule::execute(
@@ -2709,7 +2709,7 @@ struct RendererContext<'a> {
     view: &'a TextureView,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
-    scratch: &'a mut ScratchBuffers,
+    scratch_buffers: &'a mut ScratchBuffers,
 }
 
 impl RendererContext<'_> {
@@ -2743,6 +2743,7 @@ impl RendererContext<'_> {
     ) {
         let opaque_count = opaque_strips.len();
         let alpha_count = alpha_strips.len();
+
         if opaque_count == 0 && alpha_count == 0 {
             return;
         }
@@ -2797,6 +2798,7 @@ impl RendererContext<'_> {
                 .strip_layer_bind_groups
                 .insert(bind_group_key, bind_group);
         }
+
         let bind_group = &self.programs.strip_layer_bind_groups[&bind_group_key];
 
         let enable_opaque = target.enable_opaque();
@@ -2915,10 +2917,12 @@ impl RendererContext<'_> {
                 ))
             }
         };
-        self.scratch.blend_instances.clear();
+
+        self.scratch_buffers.blend_instances.clear();
+
         for blend in blends.iter() {
             if let Some(range) = &blend.clip_strips {
-                self.scratch.blend_instances.extend(
+                self.scratch_buffers.blend_instances.extend(
                     blend_strips[usize::try_from(range.start).unwrap()
                         ..usize::try_from(range.end).unwrap()]
                         .iter()
@@ -2926,17 +2930,18 @@ impl RendererContext<'_> {
                         .map(|strip| GpuBlendInstance::new(blend, Some(strip), texture_size)),
                 );
             } else {
-                self.scratch
+                self.scratch_buffers
                     .blend_instances
                     .push(GpuBlendInstance::new(blend, None, texture_size));
             }
         }
-        let instance_count = u32::try_from(self.scratch.blend_instances.len()).unwrap();
+
+        let instance_count = u32::try_from(self.scratch_buffers.blend_instances.len()).unwrap();
         let instance_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Blend Instances Buffer"),
-                contents: bytemuck::cast_slice(&self.scratch.blend_instances),
+                contents: bytemuck::cast_slice(&self.scratch_buffers.blend_instances),
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
@@ -2963,9 +2968,9 @@ impl RendererContext<'_> {
             render_pass.draw(0..4, 0..instance_count);
         }
 
-        self.scratch.copy_instances.clear();
-        self.scratch.copy_instances.extend(
-            self.scratch
+        self.scratch_buffers.copy_instances.clear();
+        self.scratch_buffers.copy_instances.extend(
+            self.scratch_buffers
                 .blend_instances
                 .iter()
                 .copied()
@@ -2975,7 +2980,7 @@ impl RendererContext<'_> {
             self.device,
             self.encoder,
             &self.programs.copy_pipeline,
-            &self.scratch.copy_instances,
+            &self.scratch_buffers.copy_instances,
             &self.programs.resources.scratch_copy_bind_group,
             self.programs.resources.layer_view(bindings.target()),
             "Copy Blend Scratch To Layer",
@@ -3048,28 +3053,25 @@ impl RendererContext<'_> {
     }
 
     fn clear_pass_inner(&mut self, target: LayerTextureId, rects: &[RectU16]) {
-        if rects.is_empty() {
-            return;
-        }
-
         let texture_size = self.texture_size();
         let target_size = [
             u32::from(texture_size.width()),
             u32::from(texture_size.height()),
         ];
-        self.scratch.clear_instances.clear();
-        self.scratch.clear_instances.extend(
-            rects
-                .iter()
-                .copied()
-                .map(|rect| gpu_clear_instance(rect, target_size)),
-        );
+        self.scratch_buffers.clear_instances.clear();
+        self.scratch_buffers
+            .clear_instances
+            .extend(rects.iter().copied().map(|rect| GpuClearInstance {
+                origin: [u32::from(rect.x0), u32::from(rect.y0)],
+                size: [u32::from(rect.width()), u32::from(rect.height())],
+                target_size,
+            }));
 
         let clear_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Clear Buffer"),
-                contents: bytemuck::cast_slice(&self.scratch.clear_instances),
+                contents: bytemuck::cast_slice(&self.scratch_buffers.clear_instances),
                 usage: wgpu::BufferUsages::VERTEX,
             });
         let view = self.programs.resources.layer_view(target);
@@ -3093,7 +3095,7 @@ impl RendererContext<'_> {
         render_pass.set_vertex_buffer(0, clear_buffer.slice(..));
         render_pass.draw(
             0..4,
-            0..u32::try_from(self.scratch.clear_instances.len()).unwrap(),
+            0..u32::try_from(self.scratch_buffers.clear_instances.len()).unwrap(),
         );
     }
 }
@@ -3218,14 +3220,6 @@ fn encode_filter_pass(
     render_pass.set_bind_group(2, original_texture_bind_group, &[]);
     render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
     render_pass.draw(0..4, 0..instance_count);
-}
-
-fn gpu_clear_instance(rect: RectU16, target_size: [u32; 2]) -> GpuClearInstance {
-    GpuClearInstance {
-        origin: [u32::from(rect.x0), u32::from(rect.y0)],
-        size: [u32::from(rect.width()), u32::from(rect.height())],
-        target_size,
-    }
 }
 
 fn create_filter_input_bind_group(
