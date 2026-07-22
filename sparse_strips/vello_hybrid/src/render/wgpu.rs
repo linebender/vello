@@ -419,13 +419,6 @@ impl Renderer {
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
-        Programs::maybe_resize_atlas_texture_array(
-            device,
-            encoder,
-            &mut self.programs.resources,
-            &self.programs.atlas_bind_group_layout,
-            image_cache.atlas_count() as u32,
-        );
         let required_texture_size = self
             .layers_config
             .required_intermediate_texture_size(&scene.recorder)?;

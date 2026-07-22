@@ -419,8 +419,6 @@ impl WebGlRenderer {
         let encoded_paints = &scene.encoded_paints;
 
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache);
-        self.programs
-            .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
 
         let mut required_texture_size = self
             .layers_config
