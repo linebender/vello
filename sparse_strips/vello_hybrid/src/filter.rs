@@ -442,8 +442,8 @@ impl FilterPassPlan {
         self.steps.as_slice().iter().map(Vec::as_slice)
     }
 
-    pub(crate) fn copy_pass(&self) -> &[GpuCopyInstance] {
-        &self.copy_pass
+    pub(crate) fn copy_pass(&self) -> Option<&[GpuCopyInstance]> {
+        (!self.copy_pass.is_empty()).then_some(&self.copy_pass)
     }
 
     fn clear(&mut self) {
@@ -751,12 +751,12 @@ mod tests {
             [filter_op(gpu_shadow(), 0), filter_op(gpu_blur(8.0), 1)],
             SizeU16::new(64),
         );
-        assert!(!plan.copy_pass().is_empty());
+        assert!(plan.copy_pass().is_some());
         assert!(plan.steps().count() > 2);
 
         plan.init([filter_op(gpu_offset(), 0)], SizeU16::new(64));
 
-        assert!(plan.copy_pass().is_empty());
+        assert!(plan.copy_pass().is_none());
         assert_eq!(
             step_layout(&plan),
             [
@@ -774,7 +774,7 @@ mod tests {
             SizeU16::new(64),
         );
 
-        assert!(plan.copy_pass().is_empty());
+        assert!(plan.copy_pass().is_none());
         assert_eq!(
             step_layout(&plan),
             [
