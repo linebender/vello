@@ -3,9 +3,8 @@
 
 //! Helpers for creating tests in the scheduler.
 
-use super::{Backend, Schedule, ScheduleStorage};
+use super::{Backend, IntermediateTextureAllocations, Schedule, ScheduleStorage};
 use crate::paint::PaintResolver;
-use crate::scene::LayersConfig;
 use crate::schedule::round::DrawPass;
 use crate::target::RootTarget;
 use crate::{RenderError, Scene};
@@ -86,10 +85,8 @@ impl SceneCase {
             root_target,
             PaintResolver::new(encoded, &offsets),
             texture_size,
-            LayersConfig {
-                max_textures: Some(max_textures),
-                ..Default::default()
-            },
+            IntermediateTextureAllocations::default(),
+            Some(max_textures),
         )
     }
 
@@ -128,11 +125,17 @@ impl ScheduledCase {
     }
 
     pub(super) fn page_counts(&self) -> [usize; 2] {
-        self.schedule.layer_page_counts()
+        self.schedule
+            .intermediate_texture_requirements()
+            .allocations
+            .layer_pages
     }
 
     pub(super) fn scratch_texture(&self) -> bool {
-        self.schedule.scratch_texture()
+        self.schedule
+            .intermediate_texture_requirements()
+            .allocations
+            .scratch
     }
 
     pub(super) fn views(&self) -> Vec<RoundView> {

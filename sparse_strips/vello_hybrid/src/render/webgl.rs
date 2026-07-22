@@ -42,7 +42,9 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{Backend, Schedule, ScheduleStorage, round::BlendOp},
+    schedule::{
+        Backend, IntermediateTextureAllocations, Schedule, ScheduleStorage, round::BlendOp,
+    },
     target::{
         BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
         RootTarget, TextureParity,
@@ -386,6 +388,18 @@ impl WebGlRenderer {
         result
     }
 
+    fn current_allocations(&self) -> IntermediateTextureAllocations {
+        IntermediateTextureAllocations {
+            layer_pages: self
+                .programs
+                .resources
+                .layer_textures
+                .each_ref()
+                .map(Vec::len),
+            scratch: self.programs.resources.scratch_texture.is_some(),
+        }
+    }
+
     /// Shared render pipeline: prepares GPU resources, runs the scheduler, and
     /// maintains caches.
     ///
@@ -418,6 +432,7 @@ impl WebGlRenderer {
             .resources
             .texture_size
             .max(required_texture_size);
+        let current_allocations = self.current_allocations();
 
         let paint_resolver = PaintResolver::new(encoded_paints, &self.paint_idxs);
         let schedule = Schedule::try_new(
@@ -426,7 +441,8 @@ impl WebGlRenderer {
             root_output_target,
             paint_resolver,
             texture_size,
-            self.layer_config,
+            current_allocations,
+            self.layer_config.max_textures,
         )?;
         self.programs
             .prepare_intermediate_textures(&self.gl, &schedule, texture_size);
@@ -1094,8 +1110,9 @@ impl WebGlPrograms {
         texture_size: SizeU16,
     ) {
         let current_size = self.resources.texture_size;
-        let layer_pages = schedule.layer_page_counts();
-        let scratch_required = schedule.scratch_texture();
+        let allocations = schedule.intermediate_texture_requirements().allocations;
+        let layer_pages = allocations.layer_pages;
+        let scratch_required = allocations.scratch;
         let size_changed = current_size != texture_size;
 
         if size_changed {

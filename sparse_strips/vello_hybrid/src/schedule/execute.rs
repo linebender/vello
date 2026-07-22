@@ -88,7 +88,7 @@ impl Schedule {
             root_output_target,
             buffers,
             filter_plan,
-            self.texture_size,
+            self.intermediate_textures.size,
         );
     }
 }

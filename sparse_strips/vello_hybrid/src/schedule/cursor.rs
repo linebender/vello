@@ -44,8 +44,8 @@ impl Cursor {
     }
 
     /// Indicate that access to the scratch texture is required.
-    pub(super) fn require_scratch_texture(&mut self) -> Result<(), AtlasError> {
-        self.atlases.require_scratch_texture()
+    pub(super) fn require_scratch_texture(&mut self) {
+        self.atlases.require_scratch_texture();
     }
 
     pub(super) fn allocate_layer(
@@ -66,7 +66,7 @@ impl Cursor {
 
         // The currently available layer textures do not have enough room to store our layer.
         // Therefore, we need to attempt to create a new one.
-        self.atlases.add_layer_atlas(request.texture_parity)?;
+        self.atlases.add_layer_atlas(request.texture_parity);
 
         let allocation = self
             .atlases
@@ -132,20 +132,13 @@ impl Cursor {
 #[cfg(test)]
 mod tests {
     use super::Cursor;
-    use crate::scene::LayersConfig;
     use crate::schedule::allocate::{Atlases, LayerAllocationRequest};
     use crate::target::{LayerTextureId, TextureParity};
     use vello_common::geometry::{RectU16, SizeU16};
-    use vello_common::multi_atlas::AtlasError;
     use vello_common::record::RecordedLayerKind;
 
-    fn cursor(max_textures: usize) -> Cursor {
-        let config = LayersConfig {
-            max_textures: Some(max_textures),
-            ..Default::default()
-        };
-
-        Cursor::new(Atlases::new(SizeU16::new(8), config))
+    fn cursor() -> Cursor {
+        Cursor::new(Atlases::new(SizeU16::new(8)))
     }
 
     fn request(texture_parity: TextureParity, size: SizeU16) -> LayerAllocationRequest {
@@ -157,7 +150,7 @@ mod tests {
 
     #[test]
     fn current_space() {
-        let mut cursor = cursor(1);
+        let mut cursor = cursor();
         let request = request(TextureParity::Even, SizeU16::from_wh(4, 8));
 
         let first = cursor.allocate_layer(request).unwrap();
@@ -175,7 +168,7 @@ mod tests {
 
     #[test]
     fn deferred_reuse() {
-        let mut cursor = cursor(1);
+        let mut cursor = cursor();
         let request = request(TextureParity::Even, SizeU16::new(8));
         let first = cursor.allocate_layer(request).unwrap();
         cursor.release(first.allocation, 2);
@@ -188,7 +181,7 @@ mod tests {
 
     #[test]
     fn page_growth() {
-        let mut cursor = cursor(3);
+        let mut cursor = cursor();
         let even = request(TextureParity::Even, SizeU16::new(8));
         let odd = request(TextureParity::Odd, SizeU16::new(8));
         cursor.allocate_layer(even).unwrap();
@@ -206,24 +199,9 @@ mod tests {
     }
 
     #[test]
-    fn texture_limit() {
-        let mut cursor = cursor(2);
-        let even = request(TextureParity::Even, SizeU16::new(8));
-        let odd = request(TextureParity::Odd, SizeU16::new(8));
-        cursor.allocate_layer(even).unwrap();
-        let released = cursor.allocate_layer(odd).unwrap();
-        cursor.release(released.allocation, 1);
-
-        assert!(matches!(
-            cursor.allocate_layer(even),
-            Err(AtlasError::NoSpaceAvailable)
-        ));
-    }
-
-    #[test]
     #[should_panic(expected = "cannot release an allocation in a round already passed")]
     fn past_release() {
-        let mut cursor = cursor(1);
+        let mut cursor = cursor();
         let allocation = cursor
             .allocate_layer(request(TextureParity::Even, SizeU16::new(8)))
             .unwrap();

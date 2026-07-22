@@ -6,18 +6,17 @@
 //! After recording the render commands provided by the user, we have a DAG-like representation
 //! of the scene, with individual nodes that represent a contiguous sequence of batched draws,
 //! followed by an optional layer composition. The task of the scheduler is to consume this
-//! representation and, given the constraints on intermediate resources imposed by [`LayersConfig`],
-//! schedule draw and layer operations in such a way that they can be executed in render passes
-//! by the GPU, to achieve the final intended visual result.
+//! representation and fixed intermediate texture page dimensions, schedule draw and layer
+//! operations in such a way that they can be executed in render passes by the GPU, to achieve the
+//! final intended visual result.
 //!
 //! There are many different ways of finding such a schedule, each with different advantages and
 //! disadvantages. Vello Hybrid's scheduling algorithm has the following core properties:
 //!
-//! - It always finds a valid schedule for any scene, assuming such a schedule exists given the
-//!   resource constraints.
+//! - It always finds a valid schedule for any scene whose individual layers fit within the given
+//!   texture page dimensions.
 //! - It always chooses a schedule that tries to minimize the number of texture allocations, even
-//!   if that means increasing the number of render passes (and thus sacrificing performance),
-//!   and even if the user permits allocating more resources.
+//!   if that means increasing the number of render passes and thus sacrificing performance.
 //! - If the _already_ allocated resources are abundant enough, it employs batching to reduce
 //!   the number of render passes. However, the schedule is not necessarily the globally most
 //!   optimal one in terms of render passes.
@@ -138,10 +137,11 @@ use crate::schedule::allocate::AllocatedTextureRegion;
 use crate::target::{
     DrawTarget, LayerTextureRegion, RootTarget, RoundBindings, TextureParity, TextureRegion,
 };
-use crate::{LayersConfig, RenderError, Scene, blend::BlendStrip};
+use crate::{RenderError, Scene, blend::BlendStrip};
 use alloc::vec::Vec;
 use vello_common::filter::FilterLayerPlacement;
 use vello_common::geometry::{RectU16, SizeU16};
+use vello_common::multi_atlas::AtlasError;
 use vello_common::peniko::BlendMode;
 use vello_common::record::{CommandRecorder, LayerProps, Node, RecordedLayer, RecordedLayerKind};
 use vello_common::strip::visit_strip_fill_segments;
@@ -155,10 +155,61 @@ const REGULAR_LAYER_KIND: RecordedLayerKind = RecordedLayerKind::Regular;
 pub(crate) struct Schedule {
     /// Rendering rounds in execution order.
     rounds: Rounds,
-    /// The dimensions of every intermediate texture.
-    texture_size: SizeU16,
-    /// Whether execution requires the shared scratch texture.
-    scratch_texture: bool,
+    /// Intermediate textures required to execute this schedule.
+    intermediate_textures: IntermediateTextureRequirements,
+}
+
+/// Intermediate textures required to execute a [`Schedule`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IntermediateTextureRequirements {
+    /// Dimensions shared by every intermediate texture.
+    pub(crate) size: SizeU16,
+    /// Intermediate texture allocations required by the schedule.
+    pub(crate) allocations: IntermediateTextureAllocations,
+}
+
+/// Counts of allocated or required intermediate textures.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IntermediateTextureAllocations {
+    /// Number of layer texture pages included for each parity.
+    pub(crate) layer_pages: [usize; 2],
+    /// Whether the shared scratch texture is included.
+    pub(crate) scratch: bool,
+}
+
+impl IntermediateTextureAllocations {
+    /// Combine the current set of allocations with another one.
+    pub(crate) fn combine(self, existing: Self) -> Self {
+        Self {
+            layer_pages: core::array::from_fn(|index| {
+                self.layer_pages[index].max(existing.layer_pages[index])
+            }),
+            scratch: self.scratch || existing.scratch,
+        }
+    }
+
+    /// Return the total number of physical textures represented by these allocations.
+    fn texture_count(self) -> usize {
+        self.layer_pages.into_iter().sum::<usize>() + usize::from(self.scratch)
+    }
+}
+
+impl IntermediateTextureRequirements {
+    /// Validate that satisfying these requirements from the backend's existing allocations stays
+    /// within the configured limit.
+    pub(crate) fn validate(
+        self,
+        existing: IntermediateTextureAllocations,
+        max_textures: Option<usize>,
+    ) -> Result<(), AtlasError> {
+        let retained_textures = self.allocations.combine(existing).texture_count();
+
+        if max_textures.is_some_and(|limit| retained_textures > limit) {
+            return Err(AtlasError::NoSpaceAvailable);
+        }
+
+        Ok(())
+    }
 }
 
 impl Schedule {
@@ -168,7 +219,8 @@ impl Schedule {
         root_output_target: RootTarget,
         paint_resolver: PaintResolver<'_>,
         texture_size: SizeU16,
-        layer_config: LayersConfig,
+        backend_allocations: IntermediateTextureAllocations,
+        max_textures: Option<usize>,
     ) -> Result<Self, RenderError> {
         storage.clear();
 
@@ -188,19 +240,20 @@ impl Schedule {
             root_output_target,
             paint_resolver,
             texture_size,
-            layer_config,
             storage,
         );
 
-        scheduler.build()
+        let schedule = scheduler.build()?;
+
+        schedule
+            .intermediate_textures
+            .validate(backend_allocations, max_textures)?;
+
+        Ok(schedule)
     }
 
-    pub(crate) fn layer_page_counts(&self) -> [usize; 2] {
-        self.rounds.layer_page_counts()
-    }
-
-    pub(crate) fn scratch_texture(&self) -> bool {
-        self.scratch_texture
+    pub(crate) fn intermediate_texture_requirements(&self) -> IntermediateTextureRequirements {
+        self.intermediate_textures
     }
 }
 
@@ -234,7 +287,6 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         root_render_target: RootTarget,
         paint_resolver: PaintResolver<'a>,
         texture_size: SizeU16,
-        layer_config: LayersConfig,
         storage: &'p mut ScheduleStorage,
     ) -> Self {
         Self {
@@ -243,7 +295,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             strip_storage,
             root_render_target,
             paint_resolver,
-            cursor: Cursor::new(Atlases::new(texture_size, layer_config)),
+            cursor: Cursor::new(Atlases::new(texture_size)),
             texture_size,
             storage,
         }
@@ -257,11 +309,16 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // Since the strips should be rendered front-to-back.
         self.storage.buffers.draw_buffers.opaque_strips.reverse();
 
-        let scratch_texture = self.cursor.scratch_texture();
+        let intermediate_textures = IntermediateTextureRequirements {
+            size: self.texture_size,
+            allocations: IntermediateTextureAllocations {
+                layer_pages: rounds.layer_page_counts(),
+                scratch: self.cursor.scratch_texture(),
+            },
+        };
         Ok(Schedule {
             rounds,
-            texture_size: self.texture_size,
-            scratch_texture,
+            intermediate_textures,
         })
     }
 
@@ -360,7 +417,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             let textures = FilterTextureRegions::new(region.texture, temporary.allocation.region);
 
             if filter.data.needs_copy_pass() {
-                self.cursor.require_scratch_texture()?;
+                self.cursor.require_scratch_texture();
             }
 
             // Now we determine the point at which we can perform the filter operation.
@@ -592,7 +649,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         });
 
         let parent_texture_parity = parent_region.texture.target.texture_parity;
-        self.cursor.require_scratch_texture()?;
+        self.cursor.require_scratch_texture();
 
         let blend_stage = RoundStage::blend(parent_texture_parity);
         let blend_binding = RoundBindings::new(parent_region.texture.target)
@@ -976,14 +1033,56 @@ impl ScheduleTarget for LayerTextureRegion {
 
 #[cfg(test)]
 mod tests {
-    use super::ScheduleStorage;
     use super::test_support::{SceneCase, ScheduledCase};
+    use super::{IntermediateTextureAllocations, IntermediateTextureRequirements, ScheduleStorage};
     use crate::filter::FILTER_ATLAS_PADDING;
     use crate::target::{RootTarget, TextureParity};
     use vello_common::filter_effects::{Filter, FilterPrimitive};
     use vello_common::geometry::SizeU16;
     use vello_common::kurbo::Rect;
+    use vello_common::multi_atlas::AtlasError;
     use vello_common::peniko::{BlendMode, Compose, Mix};
+
+    #[test]
+    fn intermediate_texture_requirements_validate_limit() {
+        let allocations = |layer_pages, scratch| IntermediateTextureAllocations {
+            layer_pages,
+            scratch,
+        };
+        let base = IntermediateTextureRequirements {
+            size: SizeU16::new(8),
+            allocations: allocations([1, 1], true),
+        };
+
+        assert!(
+            base.validate(IntermediateTextureAllocations::default(), None)
+                .is_ok()
+        );
+        assert!(
+            base.validate(IntermediateTextureAllocations::default(), Some(3))
+                .is_ok()
+        );
+        assert!(base.validate(allocations([1, 0], true), Some(3)).is_ok());
+        assert!(base.validate(allocations([0, 1], true), Some(3)).is_ok());
+        assert!(base.validate(allocations([0, 2], false), Some(4)).is_ok());
+        assert!(base.validate(allocations([0, 3], false), Some(4)).is_err());
+        assert!(matches!(
+            base.validate(allocations([2, 0], false), Some(3)),
+            Err(AtlasError::NoSpaceAvailable)
+        ));
+        assert!(matches!(
+            base.validate(allocations([1, 0], true), Some(2)),
+            Err(AtlasError::NoSpaceAvailable)
+        ));
+        assert!(matches!(
+            base.validate(allocations([0, 2], false), Some(3)),
+            Err(AtlasError::NoSpaceAvailable)
+        ));
+        assert!(matches!(
+            base.validate(allocations([2, 2], false), Some(4)),
+            Err(AtlasError::NoSpaceAvailable)
+        ));
+    }
 
     fn blend_case() -> ScheduledCase {
         let mut case = SceneCase::new(32, 8);

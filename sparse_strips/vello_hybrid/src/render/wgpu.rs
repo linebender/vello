@@ -41,7 +41,9 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{Backend, Schedule, ScheduleStorage, round::BlendOp},
+    schedule::{
+        Backend, IntermediateTextureAllocations, Schedule, ScheduleStorage, round::BlendOp,
+    },
     target::{
         BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
         RootTarget, TextureParity,
@@ -386,6 +388,18 @@ impl Renderer {
         result
     }
 
+    fn current_allocations(&self) -> IntermediateTextureAllocations {
+        IntermediateTextureAllocations {
+            layer_pages: self
+                .programs
+                .resources
+                .layer_textures
+                .each_ref()
+                .map(Vec::len),
+            scratch: self.programs.resources.scratch_texture.is_some(),
+        }
+    }
+
     /// Shared render pipeline: prepares GPU resources, runs the scheduler against
     /// the provided `view` at `render_size`, and maintains caches.
     ///
@@ -425,6 +439,7 @@ impl Renderer {
             .resources
             .texture_size
             .max(required_texture_size);
+        let current_allocations = self.current_allocations();
         let paint_resolver = PaintResolver::new(encoded_paints, &self.paint_idxs);
         let schedule = Schedule::try_new(
             &mut self.schedule_storage,
@@ -432,10 +447,11 @@ impl Renderer {
             root_output_target,
             paint_resolver,
             texture_size,
-            self.layer_config,
+            current_allocations,
+            self.layer_config.max_textures,
         )?;
         self.programs
-            .prepare_intermediate_textures(device, &schedule, texture_size);
+            .prepare_intermediate_textures(device, &schedule);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -1795,15 +1811,13 @@ impl Programs {
         WgpuIntermediateTexture::new(texture)
     }
 
-    fn prepare_intermediate_textures(
-        &mut self,
-        device: &Device,
-        schedule: &Schedule,
-        texture_size: SizeU16,
-    ) {
+    fn prepare_intermediate_textures(&mut self, device: &Device, schedule: &Schedule) {
+        let requirements = schedule.intermediate_texture_requirements();
+        let texture_size = requirements.size;
         let current_size = self.resources.texture_size;
-        let layer_pages = schedule.layer_page_counts();
-        let scratch_required = schedule.scratch_texture();
+        let allocations = requirements.allocations;
+        let layer_pages = allocations.layer_pages;
+        let scratch_required = allocations.scratch;
         let size_changed = current_size != texture_size;
 
         if size_changed {
