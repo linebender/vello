@@ -2673,18 +2673,22 @@ impl Programs {
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
     ) {
-        let opaque_bytes = size_of_val(opaque_strips) as u64;
-        let alpha_bytes = (alpha_strips.len() * size_of::<GpuStrip>()) as u64;
-        let total = opaque_bytes + alpha_bytes;
-        self.resources.strips_buffer = Self::create_strips_buffer(device, total);
+        let opaque_len = size_of_val(opaque_strips) as u64;
+        let alpha_len = (alpha_strips.len() * size_of::<GpuStrip>()) as u64;
+        let total_len = opaque_len + alpha_len;
+        self.resources.strips_buffer = Self::create_strips_buffer(device, total_len);
         // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
         let mut buffer_view = queue
-            .write_buffer_with(&self.resources.strips_buffer, 0, total.try_into().unwrap())
+            .write_buffer_with(
+                &self.resources.strips_buffer,
+                0,
+                total_len.try_into().unwrap(),
+            )
             .expect("Capacity handled in creation");
         buffer_view
-            .slice(..opaque_bytes as usize)
+            .slice(..opaque_len as usize)
             .copy_from_slice(bytemuck::cast_slice(opaque_strips));
-        let mut offset = opaque_bytes as usize;
+        let mut offset = opaque_len as usize;
         for strips in alpha_strips.slices() {
             let bytes = bytemuck::cast_slice(strips);
             buffer_view
