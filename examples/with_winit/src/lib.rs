@@ -665,7 +665,7 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                         .create_view(&wgpu::TextureViewDescriptor::default()),
                 );
                 device_handle.queue.submit([encoder.finish()]);
-                surface_texture.present();
+                device_handle.queue.present(surface_texture);
                 drop(texture_span);
 
                 {
