@@ -137,6 +137,7 @@ impl ImageSource {
         let height = image.height.try_into().unwrap();
 
         // TODO: SIMD
+        let mut may_have_transparency = false;
         #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow.")]
         let pixels = image
             .data
@@ -148,6 +149,7 @@ impl ImageSource {
                     peniko::ImageFormat::Bgra8 => [pixel[2], pixel[1], pixel[0], pixel[3]],
                     format => unimplemented!("Unsupported image format: {format:?}"),
                 };
+                may_have_transparency |= rgba[3] != 255;
                 let alpha = u16::from(rgba[3]);
                 let multiply = |component| ((alpha * u16::from(component)) / 255) as u8;
                 if do_alpha_multiply {
@@ -167,7 +169,7 @@ impl ImageSource {
                 }
             })
             .collect();
-        let pixmap = Pixmap::from_parts(pixels, width, height);
+        let pixmap = Pixmap::from_parts_with_opacity(pixels, width, height, may_have_transparency);
 
         Self::Pixmap(Arc::new(pixmap))
     }
@@ -274,3 +276,33 @@ pub struct Tint {
 
 /// A kind of paint that can be used for filling and stroking shapes.
 pub type PaintType = peniko::Brush<Image, Gradient>;
+
+#[cfg(test)]
+mod tests {
+    use super::ImageSource;
+    use alloc::sync::Arc;
+
+    fn image_data(pixels: &[u8], alpha_type: peniko::ImageAlphaType) -> peniko::ImageData {
+        peniko::ImageData {
+            data: peniko::Blob::new(Arc::new(pixels.to_vec())),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type,
+            width: (pixels.len() / 4) as u32,
+            height: 1,
+        }
+    }
+
+    #[test]
+    fn from_peniko_image_data_computes_transparency_hint() {
+        for alpha_type in [
+            peniko::ImageAlphaType::Alpha,
+            peniko::ImageAlphaType::AlphaPremultiplied,
+        ] {
+            let opaque = image_data(&[10, 20, 30, 255, 40, 50, 60, 255], alpha_type);
+            assert!(!ImageSource::from_peniko_image_data(&opaque).may_have_transparency());
+
+            let translucent = image_data(&[10, 20, 30, 255, 40, 50, 60, 128], alpha_type);
+            assert!(ImageSource::from_peniko_image_data(&translucent).may_have_transparency());
+        }
+    }
+}
