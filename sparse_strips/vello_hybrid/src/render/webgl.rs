@@ -114,8 +114,8 @@ pub struct WebGlRenderer {
     gradient_cache: GradientRampCache,
     dummy_image_cache: Option<ImageCache>,
     schedule_storage: ScheduleStorage,
-    scratch: ScratchBuffers,
-    layer_config: LayersConfig,
+    scratch_buffers: ScratchBuffers,
+    layers_config: LayersConfig,
 }
 
 /// Current allocation state of the WebGL image/glyph atlas texture.
@@ -136,7 +136,7 @@ impl WebGlRenderer {
     }
 
     /// Creates a new WebGL2 renderer with specific settings.
-    pub fn new_with(canvas: &HtmlCanvasElement, settings: RenderSettings) -> Self {
+    pub fn new_with(canvas: &HtmlCanvasElement, mut settings: RenderSettings) -> Self {
         #[allow(
             clippy::assertions_on_constants,
             reason = "intentional guard against non-wasm32 use"
@@ -209,7 +209,6 @@ impl WebGlRenderer {
             );
         }
 
-        let mut settings = settings;
         let device_limits = DeviceLimits {
             max_texture_dimension_2d: get_max_texture_dimension_2d(&gl),
             max_texture_array_layers: get_max_texture_array_layers(&gl),
@@ -240,8 +239,8 @@ impl WebGlRenderer {
             gradient_cache,
             dummy_image_cache: Some(ImageCache::new_dummy()),
             schedule_storage: ScheduleStorage::default(),
-            scratch: ScratchBuffers::default(),
-            layer_config,
+            scratch_buffers: ScratchBuffers::default(),
+            layers_config: layer_config,
         }
     }
 
@@ -421,17 +420,18 @@ impl WebGlRenderer {
         self.programs
             .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
 
-        let required_texture_size = self
-            .layer_config
+        let mut required_texture_size = self
+            .layers_config
             .required_intermediate_texture_size(&scene.recorder)?;
 
         // We currently only grow and never shrink textures, so max it with whatever
         // we had in the previous run.
-        let texture_size = self
+        required_texture_size = self
             .programs
             .resources
             .texture_size
             .max(required_texture_size);
+
         let current_allocations = self.current_allocations();
 
         let paint_resolver = PaintResolver::new(encoded_paints, &self.paint_idxs);
@@ -440,12 +440,12 @@ impl WebGlRenderer {
             scene,
             root_output_target,
             paint_resolver,
-            texture_size,
+            required_texture_size,
             current_allocations,
-            self.layer_config.max_textures,
+            self.layers_config.max_textures,
         )?;
         self.programs
-            .prepare_intermediate_textures(&self.gl, &schedule, texture_size);
+            .prepare_intermediate_textures(&self.gl, &schedule, required_texture_size);
 
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -466,7 +466,7 @@ impl WebGlRenderer {
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
-            scratch: &mut self.scratch,
+            scratch_buffers: &mut self.scratch_buffers,
         };
         crate::schedule::execute(
             &mut ctx,
@@ -830,13 +830,13 @@ pub(crate) struct WebGlPrograms {
     filter_program: Program,
     /// Uniform locations for the filter program.
     filter_uniforms: FilterPassUniforms,
-    /// Program for resolving non-default blend layers into scratch.
+    /// Program for performing blending.
     blend_program: Program,
     /// Uniform locations for the blend program.
     blend_uniforms: BlendUniforms,
-    /// Program for copying between intermediate textures.
+    /// Program for performing copies.
     copy_program: Program,
-    /// Uniform locations for the blend copy program.
+    /// Uniform locations for the copy program.
     copy_uniforms: CopyUniforms,
     /// WebGL resources for rendering.
     pub(crate) resources: WebGlResources,
@@ -960,12 +960,36 @@ pub(crate) struct WebGlResources {
     copy_instance_buffer: Buffer,
     /// VAO for copy rendering.
     copy_vao: VertexArray,
-    /// Scratch texture for blend and certain filter operations.
+    /// Scratch texture.
     scratch_texture: Option<ScratchTexture<WebGlIntermediateTexture>>,
     /// Config buffer for rendering strips into a layer texture.
     layer_config_buffer: Buffer,
     /// Layer texture pages grouped by parity.
     layer_textures: [Vec<WebGlIntermediateTexture>; 2],
+}
+
+impl WebGlResources {
+    fn layer_texture(&self, id: LayerTextureId) -> &Texture {
+        self.layer_textures[id.texture_parity.get_parity()][usize::from(id.page_index)]
+            .binding_texture()
+    }
+
+    fn layer_framebuffer(&self, id: LayerTextureId) -> &Framebuffer {
+        self.layer_textures[id.texture_parity.get_parity()][usize::from(id.page_index)]
+            .framebuffer()
+    }
+
+    fn scratch_binding_texture(&self) -> &Texture {
+        self.scratch_texture
+            .as_ref()
+            .map_or(&self.placeholder_external_texture, |texture| {
+                texture.get().binding_texture()
+            })
+    }
+
+    fn scratch_framebuffer(&self) -> &Framebuffer {
+        self.scratch_texture.as_ref().unwrap().get().framebuffer()
+    }
 }
 
 #[derive(Debug)]
@@ -981,38 +1005,6 @@ impl WebGlIntermediateTexture {
 
     fn framebuffer(&self) -> &Framebuffer {
         &self.framebuffer
-    }
-}
-
-impl WebGlResources {
-    fn layer_texture(&self, id: LayerTextureId) -> &Texture {
-        self.layer_textures[id.texture_parity.get_parity()]
-            .get(usize::from(id.page_index))
-            .expect("vello_hybrid attempted to use a missing layer texture")
-            .binding_texture()
-    }
-
-    fn layer_framebuffer(&self, id: LayerTextureId) -> &Framebuffer {
-        self.layer_textures[id.texture_parity.get_parity()]
-            .get(usize::from(id.page_index))
-            .expect("vello_hybrid attempted to use a missing layer texture")
-            .framebuffer()
-    }
-
-    fn scratch_binding_texture(&self) -> &Texture {
-        self.scratch_texture
-            .as_ref()
-            .map_or(&self.placeholder_external_texture, |texture| {
-                texture.get().binding_texture()
-            })
-    }
-
-    fn scratch_framebuffer(&self) -> &Framebuffer {
-        self.scratch_texture
-            .as_ref()
-            .expect("vello_hybrid attempted to use a missing scratch texture")
-            .get()
-            .framebuffer()
     }
 }
 
@@ -1529,9 +1521,9 @@ impl WebGlPrograms {
             Some(&self.resources.strips_buffer),
         );
 
-        let opaque_bytes: &[u8] = bytemuck::cast_slice(opaque_strips);
+        let opaque_len = size_of_val(opaque_strips);
         let alpha_len = alpha_strips.len() * size_of::<GpuStrip>();
-        let total_len = opaque_bytes.len() + alpha_len;
+        let total_len = opaque_len + alpha_len;
 
         // Allocate buffer, then write both slices via bufferSubData.
         // We don't want to pay for concatenating the two slices. It's better to
@@ -1541,14 +1533,16 @@ impl WebGlPrograms {
             total_len as i32,
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
-        if !opaque_bytes.is_empty() {
+        if !opaque_strips.is_empty() {
             gl.buffer_sub_data_with_i32_and_u8_array(
                 WebGl2RenderingContext::ARRAY_BUFFER,
                 0,
-                opaque_bytes,
+                bytemuck::cast_slice(opaque_strips),
             );
         }
-        let mut offset = opaque_bytes.len();
+        let mut offset = opaque_len;
+
+        // TODO: Maybe concatenate first and upload once?
         for strips in alpha_strips.slices() {
             let bytes = bytemuck::cast_slice(strips);
             gl.buffer_sub_data_with_i32_and_u8_array(
@@ -1573,7 +1567,10 @@ pub(crate) struct WebGlStateGuard {
     original_texture_2d: Option<WebGlTexture>,
     original_texture_2d_array: Option<WebGlTexture>,
     original_pixel_pack_buffer: Option<WebGlBuffer>,
+    blend_enabled: bool,
     scissor_enabled: bool,
+    depth_test_enabled: bool,
+    depth_mask: bool,
     viewport: [i32; 4],
 }
 
@@ -1632,12 +1629,19 @@ impl WebGlStateGuard {
             None
         };
 
+        let blend_enabled = config.blend && gl.is_enabled(WebGl2RenderingContext::BLEND);
+
         // Save current scissor test state if requested
-        let scissor_enabled = if config.scissor {
-            gl.get_parameter(WebGl2RenderingContext::SCISSOR_TEST)
+        let scissor_enabled = config.scissor && gl.is_enabled(WebGl2RenderingContext::SCISSOR_TEST);
+
+        let depth_test_enabled =
+            config.depth_test && gl.is_enabled(WebGl2RenderingContext::DEPTH_TEST);
+
+        let depth_mask = if config.depth_mask {
+            gl.get_parameter(WebGl2RenderingContext::DEPTH_WRITEMASK)
                 .unwrap()
                 .as_bool()
-                .unwrap_or(false)
+                .unwrap()
         } else {
             false
         };
@@ -1669,7 +1673,10 @@ impl WebGlStateGuard {
             original_texture_2d,
             original_texture_2d_array,
             original_pixel_pack_buffer,
+            blend_enabled,
             scissor_enabled,
+            depth_test_enabled,
+            depth_mask,
             viewport,
         }
     }
@@ -1699,12 +1706,34 @@ impl WebGlStateGuard {
             },
         )
     }
+
+    /// Create a state guard for an intermediate render pass.
+    fn for_intermediate_pass(gl: &WebGl2RenderingContext) -> Self {
+        Self::with_config(
+            gl,
+            WebGlStateConfig {
+                blend: true,
+                scissor: true,
+                depth_test: true,
+                depth_mask: true,
+                ..Default::default()
+            },
+        )
+    }
 }
 
 impl Drop for WebGlStateGuard {
     /// Restore WebGL state when the guard goes out of scope.
     /// Only restores state that was configured to be saved.
     fn drop(&mut self) {
+        if self.config.blend {
+            if self.blend_enabled {
+                self.gl.enable(WebGl2RenderingContext::BLEND);
+            } else {
+                self.gl.disable(WebGl2RenderingContext::BLEND);
+            }
+        }
+
         // Restore scissor test state if it was saved
         if self.config.scissor {
             if self.scissor_enabled {
@@ -1712,6 +1741,18 @@ impl Drop for WebGlStateGuard {
             } else {
                 self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
             }
+        }
+
+        if self.config.depth_test {
+            if self.depth_test_enabled {
+                self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+            } else {
+                self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+            }
+        }
+
+        if self.config.depth_mask {
+            self.gl.depth_mask(self.depth_mask);
         }
 
         // Restore viewport if it was saved
@@ -1784,8 +1825,14 @@ pub(crate) struct WebGlStateConfig {
     pub(crate) texture_2d_array: bool,
     /// Save/restore pixel pack buffer binding (`PIXEL_PACK_BUFFER_BINDING`)
     pub(crate) pixel_pack_buffer: bool,
+    /// Save/restore blending state
+    pub(crate) blend: bool,
     /// Save/restore scissor test state
     pub(crate) scissor: bool,
+    /// Save/restore depth test state
+    pub(crate) depth_test: bool,
+    /// Save/restore the depth write mask
+    pub(crate) depth_mask: bool,
     /// Save/restore viewport
     pub(crate) viewport: bool,
 }
@@ -1946,6 +1993,7 @@ fn get_copy_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> CopyUnif
     }
 }
 
+/// Derive this from the number of fields on [`FilterInstanceData`].
 const FILTER_ATTRIB_COUNT: u32 = 9;
 const FILTER_INSTANCE_STRIDE: i32 = size_of::<FilterInstanceData>() as i32;
 
@@ -1961,25 +2009,9 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
     gl.bind_vertex_array(None);
 }
 
+/// Derive this from the number of fields on [`GpuBlendInstance`].
 const BLEND_ATTRIB_COUNT: u32 = 8;
 const BLEND_INSTANCE_STRIDE: i32 = size_of::<GpuBlendInstance>() as i32;
-
-const COPY_ATTRIB_COUNT: u32 = 4;
-const COPY_INSTANCE_STRIDE: i32 = size_of::<GpuCopyInstance>() as i32;
-
-fn initialize_packed_u32_attribs(gl: &WebGl2RenderingContext, count: u32, stride: i32) {
-    for loc in 0..count {
-        gl.enable_vertex_attrib_array(loc);
-        gl.vertex_attrib_i_pointer_with_i32(
-            loc,
-            1,
-            WebGl2RenderingContext::UNSIGNED_INT,
-            stride,
-            i32::try_from(loc).unwrap() * size_of::<u32>() as i32,
-        );
-        gl.vertex_attrib_divisor(loc, 1);
-    }
-}
 
 fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.blend_vao));
@@ -1993,6 +2025,10 @@ fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
     gl.bind_vertex_array(None);
 }
 
+/// Derive this from the number of fields on [`GpuCopyInstance`].
+const COPY_ATTRIB_COUNT: u32 = 4;
+const COPY_INSTANCE_STRIDE: i32 = size_of::<GpuCopyInstance>() as i32;
+
 fn initialize_copy_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.copy_vao));
     gl.bind_buffer(
@@ -2003,6 +2039,20 @@ fn initialize_copy_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) 
     initialize_packed_u32_attribs(gl, COPY_ATTRIB_COUNT, COPY_INSTANCE_STRIDE);
 
     gl.bind_vertex_array(None);
+}
+
+fn initialize_packed_u32_attribs(gl: &WebGl2RenderingContext, count: u32, stride: i32) {
+    for loc in 0..count {
+        gl.enable_vertex_attrib_array(loc);
+        gl.vertex_attrib_i_pointer_with_i32(
+            loc,
+            1,
+            WebGl2RenderingContext::UNSIGNED_INT,
+            stride,
+            i32::try_from(loc).unwrap() * size_of::<u32>() as i32,
+        );
+        gl.vertex_attrib_divisor(loc, 1);
+    }
 }
 
 /// Create a texture with the requested filtering and clamp-to-edge wrapping.
@@ -2347,7 +2397,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
     gl: &'a WebGl2RenderingContext,
-    scratch: &'a mut ScratchBuffers,
+    scratch_buffers: &'a mut ScratchBuffers,
 }
 
 impl WebGlRendererContext<'_> {
@@ -2577,6 +2627,7 @@ impl WebGlRendererContext<'_> {
         blend_strips: &[BlendStrip],
         bindings: BlendPassBindings,
     ) {
+        let _state_guard = WebGlStateGuard::for_intermediate_pass(self.gl);
         let texture_size = self.texture_size();
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
@@ -2585,14 +2636,10 @@ impl WebGlRendererContext<'_> {
         self.gl
             .bind_vertex_array(Some(&self.programs.resources.blend_vao));
 
-        self.scratch.blend_instances.clear();
+        self.scratch_buffers.blend_instances.clear();
         for blend in blends.iter() {
-            if blend.blend_bbox.is_empty() {
-                continue;
-            }
-
             if let Some(range) = &blend.clip_strips {
-                self.scratch.blend_instances.extend(
+                self.scratch_buffers.blend_instances.extend(
                     blend_strips[usize::try_from(range.start).unwrap()
                         ..usize::try_from(range.end).unwrap()]
                         .iter()
@@ -2600,22 +2647,14 @@ impl WebGlRendererContext<'_> {
                         .map(|strip| GpuBlendInstance::new(blend, Some(strip), texture_size)),
                 );
             } else {
-                self.scratch
+                self.scratch_buffers
                     .blend_instances
                     .push(GpuBlendInstance::new(blend, None, texture_size));
             }
         }
-        if self.scratch.blend_instances.is_empty() {
-            self.gl.bind_vertex_array(None);
-            self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
-            self.gl.depth_mask(true);
-            self.gl.enable(WebGl2RenderingContext::BLEND);
-            return;
-        }
-
         self.programs
-            .upload_blend_instances(self.gl, &self.scratch.blend_instances);
-        let instance_count = i32::try_from(self.scratch.blend_instances.len()).unwrap();
+            .upload_blend_instances(self.gl, &self.scratch_buffers.blend_instances);
+        let instance_count = i32::try_from(self.scratch_buffers.blend_instances.len()).unwrap();
 
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
@@ -2664,16 +2703,16 @@ impl WebGlRendererContext<'_> {
         self.gl
             .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, instance_count);
 
-        self.scratch.copy_instances.clear();
-        self.scratch.copy_instances.extend(
-            self.scratch
+        self.scratch_buffers.copy_instances.clear();
+        self.scratch_buffers.copy_instances.extend(
+            self.scratch_buffers
                 .blend_instances
                 .iter()
                 .copied()
                 .map(GpuBlendInstance::copy_from_scratch),
         );
         self.programs
-            .upload_copy_instances(self.gl, &self.scratch.copy_instances);
+            .upload_copy_instances(self.gl, &self.scratch_buffers.copy_instances);
 
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
@@ -2701,19 +2740,16 @@ impl WebGlRendererContext<'_> {
             .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, instance_count);
 
         self.gl.bind_vertex_array(None);
-        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
-        self.gl.depth_mask(true);
-        self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
     fn filter_pass_inner(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings) {
+        let _state_guard = WebGlStateGuard::for_intermediate_pass(self.gl);
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
         self.gl.depth_mask(false);
 
-        let copy_pass = plan.copy_pass();
-        if !copy_pass.is_empty() {
+        if let Some(copy_pass) = plan.copy_pass() {
             self.programs.upload_copy_instances(self.gl, copy_pass);
             self.gl
                 .bind_vertex_array(Some(&self.programs.resources.copy_vao));
@@ -2755,6 +2791,7 @@ impl WebGlRendererContext<'_> {
         );
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.filter_data), 0);
+
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
@@ -2772,8 +2809,6 @@ impl WebGlRendererContext<'_> {
         }
 
         self.gl.bind_vertex_array(None);
-        self.gl.depth_mask(true);
-        self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
     fn do_filter_instance_pass(
@@ -2782,10 +2817,6 @@ impl WebGlRendererContext<'_> {
         input: LayerTextureId,
         output: LayerTextureId,
     ) {
-        if instances.is_empty() {
-            return;
-        }
-
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(self.programs.resources.layer_framebuffer(output)),
@@ -2806,6 +2837,8 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.source_texture), 1);
 
+        // TODO: Filter instances ideally should be uploaded once for the whole round (or even once
+        // globally), not per pass.
         self.programs.upload_filter_instances(self.gl, instances);
         self.gl.draw_arrays_instanced(
             WebGl2RenderingContext::TRIANGLE_STRIP,
@@ -2816,15 +2849,6 @@ impl WebGlRendererContext<'_> {
     }
 
     fn clear_pass_inner(&self, target: LayerTextureId, rects: &[RectU16]) {
-        self.prepare_clear_rects(target);
-        for rect in rects.iter().copied().filter(|rect| !rect.is_empty()) {
-            self.clear_rect(rect);
-        }
-        self.finish_clear_rects();
-        self.gl.enable(WebGl2RenderingContext::BLEND);
-    }
-
-    fn prepare_clear_rects(&self, target: LayerTextureId) {
         let size = self.texture_size();
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
@@ -2834,20 +2858,22 @@ impl WebGlRendererContext<'_> {
         self.gl
             .viewport(0, 0, i32::from(size.width()), i32::from(size.height()));
         self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-    }
 
-    fn clear_rect(&self, rect: RectU16) {
-        self.gl.scissor(
-            i32::from(rect.x0),
-            i32::from(rect.y0),
-            i32::from(rect.width()),
-            i32::from(rect.height()),
-        );
-        self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-    }
-
-    fn finish_clear_rects(&self) {
+        // It's unclear whether it's better to scissor + clear repeatedly, or to do
+        // one instanced clear pass via a shader. But using this approach should give the
+        // GPU more semantic information about what we want to do, so it seems reasonable
+        // to assume that this is better.
+        for rect in rects {
+            self.gl.scissor(
+                i32::from(rect.x0),
+                i32::from(rect.y0),
+                i32::from(rect.width()),
+                i32::from(rect.height()),
+            );
+            self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+        }
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+        self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 }
 
