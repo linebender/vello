@@ -1004,20 +1004,13 @@ struct GpuResources {
     stub_atlas_bind_group: BindGroup,
 
     /// Layer textures by parity.
-    layer_textures: [Vec<WgpuIntermediateTexture>; 2],
+    layer_textures: [Vec<TextureView>; 2],
     /// Scratch texture.
-    scratch_texture: Option<ScratchTexture<WgpuIntermediateTexture>>,
-    /// Filter bind group for scratch.
+    scratch_texture: Option<ScratchTexture<TextureView>>,
+    /// Filter bind group.
     filter_original_bind_group: BindGroup,
-
-    /// Copy bind group for scratch.
+    /// Copy bind group.
     scratch_copy_bind_group: BindGroup,
-}
-
-#[derive(Debug)]
-struct WgpuIntermediateTexture {
-    _texture: Texture,
-    view: TextureView,
 }
 
 #[derive(Debug)]
@@ -1032,35 +1025,19 @@ enum StripTargetKind {
     Layer,
 }
 
-impl WgpuIntermediateTexture {
-    fn new(texture: Texture) -> Self {
-        let view = texture.create_view(&TextureViewDescriptor::default());
-        Self {
-            _texture: texture,
-            view,
-        }
-    }
-}
-
 impl GpuResources {
     fn layer_views(&self, layer_ids: [LayerTextureId; 2]) -> [&TextureView; 2] {
         layer_ids.map(|id| self.layer_view(id))
     }
 
     fn layer_view(&self, id: LayerTextureId) -> &TextureView {
-        &self.layer_textures[id.texture_parity.get_parity()]
+        self.layer_textures[id.texture_parity.get_parity()]
             .get(usize::from(id.page_index))
-            .expect("vello_hybrid attempted to use a missing layer texture")
-            .view
+            .unwrap()
     }
 
     fn scratch_view(&self) -> &TextureView {
-        &self
-            .scratch_texture
-            .as_ref()
-            .expect("vello_hybrid attempted to use a missing scratch texture")
-            .get()
-            .view
+        self.scratch_texture.as_ref().unwrap().get()
     }
 }
 
@@ -1492,6 +1469,7 @@ impl Programs {
                     },
                 ],
             });
+
         let copy_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Copy Bind Group Layout"),
@@ -1604,8 +1582,7 @@ impl Programs {
             ..Default::default()
         });
 
-        let layer_textures: [Vec<WgpuIntermediateTexture>; 2] =
-            core::array::from_fn(|_| Vec::new());
+        let layer_textures: [Vec<TextureView>; 2] = core::array::from_fn(|_| Vec::new());
         let scratch_texture = None;
         let placeholder_external_texture_view = Self::create_placeholder_external_texture(device);
         let filter_original_bind_group = create_filter_original_texture_bind_group(
@@ -1614,7 +1591,7 @@ impl Programs {
             &placeholder_external_texture_view,
         );
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        let layer_config_buffer = Self::create_config_buffer_for_size(
+        let layer_config_buffer = Self::create_config_buffer(
             device,
             u32::from(texture_size.width()),
             u32::from(texture_size.height()),
@@ -1629,10 +1606,8 @@ impl Programs {
         );
         let view_config_buffer = Self::create_config_buffer(
             device,
-            &RenderSize {
-                width: render_target_config.width,
-                height: render_target_config.height,
-            },
+            render_target_config.width,
+            render_target_config.height,
             max_texture_dimension_2d,
         );
 
@@ -1815,7 +1790,7 @@ impl Programs {
         device: &Device,
         size: SizeU16,
         label: &'static str,
-    ) -> WgpuIntermediateTexture {
+    ) -> TextureView {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size: Extent3d {
@@ -1830,7 +1805,8 @@ impl Programs {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
-        WgpuIntermediateTexture::new(texture)
+
+        texture.create_view(&TextureViewDescriptor::default())
     }
 
     fn prepare_intermediate_textures(&mut self, device: &Device, schedule: &Schedule) {
@@ -1843,7 +1819,7 @@ impl Programs {
         let size_changed = current_size != texture_size;
 
         if size_changed {
-            self.resources.layer_config_buffer = Self::create_config_buffer_for_size(
+            self.resources.layer_config_buffer = Self::create_config_buffer(
                 device,
                 u32::from(texture_size.width()),
                 u32::from(texture_size.height()),
@@ -1853,7 +1829,8 @@ impl Programs {
 
         for (index, textures) in self.resources.layer_textures.iter_mut().enumerate() {
             let required_page_count = layer_pages[index];
-            // Texture size currently only grows across frames.
+            // Note: Currently, `texture_size` only grows across frames, so if this condition
+            // is true it means that the new required size is larger than what we currently have.
             if size_changed {
                 for texture in textures.iter_mut() {
                     *texture = Self::create_intermediate_texture(
@@ -1881,9 +1858,11 @@ impl Programs {
         }
 
         self.resources.texture_size = texture_size;
+
         if size_changed {
             self.clear_layer_bind_group_caches();
         }
+
         if scratch_changed {
             self.update_scratch_bind_groups(device);
         }
@@ -1951,19 +1930,6 @@ impl Programs {
     }
 
     fn create_config_buffer(
-        device: &Device,
-        render_size: &RenderSize,
-        alpha_texture_width: u32,
-    ) -> Buffer {
-        Self::create_config_buffer_for_size(
-            device,
-            render_size.width,
-            render_size.height,
-            alpha_texture_width,
-        )
-    }
-
-    fn create_config_buffer_for_size(
         device: &Device,
         width: u32,
         height: u32,
