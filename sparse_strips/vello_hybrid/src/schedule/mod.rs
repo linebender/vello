@@ -159,6 +159,52 @@ pub(crate) struct Schedule {
     intermediate_textures: IntermediateTextureRequirements,
 }
 
+impl Schedule {
+    pub(crate) fn try_new(
+        storage: &mut ScheduleStorage,
+        scene: &Scene,
+        root_output_target: RootTarget,
+        paint_resolver: PaintResolver<'_>,
+        texture_size: SizeU16,
+        backend_allocations: IntermediateTextureAllocations,
+        max_textures: Option<usize>,
+    ) -> Result<Self, RenderError> {
+        storage.clear();
+
+        let strip_storage = scene.strip_storage.borrow();
+        let scene_bbox = RectU16::new(
+            0,
+            0,
+            // Scene size is already snapped to tile coordinates.
+            scene.recorder.scene_size.width(),
+            scene.recorder.scene_size.height(),
+        );
+
+        let scheduler = Scheduler::new(
+            &scene.recorder,
+            scene_bbox,
+            &strip_storage,
+            root_output_target,
+            paint_resolver,
+            texture_size,
+            storage,
+        );
+
+        let schedule = scheduler.build()?;
+
+        // Only return the schedule if it doesn't allocate more than allowed by the user.
+        schedule
+            .intermediate_textures
+            .validate(backend_allocations, max_textures)?;
+
+        Ok(schedule)
+    }
+
+    pub(crate) fn intermediate_texture_requirements(&self) -> IntermediateTextureRequirements {
+        self.intermediate_textures
+    }
+}
+
 /// Intermediate textures required to execute a [`Schedule`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct IntermediateTextureRequirements {
@@ -209,51 +255,6 @@ impl IntermediateTextureRequirements {
         }
 
         Ok(())
-    }
-}
-
-impl Schedule {
-    pub(crate) fn try_new(
-        storage: &mut ScheduleStorage,
-        scene: &Scene,
-        root_output_target: RootTarget,
-        paint_resolver: PaintResolver<'_>,
-        texture_size: SizeU16,
-        backend_allocations: IntermediateTextureAllocations,
-        max_textures: Option<usize>,
-    ) -> Result<Self, RenderError> {
-        storage.clear();
-
-        let strip_storage = scene.strip_storage.borrow();
-        let scene_bbox = RectU16::new(
-            0,
-            0,
-            // Scene size is already snapped to tile coordinates.
-            scene.recorder.scene_size.width(),
-            scene.recorder.scene_size.height(),
-        );
-
-        let scheduler = Scheduler::new(
-            &scene.recorder,
-            scene_bbox,
-            &strip_storage,
-            root_output_target,
-            paint_resolver,
-            texture_size,
-            storage,
-        );
-
-        let schedule = scheduler.build()?;
-
-        schedule
-            .intermediate_textures
-            .validate(backend_allocations, max_textures)?;
-
-        Ok(schedule)
-    }
-
-    pub(crate) fn intermediate_texture_requirements(&self) -> IntermediateTextureRequirements {
-        self.intermediate_textures
     }
 }
 
