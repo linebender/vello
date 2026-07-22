@@ -78,13 +78,13 @@ impl SceneCase {
         texture_size: SizeU16,
         max_textures: usize,
     ) -> Result<Schedule, RenderError> {
-        let encoded = self.scene.encoded_paints.borrow();
+        let encoded = &self.scene.encoded_paints;
         let offsets = vec![0; encoded.len()];
         Schedule::try_new(
             storage,
             &self.scene,
             root_target,
-            PaintResolver::new(&encoded, &offsets),
+            PaintResolver::new(encoded, &offsets),
             texture_size,
             LayersConfig {
                 max_textures: Some(max_textures),

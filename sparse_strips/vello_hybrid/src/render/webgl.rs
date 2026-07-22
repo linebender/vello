@@ -283,7 +283,7 @@ impl WebGlRenderer {
 
         self.render_scene(
             scene,
-            &mut resources.image_cache,
+            &resources.image_cache,
             render_size,
             true,
             RootTarget::UserSurface,
@@ -360,13 +360,13 @@ impl WebGlRenderer {
         );
 
         // TODO: Explore using an option instead of a dummy image cache.
-        let mut dummy_image_cache = self
+        let dummy_image_cache = self
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
         let result = self.render_scene(
             scene,
-            &mut dummy_image_cache,
+            &dummy_image_cache,
             &atlas_render_size,
             false,
             RootTarget::AtlasLayer,
@@ -396,15 +396,14 @@ impl WebGlRenderer {
     pub(crate) fn render_scene(
         &mut self,
         scene: &Scene,
-        image_cache: &mut ImageCache,
+        image_cache: &ImageCache,
         render_size: &RenderSize,
         clear: bool,
         root_output_target: RootTarget,
     ) -> Result<(), RenderError> {
-        let mut encoded_paints = scene.encoded_paints.borrow_mut();
-        let original_scene_paint_count = encoded_paints.len();
+        let encoded_paints = &scene.encoded_paints;
 
-        self.prepare_gpu_encoded_paints(&encoded_paints, image_cache);
+        self.prepare_gpu_encoded_paints(encoded_paints, image_cache);
         self.programs
             .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
 
@@ -420,7 +419,7 @@ impl WebGlRenderer {
             .texture_size
             .max(required_texture_size);
 
-        let paint_resolver = PaintResolver::new(&encoded_paints, &self.paint_idxs);
+        let paint_resolver = PaintResolver::new(encoded_paints, &self.paint_idxs);
         let schedule = Schedule::try_new(
             &mut self.schedule_storage,
             scene,
@@ -476,7 +475,6 @@ impl WebGlRenderer {
                 .unwrap();
         }
 
-        encoded_paints.truncate(original_scene_paint_count);
         self.gradient_cache.maintain();
 
         Ok(())
@@ -808,7 +806,7 @@ fn clear_atlas_region(renderer: &mut WebGlRenderer, rect: &PendingClearRect) {
 /// Contains the WebGL programs and resources for rendering.
 #[derive(Debug)]
 pub(crate) struct WebGlPrograms {
-    /// Program for rendering wide tile commands.
+    /// Program for rendering strips.
     strip_program: Program,
     /// Uniform locations for the strip program
     strip_uniforms: StripUniforms,
@@ -906,7 +904,7 @@ pub(crate) struct WebGlResources {
     /// Height of gradient texture.
     gradient_texture_height: u32,
 
-    /// Config buffer for rendering wide tile commands into the view texture.
+    /// Config buffer for rendering strips into the root target.
     view_config_buffer: Buffer,
 
     pub(crate) view_framebuffer_override: Option<Framebuffer>,
@@ -949,7 +947,7 @@ pub(crate) struct WebGlResources {
     /// Scratch texture for blend and certain filter operations.
     scratch_texture: Option<ScratchTexture<WebGlIntermediateTexture>>,
     /// Config buffer for rendering strips into a layer texture.
-    layer_config_buffers: [Buffer; 2],
+    layer_config_buffer: Buffer,
     /// Layer texture pages grouped by parity.
     layer_textures: [Vec<WebGlIntermediateTexture>; 2],
 }
@@ -1098,25 +1096,29 @@ impl WebGlPrograms {
         let current_size = self.resources.texture_size;
         let layer_pages = schedule.layer_page_counts();
         let scratch_required = schedule.scratch_texture();
+        let size_changed = current_size != texture_size;
+
+        if size_changed {
+            upload_layer_config_buffer(
+                gl,
+                &self.resources.layer_config_buffer,
+                texture_size,
+                self.resources.max_texture_dimension_2d,
+            );
+        }
 
         for (index, textures) in self.resources.layer_textures.iter_mut().enumerate() {
             let required_page_count = layer_pages[index];
 
             // Note: Currently, `texture_size` only grows across frames, so if this condition
             // is true it means that the new required size is larger than what we currently have.
-            if current_size != texture_size {
+            if size_changed {
                 // TODO: Drop old layer explicitly before creating new one to ensure WebGL
                 // driver has the chance to reduce peak memory usage instead of having to keep both
                 // textures alive at the same time?
                 for texture in textures.iter_mut() {
                     *texture = create_intermediate_texture(gl, texture_size);
                 }
-                upload_layer_config_buffer(
-                    gl,
-                    &self.resources.layer_config_buffers[index],
-                    texture_size,
-                    self.resources.max_texture_dimension_2d,
-                );
             }
 
             textures.extend(
@@ -1125,8 +1127,7 @@ impl WebGlPrograms {
             );
         }
 
-        let recreate_scratch = (self.resources.scratch_texture.is_some()
-            && current_size != texture_size)
+        let recreate_scratch = (self.resources.scratch_texture.is_some() && size_changed)
             || (self.resources.scratch_texture.is_none() && scratch_required);
 
         if recreate_scratch {
@@ -1987,33 +1988,48 @@ fn initialize_copy_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) 
     gl.bind_vertex_array(None);
 }
 
-/// Create a texture with nearest neighbor sampling and clamp-to-edge wrapping.
-pub(crate) fn create_texture(gl: &WebGl2RenderingContext) -> Texture {
-    create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D)
+/// Create a texture with the requested filtering and clamp-to-edge wrapping.
+pub(crate) fn create_texture(
+    gl: &WebGl2RenderingContext,
+    min_filter: u32,
+    mag_filter: u32,
+) -> Texture {
+    create_texture_inner(
+        gl,
+        WebGl2RenderingContext::TEXTURE_2D,
+        min_filter,
+        mag_filter,
+    )
 }
 
-/// Create a texture array with nearest neighbor sampling and
-/// clamp-to-edge wrapping.
-fn create_texture_array(gl: &WebGl2RenderingContext) -> Texture {
-    create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D_ARRAY)
+/// Create a texture array with the requested filtering and clamp-to-edge wrapping.
+fn create_texture_array(gl: &WebGl2RenderingContext, min_filter: u32, mag_filter: u32) -> Texture {
+    create_texture_inner(
+        gl,
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        min_filter,
+        mag_filter,
+    )
 }
 
-fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> Texture {
+fn create_texture_inner(
+    gl: &WebGl2RenderingContext,
+    target: u32,
+    min_filter: u32,
+    mag_filter: u32,
+) -> Texture {
     let texture = Texture::new(gl);
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(target, Some(&texture));
-    // The filter and wrap modes are irrelevant because the shader
-    // (`render.wgsl`) exclusively uses `textureLoad`, which bypasses
-    // the sampler entirely.
     gl.tex_parameteri(
         target,
         WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-        WebGl2RenderingContext::NEAREST as i32,
+        min_filter as i32,
     );
     gl.tex_parameteri(
         target,
         WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-        WebGl2RenderingContext::NEAREST as i32,
+        mag_filter as i32,
     );
     gl.tex_parameteri(
         target,
@@ -2025,8 +2041,7 @@ fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> Texture {
         WebGl2RenderingContext::TEXTURE_WRAP_T,
         WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
     );
-    // Also only to be defensive, in theory this shouldn't be necessary since we use
-    // `NEAREST` for both filters.
+    // All textures only allocate mip level 0.
     gl.tex_parameteri(target, WebGl2RenderingContext::TEXTURE_MAX_LEVEL, 0);
 
     texture
@@ -2034,7 +2049,11 @@ fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> Texture {
 
 /// Create a 1x1 RGBA8 placeholder texture.
 fn create_placeholder_texture(gl: &WebGl2RenderingContext) -> Texture {
-    let texture = create_texture(gl);
+    let texture = create_texture(
+        gl,
+        WebGl2RenderingContext::NEAREST,
+        WebGl2RenderingContext::NEAREST,
+    );
     gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
         WebGl2RenderingContext::TEXTURE_2D,
         0,
@@ -2093,14 +2112,20 @@ fn create_webgl_resources(
     let view_config_buffer = Buffer::new(gl);
     let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
     let texture_size = layer_config.min_texture_size;
-    let layer_config_buffers = core::array::from_fn(|_| {
-        let buffer = Buffer::new(gl);
-        upload_layer_config_buffer(gl, &buffer, texture_size, max_texture_dimension_2d);
-        buffer
-    });
+    let layer_config_buffer = Buffer::new(gl);
+    upload_layer_config_buffer(
+        gl,
+        &layer_config_buffer,
+        texture_size,
+        max_texture_dimension_2d,
+    );
 
     // Create and configure alpha texture.
-    let alphas_texture = create_texture(gl);
+    let alphas_texture = create_texture(
+        gl,
+        WebGl2RenderingContext::NEAREST,
+        WebGl2RenderingContext::NEAREST,
+    );
 
     let AtlasConfig {
         atlas_size: (atlas_width, atlas_height),
@@ -2122,15 +2147,27 @@ fn create_webgl_resources(
     let stub_atlas_texture_array = create_atlas_texture_array(gl, 1, 1, 1);
 
     // Create and configure encoded paints texture.
-    let encoded_paints_texture = create_texture(gl);
+    let encoded_paints_texture = create_texture(
+        gl,
+        WebGl2RenderingContext::NEAREST,
+        WebGl2RenderingContext::NEAREST,
+    );
 
     // Create and configure gradient texture.
-    let gradient_texture = create_texture(gl);
+    let gradient_texture = create_texture(
+        gl,
+        WebGl2RenderingContext::NEAREST,
+        WebGl2RenderingContext::NEAREST,
+    );
     let placeholder_external_texture = create_placeholder_texture(gl);
 
     let layer_textures: [Vec<WebGlIntermediateTexture>; 2] = core::array::from_fn(|_| Vec::new());
     let scratch_texture = None;
-    let filter_data_texture = create_texture(gl);
+    let filter_data_texture = create_texture(
+        gl,
+        WebGl2RenderingContext::NEAREST,
+        WebGl2RenderingContext::NEAREST,
+    );
 
     WebGlResources {
         strip_vao,
@@ -2165,7 +2202,7 @@ fn create_webgl_resources(
         copy_instance_buffer,
         copy_vao,
         scratch_texture,
-        layer_config_buffers,
+        layer_config_buffer,
         layer_textures,
     }
 }
@@ -2174,7 +2211,23 @@ fn create_intermediate_texture(
     gl: &WebGl2RenderingContext,
     size: SizeU16,
 ) -> WebGlIntermediateTexture {
-    let texture = create_layer_texture(gl, size);
+    let texture = create_texture(
+        gl,
+        WebGl2RenderingContext::LINEAR,
+        WebGl2RenderingContext::LINEAR,
+    );
+    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        WebGl2RenderingContext::RGBA8 as i32,
+        i32::from(size.width()),
+        i32::from(size.height()),
+        0,
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        None,
+    )
+    .unwrap();
     let framebuffer = create_framebuffer_for_texture(gl, &texture);
     WebGlIntermediateTexture {
         texture,
@@ -2193,7 +2246,11 @@ pub(crate) fn create_atlas_texture_array(
         layer_count > 0,
         "atlas texture arrays must have at least one physical layer"
     );
-    let atlas_texture = create_texture_array(gl);
+    let atlas_texture = create_texture_array(
+        gl,
+        WebGl2RenderingContext::NEAREST,
+        WebGl2RenderingContext::NEAREST,
+    );
 
     // Initialize with empty texture array data
     gl.tex_image_3d_with_opt_u8_array(
@@ -2211,36 +2268,6 @@ pub(crate) fn create_atlas_texture_array(
     .unwrap();
 
     WebGlTextureArray::new(atlas_texture, width, height)
-}
-
-/// Create a texture for layer rendering.
-fn create_layer_texture(gl: &WebGl2RenderingContext, size: SizeU16) -> Texture {
-    let texture = create_texture(gl);
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-        WebGl2RenderingContext::LINEAR as i32,
-    );
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-        WebGl2RenderingContext::LINEAR as i32,
-    );
-
-    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-        WebGl2RenderingContext::TEXTURE_2D,
-        0,
-        WebGl2RenderingContext::RGBA8 as i32,
-        i32::from(size.width()),
-        i32::from(size.height()),
-        0,
-        WebGl2RenderingContext::RGBA,
-        WebGl2RenderingContext::UNSIGNED_BYTE,
-        None,
-    )
-    .unwrap();
-
-    texture
 }
 
 /// Create a framebuffer for a texture.
@@ -2350,8 +2377,7 @@ impl WebGlRendererContext<'_> {
                 self.gl
                     .viewport(0, 0, i32::from(size.width()), i32::from(size.height()));
 
-                let buf =
-                    &self.programs.resources.layer_config_buffers[id.texture_parity.get_parity()];
+                let buf = &self.programs.resources.layer_config_buffer;
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     self.programs.strip_uniforms.config_vs_block_index,
@@ -2542,15 +2568,11 @@ impl WebGlRendererContext<'_> {
         self.gl
             .bind_vertex_array(Some(&self.programs.resources.blend_vao));
 
-        let resources = &self.programs.resources;
         self.scratch.blend_instances.clear();
         for blend in blends.iter() {
             if blend.blend_bbox.is_empty() {
                 continue;
             }
-
-            resources.layer_texture(blend.parent_region.texture.target);
-            resources.layer_texture(blend.child_region.texture.target);
 
             if let Some(range) = &blend.clip_strips {
                 self.scratch.blend_instances.extend(

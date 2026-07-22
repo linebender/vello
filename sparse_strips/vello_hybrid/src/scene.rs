@@ -213,11 +213,8 @@ pub struct Scene {
     /// Root transform stack.
     root_transforms: RootTransforms,
     pub(crate) aliasing_threshold: Option<u8>,
-    // The reason we use `RefCell` here is that during `render`, we need
-    // mutable access so we can store additional encoded paints for filtered layers,
-    // if applicable.
     /// Storage for encoded non-solid paint data.
-    pub(crate) encoded_paints: RefCell<Vec<EncodedPaint>>,
+    pub(crate) encoded_paints: Vec<EncodedPaint>,
     /// Whether the current paint is visible (e.g., alpha > 0).
     paint_visible: bool,
     /// Storage for generated strips and alpha values.
@@ -243,7 +240,7 @@ impl Scene {
             render_state: RenderState::default(),
             root_transforms: RootTransforms::default(),
             aliasing_threshold: None,
-            encoded_paints: RefCell::new(vec![]),
+            encoded_paints: vec![],
             paint_visible: true,
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
@@ -289,18 +286,13 @@ impl Scene {
         // to account for the fact that we want to sample the pixel center instead of the top-left
         // corner. For vello_hybrid, we don't need this, because the GPU itself already applies
         // this shift automatically.
+        let transform = self.effective_paint_transform();
         match self.render_state.paint.clone() {
             PaintType::Solid(s) => s.into(),
-            PaintType::Gradient(g) => g.encode_into(
-                &mut self.encoded_paints.borrow_mut(),
-                self.effective_paint_transform(),
-                None,
-            ),
-            PaintType::Image(i) => i.encode_into(
-                &mut self.encoded_paints.borrow_mut(),
-                self.effective_paint_transform(),
-                self.render_state.tint,
-            ),
+            PaintType::Gradient(g) => g.encode_into(&mut self.encoded_paints, transform, None),
+            PaintType::Image(i) => {
+                i.encode_into(&mut self.encoded_paints, transform, self.render_state.tint)
+            }
         }
     }
 
@@ -314,7 +306,7 @@ impl Scene {
         y_extend: Extend,
         transform: Affine,
     ) -> Paint {
-        let idx = self.encoded_paints.borrow().len();
+        let idx = self.encoded_paints.len();
         let encoded = EncodedExternalTexture {
             texture_id,
             source_region,
@@ -331,7 +323,6 @@ impl Scene {
             tint: self.render_state.tint,
         };
         self.encoded_paints
-            .borrow_mut()
             .push(EncodedPaint::ExternalTexture(encoded));
         Paint::Indexed(vello_common::paint::IndexedPaint::new(idx))
     }
@@ -667,8 +658,7 @@ impl Scene {
             let kernel_size = 2.5 * std_dev;
             let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
             let transform = ctx.effective_paint_transform();
-            let paint =
-                blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
+            let paint = blurred_rect.encode_into(&mut ctx.encoded_paints, transform, None);
 
             if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
                 ctx.recorder
@@ -943,7 +933,7 @@ impl Scene {
             let mut ss = self.strip_storage.borrow_mut();
             ss.clear();
         }
-        self.encoded_paints.borrow_mut().clear();
+        self.encoded_paints.clear();
 
         self.root_transforms.reset();
         self.render_state.reset();

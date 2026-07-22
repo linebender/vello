@@ -253,8 +253,7 @@ impl Renderer {
             );
         }
 
-        let mut encoded_paints = scene.encoded_paints.borrow_mut();
-        let scene_paint_count = encoded_paints.len();
+        let encoded_paints = &scene.encoded_paints;
 
         let result = self.render_scene(
             scene,
@@ -264,13 +263,12 @@ impl Renderer {
             render_size,
             view,
             &resources.image_cache,
-            &encoded_paints,
+            encoded_paints,
             true,
             RootTarget::UserSurface,
             texture_bindings,
         );
 
-        encoded_paints.truncate(scene_paint_count);
         #[cfg(feature = "text")]
         resources.after_render(self, |renderer, rect| {
             renderer.clear_atlas_region(
@@ -355,7 +353,7 @@ impl Renderer {
             &mut self.programs.resources.stub_atlas_bind_group,
         );
 
-        let encoded_paints = scene.encoded_paints.borrow();
+        let encoded_paints = &scene.encoded_paints;
         let dummy_image_cache = self
             .dummy_image_cache
             .take()
@@ -368,7 +366,7 @@ impl Renderer {
             &atlas_render_size,
             &layer_view,
             &dummy_image_cache,
-            &encoded_paints,
+            encoded_paints,
             false,
             RootTarget::AtlasLayer,
             texture_bindings,
@@ -867,15 +865,12 @@ impl Renderer {
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
-    /// Pipelines for rendering strips to intermediate targets (depth test OFF, depth write OFF,
-    /// blending ON).
-    /// The first pipeline should be used for color attachments in the native pixel format,
-    /// the second for color attachments in RGBA8.
-    intermediate_strip_pipelines: [RenderPipeline; 2],
-    /// Alpha pipelines for rendering strips to Output targets (depth test ON, depth write OFF, blending ON).
-    alpha_strip_pipelines: [RenderPipeline; 2],
-    /// Opaque pipelines for rendering strips to Output targets (depth test ON, depth write ON, blending OFF).
-    opaque_strip_pipelines: [RenderPipeline; 2],
+    /// Pipeline for rendering strips to intermediate targets with blending and without depth.
+    intermediate_strip_pipeline: RenderPipeline,
+    /// Pipeline for rendering alpha strips to the root target with blending and depth testing.
+    alpha_strip_pipeline: RenderPipeline,
+    /// Pipeline for rendering opaque strips to the root target with depth testing and writes.
+    opaque_strip_pipeline: RenderPipeline,
     /// Depth texture for early-z rejection on the Output target.
     depth_texture: Texture,
     /// View for the depth texture.
@@ -900,8 +895,8 @@ struct Programs {
     blend_layer_bind_group_layout: BindGroupLayout,
     /// Bind group layout for copying between intermediate textures.
     copy_bind_group_layout: BindGroupLayout,
-    /// Cached strip bind groups keyed by target parity and optional child layer page.
-    strip_layer_bind_groups: HashMap<(Option<TextureParity>, Option<LayerTextureId>), BindGroup>,
+    /// Cached strip bind groups keyed by target kind and optional child layer page.
+    strip_layer_bind_groups: HashMap<(StripTargetKind, Option<LayerTextureId>), BindGroup>,
     /// Cached blend bind groups keyed by the pair of layer pages they sample.
     blend_layer_bind_groups: HashMap<BlendPassBindings, BindGroup>,
     /// Cached filter pair bind groups.
@@ -959,10 +954,10 @@ struct GpuResources {
     filter_base_bind_group: BindGroup,
     /// Dimensions of the intermediate layer and scratch textures.
     texture_size: SizeU16,
-    /// Config buffer for rendering wide tile commands into the view texture.
+    /// Config buffer for rendering strips into the root target.
     view_config_buffer: Buffer,
     /// Config buffer for rendering strips into a layer texture.
-    layer_config_buffers: [Buffer; 2],
+    layer_config_buffer: Buffer,
 
     /// Placeholder paint-source bind group with a 1x1 dummy atlas texture, used during
     /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
@@ -989,6 +984,12 @@ struct WgpuIntermediateTexture {
 struct FilterPairBindGroups {
     inputs: [BindGroup; 2],
     copy_sources: [BindGroup; 2],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum StripTargetKind {
+    Root,
+    Layer,
 }
 
 impl WgpuIntermediateTexture {
@@ -1170,7 +1171,6 @@ impl Programs {
             });
 
         let depth_format = wgpu::TextureFormat::Depth24Plus;
-        let strip_formats = [render_target_config.format, wgpu::TextureFormat::Rgba8Unorm];
 
         let strip_vertex_state = wgpu::VertexBufferLayout {
             array_stride: size_of::<GpuStrip>() as u64,
@@ -1178,37 +1178,35 @@ impl Programs {
             attributes: &GpuStrip::vertex_attributes(),
         };
 
-        let create_strip_pipelines =
-            |label, blend, depth_stencil: Option<wgpu::DepthStencilState>| -> [RenderPipeline; 2] {
-                core::array::from_fn(|i| {
-                    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                        label: Some(label),
-                        layout: Some(&strip_pipeline_layout),
-                        vertex: wgpu::VertexState {
-                            module: &strip_shader,
-                            entry_point: Some("vs_main"),
-                            buffers: core::slice::from_ref(&strip_vertex_state),
-                            compilation_options: PipelineCompilationOptions::default(),
-                        },
-                        fragment: Some(wgpu::FragmentState {
-                            module: &strip_shader,
-                            entry_point: Some("fs_main"),
-                            targets: &[Some(ColorTargetState {
-                                format: strip_formats[i],
-                                blend,
-                                write_mask: ColorWrites::ALL,
-                            })],
-                            compilation_options: PipelineCompilationOptions::default(),
-                        }),
-                        primitive: wgpu::PrimitiveState {
-                            topology: wgpu::PrimitiveTopology::TriangleStrip,
-                            ..Default::default()
-                        },
-                        depth_stencil: depth_stencil.clone(),
-                        multisample: wgpu::MultisampleState::default(),
-                        multiview_mask: None,
-                        cache: None,
-                    })
+        let create_strip_pipeline =
+            |label, format, blend, depth_stencil: Option<wgpu::DepthStencilState>| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&strip_pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &strip_shader,
+                        entry_point: Some("vs_main"),
+                        buffers: core::slice::from_ref(&strip_vertex_state),
+                        compilation_options: PipelineCompilationOptions::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &strip_shader,
+                        entry_point: Some("fs_main"),
+                        targets: &[Some(ColorTargetState {
+                            format,
+                            blend,
+                            write_mask: ColorWrites::ALL,
+                        })],
+                        compilation_options: PipelineCompilationOptions::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        ..Default::default()
+                    },
+                    depth_stencil,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
                 })
             };
 
@@ -1221,20 +1219,26 @@ impl Programs {
         };
 
         // Intermediate pipelines: depth test OFF, depth write OFF, blending ON.
-        let intermediate_strip_pipelines = create_strip_pipelines(
+        let intermediate_strip_pipeline = create_strip_pipeline(
             "Strip Intermediate Pipeline",
+            wgpu::TextureFormat::Rgba8Unorm,
             Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
             None,
         );
         // Alpha pipelines: depth test ON (LessEqual), depth write OFF, blending ON.
-        let alpha_strip_pipelines = create_strip_pipelines(
+        let alpha_strip_pipeline = create_strip_pipeline(
             "Strip Alpha Pipeline",
+            render_target_config.format,
             Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
             Some(depth_stencil(false)),
         );
         // Opaque pipelines: depth test ON (LessEqual), depth write ON, blending OFF.
-        let opaque_strip_pipelines =
-            create_strip_pipelines("Strip Opaque Pipeline", None, Some(depth_stencil(true)));
+        let opaque_strip_pipeline = create_strip_pipeline(
+            "Strip Opaque Pipeline",
+            render_target_config.format,
+            None,
+            Some(depth_stencil(true)),
+        );
 
         let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Clear Pipeline"),
@@ -1463,11 +1467,6 @@ impl Programs {
                     count: None,
                 }],
             });
-        let empty_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Empty Bind Group Layout"),
-                entries: &[],
-            });
         let blend_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Blend Shader"),
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::BLEND.into()),
@@ -1484,10 +1483,7 @@ impl Programs {
             });
         let copy_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Copy Pipeline Layout"),
-            bind_group_layouts: &[
-                Some(&empty_bind_group_layout),
-                Some(&copy_bind_group_layout),
-            ],
+            bind_group_layouts: &[Some(&copy_bind_group_layout)],
             immediate_size: 0,
         });
         let blend_vertex_state = wgpu::VertexBufferLayout {
@@ -1578,15 +1574,13 @@ impl Programs {
             &filter_input_bind_group_layouts[1],
             &placeholder_external_texture_view,
         );
-        let layer_config_buffers = core::array::from_fn(|_| {
-            Self::create_config_buffer_for_size(
-                device,
-                u32::from(texture_size.width()),
-                u32::from(texture_size.height()),
-                device.limits().max_texture_dimension_2d,
-                0,
-            )
-        });
+        let layer_config_buffer = Self::create_config_buffer_for_size(
+            device,
+            u32::from(texture_size.width()),
+            u32::from(texture_size.height()),
+            device.limits().max_texture_dimension_2d,
+            0,
+        );
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
@@ -1618,7 +1612,6 @@ impl Programs {
         } else {
             Self::create_atlas_texture_array(device, *atlas_width, *atlas_height, atlas_layer_count)
         };
-        let placeholder_external_texture_view = Self::create_placeholder_external_texture(device);
         let atlas_bind_group = Self::create_paint_source_bind_group(
             device,
             &atlas_bind_group_layout,
@@ -1693,7 +1686,7 @@ impl Programs {
             scratch_texture,
             filter_original_bind_group,
             scratch_copy_bind_group,
-            layer_config_buffers,
+            layer_config_buffer,
             alphas_texture,
             atlas_texture_array,
             atlas_texture_array_view,
@@ -1720,9 +1713,9 @@ impl Programs {
         let depth_texture_view = depth_texture.create_view(&TextureViewDescriptor::default());
 
         Self {
-            intermediate_strip_pipelines,
-            alpha_strip_pipelines,
-            opaque_strip_pipelines,
+            intermediate_strip_pipeline,
+            alpha_strip_pipeline,
+            opaque_strip_pipeline,
             depth_texture,
             depth_texture_view,
             depth_cleared_this_frame: false,
@@ -1743,10 +1736,10 @@ impl Programs {
             },
             clear_pipeline,
             atlas_clear_pipeline,
-            filter_input_bind_group_layouts: filter_input_bind_group_layouts.clone(),
+            filter_input_bind_group_layouts,
             filter_sampler,
-            blend_layer_bind_group_layout: blend_layer_bind_group_layout.clone(),
-            copy_bind_group_layout: copy_bind_group_layout.clone(),
+            blend_layer_bind_group_layout,
+            copy_bind_group_layout,
             strip_layer_bind_groups: HashMap::new(),
             blend_layer_bind_groups: HashMap::new(),
             filter_pair_bind_groups: HashMap::new(),
@@ -1811,14 +1804,23 @@ impl Programs {
         let current_size = self.resources.texture_size;
         let layer_pages = schedule.layer_page_counts();
         let scratch_required = schedule.scratch_texture();
-        let mut layer_textures_recreated = false;
+        let size_changed = current_size != texture_size;
+
+        if size_changed {
+            self.resources.layer_config_buffer = Self::create_config_buffer_for_size(
+                device,
+                u32::from(texture_size.width()),
+                u32::from(texture_size.height()),
+                device.limits().max_texture_dimension_2d,
+                0,
+            );
+        }
 
         for (index, textures) in self.resources.layer_textures.iter_mut().enumerate() {
             let required_page_count = layer_pages[index];
             // Note: Currently, `texture_size` only grows across frames, so if this condition
             // is true it means that the new required size is larger than what we currently have.
-            if current_size != texture_size {
-                layer_textures_recreated = true;
+            if size_changed {
                 for texture in textures.iter_mut() {
                     *texture = Self::create_intermediate_texture(
                         device,
@@ -1826,13 +1828,6 @@ impl Programs {
                         "Layer Intermediate Texture",
                     );
                 }
-                self.resources.layer_config_buffers[index] = Self::create_config_buffer_for_size(
-                    device,
-                    u32::from(texture_size.width()),
-                    u32::from(texture_size.height()),
-                    device.limits().max_texture_dimension_2d,
-                    0,
-                );
             }
 
             textures.extend((textures.len()..required_page_count).map(|_| {
@@ -1843,8 +1838,7 @@ impl Programs {
                 )
             }));
         }
-        let scratch_size_changed = current_size != texture_size;
-        let scratch_changed = (self.resources.scratch_texture.is_some() && scratch_size_changed)
+        let scratch_changed = (self.resources.scratch_texture.is_some() && size_changed)
             || (self.resources.scratch_texture.is_none() && scratch_required);
         if scratch_changed {
             self.resources.scratch_texture = Some(ScratchTexture::new(
@@ -1853,7 +1847,7 @@ impl Programs {
         }
 
         self.resources.texture_size = texture_size;
-        if layer_textures_recreated {
+        if size_changed {
             self.clear_layer_bind_group_caches();
         }
         if scratch_changed {
@@ -2764,13 +2758,15 @@ impl RendererContext<'_> {
         let alpha_count = alpha_count as u32;
 
         let (view, config_buffer, bind_group_target) = match target {
-            DrawPassTarget::Root(_) => {
-                (self.view, &self.programs.resources.view_config_buffer, None)
-            }
+            DrawPassTarget::Root(_) => (
+                self.view,
+                &self.programs.resources.view_config_buffer,
+                StripTargetKind::Root,
+            ),
             DrawPassTarget::Layer(id) => (
                 self.programs.resources.layer_view(id),
-                &self.programs.resources.layer_config_buffers[id.texture_parity.get_parity()],
-                Some(id.texture_parity),
+                &self.programs.resources.layer_config_buffer,
+                StripTargetKind::Layer,
             ),
         };
         let bind_group_key = (bind_group_target, child_layer_texture);
@@ -2802,7 +2798,6 @@ impl RendererContext<'_> {
         let bind_group = &self.programs.strip_layer_bind_groups[&bind_group_key];
 
         let enable_opaque = target.enable_opaque();
-        let pipeline_idx = usize::from(!enable_opaque);
 
         let depth_stencil_attachment = if enable_opaque {
             let depth_load = if self.programs.depth_cleared_this_frame {
@@ -2850,7 +2845,7 @@ impl RendererContext<'_> {
                 enable_opaque,
                 "opaque strips require the final view depth attachment"
             );
-            render_pass.set_pipeline(&self.programs.opaque_strip_pipelines[pipeline_idx]);
+            render_pass.set_pipeline(&self.programs.opaque_strip_pipeline);
             render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
             render_pass.draw(0..4, 0..opaque_count);
         }
@@ -2858,9 +2853,9 @@ impl RendererContext<'_> {
         if alpha_count > 0 {
             // Alpha pass
             if enable_opaque {
-                render_pass.set_pipeline(&self.programs.alpha_strip_pipelines[pipeline_idx]);
+                render_pass.set_pipeline(&self.programs.alpha_strip_pipeline);
             } else {
-                render_pass.set_pipeline(&self.programs.intermediate_strip_pipelines[pipeline_idx]);
+                render_pass.set_pipeline(&self.programs.intermediate_strip_pipeline);
             }
 
             let alpha_start = opaque_count;
@@ -2923,9 +2918,6 @@ impl RendererContext<'_> {
             if blend.blend_bbox.is_empty() {
                 continue;
             }
-
-            resources.layer_view(blend.parent_region.texture.target);
-            resources.layer_view(blend.child_region.texture.target);
 
             if let Some(range) = &blend.clip_strips {
                 self.scratch.blend_instances.extend(
@@ -3011,7 +3003,7 @@ impl RendererContext<'_> {
                 multiview_mask: None,
             });
             render_pass.set_pipeline(&self.programs.copy_pipeline);
-            render_pass.set_bind_group(1, &self.programs.resources.scratch_copy_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.programs.resources.scratch_copy_bind_group, &[]);
             render_pass.set_vertex_buffer(0, copy_instance_buffer.slice(..));
             render_pass.draw(0..4, 0..instance_count);
         }
@@ -3083,7 +3075,7 @@ impl RendererContext<'_> {
             });
             render_pass.set_pipeline(&self.programs.copy_pipeline);
             render_pass.set_bind_group(
-                1,
+                0,
                 &filter_pair_bind_groups.copy_sources
                     [bindings.target().texture_parity.get_parity()],
                 &[],
