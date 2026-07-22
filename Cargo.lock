@@ -5284,6 +5284,7 @@ version = "0.0.0"
 dependencies = [
  "android_logger",
  "anyhow",
+ "bytemuck",
  "clap",
  "console_error_panic_hook",
  "console_log",
@@ -5305,6 +5306,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
+ "wgpu",
  "wgpu-profiler",
  "winit",
 ]
