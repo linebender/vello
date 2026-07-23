@@ -271,6 +271,8 @@ impl RenderContext {
 
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
+        // TODO: Similarly to Vello Hybrid, make sure that inline blend + filter are applies
+        // to the same layer.
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
             let transform = ctx

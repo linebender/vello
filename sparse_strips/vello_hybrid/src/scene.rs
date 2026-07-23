@@ -318,6 +318,8 @@ impl Scene {
             },
             // TODO: Make this configurable by the user, and also take `ImageSampler` alpha into
             // account.
+            // **IMPORTANT**: If this ever can become false, we need to make sure to update
+            // Vello Hybrid so the opaque pass supports external textures as well!
             may_have_transparency: true,
             transform: transform.inverse(),
             tint: self.render_state.tint,
