@@ -139,7 +139,8 @@ use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::schedule::allocate::AllocatedTextureRegion;
 use crate::target::{
-    DrawTarget, LayerTextureRegion, RootTarget, RoundBindings, TextureParity, TextureRegion,
+    DrawTarget, LayerTextureRegion, RootTarget, RoundBindings, TextureParity,
+    TextureRegion,
 };
 use crate::{RenderError, Scene, blend::BlendStrip};
 use alloc::vec::Vec;
@@ -741,9 +742,27 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         round_idx: usize,
         rounds: &mut Rounds,
     ) {
-        rounds.ensure_exists(round_idx);
-
         let clear_region = allocation.clear_region();
+
+        // This is a very defensive check, but a pretty important one, thus worth keeping
+        // as a normal assertion instead of debug assertion. It shouldn't be triggered
+        // in assuming our scheduler is correct, but if it does, it's better to crash.
+        //
+        // Callers just provide a schedule point, but in case there is a bug, it could happen
+        // the callers supply a wrong round where a different pair of textures is actually
+        // bound. In this case, in case two different atlases both have an image with ID
+        // 0, we could potentially clear and deallocate the wrong one without noticing.
+        // Therefore, ensure that the current round actually binds the correct texture that
+        // is intended to be cleared.
+        assert_eq!(
+            rounds
+                .round_mut(round_idx)
+                .texture_binding
+                .layer_id(clear_region.target.texture_parity),
+            Some(clear_region.target),
+            "the clear round must bind the allocation's exact texture page"
+        );
+
         rounds.push_layer_clear(
             round_idx,
             clear_region.target.texture_parity,
