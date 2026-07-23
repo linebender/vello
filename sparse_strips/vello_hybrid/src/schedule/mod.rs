@@ -364,7 +364,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
                 // Next, we schedule the layer node. This might trigger advances to our current
                 // base round.
-                let child = self.prepare_node(cmd, state.draw_state.target_bbox, rounds)?;
+                let child = self.schedule_child_layer(cmd, state.draw_state.target_bbox, rounds)?;
 
                 // Finally, we also schedule the layer sampling operation. It's guaranteed to be
                 // a simple layer, since we know for sure that the root isn't a blend target.
@@ -389,7 +389,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             // First make sure that the child node is scheduled, in case it exists. Unlike for root
             // layers, we need to make sure to do this _before_ pushing any draws.
             // TODO: Similarly to Vello CPU, flatten this to avoid stack overflows for deep layers
-            let child = self.prepare_node(cmd, layer.sample_placement.dest_bbox, rounds)?;
+            let child = self.schedule_child_layer(cmd, layer.sample_placement.dest_bbox, rounds)?;
 
             // Keep this after `prepare_node`: allocating lazily is what makes traversal
             // bottom-up with respect to memory, while still allowing compatible layers to batch.
@@ -463,7 +463,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     }
 
     /// Resolve and schedule the optional child layer referenced by a command node.
-    fn prepare_node(
+    fn schedule_child_layer(
         &mut self,
         cmd: &Node,
         parent_bounds: RectU16,
