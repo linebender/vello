@@ -31,11 +31,12 @@
 //! so a simple chain labeled from `L0` can render by ping-ponging between one page from each group:
 //!
 //! ```text
-//! L0 (odd)
-//! `-- L1 (even)
-//!     `-- L2 (odd)
-//!         `-- L3 (even)
-//!             `-- L4 (odd)
+//! Root surface (not an intermediate layer)
+//! └── L0 — depth 1, odd page  — rendered 5th
+//!     └── L1 — depth 2, even page — rendered 4th
+//!         └── L2 — depth 3, odd page  — rendered 3rd
+//!             └── L3 — depth 4, even page — rendered 2nd
+//!                 └── L4 — depth 5, odd page  — rendered 1st
 //! ```
 //!
 //! `L4` is rendered first into the odd page. `L3` is then rendered into the even page and composes
@@ -58,10 +59,11 @@
 //! where the second child itself has a child:
 //!
 //! ```text
-//! L0 (odd)
-//! |-- L1 (even)
-//! `-- L2 (even)
-//!     `-- L3 (odd)
+//! Root surface (not an intermediate layer)
+//! └── L0 — depth 1, odd page  — rendered 4th
+//!     ├── L1 — depth 2, even page — rendered 1st
+//!     └── L2 — depth 2, even page — rendered 3rd
+//!         └── L3 — depth 3, odd page  — rendered 2nd
 //! ```
 //!
 //! After `L1` is composed, `L0` has an odd allocation containing that result. This allocation must
