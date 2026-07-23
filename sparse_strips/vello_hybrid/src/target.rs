@@ -253,6 +253,19 @@ pub(crate) struct LayerTextureRegion {
 }
 
 impl LayerTextureRegion {
+    /// Restrict this region to the given scene-space bounds while preserving its texture mapping.
+    pub(crate) fn crop_to(self, bounds: RectU16) -> Self {
+        let layer_bbox = self.layer_bbox.intersect(bounds);
+
+        Self {
+            texture: TextureRegion {
+                target: self.texture.target,
+                rect: self.texture_rect(layer_bbox),
+            },
+            layer_bbox,
+        }
+    }
+
     /// Translate a scene-space rectangle within this layer to texture coordinates.
     ///
     /// The given bbox must be fully contained within the layer bbox.
@@ -330,6 +343,28 @@ mod tests {
         assert_eq!(
             layer.texture_rect(RectU16::new(15, 30, 25, 42)),
             RectU16::new(105, 210, 115, 222)
+        );
+    }
+
+    #[test]
+    fn crop_preserves_texture_mapping() {
+        let layer = LayerTextureRegion {
+            texture: TextureRegion {
+                target: LayerTextureId::new(TextureParity::Even, 0),
+                rect: RectU16::new(100, 200, 150, 250),
+            },
+            layer_bbox: RectU16::new(10, 20, 60, 70),
+        };
+
+        assert_eq!(
+            layer.crop_to(RectU16::new(15, 30, 25, 42)),
+            LayerTextureRegion {
+                texture: TextureRegion {
+                    target: layer.texture.target,
+                    rect: RectU16::new(105, 210, 115, 222),
+                },
+                layer_bbox: RectU16::new(15, 30, 25, 42),
+            }
         );
     }
 }

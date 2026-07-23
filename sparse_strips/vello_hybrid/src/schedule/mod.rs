@@ -574,16 +574,16 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     /// Compose a rendered child into a parent layer.
     fn compose_layer(
         &mut self,
-        props: &LayerProps,
+        child_props: &LayerProps,
         child_layer: ScheduledLayer,
         parent_state: &mut TargetScheduleState<LayerTextureRegion>,
         rounds: &mut Rounds,
     ) -> Result<(), RenderError> {
-        let blend_mode = props.blend_mode;
-        let opacity = props.opacity;
+        let blend_mode = child_props.blend_mode;
+        let opacity = child_props.opacity;
 
         if blend_mode == BlendMode::default() {
-            self.compose_simple_layer(props, child_layer, parent_state, rounds);
+            self.compose_simple_layer(child_props, child_layer, parent_state, rounds);
 
             return Ok(());
         }
@@ -591,7 +591,10 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // If we don't have default src-over, we need to schedule a blend operation.
 
         let parent_region = parent_state.draw_state.target;
-        let child_region = child_layer.sample_region;
+        // See the comment in `RecordedLayer::bbox`. The child layer bbox is not necessarily
+        // contained within the parent layer bbox, but later code assumes that we only sample
+        // pixels contained within the parent layer bbox, so constrain it to the parent region.
+        let child_region = child_layer.sample_region.crop_to(parent_region.layer_bbox);
 
         // For non-destructive blend modes, choose the (smaller) child bbox as the
         // affected region. Otherwise, we need to choose the (larger) parent bbox, since
@@ -602,7 +605,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             child_region.layer_bbox
         };
 
-        if let Some(clip_path) = &props.clip_path {
+        // Clips associated with the child layer also reduce the affected area of the blend.
+        if let Some(clip_path) = &child_props.clip_path {
             blend_bbox = blend_bbox.intersect(clip_path.bbox);
         }
 
@@ -621,7 +625,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }
 
         // If there is a clip path associated, blending should be limited to its area.
-        let clip_strips = props.clip_path.as_ref().map(|clip_path| {
+        let clip_strips = child_props.clip_path.as_ref().map(|clip_path| {
             let start = self.storage.buffers.blend_strips.len();
             let strips = &self.strip_storage.strips[clip_path.strip_range.clone()];
             // As mentioned in the documentation of `ScratchTexture`, in the scratch atlas we use
@@ -1829,5 +1833,23 @@ mod tests {
         assert_eq!(root.strips.len(), 1);
         assert!(root.external_texture_runs.is_empty());
         assert_eq!(round.layer_passes(&storage.buffers).count(), 0);
+    }
+
+    #[test]
+    fn blend_is_constrained_to_parent_clip_bbox() {
+        let mut case = SceneCase::new(32, 8);
+        case.layer_with(Some(Rect::new(12.0, 0.0, 20.0, 8.0)), None, None, |case| {
+            case.layer_with(
+                None,
+                Some(BlendMode::new(Mix::Multiply, Compose::SrcOver)),
+                None,
+                |case| case.draw(Rect::new(4.0, 0.0, 16.0, 8.0), 0.5),
+            );
+        });
+        let scheduled = case.schedule_root();
+        let blend = scheduled.storage.buffers.blend_ops.first().unwrap();
+        assert_eq!(blend.blend_bbox, blend.parent_region.layer_bbox);
+        // This must not panic.
+        let _ = crate::blend::GpuBlendInstance::new(blend, None, SizeU16::new(64));
     }
 }

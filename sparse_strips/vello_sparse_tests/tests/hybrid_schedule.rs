@@ -20,6 +20,62 @@ use vello_dev_macros::vello_test;
 // scheduler to allocate atlas space for the parent before processing the following child. See the
 // scheduler documentation for more information.
 
+/// Test blending a child whose bounds extend beyond its clipped parent's allocation.
+#[vello_test(hybrid_tolerance = 1)]
+fn hybrid_schedule_blended_child_outside_clipped_parent(ctx: &mut impl Renderer) {
+    let parent_clip = Rect::new(40.0, 12.0, 92.0, 88.0).to_path(0.1);
+
+    ctx.push_layer(Some(&parent_clip), None, None, None, None);
+    ctx.set_paint(Color::from_rgb8(42, 154, 142));
+    ctx.fill_rect(&Rect::new(40.0, 12.0, 92.0, 88.0));
+
+    // The left side of the child lies outside the parent's clipped allocation, while the right
+    // side remains visible inside it.
+    ctx.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+    ctx.set_paint(Color::from_rgb8(244, 174, 66));
+    ctx.fill_rect(&Rect::new(8.0, 28.0, 68.0, 72.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+/// Test that cropping a blended child also advances its source texture origin.
+#[vello_test(hybrid_tolerance = 1)]
+fn hybrid_schedule_cropped_blend_preserves_child_source_offset(ctx: &mut impl Renderer) {
+    let parent_clip = Rect::new(40.0, 12.0, 92.0, 88.0).to_path(0.1);
+
+    ctx.push_layer(Some(&parent_clip), None, None, None, None);
+    ctx.set_paint(Color::from_rgb8(210, 210, 210));
+    ctx.fill_rect(&Rect::new(40.0, 12.0, 92.0, 88.0));
+
+    ctx.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+    // This half is outside the parent and must not be sampled after cropping.
+    ctx.set_paint(Color::from_rgb8(232, 72, 82));
+    ctx.fill_rect(&Rect::new(8.0, 28.0, 40.0, 72.0));
+    // Only this half overlaps the parent.
+    ctx.set_paint(Color::from_rgb8(62, 116, 232));
+    ctx.fill_rect(&Rect::new(40.0, 28.0, 68.0, 72.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+/// Test an empty destructive child inside a filter layer with a non-zero source shift.
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+fn hybrid_schedule_empty_destructive_child_in_shifted_filter(ctx: &mut impl Renderer) {
+    ctx.set_paint(Color::from_rgb8(50, 66, 104));
+    ctx.fill_rect(&Rect::new(8.0, 8.0, 92.0, 92.0));
+
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 16.0, dy: 12.0 });
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(Color::from_rgb8(230, 76, 92));
+    ctx.fill_rect(&Rect::new(16.0, 20.0, 72.0, 76.0));
+
+    // Clearing with an empty source should remove the filter layer's contents without affecting
+    // the backdrop.
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Clear));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
 /// Test the behavior when a spill to a page 1 is forced and that page is later reused.
 #[vello_test(cpu_u8_tolerance = 2, hybrid_tolerance = 1)]
 fn hybrid_schedule_atlas_page_one_reuse(ctx: &mut impl Renderer) {
