@@ -1,3 +1,6 @@
+// Copyright 2026 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use super::test_support::{SceneCase, ScheduledCase};
 use super::{IntermediateTextureAllocations, IntermediateTextureRequirements, ScheduleStorage};
 use crate::filter::FILTER_ATLAS_PADDING;
