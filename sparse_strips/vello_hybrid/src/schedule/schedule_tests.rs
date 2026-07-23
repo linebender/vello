@@ -32,21 +32,21 @@ fn intermediate_texture_requirements_validate_limit() {
     assert!(base.validate(allocations([0, 2], false), Some(4)).is_ok());
     assert!(base.validate(allocations([0, 3], false), Some(4)).is_err());
     assert!(matches!(
-            base.validate(allocations([2, 0], false), Some(3)),
-            Err(AtlasError::NoSpaceAvailable)
-        ));
+        base.validate(allocations([2, 0], false), Some(3)),
+        Err(AtlasError::NoSpaceAvailable)
+    ));
     assert!(matches!(
-            base.validate(allocations([1, 0], true), Some(2)),
-            Err(AtlasError::NoSpaceAvailable)
-        ));
+        base.validate(allocations([1, 0], true), Some(2)),
+        Err(AtlasError::NoSpaceAvailable)
+    ));
     assert!(matches!(
-            base.validate(allocations([0, 2], false), Some(3)),
-            Err(AtlasError::NoSpaceAvailable)
-        ));
+        base.validate(allocations([0, 2], false), Some(3)),
+        Err(AtlasError::NoSpaceAvailable)
+    ));
     assert!(matches!(
-            base.validate(allocations([2, 2], false), Some(4)),
-            Err(AtlasError::NoSpaceAvailable)
-        ));
+        base.validate(allocations([2, 2], false), Some(4)),
+        Err(AtlasError::NoSpaceAvailable)
+    ));
 }
 
 fn blend_case() -> ScheduledCase {
@@ -319,9 +319,9 @@ fn root_blend_budget() {
             .is_ok()
     );
     assert!(matches!(
-            case.schedule(RootTarget::UserSurface, SizeU16::new(16), 2,),
-            Err(crate::RenderError::AtlasError(_))
-        ));
+        case.schedule(RootTarget::UserSurface, SizeU16::new(16), 2,),
+        Err(crate::RenderError::AtlasError(_))
+    ));
 }
 
 #[test]
@@ -547,8 +547,8 @@ fn nested_children() {
         let scheduled = case
             .schedule(RootTarget::UserSurface, SizeU16::new(256), 2)
             .unwrap();
-        let layers = (CHILDREN.pow(depth.try_into().expect("test depth fits in u32")) - 1)
-            / (CHILDREN - 1);
+        let layers =
+            (CHILDREN.pow(depth.try_into().expect("test depth fits in u32")) - 1) / (CHILDREN - 1);
 
         assert_eq!(scheduled.page_counts(), [1, 1], "failed at depth {depth}");
         assert_eq!(
@@ -573,8 +573,8 @@ fn nested_children_spilled() {
         let scheduled = case
             .schedule(RootTarget::UserSurface, SizeU16::new(8), 16)
             .unwrap();
-        let layers = (CHILDREN.pow(depth.try_into().expect("test depth fits in u32")) - 1)
-            / (CHILDREN - 1);
+        let layers =
+            (CHILDREN.pow(depth.try_into().expect("test depth fits in u32")) - 1) / (CHILDREN - 1);
 
         assert_eq!(
             scheduled.page_counts(),

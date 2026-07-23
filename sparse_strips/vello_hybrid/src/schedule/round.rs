@@ -123,6 +123,29 @@ impl Rounds {
     }
 }
 
+#[cfg(any(test, debug_assertions))]
+impl Rounds {
+    /// Validate the texture-binding invariants assumed by the render backends.
+    pub(super) fn validate(&self, buffers: &ScheduleBuffers) {
+        for (round_idx, round) in self.rounds.iter().enumerate() {
+            for texture in round
+                .texture_binding
+                .required_textures()
+                .into_iter()
+                .flatten()
+            {
+                assert!(
+                    usize::from(texture.page_index)
+                        < self.layer_page_counts[texture.texture_parity.get_parity()],
+                    "round {round_idx} binds a layer texture outside the required page count"
+                );
+            }
+
+            round.validate(round_idx, buffers);
+        }
+    }
+}
+
 /// Operations and texture binding requirements for one rendering round.
 #[derive(Debug, Default)]
 pub(super) struct Round {
@@ -248,6 +271,72 @@ impl Round {
         buffers.filter_ops.push_ranged(
             &mut self.layer_texture_passes[texture_parity.get_parity()].filter_ranges,
             filter,
+        );
+    }
+}
+
+#[cfg(any(test, debug_assertions))]
+impl Round {
+    /// Validate the bindings required by this round's scheduled work.
+    fn validate(&self, round_idx: usize, buffers: &ScheduleBuffers) {
+        for (index, pass) in self.layer_texture_passes.iter().enumerate() {
+            let texture_parity = TextureParity::from_parity(index);
+            let target = self.texture_binding.layer_id(texture_parity);
+            let opposite = self.texture_binding.layer_id(texture_parity.opposite());
+            let has_draw = pass.draw.strip_ranges.len() != 0;
+            let has_filter = pass.filter_ranges.len() != 0;
+            let has_blend = pass.blend_ranges.len() != 0;
+
+            assert!(
+                !pass.draw.has_child_layer || has_draw,
+                "round {round_idx} has a child-layer binding without a layer draw"
+            );
+            assert!(
+                !(has_draw || has_filter || has_blend) || target.is_some(),
+                "round {round_idx} has a layer pass with no bound target"
+            );
+            assert!(
+                !(pass.draw.has_child_layer || has_filter || has_blend) || opposite.is_some(),
+                "round {round_idx} has a layer pass with no bound sampled page"
+            );
+
+            for filter in buffers.filter_ops.ranged(&pass.filter_ranges).iter() {
+                assert_eq!(
+                    target,
+                    Some(filter.textures.original.target),
+                    "round {round_idx} has a filter whose target is not bound"
+                );
+                assert_eq!(
+                    opposite,
+                    Some(filter.textures.temporary.target),
+                    "round {round_idx} has a filter whose temporary texture is not bound"
+                );
+            }
+
+            for blend in buffers.blend_ops.ranged(&pass.blend_ranges).iter() {
+                assert_eq!(
+                    target,
+                    Some(blend.parent_region.texture.target),
+                    "round {round_idx} has a blend whose parent texture is not bound"
+                );
+                assert_eq!(
+                    opposite,
+                    Some(blend.child_region.texture.target),
+                    "round {round_idx} has a blend whose child texture is not bound"
+                );
+            }
+
+            assert!(
+                self.layer_texture_clears[index].is_empty() || target.is_some(),
+                "round {round_idx} has a clear with no bound target"
+            );
+        }
+
+        assert!(
+            !self.root_draw.has_child_layer
+                || (self.root_draw.strip_ranges.len() != 0
+                    && self.texture_binding.layer_id(TextureParity::Odd).is_some()),
+            "round {round_idx} has a root draw with no bound child layer"
         );
     }
 }
@@ -578,6 +667,46 @@ mod tests {
         let clear_passes = round.clear_passes().collect::<alloc::vec::Vec<_>>();
         assert_eq!(clear_passes.len(), 1);
         assert_eq!(clear_passes[0].target, odd);
+    }
+
+    #[test]
+    fn validator_accepts_bound_work() {
+        let mut rounds = Rounds::default();
+        let mut buffers = ScheduleBuffers::default();
+        let bindings = filter_op(10).textures.round_bindings();
+        let point = rounds.resolve_binding_point(SchedulePoint::start(0), bindings);
+
+        rounds.round_mut(point.round).push_filter_op(
+            TextureParity::Even,
+            &mut buffers,
+            filter_op(10),
+        );
+        rounds.push_layer_clear(point.round, TextureParity::Odd, RectU16::new(0, 0, 8, 8));
+
+        rounds.validate(&buffers);
+    }
+
+    #[test]
+    #[should_panic(expected = "layer pass with no bound target")]
+    fn validator_rejects_unbound_layer_pass() {
+        let mut rounds = Rounds::default();
+        let mut buffers = ScheduleBuffers::default();
+        rounds.ensure_exists(0);
+        rounds
+            .round_mut(0)
+            .push_filter_op(TextureParity::Even, &mut buffers, filter_op(10));
+
+        rounds.validate(&buffers);
+    }
+
+    #[test]
+    #[should_panic(expected = "clear with no bound target")]
+    fn validator_rejects_unbound_clear() {
+        let mut rounds = Rounds::default();
+        rounds.ensure_exists(0);
+        rounds.push_layer_clear(0, TextureParity::Odd, RectU16::new(0, 0, 8, 8));
+
+        rounds.validate(&ScheduleBuffers::default());
     }
 
     #[test]

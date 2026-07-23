@@ -123,9 +123,9 @@ mod cursor;
 pub(crate) mod execute;
 pub(crate) mod round;
 #[cfg(test)]
-mod test_support;
-#[cfg(test)]
 mod schedule_tests;
+#[cfg(test)]
+mod test_support;
 
 use self::allocate::{Atlases, LayerAllocationRequest};
 use self::cursor::Cursor;
@@ -313,6 +313,9 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
         // Since the strips should be rendered front-to-back.
         self.storage.buffers.draw_buffers.opaque_strips.reverse();
+
+        #[cfg(any(test, debug_assertions))]
+        rounds.validate(&self.storage.buffers);
 
         let intermediate_textures = IntermediateTextureRequirements {
             size: self.texture_size,
