@@ -269,6 +269,41 @@ fn clipped_away_blend() {
     assert_eq!(scheduled.total_clears(), 3);
 }
 
+// Reproduces bug 2 from https://github.com/linebender/vello/pull/1759#issuecomment-5049523685.
+#[test]
+fn clipped_away_filtered_blend_under_atlas_pressure() {
+    let mut case = SceneCase::new(16, 8);
+    case.layer(|case| {
+        case.draw(Rect::new(0.0, 0.0, 8.0, 8.0), 0.5);
+        // Filter layers are scheduled before their clip is applied. The disjoint clip therefore
+        // makes the eventual blend a no-op without preventing the child filter from running.
+        case.layer_with(
+            Some(Rect::new(8.0, 0.0, 16.0, 8.0)),
+            Some(BlendMode::new(Mix::Multiply, Compose::SrcOver)),
+            Some(offset_filter()),
+            |case| case.draw(Rect::new(0.0, 0.0, 8.0, 8.0), 0.5),
+        );
+    });
+
+    // There is room for exactly one padded filter region per page. Allocating the parent therefore
+    // advances the cursor before the clipped-away child is released.
+    let scheduled = case
+        .schedule(RootTarget::UserSurface, filter_page_size(), 2)
+        .unwrap();
+
+    assert_eq!(scheduled.storage.buffers.filter_ops.len(), 1);
+    assert!(scheduled.storage.buffers.blend_ops.is_empty());
+    let rounds_view = scheduled.views();
+    assert_eq!(rounds_view.len(), 2);
+    assert_eq!(rounds_view[1].odd.x.len(), 1);
+    assert!(rounds_view[0].clears[TextureParity::Even.get_parity()].is_empty());
+    assert_eq!(
+        rounds_view[1].clears[TextureParity::Even.get_parity()].len(),
+        1
+    );
+    assert_eq!(scheduled.total_clears(), 3);
+}
+
 #[test]
 fn blend_release() {
     let scheduled = blend_case();

@@ -139,8 +139,7 @@ use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::schedule::allocate::AllocatedTextureRegion;
 use crate::target::{
-    DrawTarget, LayerTextureRegion, RootTarget, RoundBindings, TextureParity,
-    TextureRegion,
+    DrawTarget, LayerTextureRegion, RootTarget, RoundBindings, TextureParity, TextureRegion,
 };
 use crate::{RenderError, Scene, blend::BlendStrip};
 use alloc::vec::Vec;
@@ -621,11 +620,22 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // TODO: As mentioned elsewhere, we should change the recording so that such layers aren't
         // produced in the first place.
         if blend_bbox.is_empty() {
-            self.clear_and_release_allocation(
-                child_layer.allocation,
-                child_layer.ready.round,
-                rounds,
-            );
+            // This one needs a bit of special-casing compared to the other ones.
+            let round =
+                // Before deallocating, we need to make sure the child has been rendered
+                // in the first place.
+                child_layer.ready
+                // However, it's possible that in the meanwhile, we've advanced to a new round.
+                // We can't deallocate in the past, so we need to max it with the current round.
+                .round.max(self.cursor.current_round());
+
+            // If we choose `cursor.current_round`, there is no guarantee that the child layer texture
+            // is actually currently bound. Therefore, we need to resolve the binding point anew
+            // to find a compatible round.
+            let bindings = RoundBindings::new(child_layer.allocation.region.target);
+            let point = rounds.resolve_binding_point(SchedulePoint::start(round), bindings);
+
+            self.clear_and_release_allocation(child_layer.allocation, point.round, rounds);
 
             return Ok(());
         }
