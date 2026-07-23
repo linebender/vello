@@ -36,6 +36,7 @@ impl FilterEffect for DropShadow {
             &self.kernel[..usize::from(self.kernel_size)],
             self.color,
             self.edge_mode,
+            self.composite_original,
             filter_scratch,
         );
     }
@@ -52,7 +53,7 @@ impl FilterEffect for DropShadow {
 /// This is the main entry point that splits the drop shadow operation into well-defined steps:
 /// 1. Offset the shadow pixels
 /// 2. Blur the already-offset shadow
-/// 3. Apply shadow color and composite with original
+/// 3. Apply shadow color and optionally composite with original
 fn apply_drop_shadow(
     pixmap: &mut Pixmap,
     dx: f32,
@@ -62,6 +63,7 @@ fn apply_drop_shadow(
     kernel: &[f32],
     color: AlphaColor<Srgb>,
     edge_mode: EdgeMode,
+    composite_original: bool,
     filter_scratch: &mut ScratchBuffer,
 ) {
     // Clone pixmap to create shadow buffer
@@ -83,15 +85,21 @@ fn apply_drop_shadow(
         );
     }
 
-    // Step 3: Apply shadow color and composite with original
-    compose_shadow_direct(&shadow_pixmap, pixmap, color);
+    // Step 3: Apply shadow color and optionally composite with original
+    write_shadow_direct(&shadow_pixmap, pixmap, color, composite_original);
 }
 
-/// Apply shadow color and composite with original.
+/// Apply the shadow color and optionally composite with the original.
 ///
 /// The shadow has already been offset and blurred, so this simply applies
-/// the shadow color to the alpha channel and composites using source-over.
-fn compose_shadow_direct(shadow: &Pixmap, dst: &mut Pixmap, color: AlphaColor<Srgb>) {
+/// the shadow color to the alpha channel and, when requested, composites the
+/// original over it using source-over.
+fn write_shadow_direct(
+    shadow: &Pixmap,
+    dst: &mut Pixmap,
+    color: AlphaColor<Srgb>,
+    composite_original: bool,
+) {
     let width = dst.width();
     let height = dst.height();
 
@@ -120,9 +128,12 @@ fn compose_shadow_direct(shadow: &Pixmap, dst: &mut Pixmap, color: AlphaColor<Sr
                 a: final_alpha,
             };
 
-            // Read original and composite: original over shadow
-            let original_pixel = dst.sample(x, y);
-            let result = compose_src_over(original_pixel, colored_shadow);
+            let result = if composite_original {
+                // Read original and composite: original over shadow
+                compose_src_over(dst.sample(x, y), colored_shadow)
+            } else {
+                colored_shadow
+            };
 
             dst.set_pixel(x, y, result);
         }
@@ -277,7 +288,7 @@ mod tests {
         );
     }
 
-    /// Test `compose_shadow_direct` applies color correctly.
+    /// Test `write_shadow_direct` applies color correctly.
     #[test]
     fn test_compose_shadow_color() {
         let mut shadow_pixmap = Pixmap::new(2, 2);
@@ -300,7 +311,7 @@ mod tests {
             cs: std::marker::PhantomData::<Srgb>,
         };
 
-        compose_shadow_direct(&shadow_pixmap, &mut dst_pixmap, shadow_color);
+        write_shadow_direct(&shadow_pixmap, &mut dst_pixmap, shadow_color, true);
 
         // Shadow at (0,0) should be red
         let result = dst_pixmap.sample(0, 0);

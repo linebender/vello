@@ -22,6 +22,8 @@ pub struct DropShadow {
     pub std_deviation: f32,
     /// Edge mode for blur sampling.
     pub edge_mode: EdgeMode,
+    /// Whether to composite the original input over the colored shadow.
+    pub composite_original: bool,
     /// Number of 2x2 decimation levels to use (0 means direct convolution).
     pub n_decimations: usize,
     /// Pre-computed Gaussian kernel weights for the reduced blur.
@@ -42,6 +44,28 @@ impl DropShadow {
         edge_mode: EdgeMode,
         color: AlphaColor<Srgb>,
     ) -> Self {
+        Self::new_impl(dx, dy, std_deviation, edge_mode, color, true)
+    }
+
+    /// Create a new shadow-only drop shadow with the specified parameters.
+    pub fn new_shadow_only(
+        dx: f32,
+        dy: f32,
+        std_deviation: f32,
+        edge_mode: EdgeMode,
+        color: AlphaColor<Srgb>,
+    ) -> Self {
+        Self::new_impl(dx, dy, std_deviation, edge_mode, color, false)
+    }
+
+    fn new_impl(
+        dx: f32,
+        dy: f32,
+        std_deviation: f32,
+        edge_mode: EdgeMode,
+        color: AlphaColor<Srgb>,
+        composite_original: bool,
+    ) -> Self {
         // Precompute blur plan (same logic as GaussianBlur::new)
         let (n_decimations, kernel, kernel_size) = plan_decimated_blur(std_deviation);
 
@@ -51,6 +75,7 @@ impl DropShadow {
             color,
             std_deviation,
             edge_mode,
+            composite_original,
             n_decimations,
             kernel,
             kernel_size,

@@ -257,6 +257,65 @@ fn filter_drop_shadow(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+fn filter_drop_shadow_only_simple(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::DropShadowOnly {
+        dx: 20.0,
+        dy: 20.0,
+        std_deviation: 3.0,
+        color: TOMATO,
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(ROYAL_BLUE);
+    ctx.fill_rect(&Rect::new(20.0, 20.0, 60.0, 60.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+fn filter_drop_shadow_only_simple_with_opacity(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::DropShadowOnly {
+        dx: 20.0,
+        dy: 20.0,
+        std_deviation: 3.0,
+        color: TOMATO,
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(ROYAL_BLUE.with_alpha(0.5));
+    ctx.fill_rect(&Rect::new(20.0, 20.0, 60.0, 60.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+fn filter_drop_shadow_only_four_directions(ctx: &mut impl Renderer) {
+    let rect = Rect::new(35.0, 35.0, 65.0, 65.0);
+    let shadows = [
+        (-20.0, -20.0, RED),
+        (20.0, -20.0, GREEN),
+        (-20.0, 20.0, BLUE),
+        (20.0, 20.0, YELLOW),
+    ];
+
+    for (dx, dy, color) in shadows {
+        let filter = Filter::from_primitive(FilterPrimitive::DropShadowOnly {
+            dx,
+            dy,
+            std_deviation: 3.0,
+            color,
+            edge_mode: EdgeMode::None,
+        });
+
+        ctx.push_filter_layer(filter);
+        // Just to double-check that the existing color is ignored.
+        ctx.set_paint(BLUE);
+        ctx.fill_rect(&rect);
+        ctx.pop_layer();
+    }
+}
+
 // Make sure drop shadows are not cut off at the top/left.
 #[vello_test(skip_multithreaded, hybrid_tolerance = 1, width = 100, height = 100)]
 fn filter_drop_shadow_offscreen(ctx: &mut impl Renderer) {

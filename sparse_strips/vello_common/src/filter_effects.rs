@@ -20,6 +20,7 @@
 //! - `Flood` - Solid color fill
 //! - `GaussianBlur` - Gaussian blur filter
 //! - `DropShadow` - Drop shadow effect (compound primitive)
+//! - `DropShadowOnly` - Drop shadow effect without the original input
 //! - `Offset` - Translation/shift (single primitive)
 //!
 //! **Note:** Currently only single primitive filters are supported. Filter graphs with
@@ -410,6 +411,21 @@ pub enum FilterPrimitive {
         /// Default is `EdgeMode::None` per SVG spec.
         edge_mode: EdgeMode,
     },
+    /// Same as [`FilterPrimitive::DropShadow`], but without compositing the original
+    /// layer on top of it.
+    DropShadowOnly {
+        /// Horizontal offset of the shadow in pixels. Positive values shift right.
+        dx: f32,
+        /// Vertical offset of the shadow in pixels. Positive values shift down.
+        dy: f32,
+        /// Blur standard deviation for the shadow. Larger values create softer shadows.
+        std_deviation: f32,
+        /// Color applied to the blurred, offset input alpha mask. The input's color
+        /// channels are ignored, and this color's alpha controls shadow opacity.
+        color: AlphaColor<Srgb>,
+        /// Edge mode for handling boundaries during blur operation.
+        edge_mode: EdgeMode,
+    },
     //
     // ============================================================
     // TODO: The following filter primitives are not yet implemented
@@ -577,9 +593,14 @@ impl FilterPrimitive {
                 dx,
                 dy,
                 ..
+            }
+            | Self::DropShadowOnly {
+                std_deviation,
+                dx,
+                dy,
+                ..
             } => {
-                // Drop shadow = blur + offset + composite with original
-                // The expansion rect encompasses both the blur and the offset
+                // The expansion rect encompasses both the blur and the offset.
                 let blur_radius = (*std_deviation * 3.0) as f64;
                 let dx = *dx as f64;
                 let dy = *dy as f64;
@@ -599,7 +620,9 @@ impl FilterPrimitive {
     /// The source expansion of the primitive, see [`Filter::source_expansion`].
     pub fn source_expansion(&self) -> Rect {
         match self {
-            Self::Offset { dx, dy } | Self::DropShadow { dx, dy, .. } => {
+            Self::Offset { dx, dy }
+            | Self::DropShadow { dx, dy, .. }
+            | Self::DropShadowOnly { dx, dy, .. } => {
                 self.filter_expansion() - Vec2::new(f64::from(*dx), f64::from(*dy))
             }
             _ => self.filter_expansion(),

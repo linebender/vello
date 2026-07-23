@@ -30,6 +30,7 @@ const PASS_BLUR_H: u32 = 4u;
 const PASS_BLUR_V: u32 = 5u;
 const PASS_UPSCALE: u32 = 6u;
 const PASS_COMPOSITE_DROP_SHADOW: u32 = 7u;
+const PASS_COLORIZE: u32 = 8u;
 
 // Keep in sync with FILTER_ATLAS_PADDING in vello_hybrid/src/filter.rs.
 const FILTER_ATLAS_PADDING: u32 = 6u;
@@ -41,7 +42,8 @@ const MAX_TAPS_PER_SIDE: u32 = 3u;
 //   bits [5:6]   = edge_mode     (2 bits, only for blur filters), currently ignored.
 //   bits [7:10]  = n_decimations (4 bits, only for blur filters), only read on the CPU side.
 //   bits [11:12] = n_linear_taps (2 bits, only for blur filters)
-//   bits [13:32] = reserved for future use
+//   bit  [13]    = composite_original (only for drop shadows), only read on the CPU side.
+//   bits [14:32] = reserved for future use
 
 fn load_filter_texel(texel_offset: u32, texel_index: u32) -> vec4<u32> {
     let w = textureDimensions(filter_data).x;
@@ -388,6 +390,12 @@ fn fs_main(
 
             // Simple source-over compositing.
             return original + shadow_result * (1.0 - original.a);
+        }
+        case PASS_COLORIZE: {
+            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
+            let blurred = sample_source(source_origin, rel_coord);
+            let shadow_color = unpack4x8unorm(get_drop_shadow_color(filter_texel2));
+            return shadow_color * blurred.a;
         }
         // Shouldn't be reached.
         default: {

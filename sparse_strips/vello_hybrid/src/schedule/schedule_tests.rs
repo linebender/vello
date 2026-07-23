@@ -5,11 +5,11 @@ use super::test_support::{SceneCase, ScheduledCase};
 use super::{IntermediateTextureAllocations, IntermediateTextureRequirements, ScheduleStorage};
 use crate::filter::FILTER_ATLAS_PADDING;
 use crate::target::{RootTarget, TextureParity};
-use vello_common::filter_effects::{Filter, FilterPrimitive};
+use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::geometry::SizeU16;
 use vello_common::kurbo::Rect;
 use vello_common::multi_atlas::AtlasError;
-use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_common::peniko::{BlendMode, Color, Compose, Mix};
 
 #[test]
 fn intermediate_texture_requirements_validate_limit() {
@@ -706,6 +706,28 @@ fn filter_layer() {
     assert_eq!(rounds_view[0].filter_passes, [0, 1]);
     assert!(rounds_view[0].root.has_child_layer);
     assert_eq!(scheduled.total_clears(), 2);
+}
+
+#[test]
+fn drop_shadow_only_uses_two_layer_textures() {
+    let mut case = SceneCase::new(32, 32);
+    let filter = Filter::from_primitive(FilterPrimitive::DropShadowOnly {
+        dx: 4.0,
+        dy: 4.0,
+        std_deviation: 2.0,
+        color: Color::BLACK,
+        edge_mode: EdgeMode::None,
+    });
+    case.layer_with(None, None, Some(filter), |case| {
+        case.draw(Rect::new(8.0, 8.0, 16.0, 16.0), 0.5);
+    });
+
+    let scheduled = case
+        .schedule(RootTarget::UserSurface, SizeU16::new(64), 2)
+        .unwrap();
+
+    assert_eq!(scheduled.page_counts(), [1, 1]);
+    assert!(!scheduled.scratch_texture());
 }
 
 #[test]

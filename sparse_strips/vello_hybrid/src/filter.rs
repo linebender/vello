@@ -33,6 +33,7 @@ pub(crate) const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 const BYTES_PER_TEXEL: usize = 16;
 const FILTER_SIZE_BYTES: usize = 48;
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
+const COMPOSITE_ORIGINAL_SHIFT: u32 = 13;
 
 const _: () = assert!(
     size_of::<GpuFilterData>() == FILTER_SIZE_BYTES,
@@ -78,6 +79,7 @@ pub(crate) mod pass_kind {
     pub(crate) const BLUR_V: u32 = 5;
     pub(crate) const UPSCALE: u32 = 6;
     pub(crate) const COMPOSITE_DROP_SHADOW: u32 = 7;
+    pub(crate) const COLORIZE: u32 = 8;
 }
 
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
@@ -284,7 +286,7 @@ impl From<&DropShadow> for GpuDropShadow {
                 edge_mode_to_gpu(shadow.edge_mode),
                 shadow.n_decimations as u32,
                 lk.n_taps as u32,
-            ),
+            ) | (u32::from(shadow.composite_original) << COMPOSITE_ORIGINAL_SHIFT),
             center_weight: lk.center_weight,
             linear_weights: lk.weights,
             linear_offsets: lk.offsets,
@@ -318,10 +320,14 @@ impl GpuFilterData {
         ((self.data[0] >> 7) & 0xF) as usize
     }
 
+    pub(crate) fn composite_original(&self) -> bool {
+        (self.data[0] >> COMPOSITE_ORIGINAL_SHIFT) & 1 != 0
+    }
+
     pub(crate) fn needs_copy_pass(&self) -> bool {
         // For drop shadows, we need to retain the original rendered layer because in the end
         // we need to composite it _on top_ of the actual shadow.
-        self.filter_type() == filter_type::DROP_SHADOW
+        self.filter_type() == filter_type::DROP_SHADOW && self.composite_original()
     }
 }
 
@@ -429,7 +435,11 @@ impl FilterPassPlan {
                 filter_type::DROP_SHADOW => {
                     builder.emit(pass_kind::OFFSET);
                     builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
-                    builder.emit(pass_kind::COMPOSITE_DROP_SHADOW);
+                    if filter.gpu_filter.composite_original() {
+                        builder.emit(pass_kind::COMPOSITE_DROP_SHADOW);
+                    } else {
+                        builder.emit(pass_kind::COLORIZE);
+                    }
                 }
                 _ => unreachable!("unsupported filter type was encoded"),
             }
