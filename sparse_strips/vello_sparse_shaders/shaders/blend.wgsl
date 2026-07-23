@@ -107,7 +107,7 @@ fn vs_main(
 fn load_layer(texture_index: u32, xy: vec2<i32>) -> vec4<f32> {
     if texture_index == 0u {
         return textureLoad(layer_texture_0, xy, 0);
-    }   else {
+    } else {
         return textureLoad(layer_texture_1, xy, 0);
     }
 }

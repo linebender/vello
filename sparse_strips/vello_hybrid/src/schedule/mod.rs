@@ -671,7 +671,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             u32::try_from(start).unwrap()..u32::try_from(end).unwrap()
         });
 
-        // TODO: We could an optimization here that early exits early if clip strips
+        // TODO: We could add an optimization here that early exits early if clip strips
         // is empty.
 
         let parent_texture_parity = parent_region.texture.target.texture_parity;

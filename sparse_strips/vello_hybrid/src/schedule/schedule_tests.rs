@@ -454,7 +454,7 @@ fn incompatible_siblings() {
 
     // Root is blend target, so it lands in odd texture page 1.
     // Sibling layer lands in even texture page 1, and since it has
-    // a filter we need a new page allocation in odd, so texthre page 2.
+    // a filter we need a new page allocation in odd, so texture page 2.
     assert_eq!(scheduled.page_counts(), [1, 2]);
     assert_eq!(rounds_view.len(), 3);
     // Round 0 binds the texture where the root is.
