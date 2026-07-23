@@ -396,7 +396,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             // TODO: Similarly to Vello CPU, flatten this to avoid stack overflows for deep layers
             let child = self.schedule_child_layer(cmd, layer.sample_placement.dest_bbox, rounds)?;
 
-            // Keep this after `prepare_node`: allocating lazily is what makes traversal
+            // Keep this after `schedule_child_layer`: allocating lazily is what makes traversal
             // bottom-up with respect to memory, while still allowing compatible layers to batch.
             let target = self.ensure_layer_target(&mut layer)?;
 
