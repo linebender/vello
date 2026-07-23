@@ -16,7 +16,7 @@ pub(crate) const fn tan_45() -> f64 {
 }
 
 #[vello_test(width = 600, height = 32)]
-fn gradient_on_3_wide_tiles(ctx: &mut impl Renderer) {
+fn wide_linear_gradient(ctx: &mut impl Renderer) {
     let rect = Rect::new(4.0, 4.0, 596.0, 28.0);
 
     let gradient = Gradient {

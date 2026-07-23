@@ -202,18 +202,13 @@ impl EncodeExt for Gradient {
         // for the paint transform of the render context.
         let transform = base_transform * transform.inverse();
 
-        // One possible approach of calculating the positions would be to apply the above
-        // transform to _each_ pixel that we render in the wide tile. However, a much better
-        // approach is to apply the transform once for the first pixel in each wide tile,
-        // and from then on only apply incremental updates to the current x/y position
-        // that we calculate based on the transform.
+        // One possible approach to calculating the positions would be to apply the above
+        // transform to each rendered pixel. Instead, renderers apply the transform to the first
+        // pixel of a span and then incrementally update the current x/y position.
         //
-        // Remember that we render wide tiles in column major order (i.e. we first calculate the
-        // values for a specific x for all Tile::HEIGHT y by incrementing y by 1, and then finally
-        // we increment the x position by 1 and start from the beginning). If we want to implement
-        // the above approach of incrementally updating the position, we need to calculate
-        // how the x/y unit vectors are affected by the transform, and then use this as the
-        // step delta for a step in the x/y direction.
+        // Pixels are rendered in column-major order: for a specific x, we calculate the values for
+        // all y coordinates before incrementing x. To update the position incrementally, we
+        // calculate how the transform affects the x/y unit vectors and use those as the step deltas.
         let (x_advance, y_advance) = x_y_advances(&transform);
 
         let cache_key = CacheKey(GradientCacheKey {

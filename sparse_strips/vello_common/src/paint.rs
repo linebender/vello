@@ -30,11 +30,11 @@ impl IndexedPaint {
     }
 }
 
-/// A paint that is used internally by a rendering frontend to store how a wide tile command
-/// should be painted. There are only two types of paint:
+/// A paint used internally by a rendering frontend to store how a draw should be painted.
+/// There are only two types of paint:
 ///
 /// 1) Simple solid colors, which are stored in premultiplied representation so that
-///    each wide tile doesn't have to recompute it.
+///    the renderer doesn't have to recompute it.
 /// 2) Indexed paints, which can represent any arbitrary, more complex paint that is
 ///    determined by the frontend. The intended way of using this is to store a vector
 ///    of paints and store its index inside `IndexedPaint`.

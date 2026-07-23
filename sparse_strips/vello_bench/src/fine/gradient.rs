@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::SEED;
-use crate::fine::{default_blend, fill_single};
+use crate::fine::{BENCH_WIDTH, default_blend, fill_single};
 use criterion::{Bencher, Criterion};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use smallvec::{SmallVec, smallvec};
-use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
 use vello_common::encode::EncodeExt;
@@ -136,9 +135,9 @@ mod linear {
 
 mod radial {
 
+    use crate::fine::BENCH_WIDTH;
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
     use criterion::Bencher;
-    use vello_common::coarse::WideTile;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Point;
     use vello_common::peniko;
@@ -152,9 +151,9 @@ mod radial {
     #[vello_bench]
     pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
         let kind = RadialGradientPosition {
-            start_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
+            start_center: Point::new(BENCH_WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             start_radius: 25.0,
-            end_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
+            end_center: Point::new(BENCH_WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             end_radius: 75.0,
         }
         .into();
@@ -174,10 +173,10 @@ mod radial {
         fine: &mut Fine<S, N>,
     ) {
         let kind = RadialGradientPosition {
-            start_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
+            start_center: Point::new(BENCH_WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             start_radius: 25.0,
             end_center: Point::new(
-                WideTile::WIDTH as f64 / 2.0 + 5.0,
+                BENCH_WIDTH as f64 / 2.0 + 5.0,
                 (Tile::HEIGHT / 2) as f64 + 5.0,
             ),
             end_radius: 75.0,
@@ -196,9 +195,9 @@ mod radial {
 
 mod sweep {
 
+    use crate::fine::BENCH_WIDTH;
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
     use criterion::Bencher;
-    use vello_common::coarse::WideTile;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Point;
     use vello_common::peniko;
@@ -212,7 +211,7 @@ mod sweep {
     #[vello_bench]
     pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
         let kind = SweepGradientPosition {
-            center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
+            center: Point::new(BENCH_WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             start_angle: 70.0_f32.to_radians(),
             end_angle: 250.0_f32.to_radians(),
         }
@@ -245,7 +244,7 @@ fn gradient_base<S: Simd, N: FineKernel<S>>(
     };
 
     let paint = grad.encode_into(&mut paints, Affine::IDENTITY, None);
-    fill_single(&paint, &paints, WideTile::WIDTH, b, default_blend(), fine);
+    fill_single(&paint, &paints, BENCH_WIDTH, b, default_blend(), fine);
 }
 
 fn stops_blue_green_red_yellow_opaque() -> ColorStops {

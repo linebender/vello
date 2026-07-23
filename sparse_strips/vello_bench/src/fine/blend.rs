@@ -1,9 +1,8 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::fine::fill_single;
+use crate::fine::{BENCH_WIDTH, fill_single};
 use criterion::{Bencher, Criterion};
-use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::fearless_simd::Simd;
 use vello_common::paint::{Paint, PremulColor};
@@ -195,7 +194,7 @@ fn base<S: Simd, T: FineKernel<S>>(
     blend_mode: BlendMode,
 ) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE));
-    let width = WideTile::WIDTH;
+    let width = BENCH_WIDTH;
 
     fill_single(&paint, &[], width, b, blend_mode, fine);
 }

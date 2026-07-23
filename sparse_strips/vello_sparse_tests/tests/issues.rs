@@ -222,9 +222,12 @@ fn triangle_exceeding_viewport_2(ctx: &mut impl Renderer) {
     ctx.fill_path(&path);
 }
 
+// Note: The below 4 tests are remnants from a previous architecture of
+// Vello Hybrid, but we are still keeping them for good measure.
+
 #[vello_test(width = 256, height = 4, no_ref)]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/30
-fn shape_at_wide_tile_boundary(ctx: &mut impl Renderer) {
+fn shape_crossing_horizontal_boundary(ctx: &mut impl Renderer) {
     let mut path = BezPath::new();
     path.move_to((248.0, 0.0));
     path.line_to((257.0, 0.0));
@@ -780,7 +783,7 @@ fn issue_1707_transparent_solid_fill(ctx: &mut impl Renderer) {
 }
 
 #[vello_test]
-fn issue_fast_path_strips_in_later_round(ctx: &mut impl Renderer) {
+fn issue_root_draws_in_later_round(ctx: &mut impl Renderer) {
     ctx.push_layer(None, None, None, None, None);
     ctx.push_layer(None, None, None, None, None);
     ctx.push_layer(None, None, None, None, None);
@@ -795,7 +798,7 @@ fn issue_fast_path_strips_in_later_round(ctx: &mut impl Renderer) {
 }
 
 #[vello_test]
-fn issue_coarse_batch_in_later_round(ctx: &mut impl Renderer) {
+fn issue_layer_draws_in_later_round(ctx: &mut impl Renderer) {
     ctx.push_layer(None, None, None, None, None);
     ctx.push_layer(None, None, None, None, None);
     ctx.push_layer(None, None, None, None, None);
@@ -812,7 +815,7 @@ fn issue_coarse_batch_in_later_round(ctx: &mut impl Renderer) {
 }
 
 #[vello_test]
-fn issue_fast_path_strips_and_coarse_batch_in_later_round(ctx: &mut impl Renderer) {
+fn issue_root_and_layer_draws_in_later_round(ctx: &mut impl Renderer) {
     ctx.push_layer(None, None, None, None, None);
     ctx.push_layer(None, None, None, None, None);
     ctx.push_layer(None, None, None, None, None);

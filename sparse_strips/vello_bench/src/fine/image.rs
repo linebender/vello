@@ -1,11 +1,10 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::fine::{default_blend, fill_single};
+use crate::fine::{BENCH_WIDTH, default_blend, fill_single};
 use criterion::{Bencher, Criterion};
 use std::io::Cursor;
 use std::sync::Arc;
-use vello_common::coarse::WideTile;
 use vello_common::encode::EncodeExt;
 use vello_common::fearless_simd::Simd;
 use vello_common::kurbo::Affine;
@@ -31,9 +30,9 @@ pub fn image(c: &mut Criterion) {
 }
 
 mod extend {
+    use crate::fine::BENCH_WIDTH;
     use crate::fine::image::{get_small_image, image_base};
     use criterion::Bencher;
-    use vello_common::coarse::WideTile;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Affine;
     use vello_common::peniko;
@@ -51,7 +50,7 @@ mod extend {
             b,
             fine,
             im,
-            Affine::translate((WideTile::WIDTH as f64 / 2.0, 0.0)),
+            Affine::translate((BENCH_WIDTH as f64 / 2.0, 0.0)),
         );
     }
 
@@ -107,9 +106,9 @@ mod quality {
 }
 
 mod transform {
+    use crate::fine::BENCH_WIDTH;
     use crate::fine::image::{get_colr_image, image_base};
     use criterion::Bencher;
-    use vello_common::coarse::WideTile;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::{Affine, Point};
     use vello_common::peniko;
@@ -139,7 +138,7 @@ mod transform {
             im,
             Affine::rotate_about(
                 1.0,
-                Point::new(WideTile::WIDTH as f64 / 2.0, Tile::HEIGHT as f64 / 2.0),
+                Point::new(BENCH_WIDTH as f64 / 2.0, Tile::HEIGHT as f64 / 2.0),
             ),
         );
     }
@@ -185,5 +184,5 @@ fn image_base<S: Simd, T: FineKernel<S>>(
 
     let paint = image.encode_into(&mut paints, transform, None);
 
-    fill_single(&paint, &paints, WideTile::WIDTH, b, default_blend(), fine);
+    fill_single(&paint, &paints, BENCH_WIDTH, b, default_blend(), fine);
 }

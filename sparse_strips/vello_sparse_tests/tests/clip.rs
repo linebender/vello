@@ -6,7 +6,6 @@
 use crate::renderer::Renderer;
 use crate::util::{circular_star, crossed_line_star, stops_green_blue};
 use std::f64::consts::PI;
-use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::{
     BLACK, BLUE, DARK_BLUE, DARK_GREEN, GREEN, REBECCA_PURPLE, RED,
 };
@@ -20,9 +19,8 @@ use vello_cpu::peniko::{
 use vello_dev_macros::vello_test;
 
 #[vello_test(height = 8)]
-fn clip_single_wide_tile(ctx: &mut impl Renderer) {
+fn nested_clips_within_viewport(ctx: &mut impl Renderer) {
     const WIDTH: f64 = 100.0;
-    assert!(WIDTH <= WideTile::WIDTH as f64, "Width larger than a tile");
     const HEIGHT: f64 = Tile::HEIGHT as f64;
     const OFFSET: f64 = WIDTH / 3.0;
 
@@ -372,7 +370,7 @@ fn clip_exceeding_viewport(ctx: &mut impl Renderer) {
 
 // See <https://github.com/linebender/vello/pull/975#issuecomment-2858372366>
 #[vello_test(no_ref)]
-fn clip_completely_in_out_of_bounds_wide_tile(ctx: &mut impl Renderer) {
+fn empty_clip_completely_outside_viewport(ctx: &mut impl Renderer) {
     ctx.push_clip_layer(&Rect::new(300.0, 8.0, 350.0, 48.0).to_path(0.1));
     ctx.pop_layer();
 }

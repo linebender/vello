@@ -4104,7 +4104,6 @@ dependencies = [
  "bytemuck",
  "fearless_simd",
  "guillotiere",
- "hashbrown 0.17.1",
  "libm",
  "log",
  "peniko",
