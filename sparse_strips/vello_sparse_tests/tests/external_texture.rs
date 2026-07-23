@@ -10,7 +10,8 @@ mod tests {
     use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{Affine, Circle, Rect, Shape};
-    use vello_common::peniko::ImageQuality;
+    use vello_common::paint::{Image, ImageSource};
+    use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
     use vello_common::pixmap::Pixmap;
     use vello_hybrid::SampleRect;
 
@@ -44,6 +45,20 @@ mod tests {
             source_region: RectU16::new(0, 0, 1, 1),
             transform: Affine::translate((x, y)) * Affine::scale(40.),
         }]
+    }
+
+    fn draw_atlas_rect(ctx: &mut HybridRenderer, image: ImageSource, rect: Rect) {
+        ctx.set_paint_transform(Affine::IDENTITY);
+        ctx.set_paint(Image {
+            image,
+            sampler: ImageSampler {
+                x_extend: Extend::Pad,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
+        });
+        ctx.fill_rect(&rect);
     }
 
     fn texture_circle(
@@ -118,6 +133,37 @@ mod tests {
                     transform: Affine::translate((25., 25.)),
                 }],
             );
+        });
+    }
+
+    #[test]
+    fn external_texture_atlas_interleaving() {
+        hybrid_snapshot_test::<100, 100>("external_texture_atlas_interleaving", |ctx| {
+            let atlas_red = ctx.get_image_source(solid_pixmap(254, 0, 0, 254));
+            let external_green = ctx.register_external_texture(solid_pixmap(0, 254, 0, 254));
+            let atlas_blue = ctx.get_image_source(solid_pixmap(0, 0, 254, 254));
+            let external_yellow = ctx.register_external_texture(solid_pixmap(254, 254, 0, 254));
+            let atlas_magenta = ctx.get_image_source(solid_pixmap(254, 0, 254, 254));
+
+            draw_atlas_rect(ctx, atlas_red, Rect::new(10., 10., 34., 34.));
+            ctx.draw_texture_rects(
+                external_green,
+                ImageQuality::Low,
+                [SampleRect {
+                    source_region: RectU16::new(0, 0, 1, 1),
+                    transform: Affine::translate((66., 10.)) * Affine::scale(24.),
+                }],
+            );
+            draw_atlas_rect(ctx, atlas_blue, Rect::new(38., 38., 62., 62.));
+            ctx.draw_texture_rects(
+                external_yellow,
+                ImageQuality::Low,
+                [SampleRect {
+                    source_region: RectU16::new(0, 0, 1, 1),
+                    transform: Affine::translate((10., 66.)) * Affine::scale(24.),
+                }],
+            );
+            draw_atlas_rect(ctx, atlas_magenta, Rect::new(66., 66., 90., 90.));
         });
     }
 

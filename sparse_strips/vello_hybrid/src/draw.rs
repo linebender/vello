@@ -472,10 +472,10 @@ mod tests {
     use crate::util::VecExt;
     use alloc::vec::Vec;
     use vello_common::TextureId;
-    use vello_common::encode::{EncodedExternalTexture, EncodedPaint};
+    use vello_common::encode::{EncodedExternalTexture, EncodedImage, EncodedPaint};
     use vello_common::geometry::RectU16;
-    use vello_common::kurbo::{Affine, Rect};
-    use vello_common::paint::{IndexedPaint, Paint, PremulColor};
+    use vello_common::kurbo::{Affine, Rect, Vec2};
+    use vello_common::paint::{ImageId, ImageSource, IndexedPaint, Paint, PremulColor};
     use vello_common::peniko::color::palette::css::BLUE;
     use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
     use vello_common::strip_generator::StripStorage;
@@ -553,6 +553,23 @@ mod tests {
         })
     }
 
+    fn atlas_image() -> EncodedPaint {
+        EncodedPaint::Image(EncodedImage {
+            source: ImageSource::opaque_id(ImageId::new(0)),
+            sampler: ImageSampler {
+                x_extend: Extend::Pad,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
+            may_have_transparency: true,
+            transform: Affine::IDENTITY,
+            x_advance: Vec2::new(1.0, 0.0),
+            y_advance: Vec2::new(0.0, 1.0),
+            tint: None,
+        })
+    }
+
     fn layer(layer_bbox: RectU16) -> LayerTextureRegion {
         LayerTextureRegion {
             texture: TextureRegion {
@@ -598,6 +615,30 @@ mod tests {
                     strips_start: 4,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn texture_runs_collapse_across_atlas_images() {
+        let texture = TextureId(10);
+        let encoded = [external(texture), atlas_image()];
+        let resolver = PaintResolver::new(&encoded, &[0, 0]);
+        let mut case = DrawCase::new(RootTarget::UserSurface, RectU16::new(0, 0, 16, 8));
+        let mut draw = Draw::default();
+
+        for (x, paint_index) in [(0.0, 0), (4.0, 1), (8.0, 0)] {
+            case.rect(&mut draw, rect(x), indexed(paint_index), resolver);
+        }
+
+        assert_eq!(draw.strip_ranges.len(), 3);
+        // Images in the atlas are handled separately from external textures, so
+        // it's fine to collapse them.
+        assert_eq!(
+            draw.external_texture_runs,
+            [ExternalTextureRun {
+                texture_id: texture,
+                strips_start: 0,
+            }]
         );
     }
 
