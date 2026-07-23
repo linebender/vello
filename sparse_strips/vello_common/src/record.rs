@@ -77,6 +77,22 @@ pub struct RecordedLayer {
     /// Nesting depth of the layer.
     pub depth: usize,
     /// Tile-aligned bounding box of the layer.
+    ///
+    /// **IMPORTANT**: This field only indicates the bounding box of visible contents directly
+    /// in this layer. It does not mean that any child layer is also strictly contained within
+    /// those bounds.
+    ///
+    /// For example:
+    ///
+    /// ```text
+    /// Root surface
+    /// └── L0 — regular layer, clipped to 50 × 50
+    ///     └── L1 — filter layer with a 100 × 100 bbox
+    /// ```
+    ///
+    /// This is a completely valid constellation. L1 needs to be rendered at its full resolution,
+    /// but since the parent layer has a clip path, we can constrain it's visible region. However,
+    /// the child layer must remain unaffected by this.
     pub bbox: RectU16,
 }
 
