@@ -23,6 +23,19 @@ pub(crate) const COLOR_SOURCE_SHIFT: u32 = 29;
 const PAINT_TYPE_SHIFT: u32 = 26;
 const PAINT_TEXTURE_INDEX_MASK: u32 = (1 << PAINT_TYPE_SHIFT) - 1;
 
+/// Shader-ready paint metadata for a strip.
+#[derive(Clone, Copy)]
+pub(crate) struct PackedPaint {
+    /// Value source for the strip's payload field.
+    payload: PaintPayload,
+    /// Packed paint kind, source, and data offset.
+    pub(crate) paint: u32,
+    /// External texture required by this paint, if any.
+    pub(crate) external_texture_id: Option<TextureId>,
+    /// Whether the paint is fully opaque.
+    pub(crate) opaque: bool,
+}
+
 impl PackedPaint {
     pub(crate) fn payload_at(self, x: u16, y: u16) -> u32 {
         match self.payload {
@@ -30,6 +43,15 @@ impl PackedPaint {
             PaintPayload::Position => pack_u16_pair(x, y),
         }
     }
+}
+
+/// Source used to populate a strip's paint payload.
+#[derive(Clone, Copy)]
+enum PaintPayload {
+    /// Premultiplied RGBA value for a solid paint.
+    Solid(u32),
+    /// Scene-space position used to evaluate a non-solid paint.
+    Position,
 }
 
 /// Resolves recorded paints to their encoded GPU offsets.
@@ -94,26 +116,4 @@ impl<'a> PaintResolver<'a> {
             }
         }
     }
-}
-
-/// Shader-ready paint metadata for a strip.
-#[derive(Clone, Copy)]
-pub(crate) struct PackedPaint {
-    /// Value source for the strip's payload field.
-    payload: PaintPayload,
-    /// Packed paint kind, source, and data offset.
-    pub(crate) paint: u32,
-    /// External texture required by this paint, if any.
-    pub(crate) external_texture_id: Option<TextureId>,
-    /// Whether the paint is fully opaque.
-    pub(crate) opaque: bool,
-}
-
-/// Source used to populate a strip's paint payload.
-#[derive(Clone, Copy)]
-enum PaintPayload {
-    /// Premultiplied RGBA value for a solid paint.
-    Solid(u32),
-    /// Scene-space position used to evaluate a non-solid paint.
-    Position,
 }
