@@ -12,6 +12,16 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- Partial (damage-region) rendering: `Renderer::render_with_config` with `RenderConfig { load: TargetLoad, scissors: &[RectU16] }` controls the target load (`Clear`/`Load`/`DontCare`) and scissors and culls root drawing to a set of disjoint damage rects. Also `Renderer::clear_rects` for clearing damage rects. ([#1737][] by [@AdrianEddy][])
+- `Scene::set_cull_hint`: cull path flattening and strip generation to a bounding box for renders that only present part of the target; in-hint pixels are bit-identical. ([#1737][] by [@AdrianEddy][])
+- Clips that are axis-aligned integer rectangles no longer demote rects from the fast rect path: `fill_rect`, `draw_texture_rects`, and `fill_blurred_rounded_rect` clamp to the clip instead; output is byte-identical. ([#1737][] by [@AdrianEddy][])
+
+### Changed
+
+- `Renderer::render` applies its whole-target clear via the first root pass's `LoadOp` instead of a standalone clear pass; output is unchanged. ([#1737][] by [@AdrianEddy][])
+
 ## [0.0.9][] - 2026-05-30
 
 This release has an [MSRV][] of 1.88.
@@ -141,6 +151,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@grebmeg]: https://github.com/grebmeg
@@ -211,6 +222,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1659]: https://github.com/linebender/vello/pull/1659
 [#1668]: https://github.com/linebender/vello/pull/1668
 [#1673]: https://github.com/linebender/vello/pull/1673
+[#1737]: https://github.com/linebender/vello/pull/1737
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9

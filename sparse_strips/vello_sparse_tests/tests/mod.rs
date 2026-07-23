@@ -33,6 +33,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 mod basic;
 mod blurred_rounded_rect;
 mod clip;
+mod clip_exact;
 mod compose;
 mod default_blending_only_fast_path;
 mod external_texture;

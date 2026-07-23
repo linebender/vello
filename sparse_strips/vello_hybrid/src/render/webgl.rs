@@ -458,6 +458,9 @@ impl WebGlRenderer {
             &self.paint_idxs,
             &self.filter_context,
             &encoded_paints,
+            // The WebGL backend has no partial-render config, so there is
+            // never a root scissor set to cull against.
+            &[],
         )?;
 
         // TODO: Most likely we will want to clean up even if rendering fails. The current assumption

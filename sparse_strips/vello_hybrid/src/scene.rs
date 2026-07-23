@@ -516,6 +516,14 @@ impl Scene {
         submit_strips!(self, strip_storage, strip_start, paint);
     }
 
+    /// Hint that pixels outside `bbox` are undefined for this scene's render (e.g. damage
+    /// rendering with a matching scissor): path flattening and strip generation are culled to
+    /// it. Pixels inside `bbox` are bit-identical to an un-hinted scene. Cleared by
+    /// [`Self::reset`].
+    pub fn set_cull_hint(&mut self, bbox: Option<RectU16>) {
+        self.strip_generator.set_cull_hint(bbox);
+    }
+
     /// Set the aliasing threshold.
     ///
     /// If set to `None` (which is the recommended option in nearly all cases),
@@ -572,7 +580,7 @@ impl Scene {
         };
 
         let paint = self.encode_current_paint();
-        self.push_fast_rect(bounds, paint);
+        self.push_fast_rect_clipped(bounds, paint);
         true
     }
 
@@ -590,10 +598,6 @@ impl Scene {
     /// [source regions][`SampleRect::source_region`] must be within bounds of that texture. The
     /// texture is treated as premultiplied alpha in the render target's color space. See the
     /// backend's binding type for more information on texture requirements.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "f64→f32 truncation is acceptable for pixel coordinates"
-    )]
     pub fn draw_texture_rects(
         &mut self,
         texture_id: TextureId,
@@ -665,15 +669,7 @@ impl Scene {
                     transform,
                 );
 
-                self.fast_strips_buffer
-                    .commands
-                    .push(FastStripCommand::Rect(FastPathRect {
-                        x0: x0 as f32,
-                        y0: y0 as f32,
-                        x1: x1 as f32,
-                        y1: y1 as f32,
-                        paint,
-                    }));
+                self.push_fast_rect_clipped(Rect::new(x0, y0, x1, y1), paint);
             }
         } else {
             self.with_optional_filter(|ctx| {
@@ -708,12 +704,17 @@ impl Scene {
 
     /// Whether we're in a state that allows pushing commands directly into
     /// [`Self::fast_strips_buffer`], bypassing coarse rasterization.
+    ///
+    /// A clip stack that is exactly a set of disjoint integer rectangles does not force the
+    /// strip pipeline: rect commands are clamped to the set instead (byte-identical, since
+    /// integer clip edges have a 0/255 coverage step and surviving fractional content edges
+    /// rasterize on the same path as unclipped).
     #[inline]
     fn can_emit_fast_strips(&self) -> bool {
         self.strip_path_mode != StripPathMode::CoarseOnly
             && !self.wide.has_layers()
             && self.filter.is_none()
-            && self.clip_context.get().is_none()
+            && self.clip_context.is_int_rect_clip()
     }
 
     #[expect(
@@ -730,6 +731,28 @@ impl Scene {
                 y1: bounds.y1 as f32,
                 paint,
             }));
+    }
+
+    /// Push `bounds` as fast-path rect(s), clamping to the effective integer-rectangle clip
+    /// set when one is active. Paints sample by absolute position (like the existing viewport
+    /// clamp), so clamping needs no paint adjustment; disjointness of the set means the
+    /// pieces never double-blend.
+    fn push_fast_rect_clipped(&mut self, bounds: Rect, paint: Paint) {
+        let Some(set) = self.clip_context.effective_int_rect_set() else {
+            self.push_fast_rect(bounds, paint);
+            return;
+        };
+        for r in set.as_slice() {
+            let piece = Rect::new(
+                bounds.x0.max(f64::from(r.x0)),
+                bounds.y0.max(f64::from(r.y0)),
+                bounds.x1.min(f64::from(r.x1)),
+                bounds.y1.min(f64::from(r.y1)),
+            );
+            if piece.x1 > piece.x0 && piece.y1 > piece.y0 {
+                self.push_fast_rect(piece, paint.clone());
+            }
+        }
     }
 
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
@@ -809,7 +832,7 @@ impl Scene {
                 blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
 
             if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
-                ctx.push_fast_rect(bounds, paint);
+                ctx.push_fast_rect_clipped(bounds, paint);
                 return;
             }
 
@@ -1537,5 +1560,136 @@ mod tests {
         assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
         assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
         assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    fn rect_bezpath(x0: f64, y0: f64, x1: f64, y1: f64) -> BezPath {
+        Rect::new(x0, y0, x1, y1).to_path(DEFAULT_TOLERANCE)
+    }
+
+    fn rect_bounds(cmd: &FastStripCommand) -> (f32, f32, f32, f32) {
+        match cmd {
+            FastStripCommand::Rect(r) => (r.x0, r.y0, r.x1, r.y1),
+            FastStripCommand::Path(_) => panic!("expected rect command"),
+        }
+    }
+
+    #[test]
+    fn rect_stays_fast_under_integer_rect_clip() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_clip_path(&rect_bezpath(20.0, 20.0, 80.0, 80.0));
+        scene.fill_rect(&Rect::new(10.5, 10.5, 50.5, 50.5));
+        scene.pop_clip_path();
+
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert_eq!(
+            rect_bounds(&scene.fast_strips_buffer.commands[0]),
+            (20.0, 20.0, 50.5, 50.5)
+        );
+    }
+
+    #[test]
+    fn rect_demoted_under_fractional_rect_clip() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_clip_path(&rect_bezpath(20.5, 20.0, 80.0, 80.0));
+        scene.fill_rect(&small_rect());
+        scene.pop_clip_path();
+
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_path(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn rect_fully_clipped_away_emits_nothing() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_clip_path(&rect_bezpath(20.0, 20.0, 80.0, 80.0));
+        scene.fill_rect(&Rect::new(100.0, 100.0, 150.0, 150.0));
+        scene.pop_clip_path();
+
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+    }
+
+    #[test]
+    fn rect_split_by_multi_rect_clip() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        let mut clip = rect_bezpath(10.0, 10.0, 40.0, 90.0);
+        clip.extend(rect_bezpath(60.0, 10.0, 90.0, 90.0).iter());
+        scene.push_clip_path(&clip);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+        scene.pop_clip_path();
+
+        let cmds = &scene.fast_strips_buffer.commands;
+        assert_eq!(cmds.len(), 2);
+        assert_eq!(rect_bounds(&cmds[0]), (10.0, 10.0, 40.0, 90.0));
+        assert_eq!(rect_bounds(&cmds[1]), (60.0, 10.0, 90.0, 90.0));
+    }
+
+    #[test]
+    fn nested_integer_rect_clips_clamp_to_intersection() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_clip_path(&rect_bezpath(0.0, 0.0, 100.0, 100.0));
+        scene.push_clip_path(&rect_bezpath(50.0, 0.0, 150.0, 200.0));
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+        scene.pop_clip_path();
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+        scene.pop_clip_path();
+
+        let cmds = &scene.fast_strips_buffer.commands;
+        assert_eq!(cmds.len(), 2);
+        assert_eq!(rect_bounds(&cmds[0]), (50.0, 0.0, 100.0, 100.0));
+        assert_eq!(rect_bounds(&cmds[1]), (0.0, 0.0, 100.0, 100.0));
+    }
+
+    #[test]
+    fn texture_rects_stay_fast_under_integer_rect_clip() {
+        use crate::sampling::SampleRect;
+
+        let mut scene = unconstrained();
+        scene.push_clip_path(&rect_bezpath(20.0, 20.0, 80.0, 80.0));
+        scene.draw_texture_rects(
+            TextureId(1),
+            ImageQuality::Low,
+            [SampleRect {
+                source_region: RectU16::new(0, 0, 64, 64),
+                transform: Affine::translate((10.0, 10.0)),
+            }],
+        );
+        scene.pop_clip_path();
+
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert_eq!(
+            rect_bounds(&scene.fast_strips_buffer.commands[0]),
+            (20.0, 20.0, 74.0, 74.0)
+        );
+    }
+
+    #[test]
+    fn path_under_integer_rect_clip_stays_in_fast_buffer() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_clip_path(&rect_bezpath(20.0, 20.0, 80.0, 80.0));
+        scene.fill_path(&triangle_path());
+        scene.pop_clip_path();
+
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_path(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn cull_hint_culls_path_strips_and_reset_clears_it() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.set_cull_hint(Some(RectU16::new(0, 0, 8, 8)));
+        scene.fill_path(&triangle_path());
+        assert!(scene.strip_storage.borrow().strips.is_empty());
+
+        scene.reset();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_path(&triangle_path());
+        assert!(!scene.strip_storage.borrow().strips.is_empty());
     }
 }

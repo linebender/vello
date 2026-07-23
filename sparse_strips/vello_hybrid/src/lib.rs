@@ -61,7 +61,9 @@ pub mod util;
 #[cfg(feature = "webgl")]
 pub use render::{AtlasTextureInfo, WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 #[cfg(feature = "wgpu")]
-pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
+pub use render::{
+    AtlasWriter, RenderConfig, RenderTargetConfig, Renderer, TargetLoad, TextureBindings,
+};
 pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{Probe, ProbeResult};

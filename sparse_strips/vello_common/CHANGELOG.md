@@ -12,6 +12,11 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `StripGenerator::set_cull_hint`: restrict strip generation to a bounding box; in-hint pixels are bit-identical. ([#1737][] by [@AdrianEddy][])
+- `ClipContext` tracks clip stacks that form disjoint integer-rectangle sets (`is_int_rect_clip`, `effective_int_rect_set`, `path_as_integer_rect_set`), so consumers can clamp content to the set instead of intersecting with the clip mask. ([#1737][] by [@AdrianEddy][])
+
 ## [0.0.9][] - 2026-05-30
 
 This release has an [MSRV][] of 1.88.
@@ -179,6 +184,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) release.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@b0nes164]: https://github.com/b0nes164
 [@conor-93]: https://github.com/conor-93
 [@DJMcNab]: https://github.com/waywardmonkeys
@@ -246,6 +252,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1634]: https://github.com/linebender/vello/pull/1634
 [#1635]: https://github.com/linebender/vello/pull/1635
 [#1673]: https://github.com/linebender/vello/pull/1673
+[#1737]: https://github.com/linebender/vello/pull/1737
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
