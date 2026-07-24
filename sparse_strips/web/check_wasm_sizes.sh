@@ -53,7 +53,7 @@ printf '%-22s %10s %10s %10s\n' \
 check_size \
     "vello_cpu" \
     "$target_dir/sparse-strips-wasm/vello_cpu/simd/vello_cpu_bg.wasm" \
-    3774874 # 3.6 MiB
+    2774874 # 3.6 MiB
 check_size \
     "vello_hybrid_webgl" \
     "$target_dir/sparse-strips-wasm/vello_hybrid_webgl/simd/vello_hybrid_webgl_bg.wasm" \
