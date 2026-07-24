@@ -86,6 +86,8 @@ impl Drawable for RecordedDraw {
             // TODO: The bbox trait should take a reference to _all_ strips, and then we select
             // the correct strips here. Otherwise, callers of this method always have to make sure
             // to slice the strips correctly themselves.
+            // TODO: We also should just compute the bbox during strip generation instead of
+            // recomputing it here.
             Self::Path(_) => strip_bbox(strips),
             Self::Rect(rect) => {
                 let rect = rect.rect;
