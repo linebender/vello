@@ -86,7 +86,7 @@ fn apply_drop_shadow(
     }
 
     // Step 3: Apply shadow color and optionally composite with original
-    write_shadow_direct(&shadow_pixmap, pixmap, color, composite_original);
+    write_colored_shadow(&shadow_pixmap, pixmap, color, composite_original);
 }
 
 /// Apply the shadow color and optionally composite with the original.
@@ -94,7 +94,7 @@ fn apply_drop_shadow(
 /// The shadow has already been offset and blurred, so this simply applies
 /// the shadow color to the alpha channel and, when requested, composites the
 /// original over it using source-over.
-fn write_shadow_direct(
+fn write_colored_shadow(
     shadow: &Pixmap,
     dst: &mut Pixmap,
     color: AlphaColor<Srgb>,
@@ -288,7 +288,7 @@ mod tests {
         );
     }
 
-    /// Test `write_shadow_direct` applies color correctly.
+    /// Test `write_colored_shadow` applies color correctly.
     #[test]
     fn test_compose_shadow_color() {
         let mut shadow_pixmap = Pixmap::new(2, 2);
@@ -311,7 +311,7 @@ mod tests {
             cs: std::marker::PhantomData::<Srgb>,
         };
 
-        write_shadow_direct(&shadow_pixmap, &mut dst_pixmap, shadow_color, true);
+        write_colored_shadow(&shadow_pixmap, &mut dst_pixmap, shadow_color, true);
 
         // Shadow at (0,0) should be red
         let result = dst_pixmap.sample(0, 0);
