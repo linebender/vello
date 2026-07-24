@@ -896,6 +896,11 @@ impl Scene {
         self.render_state.fill_rule = fill_rule;
     }
 
+    /// The transform currently applied to subsequent rendering operations.
+    pub fn transform(&self) -> Affine {
+        *self.transforms().transform()
+    }
+
     /// Set the transform for subsequent rendering operations.
     pub fn set_transform(&mut self, transform: Affine) {
         self.transforms_mut().set_transform(transform);

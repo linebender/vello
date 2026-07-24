@@ -962,3 +962,65 @@ impl Renderer for HybridRenderer {
         self.upload_image(&pixmap)
     }
 }
+
+/// An atlas slot that is freed and immediately reused by a new image must
+/// render the *new* image. Regression test for `destroy_image` clearing the
+/// freed slot via an encoder pass, which wgpu orders after all queued texture
+/// writes in a submit and so wiped the re-uploaded pixels.
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+#[test]
+fn atlas_slot_reuse_survives_same_frame_destroy() {
+    use vello_common::color::palette::css::{GREEN, RED};
+    use vello_common::color::{AlphaColor, Srgb};
+    use vello_common::paint::Image;
+    use vello_common::peniko::ImageSampler;
+
+    fn solid(color: AlphaColor<Srgb>) -> Arc<Pixmap> {
+        let mut pixmap = Pixmap::new(4, 4);
+        pixmap.data_mut().fill(color.premultiply().to_rgba8());
+        Arc::new(pixmap)
+    }
+
+    let mut h = HybridRenderer::new_with_settings(16, 16, HybridRenderSettings::default());
+
+    let red_id = h.upload_image_with_resources(&solid(RED), "red");
+    let red_slot = {
+        let r = h.resources.image_cache().get(red_id).expect("red uploaded");
+        (r.atlas_id.as_u32(), r.offset)
+    };
+
+    h.renderer.destroy_image(&mut h.resources, &h.queue, red_id);
+
+    let green_id = h.upload_image_with_resources(&solid(GREEN), "green");
+    let green_slot = {
+        let g = h
+            .resources
+            .image_cache()
+            .get(green_id)
+            .expect("green uploaded");
+        (g.atlas_id.as_u32(), g.offset)
+    };
+    assert_eq!(
+        red_slot, green_slot,
+        "green must reuse red's freed atlas slot to exercise the reuse hazard"
+    );
+
+    h.scene.set_paint(Image {
+        image: ImageSource::opaque_id_with_transparency_hint(green_id, false),
+        sampler: ImageSampler::default(),
+    });
+    h.scene.fill_rect(&Rect::new(0.0, 0.0, 16.0, 16.0));
+
+    let mut out = Pixmap::new(16, 16);
+    h.render_to_pixmap(&mut out);
+
+    let center = out.sample(8, 8);
+    assert_eq!(
+        center.a, 255,
+        "reused slot must render opaque, got {center:?}"
+    );
+    assert!(
+        center.g > center.r && center.g > center.b,
+        "reused slot must render the green image, got {center:?}"
+    );
+}

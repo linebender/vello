@@ -45,6 +45,21 @@ impl Resources {
             glyph_resources: None,
         }
     }
+
+    /// Shared access to the image atlas cache.
+    pub fn image_cache(&self) -> &ImageCache {
+        &self.image_cache
+    }
+
+    /// Exclusive access to the image atlas cache.
+    ///
+    /// Deallocating directly through this handle frees the CPU-side slot
+    /// without clearing the freed region on the GPU; prefer
+    /// [`Renderer::destroy_image`](crate::Renderer::destroy_image) unless you
+    /// clear the region yourself.
+    pub fn image_cache_mut(&mut self) -> &mut ImageCache {
+        &mut self.image_cache
+    }
 }
 
 impl Default for Resources {
