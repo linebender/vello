@@ -13,14 +13,14 @@
 
 // Keep these variables and layouts in sync with the ones in `filter.rs`!
 
-const FILTER_SIZE_BYTES: u32 = 48;
-const FILTER_SIZE_U32: u32 = FILTER_SIZE_BYTES / 4;
-const TEXELS_PER_FILTER: u32 = FILTER_SIZE_U32 / 4u;
+// Filters are packed with variable stride: each filter occupies only as many
+// 16-byte texels as its parameters need, addressed via `filter_data_offset`.
 
 const FILTER_TYPE_OFFSET: u32 = 0u;
 const FILTER_TYPE_FLOOD: u32 = 1u;
 const FILTER_TYPE_GAUSSIAN_BLUR: u32 = 2u;
 const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
+const FILTER_TYPE_COLOR_MATRIX: u32 = 4u;
 
 const PASS_COPY: u32 = 0u;
 const PASS_FLOOD: u32 = 1u;
@@ -31,6 +31,7 @@ const PASS_BLUR_V: u32 = 5u;
 const PASS_UPSCALE: u32 = 6u;
 const PASS_COMPOSITE_DROP_SHADOW: u32 = 7u;
 const PASS_COLORIZE: u32 = 8u;
+const PASS_COLOR_MATRIX: u32 = 9u;
 
 // Keep in sync with FILTER_ATLAS_PADDING in vello_hybrid/src/filter.rs.
 const FILTER_ATLAS_PADDING: u32 = 6u;
@@ -308,6 +309,44 @@ fn convolve(
 const HORIZONTAL: vec2<f32> = vec2<f32>(1.0, 0.0);
 const VERTICAL: vec2<f32> = vec2<f32>(0.0, 1.0);
 
+// One output channel of the 4x5 color matrix: the five packed coefficients
+// (RGBA weights + constant offset) applied to a straight-alpha color, clamped.
+fn color_matrix_row(m0: u32, m1: u32, m2: u32, m3: u32, m4: u32, color: vec4<f32>) -> f32 {
+    return clamp(
+        bitcast<f32>(m0) * color.r +
+        bitcast<f32>(m1) * color.g +
+        bitcast<f32>(m2) * color.b +
+        bitcast<f32>(m3) * color.a +
+        bitcast<f32>(m4),
+        0.0,
+        1.0,
+    );
+}
+
+// The `matrix[0..20]` values are packed after the `header` u32, so `matrix[i]`
+// lives at u32 index `i + 1`: texels 0-5 hold header, matrix[0..20], padding.
+fn apply_color_matrix(filter_data_offset: u32, pixel: vec4<f32>) -> vec4<f32> {
+    let t0 = load_filter_texel(filter_data_offset, 0u);
+    let t1 = load_filter_texel(filter_data_offset, 1u);
+    let t2 = load_filter_texel(filter_data_offset, 2u);
+    let t3 = load_filter_texel(filter_data_offset, 3u);
+    let t4 = load_filter_texel(filter_data_offset, 4u);
+    let t5 = load_filter_texel(filter_data_offset, 5u);
+
+    var rgb = vec3<f32>(0.0);
+    if pixel.a > 0.0 {
+        rgb = pixel.rgb / pixel.a;
+    }
+    let c = vec4<f32>(rgb, pixel.a);
+
+    let out_r = color_matrix_row(t0.y, t0.z, t0.w, t1.x, t1.y, c);
+    let out_g = color_matrix_row(t1.z, t1.w, t2.x, t2.y, t2.z, c);
+    let out_b = color_matrix_row(t2.w, t3.x, t3.y, t3.z, t3.w, c);
+    let out_a = color_matrix_row(t4.x, t4.y, t4.z, t4.w, t5.x, c);
+
+    return vec4<f32>(vec3<f32>(out_r, out_g, out_b) * out_a, out_a);
+}
+
 @fragment
 fn fs_main(
     @location(0) @interpolate(flat) filter_data_offset: u32,
@@ -396,6 +435,9 @@ fn fs_main(
             let blurred = sample_source(source_origin, rel_coord);
             let shadow_color = unpack4x8unorm(get_drop_shadow_color(filter_texel2));
             return shadow_color * blurred.a;
+        }
+        case PASS_COLOR_MATRIX: {
+            return apply_color_matrix(filter_data_offset, sample_source(source_origin, rel_coord));
         }
         // Shouldn't be reached.
         default: {
