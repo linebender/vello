@@ -354,7 +354,6 @@ pub trait ExampleScene {
 pub struct AnyScene<T: RenderingContext> {
     /// The render function that calls the wrapped scene's render method.
     render_fn: RenderFn<T>,
-    resources: T::Resources,
     /// The key handler function.
     key_handler_fn: KeyHandlerFn,
     /// The status query function.
@@ -383,7 +382,6 @@ impl<T: RenderingContext> std::fmt::Debug for AnyScene<T> {
 impl<T> AnyScene<T>
 where
     T: RenderingContext,
-    T::Resources: Default,
 {
     /// Create a new `AnyScene` from any type that implements `ExampleScene`.
     pub fn new<S: ExampleScene + 'static>(scene: S) -> Self {
@@ -395,7 +393,6 @@ where
             render_fn: Box::new(move |s, resources, transform| {
                 scene.borrow_mut().render(s, resources, transform);
             }),
-            resources: T::Resources::default(),
             key_handler_fn: Box::new(move |key| scene_clone.borrow_mut().handle_key(key)),
             status_fn: Box::new(move || scene_status.borrow().status()),
             show_widetile_columns: false,
@@ -403,9 +400,9 @@ where
     }
 
     /// Render the scene.
-    pub fn render(&mut self, ctx: &mut T, root_transform: Affine) {
+    pub fn render(&mut self, ctx: &mut T, resources: &mut T::Resources, root_transform: Affine) {
         // Render the actual scene content
-        (self.render_fn)(ctx, &mut self.resources, root_transform);
+        (self.render_fn)(ctx, resources, root_transform);
 
         // Draw tile grid overlay if enabled
         if self.show_widetile_columns {
@@ -432,11 +429,6 @@ where
     /// Get an optional status string from the scene.
     pub fn status(&self) -> Option<String> {
         (self.status_fn)()
-    }
-
-    /// Access the scene-owned resources.
-    pub fn resources_mut(&mut self) -> &mut T::Resources {
-        &mut self.resources
     }
 
     /// Toggle the tile grid overlay.
@@ -470,10 +462,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     capabilities: Capabilities,
     svg_paths: Option<Vec<&str>>,
     img_sources: Vec<ImageSource>,
-) -> Box<[AnyScene<T>]>
-where
-    T::Resources: Default,
-{
+) -> Box<[AnyScene<T>]> {
     let mut scenes = Vec::new();
 
     // Create SVG scenes for each provided path.
@@ -528,10 +517,7 @@ where
 pub fn get_example_scenes<T: RenderingContext + 'static>(
     capabilities: Capabilities,
     img_sources: Vec<ImageSource>,
-) -> Box<[AnyScene<T>]>
-where
-    T::Resources: Default,
-{
+) -> Box<[AnyScene<T>]> {
     let mut scenes = vec![
         AnyScene::new(svg::SvgScene::tiger()),
         AnyScene::new(text::TextScene::new("Hello, Vello!")),

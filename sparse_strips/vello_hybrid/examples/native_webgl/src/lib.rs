@@ -18,19 +18,26 @@ use vello_common::{
 };
 use vello_example_scenes::AnyScene;
 use vello_example_scenes::image::ImageScene;
-use vello_hybrid::Scene;
+use vello_hybrid::{RenderSettings, Scene};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 struct RendererWrapper {
     renderer: vello_hybrid::WebGlRenderer,
+    resources: vello_hybrid::Resources,
 }
 
 impl RendererWrapper {
     fn new(canvas: HtmlCanvasElement) -> Self {
-        let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+        let settings = RenderSettings::default();
+        let resources =
+            vello_hybrid::Resources::new_with_config(settings.memory_settings.image_atlas_config);
+        let renderer = vello_hybrid::WebGlRenderer::new_with(&canvas, settings);
 
-        Self { renderer }
+        Self {
+            renderer,
+            resources,
+        }
     }
 }
 
@@ -53,7 +60,6 @@ fn client_delta_to_canvas_px(canvas: &HtmlCanvasElement, delta_x: f64, delta_y: 
 /// State that handles scene rendering and interactions
 struct AppState {
     scenes: Box<[AnyScene<Scene>]>,
-    uploaded_scene_images: Box<[bool]>,
     current_scene: usize,
     scene: Scene,
     transform: Affine,
@@ -71,14 +77,13 @@ impl AppState {
     fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<Scene>]>) -> Self {
         let width = canvas.width();
         let height = canvas.height();
-        let uploaded_scene_images = vec![false; scenes.len()].into_boxed_slice();
+        let current_scene = initial_scene_index(scenes.len());
 
         let renderer_wrapper = RendererWrapper::new(canvas.clone());
 
         let mut app_state = Self {
             scenes,
-            uploaded_scene_images,
-            current_scene: 0,
+            current_scene,
             scene: Scene::new(width as u16, height as u16),
             transform: Affine::IDENTITY,
             mouse_down: false,
@@ -91,6 +96,8 @@ impl AppState {
             canvas,
         };
 
+        update_page_url(app_state.current_scene);
+        app_state.update_title();
         app_state.upload_images_to_atlas();
 
         app_state
@@ -104,7 +111,11 @@ impl AppState {
         self.scene.reset();
 
         // Render the current scene with transform
-        self.scenes[self.current_scene].render(&mut self.scene, self.transform);
+        self.scenes[self.current_scene].render(
+            &mut self.scene,
+            &mut self.renderer_wrapper.resources,
+            self.transform,
+        );
 
         let render_size = vello_hybrid::RenderSize {
             width: self.width,
@@ -115,7 +126,7 @@ impl AppState {
             .renderer
             .render(
                 &self.scene,
-                self.scenes[self.current_scene].resources_mut(),
+                &mut self.renderer_wrapper.resources,
                 &render_size,
             )
             .unwrap();
@@ -135,7 +146,8 @@ impl AppState {
 
     fn next_scene(&mut self) {
         self.current_scene = (self.current_scene + 1) % self.scenes.len();
-        self.upload_images_to_atlas();
+        update_page_url(self.current_scene);
+        self.update_title();
         self.transform = Affine::IDENTITY;
         self.need_render = true;
     }
@@ -146,9 +158,22 @@ impl AppState {
         } else {
             self.current_scene - 1
         };
-        self.upload_images_to_atlas();
+        update_page_url(self.current_scene);
+        self.update_title();
         self.transform = Affine::IDENTITY;
         self.need_render = true;
+    }
+
+    fn update_title(&self) {
+        web_sys::window()
+            .unwrap()
+            .document()
+            .unwrap()
+            .set_title(&format!(
+                "Vello Hybrid WebGL - Page {}/{}",
+                self.current_scene + 1,
+                self.scenes.len()
+            ));
     }
 
     fn reset_transform(&mut self) {
@@ -225,24 +250,18 @@ impl AppState {
     /// Upload images to the WebGL atlas texture
     /// This is the WebGL analogue of the winit example's `upload_images_to_atlas` function
     fn upload_images_to_atlas(&mut self) {
-        if self.uploaded_scene_images[self.current_scene] {
-            return;
-        }
-
         // 1st example — uploading pixmap directly to WebGL atlas
         let pixmap1 = ImageScene::read_flower_image();
         self.renderer_wrapper
             .renderer
-            .upload_image(self.scenes[self.current_scene].resources_mut(), &pixmap1);
+            .upload_image(&mut self.renderer_wrapper.resources, &pixmap1);
 
         // 2nd example — uploading from a WebGL texture
         let pixmap2 = ImageScene::read_cowboy_image();
         let texture2 = self.pixmap_to_webgl_texture(&pixmap2);
         self.renderer_wrapper
             .renderer
-            .upload_image(self.scenes[self.current_scene].resources_mut(), &texture2);
-
-        self.uploaded_scene_images[self.current_scene] = true;
+            .upload_image(&mut self.renderer_wrapper.resources, &texture2);
     }
 
     /// Convert a pixmap to WebGL texture
@@ -519,15 +538,39 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         .append_child(&canvas)
         .unwrap();
 
-    let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+    let RendererWrapper {
+        mut renderer,
+        mut resources,
+    } = RendererWrapper::new(canvas);
 
     let render_size = vello_hybrid::RenderSize {
         width: width as u32,
         height: height as u32,
     };
-    let mut resources = vello_hybrid::Resources::new();
-
     renderer
         .render(&scene, &mut resources, &render_size)
+        .unwrap();
+}
+
+fn initial_scene_index(scene_count: usize) -> usize {
+    web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .and_then(|search| web_sys::UrlSearchParams::new_with_str(&search).ok())
+        .and_then(|params| params.get("page"))
+        .and_then(|page| page.parse::<usize>().ok())
+        .filter(|page| (1..=scene_count).contains(page))
+        .map_or(0, |page| page - 1)
+}
+
+fn update_page_url(scene_index: usize) {
+    web_sys::window()
+        .unwrap()
+        .history()
+        .unwrap()
+        .replace_state_with_url(
+            &JsValue::NULL,
+            "",
+            Some(&format!("?page={}", scene_index + 1)),
+        )
         .unwrap();
 }

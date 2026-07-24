@@ -26,6 +26,9 @@ wasm-bindgen-futures = { workspace = true }
 web-sys = { workspace = true, features = [
     "AddEventListenerOptions",
     "Window",
+    "Location",
+    "History",
+    "UrlSearchParams",
     "Document",
     "DomRect",
     "Element",
