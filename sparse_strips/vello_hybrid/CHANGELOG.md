@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- Per-render-size depth-texture cache (`Renderer::depth_cache_frame_tick`, `set_depth_cache_budget`, `clear_depth_cache`, `depth_recreations`, `depth_cache_bytes`) that avoids reallocating the depth texture on every size switch in alternating-size render loops. ([#1738][] by [@AdrianEddy][])
+
 ## [0.0.9][] - 2026-05-30
 
 This release has an [MSRV][] of 1.88.
@@ -141,6 +145,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@grebmeg]: https://github.com/grebmeg
@@ -211,6 +216,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1659]: https://github.com/linebender/vello/pull/1659
 [#1668]: https://github.com/linebender/vello/pull/1668
 [#1673]: https://github.com/linebender/vello/pull/1673
+[#1738]: https://github.com/linebender/vello/pull/1738
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
