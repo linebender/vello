@@ -12,6 +12,18 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `Renderer::reset_atlas_textures` to rebuild the atlas texture array (e.g. after a memory-pressure resource rebuild), plus `Resources::image_cache`/`image_cache_mut` and `Scene::transform` accessors for driving `render_to_atlas` from external code. ([#1739][] by [@AdrianEddy][])
+
+### Changed
+
+- `Renderer::destroy_image` no longer takes an `encoder`; it clears the freed atlas slot through the `queue`. ([#1739][] by [@AdrianEddy][])
+
+### Fixed
+
+- `Renderer::destroy_image` now clears the freed atlas slot via `queue.write_texture`, so a slot reused within the same frame is no longer wiped by the freshly-uploaded image. ([#1739][] by [@AdrianEddy][])
+
 ## [0.0.9][] - 2026-05-30
 
 This release has an [MSRV][] of 1.88.
@@ -141,6 +153,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@grebmeg]: https://github.com/grebmeg
@@ -211,6 +224,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1659]: https://github.com/linebender/vello/pull/1659
 [#1668]: https://github.com/linebender/vello/pull/1668
 [#1673]: https://github.com/linebender/vello/pull/1673
+[#1739]: https://github.com/linebender/vello/pull/1739
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9

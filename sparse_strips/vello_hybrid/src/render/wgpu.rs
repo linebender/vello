@@ -594,14 +594,19 @@ impl Renderer {
     pub fn destroy_image(
         &mut self,
         resources: &mut Resources,
-        encoder: &mut CommandEncoder,
+        queue: &Queue,
         image_id: vello_common::paint::ImageId,
     ) {
         if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
             let padding = image_resource.padding as u32;
 
-            self.clear_atlas_region(
-                encoder,
+            // Clear via `queue.write_texture` rather than an encoder pass: wgpu
+            // runs all queued texture writes before any command buffers in a
+            // submit, so an encoder-based clear would land AFTER a same-frame
+            // re-upload into this slot and wipe it. Queue writes stay in call
+            // order.
+            self.clear_atlas_region_via_queue(
+                queue,
                 image_resource.atlas_id,
                 [
                     image_resource.offset[0] as u32 - padding,
@@ -613,6 +618,68 @@ impl Renderer {
         }
     }
 
+    /// Drop the atlas texture array and recreate it fresh at the placeholder
+    /// (unallocated) state.
+    ///
+    /// Call this whenever the CPU-side [`Resources`] are rebuilt (e.g. on
+    /// memory pressure): the GPU texture array only ever grows and would keep
+    /// the dropped allocator's pixels. Content is composited into the atlas
+    /// with `SrcOver` assuming a freshly allocated slot is transparent, so
+    /// stale pixels would double-blend anti-aliased edges. The recreated
+    /// placeholder is zero-initialised, and the next frame grows it back as
+    /// needed via `maybe_resize_atlas_texture_array` (which skips the
+    /// stale-layer copy while promoting the placeholder).
+    pub fn reset_atlas_textures(&mut self, device: &Device) {
+        let (texture, view) = Programs::create_atlas_texture_array(device, 1, 1, 1);
+        self.programs.resources.atlas_bind_group = Programs::create_paint_source_bind_group(
+            device,
+            &self.programs.atlas_bind_group_layout,
+            &view,
+            &self.programs.resources.placeholder_external_texture_view,
+        );
+        self.programs.resources.atlas_texture_array = texture;
+        self.programs.resources.atlas_texture_array_view = view;
+        self.programs.resources.atlas_layer_count = 0;
+    }
+
+    /// Zero a region of the atlas via `queue.write_texture`, staying ordered
+    /// with `write_texture`-based uploads within a submit (unlike
+    /// [`Self::clear_atlas_region`], which records a render pass).
+    fn clear_atlas_region_via_queue(
+        &self,
+        queue: &Queue,
+        atlas_id: AtlasId,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        let byte_count = width as usize * height as usize * 4;
+        let zeros = vec![0_u8; byte_count];
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.programs.resources.atlas_texture_array,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: atlas_id.as_u32(),
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &zeros,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
     /// Returns a reference to the underlying atlas texture array.
     ///
     /// This is a 2D array texture (`TextureViewDimension::D2Array`) containing all
@@ -622,8 +689,12 @@ impl Renderer {
         &self.programs.resources.atlas_texture_array
     }
 
-    /// Clear a specific region of the atlas texture.
-    fn clear_atlas_region(
+    /// Clear a specific region of the atlas texture by recording a render pass.
+    ///
+    /// For clears that must stay ordered with same-submit `queue.write_texture`
+    /// uploads (e.g. freeing a slot that may be reused the same frame), use
+    /// [`Self::clear_atlas_region_via_queue`] instead.
+    pub fn clear_atlas_region(
         &mut self,
         encoder: &mut CommandEncoder,
         atlas_id: AtlasId,
