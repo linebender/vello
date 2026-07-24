@@ -227,6 +227,7 @@ impl AppState {
                 &surface_texture_view,
                 &vello_hybrid::TextureBindings::new(),
                 vello_hybrid::ClearSettings::default(),
+                vello_hybrid::RenderRegion::Full,
             )
             .unwrap();
 
@@ -659,6 +660,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             &surface_texture_view,
             &vello_hybrid::TextureBindings::new(),
             vello_hybrid::ClearSettings::default(),
+            vello_hybrid::RenderRegion::Full,
         )
         .unwrap();
 

@@ -22,7 +22,8 @@ use crate::draw::ExternalTextureRun;
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
 use crate::{
-    ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
+    ClearSettings, GpuStrip, LayersConfig, RenderError, RenderRegion, RenderSettings, RenderSize,
+    Resources,
     blend::{BlendStrip, GpuBlendInstance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
@@ -150,6 +151,37 @@ impl TextureBindings {
     }
 }
 
+/// Clamp the [`RenderRegion`] to the `size` render target so the draw-time
+/// scissor never exceeds the render attachment.
+///
+/// [`RenderRegion::Full`] yields an empty set (no scissoring). For
+/// [`RenderRegion::Rects`], rects are clamped and dropped when they become
+/// empty; if none survive (including an empty input set), a single zero-area
+/// sentinel is returned instead: the strip cull then discards every root strip,
+/// so the render draws nothing rather than silently falling back to a full,
+/// unscissored render.
+fn clamp_region_to_target(region: RenderRegion<'_>, size: &RenderSize) -> Vec<RectU16> {
+    let RenderRegion::Rects(rects) = region else {
+        return Vec::new();
+    };
+    let w = size.width.min(u32::from(u16::MAX)) as u16;
+    let h = size.height.min(u32::from(u16::MAX)) as u16;
+    let mut clamped: Vec<RectU16> = rects
+        .iter()
+        .filter_map(|r| {
+            let x0 = r.x0.min(w);
+            let y0 = r.y0.min(h);
+            let x1 = r.x1.min(w);
+            let y1 = r.y1.min(h);
+            (x1 > x0 && y1 > y0).then(|| RectU16::new(x0, y0, x1, y1))
+        })
+        .collect();
+    if clamped.is_empty() {
+        clamped.push(RectU16::new(0, 0, 0, 0));
+    }
+    clamped
+}
+
 /// Vello Hybrid's Renderer.
 #[derive(Debug)]
 pub struct Renderer {
@@ -167,6 +199,14 @@ pub struct Renderer {
     layers_config: LayersConfig,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
+    /// Number of [`Self::render`] calls that drew a partial
+    /// ([`RenderRegion::Rects`]) region. Lets damage-tracking callers assert
+    /// that partial rendering actually happened rather than silently falling
+    /// back to a full render.
+    partial_renders: u64,
+    /// Number of root-destined strips skipped by the damage-region cull across
+    /// all renders. Lets damage-tracking callers assert the cull engaged.
+    culled_strips: u64,
 }
 
 impl Renderer {
@@ -210,7 +250,24 @@ impl Renderer {
             layers_config: layer_config,
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
+            partial_renders: 0,
+            culled_strips: 0,
         }
+    }
+
+    /// Number of [`Self::render`] calls that drew a partial
+    /// ([`RenderRegion::Rects`]) region. Lets damage-tracking callers assert
+    /// the partial path actually engaged.
+    pub fn partial_renders(&self) -> u64 {
+        self.partial_renders
+    }
+
+    /// Number of root-destined strips skipped by the damage-region cull across
+    /// all renders (the fast-path coverage, gap, and rectangle quads that fell
+    /// entirely outside the [`RenderRegion::Rects`] set). Lets damage-tracking
+    /// callers assert the cull actually engaged.
+    pub fn culled_strips(&self) -> u64 {
+        self.culled_strips
     }
 
     /// Render `scene`.
@@ -220,6 +277,12 @@ impl Renderer {
     /// requirements on the bound texture views.
     ///
     /// To render without any texture bindings, you can pass an empty [`TextureBindings`].
+    ///
+    /// For damage-region rendering, pass the damaged rects as
+    /// [`RenderRegion::Rects`]: only that region is redrawn (byte-identical to a
+    /// full render of the same scene) and the rest of the target is preserved.
+    /// Pair it with [`ClearSettings::DontClear`], or [`ClearSettings::Rects`]
+    /// over the same rects when the scene does not repaint the region opaquely.
     pub fn render(
         &mut self,
         scene: &Scene,
@@ -231,7 +294,12 @@ impl Renderer {
         view: &TextureView,
         texture_bindings: &TextureBindings,
         clear: ClearSettings<'_>,
+        region: RenderRegion<'_>,
     ) -> Result<(), RenderError> {
+        if !matches!(region, RenderRegion::Full) {
+            self.partial_renders += 1;
+        }
+
         #[cfg(feature = "text")]
         {
             resources.before_render(
@@ -273,6 +341,7 @@ impl Renderer {
             &resources.image_cache,
             &scene.encoded_paints,
             clear,
+            region,
             RootTarget::UserSurface,
             texture_bindings,
         );
@@ -370,6 +439,7 @@ impl Renderer {
             &dummy_image_cache,
             encoded_paints,
             ClearSettings::DontClear,
+            RenderRegion::Full,
             RootTarget::AtlasLayer,
             texture_bindings,
         );
@@ -413,10 +483,16 @@ impl Renderer {
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
         clear: ClearSettings<'_>,
+        region: RenderRegion<'_>,
         root_output_target: RootTarget,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
+        // Clamp the damage rects to the target so the draw-time scissor never
+        // exceeds the render attachment, and so a partial render whose rects all
+        // clamp away draws nothing instead of silently falling back to a full
+        // render. Both the strip cull and the scissor loop use the clamped set.
+        let clamped_scissors = clamp_region_to_target(region, render_size);
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
         let required_texture_size = self
             .layers_config
@@ -439,7 +515,9 @@ impl Renderer {
             texture_size,
             current_allocations,
             self.layers_config.max_textures,
+            &clamped_scissors,
         )?;
+        self.culled_strips += schedule.culled_strips();
         self.programs
             .prepare_intermediate_textures(device, &schedule);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -466,6 +544,7 @@ impl Renderer {
             external_paint_source_bind_groups: HashMap::new(),
             scratch_buffers: &mut self.scratch_buffers,
             root_load_op: wgpu::LoadOp::Load,
+            root_scissors: &clamped_scissors,
         };
 
         ctx.init_root_clear(clear, root_output_target);
@@ -923,7 +1002,7 @@ struct Programs {
     filter_pair_bind_groups: HashMap<FilterPassBindings, FilterPairBindGroups>,
     /// Pipeline for applying filter effects.
     filter_pipeline: RenderPipeline,
-    /// Layer-clear pipeline.
+    /// Layer-clear pipeline (layer textures are always `Rgba8Unorm`).
     clear_pipeline: RenderPipeline,
     /// User-target rectangle-clear pipeline.
     root_clear_pipeline: RenderPipeline,
@@ -2711,6 +2790,9 @@ struct RendererContext<'a> {
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
     scratch_buffers: &'a mut ScratchBuffers,
     root_load_op: wgpu::LoadOp<wgpu::Color>,
+    /// Disjoint device-pixel damage rects to scissor root drawing to. Empty
+    /// means draw the whole target. Only applied to the root user surface.
+    root_scissors: &'a [RectU16],
 }
 
 impl RendererContext<'_> {
@@ -2853,6 +2935,15 @@ impl RendererContext<'_> {
 
         let enable_opaque = target.enable_opaque();
 
+        // Damage scissoring: only the root user surface is confined to the
+        // damage rects; layer and atlas targets always render in full.
+        let scissors: &[RectU16] =
+            if matches!(target, DrawPassTarget::Root(RootTarget::UserSurface)) {
+                self.root_scissors
+            } else {
+                &[]
+            };
+
         let depth_stencil_attachment = if enable_opaque {
             let depth_load = if self.programs.depth_cleared_this_frame {
                 wgpu::LoadOp::Load
@@ -2893,46 +2984,59 @@ impl RendererContext<'_> {
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
 
-        if opaque_count > 0 {
-            // Opaque pass
-            debug_assert!(
-                enable_opaque,
-                "opaque strips require the final view depth attachment"
-            );
-            render_pass.set_pipeline(&self.programs.opaque_strip_pipeline);
-            render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
-            render_pass.draw(0..4, 0..opaque_count);
-        }
-
-        if alpha_count > 0 {
-            // Alpha pass
-            if enable_opaque {
-                render_pass.set_pipeline(&self.programs.alpha_strip_pipeline);
-            } else {
-                render_pass.set_pipeline(&self.programs.intermediate_strip_pipeline);
+        // Replay the draw sequence once per damage rect (with that rect as the
+        // scissor), or once unscissored when there are no damage rects.
+        for pass_idx in 0..scissors.len().max(1) {
+            if let Some(rect) = scissors.get(pass_idx) {
+                render_pass.set_scissor_rect(
+                    u32::from(rect.x0),
+                    u32::from(rect.y0),
+                    u32::from(rect.width()),
+                    u32::from(rect.height()),
+                );
             }
 
-            let alpha_start = opaque_count;
-            if external_texture_runs.is_empty() {
+            if opaque_count > 0 {
+                // Opaque pass
+                debug_assert!(
+                    enable_opaque,
+                    "opaque strips require the final view depth attachment"
+                );
+                render_pass.set_pipeline(&self.programs.opaque_strip_pipeline);
                 render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
-                render_pass.draw(0..4, alpha_start..alpha_start + alpha_count);
-            } else {
-                // Each run is drawn with a different external texture binding. Runs go from
-                // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
-                // the strips buffer.
-                for (i, run) in external_texture_runs.iter().enumerate() {
-                    let paint_source_bind_group = self
-                        .external_paint_source_bind_groups
-                        .get(&run.texture_id)
-                        .unwrap();
-                    render_pass.set_bind_group(1, paint_source_bind_group, &[]);
-                    let start = u32::try_from(run.strips_start).unwrap();
-                    let end = external_texture_runs
-                        .get(i + 1)
-                        .map_or(alpha_count, |next| {
-                            u32::try_from(next.strips_start).unwrap()
-                        });
-                    render_pass.draw(0..4, alpha_start + start..alpha_start + end);
+                render_pass.draw(0..4, 0..opaque_count);
+            }
+
+            if alpha_count > 0 {
+                // Alpha pass
+                if enable_opaque {
+                    render_pass.set_pipeline(&self.programs.alpha_strip_pipeline);
+                } else {
+                    render_pass.set_pipeline(&self.programs.intermediate_strip_pipeline);
+                }
+
+                let alpha_start = opaque_count;
+                if external_texture_runs.is_empty() {
+                    render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
+                    render_pass.draw(0..4, alpha_start..alpha_start + alpha_count);
+                } else {
+                    // Each run is drawn with a different external texture binding. Runs go from
+                    // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
+                    // the strips buffer.
+                    for (i, run) in external_texture_runs.iter().enumerate() {
+                        let paint_source_bind_group = self
+                            .external_paint_source_bind_groups
+                            .get(&run.texture_id)
+                            .unwrap();
+                        render_pass.set_bind_group(1, paint_source_bind_group, &[]);
+                        let start = u32::try_from(run.strips_start).unwrap();
+                        let end = external_texture_runs
+                            .get(i + 1)
+                            .map_or(alpha_count, |next| {
+                                u32::try_from(next.strips_start).unwrap()
+                            });
+                        render_pass.draw(0..4, alpha_start + start..alpha_start + end);
+                    }
                 }
             }
         }
@@ -3515,5 +3619,50 @@ fn clear_color(color: AlphaColor<Srgb>) -> wgpu::Color {
         g: f64::from(g),
         b: f64::from(b),
         a: f64::from(a),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RenderRegion, RenderSize, clamp_region_to_target};
+    use vello_common::geometry::RectU16;
+
+    fn size(width: u32, height: u32) -> RenderSize {
+        RenderSize { width, height }
+    }
+
+    #[test]
+    fn clamp_trims_overhang_and_drops_out_of_bounds() {
+        let rects = [
+            RectU16::new(10, 20, 40, 60),     // in-bounds: unchanged
+            RectU16::new(90, 90, 140, 140),   // overhang: trimmed to the target
+            RectU16::new(200, 200, 210, 210), // fully outside: dropped
+            RectU16::new(5, 5, 5, 12),        // zero width: dropped
+        ];
+        assert_eq!(
+            clamp_region_to_target(RenderRegion::Rects(&rects), &size(100, 100)),
+            [RectU16::new(10, 20, 40, 60), RectU16::new(90, 90, 100, 100)]
+        );
+    }
+
+    #[test]
+    fn clamp_full_region_yields_no_scissors() {
+        assert!(clamp_region_to_target(RenderRegion::Full, &size(100, 100)).is_empty());
+    }
+
+    #[test]
+    fn clamp_degenerate_region_yields_zero_area_sentinel() {
+        // A partial region that clamps entirely away (or is empty to begin
+        // with) must draw nothing, signalled by a single zero-area rect rather
+        // than an empty (full-render) set.
+        let rects = [RectU16::new(200, 200, 240, 240)];
+        assert_eq!(
+            clamp_region_to_target(RenderRegion::Rects(&rects), &size(100, 100)),
+            [RectU16::new(0, 0, 0, 0)]
+        );
+        assert_eq!(
+            clamp_region_to_target(RenderRegion::Rects(&[]), &size(100, 100)),
+            [RectU16::new(0, 0, 0, 0)]
+        );
     }
 }
