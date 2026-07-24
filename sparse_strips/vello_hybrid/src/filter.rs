@@ -33,6 +33,8 @@ pub(crate) const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 const BYTES_PER_TEXEL: usize = 16;
 const FILTER_SIZE_BYTES: usize = 48;
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
+const COMPOSITE_ORIGINAL_SHIFT: u32 = 13;
+const COMPOSITE_ORIGINAL_MASK: u32 = 1 << COMPOSITE_ORIGINAL_SHIFT;
 
 const _: () = assert!(
     size_of::<GpuFilterData>() == FILTER_SIZE_BYTES,
@@ -78,6 +80,7 @@ pub(crate) mod pass_kind {
     pub(crate) const BLUR_V: u32 = 5;
     pub(crate) const UPSCALE: u32 = 6;
     pub(crate) const COMPOSITE_DROP_SHADOW: u32 = 7;
+    pub(crate) const COLORIZE: u32 = 8;
 }
 
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
@@ -95,7 +98,7 @@ fn pack_header(filter_type: u32) -> u32 {
     filter_type
 }
 
-fn pack_header_with_gaussian_params(
+const fn pack_header_with_gaussian_params(
     filter_type: u32,
     edge_mode: u32,
     n_decimations: u32,
@@ -108,6 +111,11 @@ fn pack_header_with_gaussian_params(
 
     filter_type | (edge_mode << 5) | (n_decimations << 7) | (n_linear_taps << 11)
 }
+
+const _: () = assert!(
+    pack_header_with_gaussian_params(31, 3, 15, 3) & COMPOSITE_ORIGINAL_MASK == 0,
+    "Gaussian filter parameters overlap the composite_original bit"
+);
 
 // To a large degree, the vello_hybrid implementation of gaussian blur follows the one in vello_cpu.
 // However, we apply a specific optimization, where instead of averaging and weighting each sample
@@ -278,13 +286,19 @@ impl From<&DropShadow> for GpuDropShadow {
     )]
     fn from(shadow: &DropShadow) -> Self {
         let lk = LinearKernel::new(&shadow.kernel, shadow.kernel_size);
+        let composite_original = if shadow.composite_original {
+            COMPOSITE_ORIGINAL_MASK
+        } else {
+            0
+        };
+
         Self {
             header: pack_header_with_gaussian_params(
                 filter_type::DROP_SHADOW,
                 edge_mode_to_gpu(shadow.edge_mode),
                 shadow.n_decimations as u32,
                 lk.n_taps as u32,
-            ),
+            ) | composite_original,
             center_weight: lk.center_weight,
             linear_weights: lk.weights,
             linear_offsets: lk.offsets,
@@ -318,10 +332,14 @@ impl GpuFilterData {
         ((self.data[0] >> 7) & 0xF) as usize
     }
 
+    pub(crate) fn composite_original(&self) -> bool {
+        self.data[0] & COMPOSITE_ORIGINAL_MASK != 0
+    }
+
     pub(crate) fn needs_copy_pass(&self) -> bool {
         // For drop shadows, we need to retain the original rendered layer because in the end
         // we need to composite it _on top_ of the actual shadow.
-        self.filter_type() == filter_type::DROP_SHADOW
+        self.filter_type() == filter_type::DROP_SHADOW && self.composite_original()
     }
 }
 
@@ -429,7 +447,11 @@ impl FilterPassPlan {
                 filter_type::DROP_SHADOW => {
                     builder.emit(pass_kind::OFFSET);
                     builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
-                    builder.emit(pass_kind::COMPOSITE_DROP_SHADOW);
+                    if filter.gpu_filter.composite_original() {
+                        builder.emit(pass_kind::COMPOSITE_DROP_SHADOW);
+                    } else {
+                        builder.emit(pass_kind::COLORIZE);
+                    }
                 }
                 _ => unreachable!("unsupported filter type was encoded"),
             }

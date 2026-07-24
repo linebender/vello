@@ -71,6 +71,25 @@ impl PreparedFilter {
 
                 Self::DropShadow(drop_shadow)
             }
+            FilterPrimitive::DropShadowOnly {
+                dx,
+                dy,
+                std_deviation,
+                color,
+                edge_mode,
+            } => {
+                let (scaled_dx, scaled_dy, scaled_std_dev) =
+                    transform_shadow_params(*dx, *dy, *std_deviation, transform);
+                let drop_shadow = DropShadow::new_shadow_only(
+                    scaled_dx,
+                    scaled_dy,
+                    scaled_std_dev,
+                    *edge_mode,
+                    *color,
+                );
+
+                Self::DropShadow(drop_shadow)
+            }
             FilterPrimitive::Offset { dx, dy } => {
                 let (scaled_dx, scaled_dy) = transform_offset_params(*dx, *dy, transform);
                 let offset = Offset::new(scaled_dx, scaled_dy);
