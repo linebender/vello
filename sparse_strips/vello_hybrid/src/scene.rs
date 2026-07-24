@@ -939,6 +939,7 @@ impl Scene {
 
         self.root_transforms.reset();
         self.render_state.reset();
+        self.set_paint_visible();
 
         self.recorder.reset(self.width, self.height);
         self.filter = None;
@@ -976,9 +977,7 @@ impl Scene {
 
 #[cfg(test)]
 mod tests {
-    use super::RecordedDraw;
-    #[cfg(feature = "text")]
-    use super::Scene;
+    use super::{RecordedDraw, Scene};
     #[cfg(feature = "text")]
     use crate::resources::Resources;
     #[cfg(feature = "text")]
@@ -989,7 +988,7 @@ mod tests {
     use vello_common::kurbo::BezPath;
     use vello_common::kurbo::Rect;
     use vello_common::paint::{Paint, PremulColor};
-    use vello_common::peniko::color::palette::css::BLUE;
+    use vello_common::peniko::color::palette::css::{BLUE, TRANSPARENT};
     #[cfg(feature = "text")]
     use vello_common::peniko::{Blob, FontData};
     use vello_common::record::Drawable;
@@ -1005,6 +1004,17 @@ mod tests {
             draw.bbox(&[]),
             Some(vello_common::geometry::RectU16::new(0, 0, 8, 8))
         );
+    }
+
+    #[test]
+    fn reset_restores_default_paint_visibility() {
+        let mut scene = Scene::new(100, 100);
+        scene.set_paint(TRANSPARENT);
+
+        scene.reset();
+        scene.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
+
+        assert_eq!(scene.recorder.draws.len(), 1);
     }
 
     #[cfg(feature = "text")]
