@@ -29,9 +29,10 @@ This structure is **under active development** and subject to changes as the int
 
 ## WebAssembly builds
 
-Browser-ready builds and the WebAssembly binary size check are available in
-the [`web`](web) directory. Run all three builds and enforce their size limits
-from the repository root with:
+Browser-ready non-SIMD and SIMD128 builds and WebAssembly raw and
+gzip-compressed size reporting are available in the [`web`](web) directory.
+Run all six module variants and enforce the raw size limits from the repository
+root with:
 
 ```bash
 ./sparse_strips/web/check_wasm_sizes.sh
