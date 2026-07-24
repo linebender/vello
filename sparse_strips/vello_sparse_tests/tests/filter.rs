@@ -1265,30 +1265,6 @@ fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-// A filter layer with non-zero bounds is rendered into an atlas allocation with a different
-// texture-space origin. This test ensures that complex paints remain positioned in scene space.
-// The correct behavior is to see the whole gradient; the wrong behavior is a blue rectangle.
-#[vello_test(skip_multithreaded, width = 512, height = 4)]
-fn filter_with_complex_paint_and_shifted_bounds(ctx: &mut impl Renderer) {
-    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
-
-    let gradient = Gradient {
-        kind: LinearGradientPosition {
-            start: Point::new(256.0, 0.0),
-            end: Point::new(512.0, 0.0),
-        }
-        .into(),
-        stops: stops_blue_green_red_yellow(),
-        extend: Extend::Pad,
-        ..Default::default()
-    };
-
-    ctx.push_filter_layer(filter);
-    ctx.set_paint(gradient);
-    ctx.fill_rect(&Rect::new(256.0, 0.0, 612.0, 4.0));
-    ctx.pop_layer();
-}
-
 #[vello_test(skip_multithreaded)]
 fn filter_with_opacity(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {

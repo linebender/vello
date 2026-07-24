@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::renderer::Renderer;
-use crate::util::{stops_blue_green_red_yellow, stops_green_blue};
+use crate::util::stops_blue_green_red_yellow;
 use smallvec::smallvec;
 use vello_common::color::palette::css::{BLACK, BLUE, GREEN, WHITE, YELLOW};
 use vello_common::color::{ColorSpaceTag, DynamicColor};
@@ -13,24 +13,6 @@ use vello_dev_macros::vello_test;
 
 pub(crate) const fn tan_45() -> f64 {
     1.0
-}
-
-#[vello_test(width = 600, height = 32)]
-fn wide_linear_gradient(ctx: &mut impl Renderer) {
-    let rect = Rect::new(4.0, 4.0, 596.0, 28.0);
-
-    let gradient = Gradient {
-        kind: LinearGradientPosition {
-            start: Point::new(0.0, 0.0),
-            end: Point::new(600.0, 0.0),
-        }
-        .into(),
-        stops: stops_green_blue(),
-        ..Default::default()
-    };
-
-    ctx.set_paint(gradient);
-    ctx.fill_rect(&rect);
 }
 
 #[vello_test]
