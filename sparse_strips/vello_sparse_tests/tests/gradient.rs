@@ -291,11 +291,10 @@ mod linear {
         ctx.fill_path(&path);
     }
 
-    // vello_hybrid:
-    // - diff_pixels = 2: It’s likely that the issue comes from accumulated rounding errors.
-    // When the gradient’s t-value falls right on the edge of the texture ramp, it may yield
-    // a different result than in vello_cpu.
-    #[vello_test(diff_pixels = 2)]
+    // This test needs a slightly higher threshold because it contains sharp gradients that change
+    // in nearly every pixel interval. Small floating point errors can result in completely
+    // different colors being sampled at inflection points.
+    #[vello_test(diff_pixels = 15)]
     fn gradient_linear_with_y_repeat(ctx: &mut impl Renderer) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
