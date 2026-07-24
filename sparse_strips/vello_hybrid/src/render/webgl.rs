@@ -2878,7 +2878,7 @@ impl WebGlRendererContext<'_> {
 }
 
 impl Backend for WebGlRendererContext<'_> {
-    fn opaque_pass(&mut self, strips: &[GpuStrip]) {
+    fn opaque_draw_pass(&mut self, strips: &[GpuStrip]) {
         self.strip_pass_inner(
             strips,
             RangedSlice::empty(),
