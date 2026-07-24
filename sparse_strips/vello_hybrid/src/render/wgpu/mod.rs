@@ -284,6 +284,7 @@ impl Renderer {
                             device,
                             queue,
                             atlas_id,
+                            None,
                             texture_bindings,
                         )
                         .expect("Failed to render glyphs to atlas");
@@ -342,6 +343,14 @@ impl Renderer {
     /// `texture_bindings` provides [externally bound textures](`TextureBindings`)
     /// referenced by the scene. Pass `&TextureBindings::new()` if the scene does
     /// not use any.
+    ///
+    /// The scene is composited into the layer with source-over, so a slot that
+    /// is being reused may retain stale pixels underneath the new content. Pass
+    /// `clear_rect` (a region in atlas-layer pixel coordinates) to clear exactly
+    /// that region to transparent first, leaving the rest of the layer intact.
+    /// The clear is recorded on the same encoder, after the atlas is grown to
+    /// fit `atlas_count` and before the scene is composited, so callers do not
+    /// need to size or pre-clear the atlas themselves.
     #[doc(hidden)]
     pub fn render_to_atlas(
         &mut self,
@@ -351,6 +360,7 @@ impl Renderer {
         device: &Device,
         queue: &Queue,
         atlas_id: AtlasId,
+        clear_rect: Option<RectU16>,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -364,6 +374,20 @@ impl Renderer {
             &self.programs.atlas_bind_group_layout,
             atlas_count,
         );
+
+        // Clear the destination slot to transparent before compositing, if
+        // requested. This is recorded after the resize above (so it targets a
+        // correctly sized layer) and before the scene render pass below, and it
+        // leaves the rest of the layer untouched.
+        if let Some(clear_rect) = clear_rect {
+            self.clear_atlas_region(
+                &mut encoder,
+                atlas_id,
+                [u32::from(clear_rect.x0), u32::from(clear_rect.y0)],
+                u32::from(clear_rect.width()),
+                u32::from(clear_rect.height()),
+            );
+        }
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
@@ -640,14 +664,19 @@ impl Renderer {
     pub fn destroy_image(
         &mut self,
         resources: &mut Resources,
-        encoder: &mut CommandEncoder,
+        queue: &Queue,
         image_id: vello_common::paint::ImageId,
     ) {
         if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
             let padding = image_resource.padding as u32;
 
-            self.clear_atlas_region(
-                encoder,
+            // Clear via `queue.write_texture` rather than an encoder pass: wgpu
+            // runs all queued texture writes before any command buffers in a
+            // submit, so an encoder-based clear would land AFTER a same-frame
+            // re-upload into this slot and wipe it. Queue writes stay in call
+            // order.
+            self.clear_atlas_region_via_queue(
+                queue,
                 image_resource.atlas_id,
                 [
                     image_resource.offset[0] as u32 - padding,
@@ -659,6 +688,44 @@ impl Renderer {
         }
     }
 
+    /// Zero a region of the atlas via `queue.write_texture`, staying ordered
+    /// with `write_texture`-based uploads within a submit (unlike
+    /// [`Self::clear_atlas_region`], which records a render pass).
+    fn clear_atlas_region_via_queue(
+        &self,
+        queue: &Queue,
+        atlas_id: AtlasId,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        let byte_count = width as usize * height as usize * 4;
+        let zeros = vec![0_u8; byte_count];
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.programs.resources.atlas_texture_array,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: atlas_id.as_u32(),
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &zeros,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
     /// Returns a reference to the underlying atlas texture array.
     ///
     /// This is a 2D array texture (`TextureViewDimension::D2Array`) containing all
@@ -668,8 +735,12 @@ impl Renderer {
         &self.programs.resources.atlas_texture_array
     }
 
-    /// Clear a specific region of the atlas texture.
-    fn clear_atlas_region(
+    /// Clear a specific region of the atlas texture by recording a render pass.
+    ///
+    /// For clears that must stay ordered with same-submit `queue.write_texture`
+    /// uploads (e.g. freeing a slot that may be reused the same frame), use
+    /// `clear_atlas_region_via_queue` instead.
+    pub fn clear_atlas_region(
         &mut self,
         encoder: &mut CommandEncoder,
         atlas_id: AtlasId,

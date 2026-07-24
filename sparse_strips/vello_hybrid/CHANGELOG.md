@@ -12,6 +12,19 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `Resources::image_cache`/`image_cache_mut` and `Scene::transform` accessors for driving `render_to_atlas` from external code. ([#1739][] by [@AdrianEddy][])
+- `Renderer::render_to_atlas` takes a `clear_rect: Option<RectU16>` that clears the destination slot to transparent before compositing (for reused slots whose stale pixels would otherwise show through source-over), recorded after the atlas grows and before the scene render. ([#1739][] by [@AdrianEddy][])
+
+### Changed
+
+- `Renderer::destroy_image` no longer takes an `encoder`; it clears the freed atlas slot through the `queue`. ([#1739][] by [@AdrianEddy][])
+
+### Fixed
+
+- `Renderer::destroy_image` now clears the freed atlas slot via `queue.write_texture`, so a slot reused within the same frame is no longer wiped by the freshly-uploaded image. ([#1739][] by [@AdrianEddy][])
+
 ## [0.2.0][] - 2026-08-07
 
 This release has an [MSRV][] of 1.88.
@@ -201,6 +214,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@dipeshbabu]: https://github.com/dipeshbabu
@@ -287,6 +301,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1726]: https://github.com/linebender/vello/pull/1726
 [#1734]: https://github.com/linebender/vello/pull/1734
 [#1735]: https://github.com/linebender/vello/pull/1735
+[#1739]: https://github.com/linebender/vello/pull/1739
 [#1747]: https://github.com/linebender/vello/pull/1747
 [#1750]: https://github.com/linebender/vello/pull/1750
 [#1757]: https://github.com/linebender/vello/pull/1757
