@@ -19,7 +19,9 @@ use vello_common::flatten::{FlattenCtx, Line};
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke, StrokeCtx};
 use vello_common::peniko::Fill;
-use vello_common::strip::Strip;
+use vello_common::strip::{
+    Strip, StripAlphaFillSegment, StripFillSegment, visit_strip_fill_segments,
+};
 use vello_common::tile::{Tile, Tiles};
 use vello_common::{flatten, strip};
 
@@ -102,6 +104,16 @@ fn main() {
 
     if stages.contains(&Stage::Strips) {
         draw_strips(&mut document, &strip_buf, &alpha_buf);
+    }
+
+    if stages.contains(&Stage::FillSegments) {
+        draw_fill_segments(
+            &mut document,
+            &strip_buf,
+            &alpha_buf,
+            args.width,
+            args.height,
+        );
     }
 
     let path = path::absolute("debug.svg").unwrap();
@@ -273,6 +285,74 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
     }
 }
 
+fn draw_fill_segments(
+    document: &mut Document,
+    strips: &[Strip],
+    alphas: &[u8],
+    width: u16,
+    height: u16,
+) {
+    let tile_bounds = RectU16::new(
+        0,
+        0,
+        width.div_ceil(Tile::WIDTH),
+        height.div_ceil(Tile::HEIGHT),
+    );
+
+    visit_strip_fill_segments(
+        strips,
+        tile_bounds,
+        document,
+        |document, segment| draw_alpha_fill_segment(document, segment, alphas, width, height),
+        |document, segment| draw_fill_segment(document, segment, width, height),
+    );
+}
+
+fn draw_alpha_fill_segment(
+    document: &mut Document,
+    segment: StripAlphaFillSegment,
+    alphas: &[u8],
+    width: u16,
+    height: u16,
+) {
+    let x0 = segment.x0();
+    let x1 = segment.x1().min(width);
+    let y0 = segment.y();
+    let y1 = y0.saturating_add(Tile::HEIGHT).min(height);
+
+    for x in x0..x1 {
+        for y in y0..y1 {
+            let alpha_idx = segment.alpha_idx as usize
+                + usize::from(x - x0) * usize::from(Tile::HEIGHT)
+                + usize::from(y - y0);
+            let rect = Rectangle::new()
+                .set("x", x)
+                .set("y", y)
+                .set("width", 1)
+                .set("height", 1)
+                .set("fill", "yellow")
+                .set("fill-opacity", f32::from(alphas[alpha_idx]) / 255.0);
+
+            document.append(rect);
+        }
+    }
+}
+
+fn draw_fill_segment(document: &mut Document, segment: StripFillSegment, width: u16, height: u16) {
+    let x0 = segment.x0();
+    let x1 = segment.x1().min(width);
+    let y0 = segment.y();
+    let y1 = y0.saturating_add(Tile::HEIGHT).min(height);
+    let rect = Rectangle::new()
+        .set("x", x0)
+        .set("y", y0)
+        .set("width", x1 - x0)
+        .set("height", y1 - y0)
+        .set("fill", "blue");
+
+    document.append(rect);
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stage {
     /// Draw the flattened lines of the path.
@@ -283,6 +363,8 @@ enum Stage {
     StripAreas,
     /// Draw the strips with their alpha masks.
     Strips,
+    /// Draw the fill segments formed by the strips.
+    FillSegments,
 }
 
 impl Stage {
@@ -294,7 +376,7 @@ impl Stage {
     }
 
     fn requires_strips(&self) -> bool {
-        matches!(self, Self::StripAreas) || matches!(self, Self::Strips)
+        matches!(self, Self::StripAreas | Self::Strips | Self::FillSegments)
     }
 }
 
@@ -307,8 +389,9 @@ impl std::str::FromStr for Stage {
             "ta" | "tile_areas" => Ok(Self::TileAreas),
             "sa" | "strip_areas" => Ok(Self::StripAreas),
             "s" | "strips" => Ok(Self::Strips),
+            "fs" | "fill_segments" => Ok(Self::FillSegments),
             _ => Err(format!(
-                "invalid stage: {input}. Expected one of `line_segments`, `tile_areas`, `strip_areas`, or `strips`, or their acronym"
+                "invalid stage: {input}. Expected one of `line_segments`, `tile_areas`, `strip_areas`, `strips`, or `fill_segments`, or their acronym"
             )),
         }
     }
