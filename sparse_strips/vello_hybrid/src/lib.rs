@@ -95,7 +95,7 @@ pub use render::{
 };
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
-pub use render::{ClearSettings, Config, GpuStrip, RenderSize};
+pub use render::{ClearSettings, Config, GpuStrip, RenderRegion, RenderSize};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{PROBE_ELEMENTS, Probe, ProbeFeature, ProbeResult, ProbeStatistics};
 #[cfg(all(feature = "webgl", feature = "probe"))]

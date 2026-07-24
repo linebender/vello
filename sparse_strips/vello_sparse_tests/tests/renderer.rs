@@ -330,6 +330,136 @@ pub(crate) struct HybridRenderer {
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl HybridRenderer {
+    /// Number of partial ([`vello_hybrid::RenderRegion::Rects`]) renders this
+    /// renderer has performed.
+    pub(crate) fn partial_renders(&self) -> u64 {
+        self.renderer.partial_renders()
+    }
+
+    /// Number of root strips this renderer's damage-region cull has skipped.
+    pub(crate) fn culled_strips(&self) -> u64 {
+        self.renderer.culled_strips()
+    }
+
+    /// Render the scene into `pixmap` with an explicit clear mode and render
+    /// region. When `prior_full_render` is true, the scene is first rendered in
+    /// full so the region render exercises the damage-region preserve path over
+    /// real prior content.
+    pub(crate) fn render_region_to_pixmap(
+        &mut self,
+        clear: ClearSettings<'_>,
+        region: vello_hybrid::RenderRegion<'_>,
+        prior_full_render: bool,
+        pixmap: &mut Pixmap,
+    ) {
+        let _guard = {
+            use std::sync::Mutex;
+            static M: Mutex<()> = Mutex::new(());
+            M.lock().unwrap()
+        };
+
+        let width = self.scene.width();
+        let height = self.scene.height();
+        let render_size = vello_hybrid::RenderSize {
+            width: width.into(),
+            height: height.into(),
+        };
+        let mut texture_bindings = vello_hybrid::TextureBindings::new();
+        for (texture_id, texture) in &self.external_textures {
+            texture_bindings.insert(*texture_id, texture.clone());
+        }
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Vello Region Render"),
+            });
+
+        if prior_full_render {
+            self.renderer
+                .render(
+                    &self.scene,
+                    &mut self.resources,
+                    &self.device,
+                    &self.queue,
+                    &mut encoder,
+                    &render_size,
+                    &self.texture_view,
+                    &texture_bindings,
+                    ClearSettings::default(),
+                    vello_hybrid::RenderRegion::Full,
+                )
+                .unwrap();
+        }
+
+        self.renderer
+            .render(
+                &self.scene,
+                &mut self.resources,
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &render_size,
+                &self.texture_view,
+                &texture_bindings,
+                clear,
+                region,
+            )
+            .unwrap();
+
+        let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
+        let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Output Buffer"),
+            size: u64::from(bytes_per_row) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &texture_copy_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: None,
+                },
+            },
+            wgpu::Extent3d {
+                width: width.into(),
+                height: height.into(),
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit([encoder.finish()]);
+        texture_copy_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                if result.is_err() {
+                    panic!("Failed to map texture for reading");
+                }
+            });
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        for (row, buf) in texture_copy_buffer
+            .slice(..)
+            .get_mapped_range()
+            .chunks_exact(bytes_per_row as usize)
+            .zip(
+                pixmap
+                    .data_as_u8_slice_mut()
+                    .chunks_exact_mut(width as usize * 4),
+            )
+        {
+            buf.copy_from_slice(&row[0..width as usize * 4]);
+        }
+        texture_copy_buffer.unmap();
+    }
+
     fn new_with_settings(width: u16, height: u16, settings: HybridRenderSettings) -> Self {
         let scene = Scene::new_with(width, height, settings.level);
         // Initialize wgpu device and queue for GPU rendering
@@ -624,6 +754,7 @@ impl Renderer for HybridRenderer {
                 &self.texture_view,
                 &texture_bindings,
                 self.clear,
+                vello_hybrid::RenderRegion::Full,
             )
             .unwrap();
 

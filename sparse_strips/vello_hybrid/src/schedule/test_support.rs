@@ -73,6 +73,7 @@ impl SceneCase {
             texture_size,
             IntermediateTextureAllocations::default(),
             Some(max_textures),
+            &[],
         )?;
 
         Ok(ScheduledCase {
@@ -101,6 +102,7 @@ impl SceneCase {
             texture_size,
             IntermediateTextureAllocations::default(),
             Some(max_textures),
+            &[],
         )
     }
 
