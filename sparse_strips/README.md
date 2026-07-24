@@ -29,10 +29,9 @@ This structure is **under active development** and subject to changes as the int
 
 ## WebAssembly builds
 
-Browser-ready non-SIMD and SIMD128 builds and WebAssembly raw and
-gzip-compressed size reporting are available in the [`web`](web) directory.
-Run all six module variants and enforce the raw size limits from the repository
-root with:
+Browser-ready non-SIMD and SIMD128 builds are available in the [`web`](web)
+directory. Run the three SIMD128 modules, report their raw and gzip-compressed
+sizes, and enforce the raw size limits from the repository root with:
 
 ```bash
 ./sparse_strips/web/check_wasm_sizes.sh

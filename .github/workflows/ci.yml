@@ -202,7 +202,7 @@ jobs:
         run: cargo hack clippy --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features std,u8_pipeline,f32_pipeline --tests --benches --examples -- -D warnings
 
   wasm-size:
-    name: sparse strips Wasm size
+    name: sparse strips wasm size
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -223,7 +223,7 @@ jobs:
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
 
-      - name: check sparse strips Wasm sizes
+      - name: check sparse strips wasm sizes
         run: ./sparse_strips/web/check_wasm_sizes.sh
 
   prime-lfs-cache:

@@ -21,7 +21,7 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.114 --locked --force
 ```
 
-To build all six module variants, report raw and gzip-compressed sizes, and
+To build the three SIMD128 modules, report raw and gzip-compressed sizes, and
 enforce the committed raw size limits, run:
 
 ```bash

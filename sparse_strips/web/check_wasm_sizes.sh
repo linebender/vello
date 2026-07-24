@@ -9,19 +9,16 @@ if [[ "$target_dir" != /* ]]; then
     target_dir="$repo_root/$target_dir"
 fi
 
-for variant in non-simd simd; do
-    for module in vello_cpu vello_hybrid_webgl vello_hybrid_wgpu; do
-        "$script_dir/build_wasm.sh" "$module" "$variant"
-    done
+for module in vello_cpu vello_hybrid_webgl vello_hybrid_wgpu; do
+    "$script_dir/build_wasm.sh" "$module" simd
 done
 
 failed=0
 
 check_size() {
     local name="$1"
-    local variant="$2"
-    local file="$3"
-    local raw_limit="$4"
+    local file="$2"
+    local raw_limit="$3"
     local gzip_file="$file.gz"
     local size
     local gzip_size
@@ -41,8 +38,8 @@ check_size() {
     actual_mib="$(awk -v bytes="$size" 'BEGIN { printf "%.2f MiB", bytes / 1048576 }')"
     raw_limit_mib="$(awk -v bytes="$raw_limit" 'BEGIN { printf "%.2f MiB", bytes / 1048576 }')"
     gzip_actual_mib="$(awk -v bytes="$gzip_size" 'BEGIN { printf "%.2f MiB", bytes / 1048576 }')"
-    printf '%-22s %-8s %10s %10s %10s\n' \
-        "$name" "$variant" "$actual_mib" "$raw_limit_mib" "$gzip_actual_mib"
+    printf '%-22s %10s %10s %10s\n' \
+        "$name" "$actual_mib" "$raw_limit_mib" "$gzip_actual_mib"
 
     if (( size > raw_limit )); then
         printf '  Raw size limit exceeded by %d bytes.\n' "$((size - raw_limit))" >&2
@@ -50,37 +47,19 @@ check_size() {
     fi
 }
 
-printf '\nBuild profile: opt-level=3, fat LTO, codegen-units=1\n'
-printf '%-22s %-8s %10s %10s %10s\n' \
-    "WebAssembly module" "Variant" "Raw" "Raw limit" "Gzip"
+printf '\nBuild profile: SIMD128, opt-level=3, fat LTO, codegen-units=1\n'
+printf '%-22s %10s %10s %10s\n' \
+    "WebAssembly module" "Raw" "Raw limit" "Gzip"
 check_size \
     "vello_cpu" \
-    "non-SIMD" \
-    "$target_dir/sparse-strips-wasm/vello_cpu/non-simd/vello_cpu_bg.wasm" \
-    4456448 # 4.25 MiB
-check_size \
-    "vello_cpu" \
-    "SIMD128" \
     "$target_dir/sparse-strips-wasm/vello_cpu/simd/vello_cpu_bg.wasm" \
     4456448 # 4.25 MiB
 check_size \
     "vello_hybrid_webgl" \
-    "non-SIMD" \
-    "$target_dir/sparse-strips-wasm/vello_hybrid_webgl/non-simd/vello_hybrid_webgl_bg.wasm" \
-    4456448 # 4.25 MiB
-check_size \
-    "vello_hybrid_webgl" \
-    "SIMD128" \
     "$target_dir/sparse-strips-wasm/vello_hybrid_webgl/simd/vello_hybrid_webgl_bg.wasm" \
     4456448 # 4.25 MiB
 check_size \
     "vello_hybrid_wgpu" \
-    "non-SIMD" \
-    "$target_dir/sparse-strips-wasm/vello_hybrid_wgpu/non-simd/vello_hybrid_wgpu_bg.wasm" \
-    8126464 # 7.75 MiB
-check_size \
-    "vello_hybrid_wgpu" \
-    "SIMD128" \
     "$target_dir/sparse-strips-wasm/vello_hybrid_wgpu/simd/vello_hybrid_wgpu_bg.wasm" \
     8126464 # 7.75 MiB
 
