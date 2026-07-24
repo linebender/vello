@@ -53,14 +53,14 @@ printf '%-22s %10s %10s %10s\n' \
 check_size \
     "vello_cpu" \
     "$target_dir/sparse-strips-wasm/vello_cpu/simd/vello_cpu_bg.wasm" \
-    4456448 # 4.25 MiB
+    3774874 # 3.6 MiB
 check_size \
     "vello_hybrid_webgl" \
     "$target_dir/sparse-strips-wasm/vello_hybrid_webgl/simd/vello_hybrid_webgl_bg.wasm" \
-    4456448 # 4.25 MiB
+    3774874 # 3.6 MiB
 check_size \
     "vello_hybrid_wgpu" \
     "$target_dir/sparse-strips-wasm/vello_hybrid_wgpu/simd/vello_hybrid_wgpu_bg.wasm" \
-    8126464 # 7.75 MiB
+    7340032 # 7 MiB
 
 exit "$failed"

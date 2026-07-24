@@ -27,11 +27,13 @@ This directory contains the core crates for the Vello rendering. Each crate serv
 
 This structure is **under active development** and subject to changes as the integration progresses. Contributions and feedback are welcome!
 
-## WebAssembly builds
+## WebAssembly tooling
 
-Browser-ready non-SIMD and SIMD128 builds are available in the [`web`](web)
-directory. Run the three SIMD128 modules, report their raw and gzip-compressed
-sizes, and enforce the raw size limits from the repository root with:
+The [`web`](web) directory contains development scripts for producing
+browser-ready WebAssembly builds and checking their sizes. Generated modules
+are written to `target/sparse-strips-wasm`; they are not pre-built artifacts
+included in this directory. Run the SIMD128 size check from the repository root
+with:
 
 ```bash
 ./sparse_strips/web/check_wasm_sizes.sh
