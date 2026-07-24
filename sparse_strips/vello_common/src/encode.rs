@@ -10,7 +10,7 @@ use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::geometry::RectU16;
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::{FloatExt, compute_erf7};
-use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor, Tint};
+use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor, Tint, TintMode};
 use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind, ImageQuality};
 use crate::util::f32_to_u8;
 use alloc::borrow::Cow;
@@ -489,9 +489,28 @@ impl EncodeExt for Image {
 
         let mut sampler = self.sampler;
 
+        // Fold `sampler.alpha` into the tint instead of adding a separate
+        // image-opacity path: in both `TintMode`s the rasterized output scales
+        // linearly with the tint's alpha, so multiplying the tint's alpha by
+        // `sampler.alpha` (synthesizing a white `Multiply` tint when there is
+        // none) applies the opacity exactly.
+        let mut tint = tint;
         if sampler.alpha != 1.0 {
-            // If the sampler alpha is not 1.0, we need to force alpha compositing.
-            unimplemented!("Applying opacity to image commands");
+            let a = sampler.alpha;
+            tint = Some(match tint {
+                Some(t) => {
+                    let [r, g, b, ta] = t.color.components;
+                    Tint {
+                        color: peniko::Color::new([r, g, b, ta * a]),
+                        mode: t.mode,
+                    }
+                }
+                None => Tint {
+                    color: peniko::Color::new([1.0, 1.0, 1.0, a]),
+                    mode: TintMode::Multiply,
+                },
+            });
+            sampler.alpha = 1.0;
         }
 
         let c = transform.as_coeffs();
@@ -1384,5 +1403,97 @@ mod tests {
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
             GREEN.into()
         );
+    }
+
+    // Image `sampler.alpha` → tint fold (regression tests for the former
+    // `unimplemented!("Applying opacity to image commands")` panic).
+
+    use crate::paint::{Image, ImageId, ImageSource, Tint, TintMode};
+    use peniko::{Color, Extend, ImageQuality, ImageSampler};
+
+    fn dummy_image(alpha: f32) -> Image {
+        Image {
+            image: ImageSource::opaque_id_with_transparency_hint(ImageId::new(1), false),
+            sampler: ImageSampler {
+                x_extend: Extend::Pad,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Low,
+                alpha,
+            },
+        }
+    }
+
+    fn expect_image_paint(buf: &[super::EncodedPaint]) -> &super::EncodedImage {
+        match buf.last().expect("paint pushed") {
+            super::EncodedPaint::Image(img) => img,
+            other => panic!("expected EncodedPaint::Image, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn image_sampler_alpha_one_passes_tint_through_unchanged() {
+        let mut buf = vec![];
+        let img = dummy_image(1.0);
+        let tint = Some(Tint {
+            color: Color::new([0.5, 0.25, 0.75, 0.8]),
+            mode: TintMode::AlphaMask,
+        });
+        img.encode_into(&mut buf, Affine::IDENTITY, tint);
+
+        let enc = expect_image_paint(&buf);
+        assert_eq!(enc.sampler.alpha, 1.0);
+        let t = enc.tint.expect("tint survives");
+        assert_eq!(t.color.components, [0.5, 0.25, 0.75, 0.8]);
+        assert_eq!(t.mode, TintMode::AlphaMask);
+    }
+
+    #[test]
+    fn image_sampler_alpha_no_tint_synthesises_multiply_tint() {
+        let mut buf = vec![];
+        let img = dummy_image(0.4);
+        img.encode_into(&mut buf, Affine::IDENTITY, None);
+
+        let enc = expect_image_paint(&buf);
+        assert_eq!(enc.sampler.alpha, 1.0);
+        let t = enc.tint.expect("alpha fold synthesises a tint");
+        assert_eq!(t.color.components, [1.0, 1.0, 1.0, 0.4]);
+        assert_eq!(t.mode, TintMode::Multiply);
+        assert!(enc.may_have_transparency);
+    }
+
+    #[test]
+    fn image_sampler_alpha_with_existing_tint_scales_alpha_only() {
+        for mode in [TintMode::AlphaMask, TintMode::Multiply] {
+            let mut buf = vec![];
+            let img = dummy_image(0.5);
+            let tint = Some(Tint {
+                color: Color::new([0.2, 0.4, 0.6, 0.8]),
+                mode,
+            });
+            img.encode_into(&mut buf, Affine::IDENTITY, tint);
+
+            let enc = expect_image_paint(&buf);
+            assert_eq!(enc.sampler.alpha, 1.0, "α must be folded out");
+            let t = enc.tint.expect("tint survives");
+            assert_eq!(
+                t.color.components,
+                [0.2, 0.4, 0.6, 0.8 * 0.5],
+                "mode = {mode:?}"
+            );
+            assert_eq!(t.mode, mode, "mode must be preserved");
+        }
+    }
+
+    #[test]
+    fn image_sampler_alpha_zero_folds_to_fully_transparent_tint() {
+        let mut buf = vec![];
+        let img = dummy_image(0.0);
+        img.encode_into(&mut buf, Affine::IDENTITY, None);
+
+        let enc = expect_image_paint(&buf);
+        assert_eq!(enc.sampler.alpha, 1.0);
+        let t = enc.tint.expect("tint synthesised");
+        assert_eq!(t.color.components, [1.0, 1.0, 1.0, 0.0]);
+        assert!(enc.may_have_transparency);
     }
 }
