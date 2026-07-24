@@ -17,6 +17,7 @@ This release has an [MSRV][] of 1.88.
 - Inverse blurred rounded rectangles through the new `invert` parameter on `Scene::fill_blurred_rounded_rect`, enabling inset box shadows. ([#1715][] by [@nicoburns][])
 - `Resources::new_with_config` for configuring the image and glyph atlas used by resources. ([#1750][] by [@grebmeg][])
 - `FilterPrimitive::DropShadowOnly` for rendering a drop shadow without compositing the original input over it. ([#1763][] by [@LaurenzV][])
+- Per-render-size depth-texture cache (`Renderer::depth_cache_frame_tick`, `set_depth_cache_budget`, `clear_depth_cache`, `depth_recreations`, `depth_cache_bytes`) that avoids reallocating the depth texture on every size switch in alternating-size render loops. ([#1738][] by [@AdrianEddy][])
 
 ### Changed
 
@@ -170,6 +171,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@dipeshbabu]: https://github.com/dipeshbabu
@@ -256,6 +258,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1726]: https://github.com/linebender/vello/pull/1726
 [#1734]: https://github.com/linebender/vello/pull/1734
 [#1735]: https://github.com/linebender/vello/pull/1735
+[#1738]: https://github.com/linebender/vello/pull/1738
 [#1747]: https://github.com/linebender/vello/pull/1747
 [#1750]: https://github.com/linebender/vello/pull/1750
 [#1757]: https://github.com/linebender/vello/pull/1757
