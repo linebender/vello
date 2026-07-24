@@ -7,7 +7,7 @@ use crate::render::webgl::{
     WebGlStateConfig, WebGlStateGuard, create_atlas_texture_array, create_framebuffer_for_texture,
     create_texture,
 };
-use crate::schedule::RootRenderTarget;
+use crate::target::RootTarget;
 use crate::{RenderError, RenderSize, Scene, WebGlRenderer};
 use alloc::{borrow::Cow, format, sync::Arc};
 use core::ops::Deref;
@@ -94,7 +94,11 @@ impl WebGlRenderer {
             height: u32::from(height),
         };
 
-        let probe_texture = create_texture(&self.gl);
+        let probe_texture = create_texture(
+            &self.gl,
+            WebGl2RenderingContext::NEAREST,
+            WebGl2RenderingContext::NEAREST,
+        );
         self.gl
             .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
                 WebGl2RenderingContext::TEXTURE_2D,
@@ -159,10 +163,10 @@ impl WebGlRenderer {
             .replace(probe_framebuffer);
         let render_result = self.render_scene(
             &scene,
-            &mut probe_image_cache,
+            &probe_image_cache,
             &render_size,
             true,
-            RootRenderTarget::AtlasLayer,
+            RootTarget::AtlasLayer,
         );
         let probe_framebuffer = self
             .programs

@@ -1,63 +1,33 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// A very brief explanation of how filters work on a high-level follows here:
-//
-// During coarse rasterization, filter layers become nodes in the `RenderGraph`. Once we hit
-// vello_hybrid, we render those nodes in an order such that all children nodes are done rendering
-// before they are needed by their parent nodes. In terms of allocation, we reserve
-// 1) A position in a new atlas array (distinct from the atlas array used for normal images), which
-// stores the raw, unfiltered version of the layer.
-// 2) In case the filter is multi-pass, we also allocate 2 scratch buffers in that new atlas array,
-// such that we can do ping-ponging between them.
-// 3) A position in the image atlas array, which stores the final filtered version of the layer,
-// such that it can be consumed like a normal image in parent layers.
-//
-// When rendering a filtered layer, as mentioned we first render the normal raw content of the layer
-// using the normal existing mechanism for rendering, except for the fact that we render into an
-// intermediate texture instead of the final output. Then, in the end, we either apply a single-pass
-// filter that just copies the contents from intermediate storage into the image atlas (while applying
-// the filter), or we apply a multi-pass filter (currently only used for Gaussian blurring), which
-// splits the filter into more atomic filter passes and applies them repeatedly using the scratch
-// textures.
-//
-// Finally, when the parent layer needs to render the filtered child layer, it can simply treat it
-// like a normal image.
+//! GPU filter encoding and executable pass planning.
 
-//! GPU filter types and conversion utilities.
-
+use crate::copy::GpuCopyInstance;
+use crate::schedule::round::FilterOp;
+use crate::util::pack_u16_pair;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use hashbrown::HashMap;
-use vello_common::coarse::{WideTile, WideTilesBbox};
-use vello_common::encode::{EncodedImage, EncodedPaint};
-use vello_common::filter::PreparedFilter;
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KERNEL_SIZE};
 use vello_common::filter::offset::Offset;
+use vello_common::filter::{FilterData, PreparedFilter};
 use vello_common::filter_effects::EdgeMode;
-use vello_common::kurbo::{Affine, Vec2};
-use vello_common::paint::{ImageId, ImageSource};
-use vello_common::peniko::{ImageQuality, ImageSampler};
-use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
-use vello_common::tile::Tile;
-
-use crate::render::common::IMAGE_PADDING;
-use crate::util::{IntOffset, IntRect, IntSize};
-use vello_common::image_cache::ImageCache;
-use vello_common::multi_atlas::AtlasConfig;
-use vello_common::multi_atlas::{AtlasError, AtlasId};
+use vello_common::geometry::{RectU16, SizeU16};
+use vello_common::util::RetainVec;
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so
 /// that the various shader programs can assume transparent pixels on the outside, making
 /// the code significantly easier since we don't need to special-case border pixels. Since we
 /// do use checked accesses for the offset filter, the bottleneck is formed by the gaussian blur
 /// convolution.
+///
+/// Keep this in sync with `FILTER_ATLAS_PADDING` in `filter.wgsl`!
 #[expect(clippy::cast_possible_truncation, reason = "safe in this case")]
-const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
+pub(crate) const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 
-// Note: Keep these variables and struct layouts in sync with `filters.wgsl`!
+// Note: Keep these variables and struct layouts in sync with `filter.wgsl`!
 
 // Since we store in RGBA32 texture.
 const BYTES_PER_TEXEL: usize = 16;
@@ -100,7 +70,6 @@ pub(crate) mod edge_mode {
 }
 
 pub(crate) mod pass_kind {
-    #[expect(dead_code, reason = "Useful in the future")]
     pub(crate) const COPY: u32 = 0;
     pub(crate) const FLOOD: u32 = 1;
     pub(crate) const OFFSET: u32 = 2;
@@ -349,12 +318,10 @@ impl GpuFilterData {
         ((self.data[0] >> 7) & 0xF) as usize
     }
 
-    /// Whether the filter is a multi-pass filter, requiring intermediate scratch textures.
-    pub(crate) fn is_multi_pass(&self) -> bool {
-        matches!(
-            self.filter_type(),
-            filter_type::GAUSSIAN_BLUR | filter_type::DROP_SHADOW
-        )
+    pub(crate) fn needs_copy_pass(&self) -> bool {
+        // For drop shadows, we need to retain the original rendered layer because in the end
+        // we need to composite it _on top_ of the actual shadow.
+        self.filter_type() == filter_type::DROP_SHADOW
     }
 }
 
@@ -382,294 +349,205 @@ impl From<&PreparedFilter> for GpuFilterData {
     }
 }
 
-/// Per-instance vertex data for filter rendering.
-#[repr(C, align(16))]
+/// Per-instance data for one filter pass.
+#[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct FilterInstanceData {
-    /// Source region in the input atlas.
-    pub src: IntRect,
-    /// Destination region in the output atlas.
-    pub dest: IntRect,
-    /// Full pixel dimensions of the destination atlas texture.
-    pub dest_atlas_size: IntSize,
+    /// Origin of the current ping-pong source region, packed as `u16x2`.
+    pub source_origin: u32,
+    /// Size of the source region, packed as `u16x2`.
+    pub source_size: u32,
+    /// Origin of the opposite ping-pong destination region, packed as `u16x2`.
+    pub dest_origin: u32,
+    /// Size of the destination region, packed as `u16x2`.
+    pub dest_size: u32,
+    /// Dimensions of the destination texture page, packed as `u16x2`.
+    pub dest_texture_size: u32,
     /// Texel offset into `filter_data` where this filter's data is stored.
     pub filter_data_offset: u32,
-    /// The region of the original (unfiltered) content.
-    pub original: IntRect,
+    /// Origin of the original region, packed as `u16x2`.
+    pub original_origin: u32,
+    /// Size of the original region, packed as `u16x2`.
+    pub original_size: u32,
     /// The filter pass that should be executed.
-    pub pass_kind: u32,
-}
-
-impl FilterInstanceData {
-    /// The scissor rect that should be applied when applying this filter
-    /// pass.
-    pub(crate) fn scissor_rect(&self, target_size: [u32; 2]) -> [u32; 4] {
-        // See the comment in `filters.wgsl`. In general, when applying a filter it's not enough
-        // to just cover the destination region of the (possibly downsized) filter area. We also
-        // need to include some padding such that stale border pixels are set back to a fully
-        // transparent color. In the shader, we always use the original size (e.g. if the original
-        // filter layer was 700x700 pixels but the downsized area only 15x15, we would still have fragment
-        // shader invocations for the whole 700x700 area, even if the vast majority just shortcut to
-        // yielding a transparent color).
-        //
-        // However, we can actually further reduce this area: In the bottom/right, we only need to
-        // cover as many additional pixels as are necessary for padding. So in the above case,
-        // we only need to cover (15 + FILTER_ATLAS_PADDING) in each direction. Therefore, when
-        // rendering filters we apply a scissor rect to further reduce the area to only the part
-        // that really needs to be cleared out. Experiments have shown that especially on low-tier
-        // devices, doing this leads to very huge speedups.
-        //
-        // Note that we never need to clear the top/left area, since the origin of a filter
-        // between each pass always stays the same; only the width/height can vary.
-        //
-        // TODO: Explore whether we can not use scissor rects and instead adjust the vertex shader
-        // to cover the reduced area. Unfortunately, this seemed to cause other non-obvious test
-        // failures, hence why we just use this approach for now.
-        let x = self.dest.offset.0[0];
-        let y = self.dest.offset.0[1];
-        let width = self.dest.size.0[0];
-        let height = self.dest.size.0[1];
-        let padding = u32::from(FILTER_ATLAS_PADDING);
-        let x1 = x
-            .saturating_add(width)
-            .saturating_add(padding)
-            .min(target_size[0]);
-        let y1 = y
-            .saturating_add(height)
-            .saturating_add(padding)
-            .min(target_size[1]);
-        [x, y, x1 - x, y1 - y]
-    }
-}
-
-/// Where a filter pass writes its output.
-#[derive(Debug)]
-pub(crate) enum FilterPassTarget {
-    /// Output to a filter atlas texture.
-    FilterAtlas(u32),
-    /// Output to the main atlas texture.
-    MainAtlas(u32),
-}
-
-/// Describes a single filter pass with its resources.
-#[derive(Debug)]
-pub(crate) struct FilterPass {
-    /// Atlas index of the input texture that will be used as the basis for the operation.
-    pub(crate) input_atlas_idx: u32,
-    /// Where this pass writes its output.
-    pub(crate) output: FilterPassTarget,
-    /// The index of the atlas that contains the original content. This is only set for
-    /// filter passes that actually need it.
-    pub(crate) original_atlas_idx: Option<u32>,
+    pub filter_pass_kind: u32,
 }
 
 /// Context used for keeping track of state necessary for filter rendering.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct FilterContext {
     /// The encoded data for each filter used in the current scene that will be uploaded to the
     /// filter data texture.
-    pub(crate) filters: Vec<GpuFilterData>,
-    /// At what texel offset the filter data for the given layer ID is stored in the texture.
-    pub(crate) offsets: HashMap<LayerId, u32>,
-    /// Data for each filter layer.
-    pub(crate) filter_textures: HashMap<LayerId, FilterLayerData>,
-    // Note that this image cache is separate from the image cache used for used-uploaded images.
-    // This means that intermediate content for filters is _not_ stored in the main image texture atlas,
-    // but instead in a separate atlas array.
-    /// Image cache for storing filter intermediate textures.
-    pub(crate) image_cache: ImageCache,
+    filters: Vec<GpuFilterData>,
 }
 
-#[derive(Default, Debug)]
-pub(crate) struct FilterPassState {
-    /// Store the most recently generated filter passes.
-    filter_passes: Vec<FilterPass>,
-    /// The instance data for each filter pass.
-    instances: Vec<FilterInstanceData>,
-    sizer: DecimationSizer,
+/// Offset and encoded parameters for one filter recorded in [`FilterContext`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PreparedGpuFilter {
+    /// Texel offset of the parameter block in the filter data texture.
+    pub(crate) data_offset: u32,
+    /// Encoded filter parameters.
+    pub(crate) data: GpuFilterData,
 }
 
-impl FilterPassState {
+/// The concrete filter-execution plan for a batch of scheduled filters, split into two phases:
+///
+/// First an optional copy step which moves the original layer contents into the scratch texture.
+/// Then, the actual sequence of filter passes.
+#[derive(Debug, Default)]
+pub(crate) struct FilterPassPlan {
+    /// Copies preserving original layer contents in the shared scratch texture.
+    copy_pass: Vec<GpuCopyInstance>,
+    /// Filter instances grouped by their index in each filter's pass sequence.
+    steps: RetainVec<Vec<FilterInstanceData>>,
+}
+
+impl FilterPassPlan {
+    pub(crate) fn init(
+        &mut self,
+        filters: impl IntoIterator<Item = FilterOp>,
+        texture_size: SizeU16,
+    ) {
+        self.clear();
+
+        for filter in filters {
+            let mut builder = FilterPassBuilder::new(filter, texture_size, self);
+            if filter.gpu_filter.needs_copy_pass() {
+                builder.push_copy_to_scratch_pass();
+            }
+
+            match filter.gpu_filter.filter_type() {
+                filter_type::OFFSET => {
+                    builder.emit(pass_kind::OFFSET);
+                }
+                filter_type::FLOOD => {
+                    builder.emit(pass_kind::FLOOD);
+                }
+                filter_type::GAUSSIAN_BLUR => {
+                    builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
+                }
+                filter_type::DROP_SHADOW => {
+                    builder.emit(pass_kind::OFFSET);
+                    builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
+                    builder.emit(pass_kind::COMPOSITE_DROP_SHADOW);
+                }
+                _ => unreachable!("unsupported filter type was encoded"),
+            }
+
+            builder.ensure_result_in_original();
+        }
+    }
+
+    pub(crate) fn steps(&self) -> impl Iterator<Item = &[FilterInstanceData]> {
+        self.steps.as_slice().iter().map(Vec::as_slice)
+    }
+
+    pub(crate) fn copy_pass(&self) -> Option<&[GpuCopyInstance]> {
+        (!self.copy_pass.is_empty()).then_some(&self.copy_pass)
+    }
+
     fn clear(&mut self) {
-        self.filter_passes.clear();
-        self.instances.clear();
+        self.steps.clear();
+        self.copy_pass.clear();
     }
 
-    fn push(&mut self, instance: FilterInstanceData, pass: FilterPass) {
-        self.instances.push(instance);
-        self.filter_passes.push(pass);
-    }
+    fn step_mut(&mut self, step: usize) -> &mut Vec<FilterInstanceData> {
+        if self.steps.len() <= step {
+            self.steps.resize_with(step + 1, Vec::new);
+        }
 
-    pub(crate) fn filter_passes(&self) -> &[FilterPass] {
-        &self.filter_passes
-    }
-
-    pub(crate) fn instances(&self) -> &[FilterInstanceData] {
-        &self.instances
+        &mut self.steps[step]
     }
 }
 
-/// An image location within an atlas texture.
-struct AtlasLocation {
-    /// Index of the atlas texture.
-    atlas_idx: u32,
-    /// Texel offset of the image within the atlas.
-    offset: IntOffset,
-    /// Full pixel dimensions of the atlas texture.
-    atlas_size: IntSize,
+/// Expands one scheduled filter into entries in a shared [`FilterPassPlan`].
+#[derive(Debug)]
+struct FilterPassBuilder<'a> {
+    /// Scheduled filter and its original/temporary texture regions.
+    op: FilterOp,
+    /// Full dimensions of the intermediate texture pages.
+    texture_size: SizeU16,
+    /// The filter pass plan we are writing into.
+    passes: &'a mut FilterPassPlan,
+    /// Tracks dimensions through blur downscaling and upscaling.
+    sizer: DecimationSizer,
+    /// Whether the next pass reads from the original region; it writes to the other region.
+    current_is_original: bool,
+    /// Index of the next pass in this filter's sequence.
+    step: usize,
 }
 
-/// A helper struct making it easier to schedule blur filters.
-struct BlurPassScheduler<'a> {
-    state: &'a mut FilterPassState,
-    /// Atlas index and offset of the initial (unfiltered) image.
-    ///
-    /// Unlike `dest` and `scratch`, we dont need to store the size of the atlas
-    /// itself since we never write into the initial image when applying filters.
-    initial: (u32, IntOffset),
-    /// Location of the final destination in its atlas.
-    dest: AtlasLocation,
-    /// Location of each scratch buffer in its atlas.
-    scratch: [AtlasLocation; 2],
-    /// Texel offset into the filter data texture.
-    filter_data_offset: u32,
-    /// Full size of the original content region.
-    original_size: IntSize,
-    /// Which scratch buffer to write to next.
-    toggle: usize,
-    /// Whether the next pass is the first (reads from initial instead of scratch).
-    first: bool,
-}
+impl<'a> FilterPassBuilder<'a> {
+    fn new(op: FilterOp, texture_size: SizeU16, passes: &'a mut FilterPassPlan) -> Self {
+        let sizer = DecimationSizer::new(
+            op.textures.original.rect.width(),
+            op.textures.original.rect.height(),
+        );
 
-impl BlurPassScheduler<'_> {
-    /// Compute and update source and destination sizes based on the pass kind,
-    fn apply_pass_dimensions(&mut self, kind: u32) -> (IntSize, IntSize) {
+        Self {
+            op,
+            texture_size,
+            passes,
+            sizer,
+            current_is_original: true,
+            step: 0,
+        }
+    }
+
+    /// Compute and update source and destination sizes based on the pass kind.
+    fn apply_pass_dimensions(&mut self, kind: u32) -> (SizeU16, SizeU16) {
         match kind {
             pass_kind::DOWNSCALE => {
-                let (sw, sh) = self.state.sizer.current();
-                let (dw, dh) = self.state.sizer.downscale();
-                (
-                    IntSize([u32::from(sw), u32::from(sh)]),
-                    IntSize([u32::from(dw), u32::from(dh)]),
-                )
+                let (sw, sh) = self.sizer.current();
+                let (dw, dh) = self.sizer.downscale();
+                (SizeU16::from_wh(sw, sh), SizeU16::from_wh(dw, dh))
             }
             pass_kind::UPSCALE => {
-                let (sw, sh) = self.state.sizer.current();
-                let (dw, dh) = self.state.sizer.upscale();
-                (
-                    IntSize([u32::from(sw), u32::from(sh)]),
-                    IntSize([u32::from(dw), u32::from(dh)]),
-                )
+                let (sw, sh) = self.sizer.current();
+                let (dw, dh) = self.sizer.upscale();
+                (SizeU16::from_wh(sw, sh), SizeU16::from_wh(dw, dh))
             }
             _ => {
-                let (w, h) = self.state.sizer.current();
-                let size = IntSize([u32::from(w), u32::from(h)]);
+                let (w, h) = self.sizer.current();
+                let size = SizeU16::from_wh(w, h);
                 (size, size)
             }
         }
     }
 
-    /// Resolve the input atlas index and offset for the next pass.
-    fn input(&mut self) -> (u32, IntOffset) {
-        if self.first {
-            // Atlas containing the original, unfiltered layer.
-            self.first = false;
-            (self.initial.0, self.initial.1)
+    /// Emit one pass, reading from the current region and writing to the other texture parity.
+    fn emit(&mut self, kind: u32) {
+        let (source_size, dest_size) = self.apply_pass_dimensions(kind);
+        let original = self.op.textures.original;
+        let temporary = self.op.textures.temporary;
+        let (source_rect, dest_rect) = if self.current_is_original {
+            (original.rect, temporary.rect)
         } else {
-            // Atlas containing the layers inside the previous scratch buffer.
-            let prev = (self.toggle + 1) % 2;
-            (self.scratch[prev].atlas_idx, self.scratch[prev].offset)
-        }
-    }
+            (temporary.rect, original.rect)
+        };
+        let dest_texture_size = self.texture_size;
+        let rect_origin = |rect: RectU16| pack_u16_pair(rect.x0, rect.y0);
+        let size = |size: SizeU16| pack_u16_pair(size.width(), size.height());
 
-    /// Emit a pass to the next scratch buffer.
-    fn emit_to_scratch(&mut self, kind: u32) {
-        let (src_size, dst_size) = self.apply_pass_dimensions(kind);
-        let (input_idx, src_offset) = self.input();
-        let s = self.toggle;
-        self.toggle = (self.toggle + 1) % 2;
+        self.passes.step_mut(self.step).push(FilterInstanceData {
+            source_origin: rect_origin(source_rect),
+            source_size: size(source_size),
+            dest_origin: rect_origin(dest_rect),
+            dest_size: size(dest_size),
+            dest_texture_size: size(dest_texture_size),
+            filter_data_offset: self.op.filter_data_offset,
+            original_origin: rect_origin(original.rect),
+            original_size: pack_u16_pair(original.rect.width(), original.rect.height()),
+            filter_pass_kind: kind,
+        });
 
-        self.state.push(
-            FilterInstanceData {
-                src: IntRect::new(src_offset, src_size),
-                dest: IntRect::new(self.scratch[s].offset, dst_size),
-                dest_atlas_size: self.scratch[s].atlas_size,
-                filter_data_offset: self.filter_data_offset,
-                original: IntRect::new([0, 0], self.original_size),
-                pass_kind: kind,
-            },
-            FilterPass {
-                input_atlas_idx: input_idx,
-                output: FilterPassTarget::FilterAtlas(self.scratch[s].atlas_idx),
-                // Note: We must not bind the original texture here! See the comment in
-                // `emit_composite_to_dest`.
-                original_atlas_idx: None,
-            },
-        );
-    }
-
-    /// Emit a pass to the final destination.
-    fn emit_to_dest(&mut self, kind: u32) {
-        let (src_size, dst_size) = self.apply_pass_dimensions(kind);
-        let (input_idx, src_offset) = self.input();
-
-        self.state.push(
-            FilterInstanceData {
-                src: IntRect::new(src_offset, src_size),
-                dest: IntRect::new(self.dest.offset, dst_size),
-                dest_atlas_size: self.dest.atlas_size,
-                filter_data_offset: self.filter_data_offset,
-                original: IntRect::new([0, 0], self.original_size),
-                pass_kind: kind,
-            },
-            FilterPass {
-                input_atlas_idx: input_idx,
-                output: FilterPassTarget::MainAtlas(self.dest.atlas_idx),
-                // Note: We must not bind the original texture here! See the comment in
-                // `emit_composite_to_dest`.
-                original_atlas_idx: None,
-            },
-        );
-    }
-
-    /// Emit a composite pass that reads from the previous scratch and the original,
-    /// and writes to the final destination.
-    fn emit_composite_to_dest(&mut self, kind: u32) {
-        let (src_size, dst_size) = self.apply_pass_dimensions(kind);
-        let (input_idx, src_offset) = self.input();
-
-        self.state.push(
-            FilterInstanceData {
-                src: IntRect::new(src_offset, src_size),
-                dest: IntRect::new(self.dest.offset, dst_size),
-                dest_atlas_size: self.dest.atlas_size,
-                filter_data_offset: self.filter_data_offset,
-                original: IntRect::new(self.initial.1, self.original_size),
-                pass_kind: kind,
-            },
-            FilterPass {
-                input_atlas_idx: input_idx,
-                output: FilterPassTarget::MainAtlas(self.dest.atlas_idx),
-                // There is some important subtlety going on. We have three different "regions":
-                // The initial image region (storing the unfiltered representation of the layer)
-                // as well as two scratch buffers. Scratch buffer 0 always lives on a different atlas
-                // than the initial image, but scratch buffer 1 could live on the same.
-                // This is intentional: Right now, we only ever need to access the initial image
-                // during drop shadow, where the original image needs to be composited on top of
-                // the filtered version. However, since this is the very last step, we can just bind
-                // the two textures as input (even if they point to the same atlas) since we only
-                // read from them, and the final destination we write to is guaranteed to live somewhere
-                // else. However, care needs to be exercised in case we add more filters in the future
-                // that also need to sample from the unfiltered texture, but where the write target
-                // is still a scratch buffer.
-                original_atlas_idx: Some(self.initial.0),
-            },
-        );
+        self.step += 1;
+        self.current_is_original = !self.current_is_original;
     }
 
     /// Apply the sequences of passes that is needed to create a full Gaussian blur with
     /// the given number of decimations.
-    fn emit_blur_sequence(&mut self, n_decimations: usize, final_to_dest: bool) {
+    fn emit_blur_sequence(&mut self, n_decimations: usize) {
         // TODO: From my experiments, it would very much be worth it to add a
         // UPSCALE_4x and DOWNSCALE_4x pass, since unlike the CPU we can use bilinear
         // filtering for sampling and therefore don't need as many samples, and can reduce
@@ -679,184 +557,56 @@ impl BlurPassScheduler<'_> {
         // this more straight-forward approach.
 
         for _ in 0..n_decimations {
-            self.emit_to_scratch(pass_kind::DOWNSCALE);
+            self.emit(pass_kind::DOWNSCALE);
         }
-        self.emit_to_scratch(pass_kind::BLUR_H);
+        self.emit(pass_kind::BLUR_H);
 
         let mut final_pass = pass_kind::BLUR_V;
 
         if n_decimations > 0 {
-            self.emit_to_scratch(pass_kind::BLUR_V);
-
+            self.emit(pass_kind::BLUR_V);
             for _ in 0..n_decimations - 1 {
-                self.emit_to_scratch(pass_kind::UPSCALE);
+                self.emit(pass_kind::UPSCALE);
             }
 
             final_pass = pass_kind::UPSCALE;
         }
 
-        if final_to_dest {
-            self.emit_to_dest(final_pass);
-        } else {
-            self.emit_to_scratch(final_pass);
+        self.emit(final_pass);
+    }
+
+    fn ensure_result_in_original(&mut self) {
+        if !self.current_is_original {
+            self.emit(pass_kind::COPY);
         }
+    }
+
+    fn push_copy_to_scratch_pass(&mut self) {
+        let original = self.op.textures.original;
+        let dest_texture_size = self.texture_size;
+        let copy_instance = GpuCopyInstance {
+            dest_texture_origin: pack_u16_pair(original.rect.x0, original.rect.y0),
+            source_texture_origin: pack_u16_pair(original.rect.x0, original.rect.y0),
+            copy_rect_size: pack_u16_pair(original.rect.width(), original.rect.height()),
+            dest_texture_size: pack_u16_pair(dest_texture_size.width(), dest_texture_size.height()),
+        };
+
+        self.passes.copy_pass.push(copy_instance);
     }
 }
 
 impl FilterContext {
-    pub(crate) fn new(atlas_config: AtlasConfig) -> Self {
-        Self {
-            filters: Vec::new(),
-            offsets: HashMap::new(),
-            filter_textures: HashMap::new(),
-            image_cache: ImageCache::new_with_config(atlas_config),
-        }
-    }
-
-    /// Deallocates all filter textures from both the filter image cache and the image atlas cache,
-    /// then clears the filter context.
-    ///
-    /// Note that the client is responsible for clearing (with a transparent color) the existing
-    /// images in the atlas, if desired.
-    pub(crate) fn deallocate_all_and_clear_context(&mut self, image_atlas_cache: &mut ImageCache) {
-        for filter_textures in self.filter_textures.values() {
-            self.image_cache
-                .deallocate(filter_textures.initial_image_id);
-            image_atlas_cache.deallocate(filter_textures.dest_image_id);
-            if let Some(scratch_ids) = filter_textures.scratch_image_ids {
-                self.image_cache.deallocate(scratch_ids[0]);
-                self.image_cache.deallocate(scratch_ids[1]);
-            }
-        }
-
-        // Now clear everything (except for `image_cache`, where there is nothing to clear).
+    pub(crate) fn clear(&mut self) {
         self.filters.clear();
-        self.offsets.clear();
-        self.filter_textures.clear();
     }
 
-    /// Prepares the context for rendering the filter layers that exist in this scene.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "filter dimensions and paint indices won't exceed u32"
-    )]
-    pub(crate) fn prepare(
-        &mut self,
-        render_graph: &RenderGraph,
-        dest_cache: &mut ImageCache,
-        encoded_paints: &mut Vec<EncodedPaint>,
-    ) -> Result<(), AtlasError> {
-        if !render_graph.has_filters() {
-            return Ok(());
-        }
+    pub(crate) fn push(&mut self, filter_data: &FilterData) -> PreparedGpuFilter {
+        let data_offset = self.total_texels();
+        let prepared = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
+        let data = GpuFilterData::from(&prepared);
+        self.filters.push(data);
 
-        let mut current_offset = 0_u32;
-        for node in &render_graph.nodes {
-            // During coarse rasterization it can happen that filter layers with a zero-sized
-            // bounding box are allocated. Trying to allocate such a texture in our atlas manager
-            // would give an error, so we skip those nodes. Later on, we skip nodes with no
-            // associated filter layer gracefully.
-            if node.is_empty() {
-                continue;
-            }
-
-            if let RenderNodeKind::FilterLayer {
-                layer_id,
-                filter,
-                transform,
-                wtile_bbox,
-            } = &node.kind
-            {
-                let width = wtile_bbox.width_px() as u32;
-                let height = wtile_bbox.height_px() as u32;
-
-                let instantiated = PreparedFilter::new(filter, transform);
-                let gpu_filter = GpuFilterData::from(&instantiated);
-                let is_multi_pass = gpu_filter.is_multi_pass();
-
-                // The tricky part! Why do we have two distinct image caches and don't just use the main
-                // atlas that is used by renderers to store images? Fundamentally, the problem is
-                // that the destination texture where we render the initial contents of the layer
-                // with the filter cannot live in that texture array, because during the `render_strips`
-                // pass we already bind that texture array as an input bind group so that we can render
-                // normal images. Since filter layers can also have normal images, they can't live
-                // in the same location. Therefore, it needs to live somewhere else.
-                // So we need to create a second image cache, and the initial rendering of the
-                // image needs to be stored there.
-                let initial_image_id =
-                    self.image_cache
-                        .allocate(width, height, FILTER_ATLAS_PADDING)?;
-                let initial_atlas_id = self.image_cache.get(initial_image_id).unwrap().atlas_id;
-                // This represents the destination where the final _filtered_ version lives. We store this
-                // in the same image atlas where normal images live, allowing us to treat them like normal
-                // image fills.
-                let dest_image_id = dest_cache.allocate(width, height, IMAGE_PADDING)?;
-                // For multi-pass filters we need two intermediate scratch buffers for ping-pong
-                // rendering. Each scratch must live on a different atlas texture than the other
-                // and then the initial texture, because we cannot read and write the same texture.
-                let scratch_image_ids = if is_multi_pass {
-                    // First scratch buffer needs to live on a different texture than the initial image.
-                    let scratch_1 = self.image_cache.allocate_excluding(
-                        width,
-                        height,
-                        FILTER_ATLAS_PADDING,
-                        Some(AtlasId(initial_atlas_id.as_u32())),
-                    )?;
-                    let scratch_1_atlas_id = self.image_cache.get(scratch_1).unwrap().atlas_id;
-
-                    // Second scratch buffer needs to live on a different texture than first scratch buffer.
-                    // Note: The second scratch buffer is allowed to live on the same atlas
-                    // as the initial image texture. See the comment in `emit_composite_to_dest`.
-                    let scratch_2 = self.image_cache.allocate_excluding(
-                        width,
-                        height,
-                        FILTER_ATLAS_PADDING,
-                        Some(AtlasId(scratch_1_atlas_id.as_u32())),
-                    )?;
-                    Some([scratch_1, scratch_2])
-                } else {
-                    None
-                };
-
-                let encoded_paint = EncodedPaint::Image(EncodedImage {
-                    source: ImageSource::OpaqueId {
-                        id: dest_image_id,
-                        may_have_transparency: true,
-                    },
-                    sampler: ImageSampler::new().with_quality(ImageQuality::Low),
-                    may_have_transparency: true,
-                    // Since filter layers are always shifted to start at (0, 0) relative to
-                    // their bounding box, we need to "unshift" them when sampling.
-                    transform: Affine::translate((
-                        -(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64,
-                        -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64,
-                    )),
-                    x_advance: Vec2::new(1.0, 0.0),
-                    y_advance: Vec2::new(0.0, 1.0),
-                    tint: None,
-                });
-
-                let idx = encoded_paints.len();
-                encoded_paints.push(encoded_paint);
-
-                self.filter_textures.insert(
-                    *layer_id,
-                    FilterLayerData {
-                        initial_image_id,
-                        dest_image_id,
-                        scratch_image_ids,
-                        paint_idx: idx as u32,
-                        bbox: *wtile_bbox,
-                    },
-                );
-
-                self.filters.push(gpu_filter);
-                self.offsets.insert(*layer_id, current_offset);
-                current_offset += GpuFilterData::SIZE_TEXELS;
-            }
-        }
-
-        Ok(())
+        PreparedGpuFilter { data_offset, data }
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -869,13 +619,6 @@ impl FilterContext {
     )]
     pub(crate) fn total_texels(&self) -> u32 {
         self.filters.len() as u32 * GpuFilterData::SIZE_TEXELS
-    }
-
-    /// Returns the filter data for the given layer ID.
-    pub(crate) fn get_filter_data(&self, layer_id: &LayerId) -> Option<&GpuFilterData> {
-        let offset = self.offsets.get(layer_id)?;
-        let index = (*offset / GpuFilterData::SIZE_TEXELS) as usize;
-        self.filters.get(index)
     }
 
     pub(crate) fn serialize_to_buffer(&self, buffer: &mut [u8]) {
@@ -905,160 +648,141 @@ impl FilterContext {
 
         Some(height)
     }
-
-    /// Build the sequence of filter passes for a given layer and store it in the internal
-    /// buffer.
-    pub(crate) fn build_filter_passes(
-        &self,
-        state: &mut FilterPassState,
-        layer_id: &LayerId,
-        dest_image_cache: &ImageCache,
-        get_filter_atlas_size: impl Fn(u32) -> [u32; 2],
-        get_image_atlas_size: impl Fn() -> [u32; 2],
-    ) {
-        state.clear();
-
-        // These unwraps can only panic for filter layers without a bbox, but those are skipped
-        // anyway before even getting here, so unwrap should be safe here.
-        // See also:
-        // In `prepare`, nodes with an empty filter bbox are skipped and thus never inserted
-        // here. For all other filter layers we do insert everything.
-        // However, in `do_scene`, we skip empty nodes as well, and thus `build_filer_passes` is never
-        // called on empty nodes.
-        let filter_data_offset = self.offsets.get(layer_id).copied().unwrap();
-        let gpu_filter = self.get_filter_data(layer_id).unwrap();
-        let filter_type = gpu_filter.filter_type();
-        let filter_textures = self.filter_textures.get(layer_id).unwrap();
-
-        let initial_image = self
-            .image_cache
-            .get(filter_textures.initial_image_id)
-            .unwrap();
-        let dest_image = dest_image_cache.get(filter_textures.dest_image_id).unwrap();
-
-        let initial_atlas_idx = initial_image.atlas_id.as_u32();
-        let dest_atlas_idx = dest_image.atlas_id.as_u32();
-        let main_atlas_size = get_image_atlas_size();
-
-        // Short-circuit single-pass filters.
-        if !gpu_filter.is_multi_pass() {
-            let pass = match filter_type {
-                filter_type::OFFSET => pass_kind::OFFSET,
-                filter_type::FLOOD => pass_kind::FLOOD,
-                // The above are the only single-pass filters currently implemented.
-                _ => unimplemented!(),
-            };
-
-            state.push(
-                FilterInstanceData {
-                    src: IntRect::new(initial_image.offsets(), initial_image.size()),
-                    dest: IntRect::new(dest_image.offsets(), dest_image.size()),
-                    dest_atlas_size: IntSize(main_atlas_size),
-                    filter_data_offset,
-                    // Note that these two passes don't sample the original atlas, so we
-                    // can pass anything here.
-                    original: IntRect::new([0, 0], dest_image.size()),
-                    pass_kind: pass,
-                },
-                FilterPass {
-                    input_atlas_idx: initial_atlas_idx,
-                    output: FilterPassTarget::MainAtlas(dest_atlas_idx),
-                    original_atlas_idx: None,
-                },
-            );
-
-            return;
-        }
-
-        // Otherwise, schedule the multi-pass filters.
-
-        let scratch_ids = filter_textures.scratch_image_ids.unwrap();
-        let scratch_resources = [
-            self.image_cache.get(scratch_ids[0]).unwrap(),
-            self.image_cache.get(scratch_ids[1]).unwrap(),
-        ];
-
-        state.sizer.reset(
-            filter_textures.bbox.width_px(),
-            filter_textures.bbox.height_px(),
-        );
-
-        let mut builder = BlurPassScheduler {
-            state,
-            initial: (initial_atlas_idx, IntOffset(initial_image.offsets())),
-            dest: AtlasLocation {
-                atlas_idx: dest_atlas_idx,
-                offset: IntOffset(dest_image.offsets()),
-                atlas_size: IntSize(main_atlas_size),
-            },
-            scratch: [
-                AtlasLocation {
-                    atlas_idx: scratch_resources[0].atlas_id.as_u32(),
-                    offset: IntOffset(scratch_resources[0].offsets()),
-                    atlas_size: IntSize(get_filter_atlas_size(
-                        scratch_resources[0].atlas_id.as_u32(),
-                    )),
-                },
-                AtlasLocation {
-                    atlas_idx: scratch_resources[1].atlas_id.as_u32(),
-                    offset: IntOffset(scratch_resources[1].offsets()),
-                    atlas_size: IntSize(get_filter_atlas_size(
-                        scratch_resources[1].atlas_id.as_u32(),
-                    )),
-                },
-            ],
-            filter_data_offset,
-            original_size: IntSize([
-                filter_textures.bbox.width_px() as u32,
-                filter_textures.bbox.height_px() as u32,
-            ]),
-            toggle: 0,
-            first: true,
-        };
-
-        match filter_type {
-            filter_type::GAUSSIAN_BLUR => {
-                let n_decimations = gpu_filter.n_decimations();
-
-                builder.emit_blur_sequence(n_decimations, true);
-            }
-            filter_type::DROP_SHADOW => {
-                let n_decimations = gpu_filter.n_decimations();
-
-                builder.emit_to_scratch(pass_kind::OFFSET);
-                builder.emit_blur_sequence(n_decimations, false);
-                builder.emit_composite_to_dest(pass_kind::COMPOSITE_DROP_SHADOW);
-            }
-            // The above are the only supported multi-pass filters for now.
-            _ => unimplemented!(),
-        }
-    }
-}
-
-/// Data associated with a single filter layer.
-#[derive(Debug)]
-pub(crate) struct FilterLayerData {
-    /// Image ID for the main texture holding the raw initially painted version of the layer.
-    pub initial_image_id: ImageId,
-    /// Image ID for the destination texture holding the final filtered version. This lives in
-    /// the same image atlas as normal images, allowing us to treat filtered layers the same
-    /// way as normal images that we can sample from.
-    pub dest_image_id: ImageId,
-    /// Some filters require intermediate buffers. This field optionally holds the IDs of
-    /// two intermediate textures we can use for ping-pong rendering.
-    pub scratch_image_ids: Option<[ImageId; 2]>,
-    /// The paint index that points to the location in `encoded_paints` where
-    /// the final filtered version of the image will be stored.
-    pub paint_idx: u32,
-    /// The bounding box of the filter layer.
-    pub bbox: WideTilesBbox,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schedule::round::FilterTextureRegions;
+    use crate::target::{LayerTextureId, TextureParity, TextureRegion};
     use vello_common::color::AlphaColor;
     use vello_common::filter::gaussian_blur::{compute_gaussian_kernel, plan_decimated_blur};
+
+    fn region(parity: TextureParity) -> TextureRegion {
+        TextureRegion {
+            target: LayerTextureId::new(parity, 0),
+            rect: RectU16::new(0, 0, 32, 24),
+        }
+    }
+
+    fn filter_op(gpu_filter: GpuFilterData, filter_data_offset: u32) -> FilterOp {
+        FilterOp {
+            textures: FilterTextureRegions::new(
+                region(TextureParity::Odd),
+                region(TextureParity::Even),
+            ),
+            filter_data_offset,
+            gpu_filter,
+        }
+    }
+
+    fn gpu_offset() -> GpuFilterData {
+        GpuOffset::from(&Offset::new(1.0, 2.0)).into()
+    }
+
+    fn gpu_flood() -> GpuFilterData {
+        GpuFlood::from(&Flood::new(AlphaColor::new([0.2, 0.4, 0.6, 0.8]))).into()
+    }
+
+    fn gpu_blur(std_deviation: f32) -> GpuFilterData {
+        GpuGaussianBlur::from(&GaussianBlur::new(std_deviation, EdgeMode::None)).into()
+    }
+
+    fn gpu_shadow() -> GpuFilterData {
+        GpuDropShadow::from(&DropShadow::new(
+            3.0,
+            -4.0,
+            8.0,
+            EdgeMode::None,
+            AlphaColor::new([0.0, 0.0, 0.0, 1.0]),
+        ))
+        .into()
+    }
+
+    fn step_layout(plan: &FilterPassPlan) -> Vec<Vec<(u32, u32)>> {
+        plan.steps()
+            .map(|step| {
+                step.iter()
+                    .map(|instance| (instance.filter_data_offset, instance.filter_pass_kind))
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pass_batching() {
+        let mut plan = FilterPassPlan::default();
+        plan.init(
+            [
+                filter_op(gpu_offset(), 0),
+                filter_op(gpu_blur(8.0), 1),
+                filter_op(gpu_shadow(), 2),
+            ],
+            SizeU16::new(64),
+        );
+
+        assert_eq!(
+            step_layout(&plan),
+            alloc::vec![
+                alloc::vec![
+                    (0, pass_kind::OFFSET),
+                    (1, pass_kind::DOWNSCALE),
+                    (2, pass_kind::OFFSET),
+                ],
+                alloc::vec![
+                    (0, pass_kind::COPY),
+                    (1, pass_kind::DOWNSCALE),
+                    (2, pass_kind::DOWNSCALE),
+                ],
+                alloc::vec![(1, pass_kind::BLUR_H), (2, pass_kind::DOWNSCALE)],
+                alloc::vec![(1, pass_kind::BLUR_V), (2, pass_kind::BLUR_H)],
+                alloc::vec![(1, pass_kind::UPSCALE), (2, pass_kind::BLUR_V)],
+                alloc::vec![(1, pass_kind::UPSCALE), (2, pass_kind::UPSCALE)],
+                alloc::vec![(2, pass_kind::UPSCALE)],
+                alloc::vec![(2, pass_kind::COMPOSITE_DROP_SHADOW)],
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_reinit() {
+        let mut plan = FilterPassPlan::default();
+        plan.init(
+            [filter_op(gpu_shadow(), 0), filter_op(gpu_blur(8.0), 1)],
+            SizeU16::new(64),
+        );
+        assert!(plan.copy_pass().is_some());
+        assert!(plan.steps().count() > 2);
+
+        plan.init([filter_op(gpu_offset(), 0)], SizeU16::new(64));
+
+        assert!(plan.copy_pass().is_none());
+        assert_eq!(
+            step_layout(&plan),
+            [
+                alloc::vec![(0, pass_kind::OFFSET)],
+                alloc::vec![(0, pass_kind::COPY)],
+            ]
+        );
+    }
+
+    #[test]
+    fn single_pass_filters_finish_in_original() {
+        let mut plan = FilterPassPlan::default();
+        plan.init(
+            [filter_op(gpu_offset(), 0), filter_op(gpu_flood(), 1)],
+            SizeU16::new(64),
+        );
+
+        assert!(plan.copy_pass().is_none());
+        assert_eq!(
+            step_layout(&plan),
+            [
+                alloc::vec![(0, pass_kind::OFFSET), (1, pass_kind::FLOOD)],
+                alloc::vec![(0, pass_kind::COPY), (1, pass_kind::COPY)],
+            ]
+        );
+    }
 
     #[test]
     fn test_offset_conversion() {
