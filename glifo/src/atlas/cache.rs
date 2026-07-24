@@ -429,6 +429,14 @@ impl GlyphAtlas {
         self.cache_hits = 0;
         self.cache_misses = 0;
     }
+
+    /// Resets the frame counter.
+    ///
+    /// This is used when `vello_cpu` renders a large amount of text to prevent
+    /// the new image from overwriting stale content from the previous one.
+    pub fn clear_tick(&mut self) {
+        self.serial = 0;
+    }
 }
 
 /// Queue a clear rect covering the full padded region of an evicted atlas slot.
