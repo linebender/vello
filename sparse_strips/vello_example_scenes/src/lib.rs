@@ -407,11 +407,6 @@ where
     pub fn status(&self) -> Option<String> {
         (self.status_fn)()
     }
-
-    /// Access the scene-owned resources.
-    pub fn resources_mut(&mut self) -> &mut T::Resources {
-        &mut self.resources
-    }
 }
 
 /// Get all available example scenes.
