@@ -104,6 +104,80 @@ fn empty_scene_cpu() {
     empty_scene(true);
 }
 
+/// Render a blurred rounded rectangle in both the normal and invert modes and check that the
+/// invert mode paints the complementary (`1 - alpha`) coverage.
+fn blurred_rounded_rect_invert(use_cpu: bool) {
+    const SIZE: u32 = 100;
+    let rect = Rect::from_center_size((50., 50.), (40., 40.));
+    let radius = 0.0;
+    let std_dev = 5.0;
+
+    let render = |invert: bool| {
+        let mut scene = Scene::new();
+        scene.draw_blurred_rounded_rect(
+            Affine::IDENTITY,
+            rect,
+            palette::css::BLACK,
+            radius,
+            std_dev,
+            invert,
+        );
+        let params = TestParams {
+            use_cpu,
+            base_color: Some(TRANSPARENT),
+            ..TestParams::new("blurred_rounded_rect_invert", SIZE, SIZE)
+        };
+        vello_tests::render_then_debug_sync(&scene, &params).unwrap()
+    };
+
+    let normal = render(false);
+    let invert = render(true);
+    assert_eq!(normal.format, ImageFormat::Rgba8);
+    assert_eq!(invert.format, ImageFormat::Rgba8);
+
+    // The brush is opaque black on a transparent background, so the rendered alpha channel is
+    // exactly the blur coverage.
+    let alpha_at = |image: &ImageData, x: u32, y: u32| -> u8 {
+        let idx = ((y * SIZE + x) * 4 + 3) as usize;
+        image.data.data()[idx]
+    };
+
+    // Deep inside the rectangle the (non-invert) blur is essentially fully covered, while the
+    // invert blur is essentially fully transparent.
+    assert!(
+        alpha_at(&normal, 50, 50) > 250,
+        "expected near-opaque center, got {}",
+        alpha_at(&normal, 50, 50)
+    );
+    assert!(
+        alpha_at(&invert, 50, 50) < 5,
+        "expected near-transparent center, got {}",
+        alpha_at(&invert, 50, 50)
+    );
+
+    // At every point within the painted (inflated) region, the invert coverage is the complement
+    // of the normal coverage, including at the partially-covered edges of the rectangle.
+    for &(x, y) in &[(50, 50), (30, 50), (50, 30), (25, 50), (50, 70), (35, 65)] {
+        let sum = u16::from(alpha_at(&normal, x, y)) + u16::from(alpha_at(&invert, x, y));
+        assert!(
+            sum.abs_diff(255) <= 4,
+            "normal + invert coverage should sum to ~255 at ({x}, {y}), got {sum}"
+        );
+    }
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn blurred_rounded_rect_invert_gpu() {
+    blurred_rounded_rect_invert(false);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn blurred_rounded_rect_invert_cpu() {
+    blurred_rounded_rect_invert(true);
+}
+
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn bgra_image() {

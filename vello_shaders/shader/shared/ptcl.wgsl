@@ -62,6 +62,10 @@ struct CmdBlurRect {
 
     // Gaussian filter standard deviation
     std_dev: f32,
+
+    // Whether to paint the inverse (1 - alpha) of the blur coverage.
+    // Unpacked from the sign bit of the encoded standard deviation.
+    invert: u32,
 }
 
 struct CmdLinGrad {
