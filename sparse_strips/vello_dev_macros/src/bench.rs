@@ -20,7 +20,6 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
 
         pub fn #input_fn_name(c: &mut criterion::Criterion) {
             use vello_cpu::fine::{Fine, U8Kernel, F32Kernel};
-            use vello_common::coarse::WideTile;
             use vello_common::tile::Tile;
             use vello_common::fearless_simd::Simd;
             use vello_cpu::Level;
@@ -38,12 +37,12 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
             }
 
             fn run_integer<S: Simd>(b: &mut Bencher, simd: S) {
-                let mut fine = Fine::<S, U8Kernel>::new(simd, WideTile::WIDTH);
+                let mut fine = Fine::<S, U8Kernel>::new(simd, crate::fine::BENCH_WIDTH);
                 #inner_fn_name(b, &mut fine);
             }
 
             fn run_float<S: Simd>(b: &mut Bencher, simd: S) {
-                let mut fine = Fine::<S, F32Kernel>::new(simd, WideTile::WIDTH);
+                let mut fine = Fine::<S, F32Kernel>::new(simd, crate::fine::BENCH_WIDTH);
                 #inner_fn_name(b, &mut fine);
             }
 

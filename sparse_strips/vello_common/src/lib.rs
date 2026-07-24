@@ -65,7 +65,6 @@ extern crate std;
 
 pub mod blurred_rounded_rect;
 pub mod clip;
-pub mod coarse;
 pub mod encode;
 pub mod filter;
 pub mod filter_effects;
@@ -86,7 +85,6 @@ pub mod pixmap;
 pub mod probe;
 pub mod record;
 pub mod rect;
-pub mod render_graph;
 pub mod render_state;
 pub mod simd;
 pub mod strip;

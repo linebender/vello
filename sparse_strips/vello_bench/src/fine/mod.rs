@@ -18,6 +18,8 @@ pub use rounded_blurred_rect::*;
 pub use strip::*;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 
+pub(crate) const BENCH_WIDTH: u16 = 256;
+
 pub(crate) fn default_blend() -> BlendMode {
     BlendMode::new(Mix::Normal, Compose::SrcOver)
 }

@@ -8,7 +8,6 @@ use crate::util::{
     circular_star, crossed_line_star, layout_glyphs_roboto, miter_stroke_2, stops_green_blue,
 };
 use std::f64::consts::PI;
-use vello_common::coarse::Cmd;
 use vello_common::color::palette::css::{
     BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, TRANSPARENT,
 };
@@ -513,25 +512,6 @@ fn implicit_subpaths(ctx: &mut impl Renderer) {
 
     ctx.set_paint(LIME);
     ctx.fill_path(&path);
-}
-
-// Just so we can more closely observe changes in their size.
-// We have this test here instead of in `vello_common` because
-// the vello_common tests seemingly are not run for 32-bit in CI.
-#[vello_test(no_ref)]
-fn test_cmd_size(_: &mut impl Renderer) {
-    #[cfg(target_pointer_width = "64")]
-    assert_eq!(
-        size_of::<Cmd>(),
-        16,
-        "size of a command didn't match the expected value"
-    );
-    #[cfg(target_pointer_width = "32")]
-    assert_eq!(
-        size_of::<Cmd>(),
-        16,
-        "size of a command didn't match the expected value"
-    );
 }
 
 /// Test compositing a single glyph to a specific region of a larger spritesheet pixmap using `vello_cpu`.

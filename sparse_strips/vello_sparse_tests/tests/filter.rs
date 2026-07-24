@@ -20,9 +20,7 @@ use vello_cpu::color::palette::css::{BLUE, GREEN, RED, YELLOW};
 use vello_cpu::kurbo::Dashes;
 use vello_dev_macros::vello_test;
 
-// TODO: We are purposefully using multiple of WideTile width/height here, because the implementation
-// currently works incorrectly if it's not the case. Once the issue as been fixed, we should update
-// this test to use normal dimensions.
+// TODO: Update this test to use non-wide tile dimensions.
 #[vello_test(skip_multithreaded, width = 256, height = 40)]
 fn filter_flood(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
@@ -1267,31 +1265,6 @@ fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-// If the bbox of a filter layer doesn't start on the top-left wide tile, we will shift
-// the image so the top-left wide tile of the bbox starts at (0, 0). This test
-// ensures that complex paints are also appropriately shifted. The correct behavior is
-// to see the whole gradient, the wrong behavior would be to only see a blue rectangle.
-#[vello_test(skip_multithreaded, width = 512, height = 4)]
-fn filter_with_complex_paint_and_wide_tile_shift(ctx: &mut impl Renderer) {
-    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
-
-    let gradient = Gradient {
-        kind: LinearGradientPosition {
-            start: Point::new(256.0, 0.0),
-            end: Point::new(512.0, 0.0),
-        }
-        .into(),
-        stops: stops_blue_green_red_yellow(),
-        extend: Extend::Pad,
-        ..Default::default()
-    };
-
-    ctx.push_filter_layer(filter);
-    ctx.set_paint(gradient);
-    ctx.fill_rect(&Rect::new(256.0, 0.0, 612.0, 4.0));
-    ctx.pop_layer();
-}
-
 #[vello_test(skip_multithreaded)]
 fn filter_with_opacity(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
@@ -1391,11 +1364,8 @@ pub(crate) fn blur_with_edge_mode(ctx: &mut impl Renderer, edge_mode: EdgeMode) 
     ctx.pop_layer();
 }
 
-// TODO: Currently, these tests have a width/height that is a multiple of a wide tile,
-// because edge modes currently don't handle other widths/heights correctly. Once that is
-// fixed, we should change the tests back to 100x100 to exercise that path as well.
-// Also, these tests are currently ignored everywhere because support for edge mode has
-// been temporarily disabled.
+// TODO: Change these tests back to 100x100 once edge modes are properly supported.
+// These tests are currently ignored because support for edge modes has been temporarily disabled.
 
 #[vello_test(ignore, width = 256, height = 100)]
 fn filter_gaussian_blur_edge_mode_duplicate(ctx: &mut impl Renderer) {

@@ -53,3 +53,4 @@ mod scenes;
 mod util;
 #[cfg(target_arch = "wasm32")]
 mod wasm_binary_invariants;
+mod wide_tile;

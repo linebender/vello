@@ -222,21 +222,6 @@ fn triangle_exceeding_viewport_2(ctx: &mut impl Renderer) {
     ctx.fill_path(&path);
 }
 
-#[vello_test(width = 256, height = 4, no_ref)]
-// https://github.com/LaurenzV/cpu-sparse-experiments/issues/30
-fn shape_at_wide_tile_boundary(ctx: &mut impl Renderer) {
-    let mut path = BezPath::new();
-    path.move_to((248.0, 0.0));
-    path.line_to((257.0, 0.0));
-    path.line_to((257.0, 2.0));
-    path.line_to((248.0, 2.0));
-    path.close_path();
-
-    ctx.set_fill_rule(Fill::EvenOdd);
-    ctx.set_paint(LIME);
-    ctx.fill_path(&path);
-}
-
 #[vello_test(width = 50, height = 50)]
 fn eo_filling_missing_anti_aliasing(ctx: &mut impl Renderer) {
     let mut path = BezPath::new();
@@ -777,58 +762,6 @@ fn issue_1528(ctx: &mut impl Renderer) {
 fn issue_1707_transparent_solid_fill(ctx: &mut impl Renderer) {
     ctx.set_paint(Color::from_rgb8(0, 0, 0).with_alpha(0.001));
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-}
-
-#[vello_test]
-fn issue_fast_path_strips_in_later_round(ctx: &mut impl Renderer) {
-    ctx.push_layer(None, None, None, None, None);
-    ctx.push_layer(None, None, None, None, None);
-    ctx.push_layer(None, None, None, None, None);
-    ctx.set_paint(Color::from_rgba8(0, 0, 255, 255));
-    ctx.fill_rect(&Rect::new(10.0, 10.0, 70.0, 70.0));
-    ctx.pop_layer();
-    ctx.pop_layer();
-    ctx.pop_layer();
-
-    ctx.set_paint(Color::from_rgba8(255, 0, 0, 255));
-    ctx.fill_rect(&Rect::new(30.0, 30.0, 90.0, 90.0));
-}
-
-#[vello_test]
-fn issue_coarse_batch_in_later_round(ctx: &mut impl Renderer) {
-    ctx.push_layer(None, None, None, None, None);
-    ctx.push_layer(None, None, None, None, None);
-    ctx.push_layer(None, None, None, None, None);
-    ctx.set_paint(Color::from_rgba8(0, 0, 255, 255));
-    ctx.fill_rect(&Rect::new(10.0, 10.0, 70.0, 70.0));
-    ctx.pop_layer();
-    ctx.pop_layer();
-    ctx.pop_layer();
-
-    ctx.push_layer(None, None, None, None, None);
-    ctx.set_paint(Color::from_rgba8(255, 0, 0, 255));
-    ctx.fill_rect(&Rect::new(30.0, 30.0, 90.0, 90.0));
-    ctx.pop_layer();
-}
-
-#[vello_test]
-fn issue_fast_path_strips_and_coarse_batch_in_later_round(ctx: &mut impl Renderer) {
-    ctx.push_layer(None, None, None, None, None);
-    ctx.push_layer(None, None, None, None, None);
-    ctx.push_layer(None, None, None, None, None);
-    ctx.set_paint(Color::from_rgba8(0, 0, 255, 255));
-    ctx.fill_rect(&Rect::new(25.0, 10.0, 75.0, 60.0));
-    ctx.pop_layer();
-    ctx.pop_layer();
-    ctx.pop_layer();
-
-    ctx.set_paint(Color::from_rgba8(0, 255, 0, 255));
-    ctx.fill_rect(&Rect::new(10.0, 40.0, 60.0, 90.0));
-
-    ctx.push_layer(None, None, None, None, None);
-    ctx.set_paint(Color::from_rgba8(255, 0, 0, 255));
-    ctx.fill_rect(&Rect::new(40.0, 40.0, 90.0, 90.0));
-    ctx.pop_layer();
 }
 
 #[vello_test(width = 32, height = 32, skip_hybrid, cpu_u8_tolerance = 1)]

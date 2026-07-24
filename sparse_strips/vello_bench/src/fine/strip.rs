@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::SEED;
-use crate::fine::default_blend;
+use crate::fine::{BENCH_WIDTH, default_blend};
 use criterion::{Bencher, Criterion};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
@@ -72,7 +71,7 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
         origin: (0, 0),
     };
 
-    for _ in 0..WideTile::WIDTH * Tile::HEIGHT {
+    for _ in 0..BENCH_WIDTH * Tile::HEIGHT {
         alphas.push(rng.random());
     }
 
