@@ -8,6 +8,7 @@ use crate::schedule::round::FilterOp;
 use crate::util::pack_u16_pair;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
+use vello_common::filter::color_matrix::ColorMatrix;
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KERNEL_SIZE};
@@ -31,30 +32,31 @@ pub(crate) const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 
 // Since we store in RGBA32 texture.
 const BYTES_PER_TEXEL: usize = 16;
-const FILTER_SIZE_BYTES: usize = 48;
-const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
 const COMPOSITE_ORIGINAL_SHIFT: u32 = 13;
 const COMPOSITE_ORIGINAL_MASK: u32 = 1 << COMPOSITE_ORIGINAL_SHIFT;
 
+// Each filter is packed into a whole number of 16-byte texels; the shader
+// indexes fields by texel within a filter's span, so these sizes must stay in
+// sync with `filter.wgsl`.
 const _: () = assert!(
-    size_of::<GpuFilterData>() == FILTER_SIZE_BYTES,
-    "memory size of filters need to match"
+    size_of::<GpuOffset>() == BYTES_PER_TEXEL,
+    "GpuOffset must be one texel"
 );
 const _: () = assert!(
-    size_of::<GpuOffset>() == FILTER_SIZE_BYTES,
-    "memory size of filters need to match"
+    size_of::<GpuFlood>() == BYTES_PER_TEXEL,
+    "GpuFlood must be one texel"
 );
 const _: () = assert!(
-    size_of::<GpuFlood>() == FILTER_SIZE_BYTES,
-    "memory size of filters need to match"
+    size_of::<GpuGaussianBlur>() == 2 * BYTES_PER_TEXEL,
+    "GpuGaussianBlur must be two texels"
 );
 const _: () = assert!(
-    size_of::<GpuDropShadow>() == FILTER_SIZE_BYTES,
-    "memory size of filters need to match"
+    size_of::<GpuDropShadow>() == 3 * BYTES_PER_TEXEL,
+    "GpuDropShadow must be three texels"
 );
 const _: () = assert!(
-    size_of::<GpuGaussianBlur>() == FILTER_SIZE_BYTES,
-    "memory size of filters need to match"
+    size_of::<GpuColorMatrix>() == 6 * BYTES_PER_TEXEL,
+    "GpuColorMatrix must be six texels"
 );
 
 pub(crate) mod filter_type {
@@ -62,6 +64,7 @@ pub(crate) mod filter_type {
     pub(crate) const FLOOD: u32 = 1;
     pub(crate) const GAUSSIAN_BLUR: u32 = 2;
     pub(crate) const DROP_SHADOW: u32 = 3;
+    pub(crate) const COLOR_MATRIX: u32 = 4;
 }
 
 pub(crate) mod edge_mode {
@@ -81,6 +84,7 @@ pub(crate) mod pass_kind {
     pub(crate) const UPSCALE: u32 = 6;
     pub(crate) const COMPOSITE_DROP_SHADOW: u32 = 7;
     pub(crate) const COLORIZE: u32 = 8;
+    pub(crate) const COLOR_MATRIX: u32 = 9;
 }
 
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
@@ -186,10 +190,22 @@ impl LinearKernel {
     }
 }
 
-// Currently, we assume that each filter struct has the same size so we can cast them into
-// the type-erased type and assume uniform offsets. It might be worth exploring variable offsets
-// (as is done for encoded paints) in the future, but it doesn't seem to be worth it for filters
-// specifically since it's uncommon to have more than a few dozen filters in a single scene.
+// Filters are packed back-to-back into the filter-data texture with per-filter
+// texel offsets (see `FilterInstanceData::filter_data_offset`), so each filter
+// occupies only as many 16-byte texels as its parameters need — the same
+// variable-stride scheme used for encoded paints. Each `Gpu*` struct is
+// `#[repr(C, align(16))]` and explicitly padded to a whole number of texels
+// (bytemuck's `Pod` forbids implicit trailing padding), and the shader reads
+// each filter's fields by texel index within that struct's span.
+
+/// Number of 16-byte texels a filter struct occupies in the filter-data texture.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "filter struct sizes are small constants"
+)]
+const fn filter_size_texels<T>() -> u32 {
+    (size_of::<T>() / BYTES_PER_TEXEL) as u32
+}
 
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
@@ -197,7 +213,7 @@ pub(crate) struct GpuOffset {
     pub header: u32,
     pub dx: f32,
     pub dy: f32,
-    pub _padding: [u32; 9],
+    pub _padding: [u32; 1],
 }
 
 impl From<&Offset> for GpuOffset {
@@ -206,7 +222,7 @@ impl From<&Offset> for GpuOffset {
             header: pack_header(filter_type::OFFSET),
             dx: offset.dx,
             dy: offset.dy,
-            _padding: [0; 9],
+            _padding: [0; 1],
         }
     }
 }
@@ -216,7 +232,7 @@ impl From<&Offset> for GpuOffset {
 pub(crate) struct GpuFlood {
     pub header: u32,
     pub color: u32,
-    pub _padding: [u32; 10],
+    pub _padding: [u32; 2],
 }
 
 impl From<&Flood> for GpuFlood {
@@ -224,7 +240,7 @@ impl From<&Flood> for GpuFlood {
         Self {
             header: pack_header(filter_type::FLOOD),
             color: flood.color.premultiply().to_rgba8().to_u32(),
-            _padding: [0; 10],
+            _padding: [0; 2],
         }
     }
 }
@@ -236,8 +252,6 @@ pub(crate) struct GpuGaussianBlur {
     pub center_weight: f32,
     pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
     pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
-    // Needed since drop shadow has a bigger footprint.
-    pub _padding: [u32; 4],
 }
 
 impl From<&GaussianBlur> for GpuGaussianBlur {
@@ -261,7 +275,6 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
             center_weight: lk.center_weight,
             linear_weights: lk.weights,
             linear_offsets: lk.offsets,
-            _padding: [0; 4],
         }
     }
 }
@@ -311,29 +324,44 @@ impl From<&DropShadow> for GpuDropShadow {
 }
 
 #[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
+pub(crate) struct GpuColorMatrix {
+    pub header: u32,
+    pub matrix: [f32; 20],
+    pub _padding: [u32; 3],
+}
+
+impl From<&ColorMatrix> for GpuColorMatrix {
+    fn from(color_matrix: &ColorMatrix) -> Self {
+        Self {
+            header: pack_header(filter_type::COLOR_MATRIX),
+            matrix: color_matrix.matrix,
+            _padding: [0; 3],
+        }
+    }
+}
+
+/// The packed filter header. Carries the metadata the scheduler reads (filter
+/// type, decimation count, `composite_original`); the full per-filter
+/// parameters are serialized separately through [`GpuFilter`].
+#[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuFilterData {
-    data: [u32; FILTER_SIZE_U32],
+    header: u32,
 }
 
 impl GpuFilterData {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "filter size is a small constant"
-    )]
-    pub(crate) const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
-
     pub(crate) fn filter_type(&self) -> u32 {
-        self.data[0] & 0x1F
+        self.header & 0x1F
     }
 
     /// Returns the number of decimation levels encoded in the header.
     pub(crate) fn n_decimations(&self) -> usize {
-        ((self.data[0] >> 7) & 0xF) as usize
+        ((self.header >> 7) & 0xF) as usize
     }
 
     pub(crate) fn composite_original(&self) -> bool {
-        self.data[0] & COMPOSITE_ORIGINAL_MASK != 0
+        self.header & COMPOSITE_ORIGINAL_MASK != 0
     }
 
     pub(crate) fn needs_copy_pass(&self) -> bool {
@@ -343,26 +371,61 @@ impl GpuFilterData {
     }
 }
 
-trait CastToFilterData: Pod {}
+/// A filter's full GPU parameters, sized to its own texel span.
+#[derive(Debug, Clone, Copy)]
+enum GpuFilter {
+    Offset(GpuOffset),
+    Flood(GpuFlood),
+    GaussianBlur(GpuGaussianBlur),
+    DropShadow(GpuDropShadow),
+    ColorMatrix(GpuColorMatrix),
+}
 
-impl CastToFilterData for GpuOffset {}
-impl CastToFilterData for GpuFlood {}
-impl CastToFilterData for GpuGaussianBlur {}
-impl CastToFilterData for GpuDropShadow {}
+impl GpuFilter {
+    /// Number of 16-byte texels this filter occupies in the filter-data texture.
+    fn size_texels(&self) -> u32 {
+        match self {
+            Self::Offset(_) => filter_size_texels::<GpuOffset>(),
+            Self::Flood(_) => filter_size_texels::<GpuFlood>(),
+            Self::GaussianBlur(_) => filter_size_texels::<GpuGaussianBlur>(),
+            Self::DropShadow(_) => filter_size_texels::<GpuDropShadow>(),
+            Self::ColorMatrix(_) => filter_size_texels::<GpuColorMatrix>(),
+        }
+    }
 
-impl<T: CastToFilterData> From<T> for GpuFilterData {
-    fn from(filter: T) -> Self {
-        bytemuck::cast(filter)
+    /// The packed header carrying the scheduler metadata.
+    fn header(&self) -> GpuFilterData {
+        let header = match self {
+            Self::Offset(f) => f.header,
+            Self::Flood(f) => f.header,
+            Self::GaussianBlur(f) => f.header,
+            Self::DropShadow(f) => f.header,
+            Self::ColorMatrix(f) => f.header,
+        };
+        GpuFilterData { header }
+    }
+
+    /// Serialize this filter's bytes into `out`, which must be exactly
+    /// `size_texels() * 16` bytes long.
+    fn write_bytes(&self, out: &mut [u8]) {
+        match self {
+            Self::Offset(f) => out.copy_from_slice(bytemuck::bytes_of(f)),
+            Self::Flood(f) => out.copy_from_slice(bytemuck::bytes_of(f)),
+            Self::GaussianBlur(f) => out.copy_from_slice(bytemuck::bytes_of(f)),
+            Self::DropShadow(f) => out.copy_from_slice(bytemuck::bytes_of(f)),
+            Self::ColorMatrix(f) => out.copy_from_slice(bytemuck::bytes_of(f)),
+        }
     }
 }
 
-impl From<&PreparedFilter> for GpuFilterData {
+impl From<&PreparedFilter> for GpuFilter {
     fn from(filter: &PreparedFilter) -> Self {
         match filter {
-            PreparedFilter::Offset(f) => GpuOffset::from(f).into(),
-            PreparedFilter::Flood(f) => GpuFlood::from(f).into(),
-            PreparedFilter::GaussianBlur(f) => GpuGaussianBlur::from(f).into(),
-            PreparedFilter::DropShadow(f) => GpuDropShadow::from(f).into(),
+            PreparedFilter::Offset(f) => Self::Offset(f.into()),
+            PreparedFilter::Flood(f) => Self::Flood(f.into()),
+            PreparedFilter::GaussianBlur(f) => Self::GaussianBlur(f.into()),
+            PreparedFilter::DropShadow(f) => Self::DropShadow(f.into()),
+            PreparedFilter::ColorMatrix(f) => Self::ColorMatrix(f.into()),
         }
     }
 }
@@ -396,7 +459,7 @@ pub(crate) struct FilterInstanceData {
 pub(crate) struct FilterContext {
     /// The encoded data for each filter used in the current scene that will be uploaded to the
     /// filter data texture.
-    filters: Vec<GpuFilterData>,
+    filters: Vec<GpuFilter>,
 }
 
 /// Offset and encoded parameters for one filter recorded in [`FilterContext`].
@@ -440,6 +503,9 @@ impl FilterPassPlan {
                 }
                 filter_type::FLOOD => {
                     builder.emit(pass_kind::FLOOD);
+                }
+                filter_type::COLOR_MATRIX => {
+                    builder.emit(pass_kind::COLOR_MATRIX);
                 }
                 filter_type::GAUSSIAN_BLUR => {
                     builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
@@ -625,8 +691,9 @@ impl FilterContext {
     pub(crate) fn push(&mut self, filter_data: &FilterData) -> PreparedGpuFilter {
         let data_offset = self.total_texels();
         let prepared = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
-        let data = GpuFilterData::from(&prepared);
-        self.filters.push(data);
+        let filter = GpuFilter::from(&prepared);
+        let data = filter.header();
+        self.filters.push(filter);
 
         PreparedGpuFilter { data_offset, data }
     }
@@ -635,23 +702,23 @@ impl FilterContext {
         self.filters.is_empty()
     }
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "filter count won't exceed u32"
-    )]
     pub(crate) fn total_texels(&self) -> u32 {
-        self.filters.len() as u32 * GpuFilterData::SIZE_TEXELS
+        self.filters.iter().map(GpuFilter::size_texels).sum()
     }
 
     pub(crate) fn serialize_to_buffer(&self, buffer: &mut [u8]) {
-        let src = bytemuck::cast_slice::<GpuFilterData, u8>(&self.filters);
-        debug_assert!(
-            buffer.len() >= src.len(),
-            "filter data buffer too small: {} < {}",
-            buffer.len(),
-            src.len()
-        );
-        buffer[..src.len()].copy_from_slice(src);
+        let mut offset = 0;
+        for filter in &self.filters {
+            let len = filter.size_texels() as usize * BYTES_PER_TEXEL;
+            debug_assert!(
+                buffer.len() >= offset + len,
+                "filter data buffer too small: {} < {}",
+                buffer.len(),
+                offset + len
+            );
+            filter.write_bytes(&mut buffer[offset..offset + len]);
+            offset += len;
+        }
     }
 
     /// Calculate the required height for the filter data texture.
@@ -679,6 +746,7 @@ mod tests {
     use crate::target::{LayerTextureId, TextureParity, TextureRegion};
     use vello_common::color::AlphaColor;
     use vello_common::filter::gaussian_blur::{compute_gaussian_kernel, plan_decimated_blur};
+    use vello_common::filter_effects::matrices;
 
     fn region(parity: TextureParity) -> TextureRegion {
         TextureRegion {
@@ -699,26 +767,33 @@ mod tests {
     }
 
     fn gpu_offset() -> GpuFilterData {
-        GpuOffset::from(&Offset::new(1.0, 2.0)).into()
+        GpuFilter::Offset(GpuOffset::from(&Offset::new(1.0, 2.0))).header()
     }
 
     fn gpu_flood() -> GpuFilterData {
-        GpuFlood::from(&Flood::new(AlphaColor::new([0.2, 0.4, 0.6, 0.8]))).into()
+        GpuFilter::Flood(GpuFlood::from(&Flood::new(AlphaColor::new([
+            0.2, 0.4, 0.6, 0.8,
+        ]))))
+        .header()
     }
 
     fn gpu_blur(std_deviation: f32) -> GpuFilterData {
-        GpuGaussianBlur::from(&GaussianBlur::new(std_deviation, EdgeMode::None)).into()
+        GpuFilter::GaussianBlur(GpuGaussianBlur::from(&GaussianBlur::new(
+            std_deviation,
+            EdgeMode::None,
+        )))
+        .header()
     }
 
     fn gpu_shadow() -> GpuFilterData {
-        GpuDropShadow::from(&DropShadow::new(
+        GpuFilter::DropShadow(GpuDropShadow::from(&DropShadow::new(
             3.0,
             -4.0,
             8.0,
             EdgeMode::None,
             AlphaColor::new([0.0, 0.0, 0.0, 1.0]),
-        ))
-        .into()
+        )))
+        .header()
     }
 
     fn step_layout(plan: &FilterPassPlan) -> Vec<Vec<(u32, u32)>> {
@@ -816,47 +891,69 @@ mod tests {
         assert_eq!(gpu_offset.dy, -20.3);
     }
 
-    fn check_round_trip<T>(gpu: T, expected_type: u32)
-    where
-        T: Into<GpuFilterData> + Copy + PartialEq + core::fmt::Debug + Pod,
-    {
-        let erased: GpuFilterData = gpu.into();
-        assert_eq!(erased.filter_type(), expected_type);
-        assert_eq!(bytemuck::cast::<_, T>(erased), gpu);
+    /// A filter's header must carry the expected type, and it must serialize
+    /// into exactly its advertised texel span.
+    fn check_round_trip(filter: GpuFilter, expected_type: u32, expected_texels: u32) {
+        assert_eq!(filter.header().filter_type(), expected_type);
+        assert_eq!(filter.size_texels(), expected_texels);
+        let mut buffer = alloc::vec![0_u8; expected_texels as usize * BYTES_PER_TEXEL];
+        // Panics if `size_texels` disagrees with the serialized length.
+        filter.write_bytes(&mut buffer);
     }
 
     #[test]
     fn test_offset_round_trip() {
-        check_round_trip(GpuOffset::from(&Offset::new(1.0, 2.0)), filter_type::OFFSET);
+        check_round_trip(
+            GpuFilter::Offset(GpuOffset::from(&Offset::new(1.0, 2.0))),
+            filter_type::OFFSET,
+            1,
+        );
     }
 
     #[test]
     fn test_flood_round_trip() {
         check_round_trip(
-            GpuFlood::from(&Flood::new(AlphaColor::new([0.2, 0.4, 0.6, 0.8]))),
+            GpuFilter::Flood(GpuFlood::from(&Flood::new(AlphaColor::new([
+                0.2, 0.4, 0.6, 0.8,
+            ])))),
             filter_type::FLOOD,
+            1,
+        );
+    }
+
+    #[test]
+    fn test_color_matrix_round_trip() {
+        check_round_trip(
+            GpuFilter::ColorMatrix(GpuColorMatrix::from(&ColorMatrix::new(matrices::SEPIA))),
+            filter_type::COLOR_MATRIX,
+            6,
         );
     }
 
     #[test]
     fn test_gaussian_blur_round_trip() {
         check_round_trip(
-            GpuGaussianBlur::from(&GaussianBlur::new(2.0, EdgeMode::None)),
+            GpuFilter::GaussianBlur(GpuGaussianBlur::from(&GaussianBlur::new(
+                2.0,
+                EdgeMode::None,
+            ))),
             filter_type::GAUSSIAN_BLUR,
+            2,
         );
     }
 
     #[test]
     fn test_drop_shadow_round_trip() {
         check_round_trip(
-            GpuDropShadow::from(&DropShadow::new(
+            GpuFilter::DropShadow(GpuDropShadow::from(&DropShadow::new(
                 3.0,
                 -4.0,
                 1.5,
                 EdgeMode::Duplicate,
                 AlphaColor::new([0.0, 0.0, 0.0, 1.0]),
-            )),
+            ))),
             filter_type::DROP_SHADOW,
+            3,
         );
     }
 

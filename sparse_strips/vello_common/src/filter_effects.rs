@@ -426,11 +426,6 @@ pub enum FilterPrimitive {
         /// Edge mode for handling boundaries during blur operation.
         edge_mode: EdgeMode,
     },
-    //
-    // ============================================================
-    // TODO: The following filter primitives are not yet implemented
-    // ============================================================
-    //
     /// Matrix-based color transformation.
     ///
     /// Applies a 4x5 matrix transformation to colors, allowing arbitrary
@@ -451,6 +446,11 @@ pub enum FilterPrimitive {
         dy: f32,
     },
 
+    //
+    // ============================================================
+    // TODO: The following filter primitives are not yet implemented
+    // ============================================================
+    //
     /// Composite two inputs using Porter-Duff compositing operations.
     ///
     /// Combines two input images using standard compositing operators
