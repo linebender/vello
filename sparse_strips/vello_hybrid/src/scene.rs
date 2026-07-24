@@ -583,6 +583,10 @@ impl Scene {
             strip_start..strip_storage.strips.len()
         };
 
+        if strips.is_empty() {
+            return;
+        }
+
         let draw = RecordedDraw::new_path(strips.clone(), paint);
         let strip_storage = self.strip_storage.borrow();
         self.recorder.push_draw(draw, &strip_storage.strips[strips]);
@@ -984,7 +988,6 @@ mod tests {
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
     use glifo::Glyph;
-    #[cfg(feature = "text")]
     use vello_common::kurbo::BezPath;
     use vello_common::kurbo::Rect;
     use vello_common::paint::{Paint, PremulColor};
@@ -1015,6 +1018,17 @@ mod tests {
         scene.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
 
         assert_eq!(scene.recorder.draws.len(), 1);
+    }
+
+    #[test]
+    fn empty_generated_path_is_not_recorded() {
+        let mut scene = Scene::new(100, 100);
+
+        scene.fill_path(&BezPath::new());
+
+        assert!(scene.strip_storage.borrow().strips.is_empty());
+        assert!(scene.recorder.draws.is_empty());
+        assert!(scene.recorder.nodes.is_empty());
     }
 
     #[cfg(feature = "text")]
