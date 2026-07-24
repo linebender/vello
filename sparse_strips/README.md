@@ -27,6 +27,18 @@ This directory contains the core crates for the Vello rendering. Each crate serv
 
 This structure is **under active development** and subject to changes as the integration progresses. Contributions and feedback are welcome!
 
+## WebAssembly tooling
+
+The [`web`](web) directory contains development scripts for producing
+browser-ready WebAssembly builds and checking their sizes. Generated modules
+are written to `target/sparse-strips-wasm`; they are not pre-built artifacts
+included in this directory. Run the SIMD128 size check from the repository root
+with:
+
+```bash
+./sparse_strips/web/check_wasm_sizes.sh
+```
+
 ## Community
 
 Discussion of Vello Hybrid development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#vello channel](https://xi.zulipchat.com/#narrow/channel/197075-vello).

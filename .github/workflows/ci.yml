@@ -201,6 +201,31 @@ jobs:
       - name: cargo clippy (auxiliary)
         run: cargo hack clippy --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features std,u8_pipeline,f32_pipeline --tests --benches --examples -- -D warnings
 
+  wasm-size:
+    name: sparse strips wasm size
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+          targets: wasm32-unknown-unknown
+
+      - name: install wasm-bindgen
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.114
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
+
+      - name: check sparse strips wasm sizes
+        run: ./sparse_strips/web/check_wasm_sizes.sh
+
   prime-lfs-cache:
     name: Prime LFS Cache
     runs-on: ubuntu-latest
