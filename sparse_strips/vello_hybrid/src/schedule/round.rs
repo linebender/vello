@@ -38,13 +38,10 @@ use core::ops::Range;
 use vello_common::geometry::RectU16;
 use vello_common::peniko::BlendMode;
 
-/// Completed rounds and the layer texture pages required to execute them.
+/// Completed rounds in execution order.
 #[derive(Debug, Default)]
 pub(super) struct Rounds {
-    /// Rounds in execution order.
     pub(super) rounds: Vec<Round>,
-    /// Required page count for the even and odd texture groups.
-    layer_page_counts: [usize; 2],
 }
 
 impl Rounds {
@@ -52,8 +49,21 @@ impl Rounds {
         self.rounds.iter()
     }
 
-    pub(super) const fn layer_page_counts(&self) -> [usize; 2] {
-        self.layer_page_counts
+    /// Derive the required page count for the even and odd texture groups.
+    pub(super) fn required_layer_pages(&self) -> [usize; 2] {
+        let mut page_counts = [0; 2];
+
+        for texture in self
+            .rounds
+            .iter()
+            .flat_map(|round| round.texture_binding.required_textures())
+            .flatten()
+        {
+            let page_count = &mut page_counts[texture.texture_parity.get_parity()];
+            *page_count = (*page_count).max(usize::from(texture.page_index) + 1);
+        }
+
+        page_counts
     }
 
     pub(super) fn round_mut(&mut self, index: usize) -> &mut Round {
@@ -71,19 +81,14 @@ impl Rounds {
         self.rounds[round_idx].layer_texture_clears[parity].push(rect);
     }
 
-    pub(super) fn require_layer_texture(&mut self, texture: LayerTextureId) {
-        let required = usize::from(texture.page_index) + 1;
-        let page_count = &mut self.layer_page_counts[texture.texture_parity.get_parity()];
-        *page_count = (*page_count).max(required);
-    }
-
     pub(super) fn ensure_exists(&mut self, round_idx: usize) {
         while self.rounds.len() <= round_idx {
             self.rounds.push(Round::default());
         }
     }
 
-    pub(super) fn resolve_binding_point(
+    /// Bind the required texture pages in the first compatible round at or after `point`.
+    pub(super) fn bind_at_or_after(
         &mut self,
         mut point: SchedulePoint,
         requirement: RoundBindings,
@@ -92,10 +97,6 @@ impl Rounds {
         // can always just remove the guard since, _in theory_, it should never be possible
         // to trigger an endless loop.
         const MAX_ROUNDS: usize = 40_000;
-
-        for texture in requirement.required_textures().into_iter().flatten() {
-            self.require_layer_texture(texture);
-        }
 
         loop {
             // This shouldn't ever happen, unless there is some kind of logic bug. But better
@@ -128,19 +129,6 @@ impl Rounds {
     /// Validate the texture-binding invariants assumed by the render backends.
     pub(super) fn validate(&self, buffers: &ScheduleBuffers) {
         for (round_idx, round) in self.rounds.iter().enumerate() {
-            for texture in round
-                .texture_binding
-                .required_textures()
-                .into_iter()
-                .flatten()
-            {
-                assert!(
-                    usize::from(texture.page_index)
-                        < self.layer_page_counts[texture.texture_parity.get_parity()],
-                    "round {round_idx} binds a layer texture outside the required page count"
-                );
-            }
-
             round.validate(round_idx, buffers);
         }
     }
@@ -674,7 +662,7 @@ mod tests {
         let mut rounds = Rounds::default();
         let mut buffers = ScheduleBuffers::default();
         let bindings = filter_op(10).textures.round_bindings();
-        let point = rounds.resolve_binding_point(SchedulePoint::start(0), bindings);
+        let point = rounds.bind_at_or_after(SchedulePoint::start(0), bindings);
 
         rounds.round_mut(point.round).push_filter_op(
             TextureParity::Even,
@@ -722,21 +710,15 @@ mod tests {
         let even_page_3 = RoundBindings::new(layer_id(TextureParity::Even, 3));
 
         // First round gets assigned even page 1.
-        assert_eq!(
-            rounds.resolve_binding_point(requested, even_page_1),
-            requested
-        );
+        assert_eq!(rounds.bind_at_or_after(requested, even_page_1), requested);
 
         // First round gets assigned odd page 2.
-        assert_eq!(
-            rounds.resolve_binding_point(requested, odd_page_2),
-            requested
-        );
+        assert_eq!(rounds.bind_at_or_after(requested, odd_page_2), requested);
 
         // First round already has even page binding, so we much advance
         // to next round.
         assert_eq!(
-            rounds.resolve_binding_point(requested, even_page_3),
+            rounds.bind_at_or_after(requested, even_page_3),
             SchedulePoint {
                 round: 1,
                 ..requested
@@ -751,7 +733,7 @@ mod tests {
             rounds.rounds[1].texture_binding.page_indices(),
             [Some(3), None]
         );
-        assert_eq!(rounds.layer_page_counts, [4, 3]);
+        assert_eq!(rounds.required_layer_pages(), [4, 3]);
     }
 
     #[test]
@@ -766,16 +748,10 @@ mod tests {
         let odd_page_2 = RoundBindings::new(layer_id(TextureParity::Odd, 2));
         let odd_page_4 = RoundBindings::new(layer_id(TextureParity::Odd, 4));
 
+        assert_eq!(rounds.bind_at_or_after(requested, even_page_1), requested);
+        assert_eq!(rounds.bind_at_or_after(requested, odd_page_2), requested);
         assert_eq!(
-            rounds.resolve_binding_point(requested, even_page_1),
-            requested
-        );
-        assert_eq!(
-            rounds.resolve_binding_point(requested, odd_page_2),
-            requested
-        );
-        assert_eq!(
-            rounds.resolve_binding_point(requested, odd_page_4),
+            rounds.bind_at_or_after(requested, odd_page_4),
             SchedulePoint {
                 round: 1,
                 ..requested
@@ -790,7 +766,7 @@ mod tests {
             rounds.rounds[1].texture_binding.page_indices(),
             [None, Some(4)]
         );
-        assert_eq!(rounds.layer_page_counts, [2, 5]);
+        assert_eq!(rounds.required_layer_pages(), [2, 5]);
     }
 
     #[test]
@@ -801,25 +777,25 @@ mod tests {
             stage: RoundStage::RootDraw,
         };
 
-        rounds.resolve_binding_point(
+        rounds.bind_at_or_after(
             point(0),
             RoundBindings::new(layer_id(TextureParity::Even, 0)),
         );
 
-        rounds.resolve_binding_point(
+        rounds.bind_at_or_after(
             point(1),
             RoundBindings::new(layer_id(TextureParity::Even, 1)),
         );
 
         assert_eq!(
-            rounds.resolve_binding_point(
+            rounds.bind_at_or_after(
                 point(0),
                 RoundBindings::new(layer_id(TextureParity::Even, 2)),
             ),
             point(2)
         );
         assert_eq!(rounds.rounds.len(), 3);
-        assert_eq!(rounds.layer_page_counts, [3, 0]);
+        assert_eq!(rounds.required_layer_pages(), [3, 0]);
     }
 
     #[test]

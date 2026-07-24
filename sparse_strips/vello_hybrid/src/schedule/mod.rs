@@ -320,7 +320,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let intermediate_textures = IntermediateTextureRequirements {
             size: self.texture_size,
             allocations: IntermediateTextureAllocations {
-                layer_pages: rounds.layer_page_counts(),
+                layer_pages: rounds.required_layer_pages(),
                 scratch: self.cursor.scratch_texture(),
             },
         };
@@ -439,7 +439,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
             // Now find the _actual_ schedule point that corresponds to a round that matches our
             // requirements for texture bindings.
-            filter_point = rounds.resolve_binding_point(filter_point, textures.round_bindings());
+            filter_point = rounds.bind_at_or_after(filter_point, textures.round_bindings());
 
             rounds.ensure_exists(filter_point.round);
             rounds.round_mut(filter_point.round).push_filter_op(
@@ -629,11 +629,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 // We can't deallocate in the past, so we need to max it with the current round.
                 .round.max(self.cursor.current_round());
 
-            // If we choose `cursor.current_round`, there is no guarantee that the child layer texture
-            // is actually currently bound. Therefore, we need to resolve the binding point anew
-            // to find a compatible round.
+            // If we choose `cursor.current_round`, there is no guarantee that the child layer
+            // texture is actually currently bound. Therefore, find a compatible round at or after
+            // that point.
             let bindings = RoundBindings::new(child_layer.allocation.region.target);
-            let point = rounds.resolve_binding_point(SchedulePoint::start(round), bindings);
+            let point = rounds.bind_at_or_after(SchedulePoint::start(round), bindings);
 
             self.clear_and_release_allocation(child_layer.allocation, point.round, rounds);
 
@@ -689,7 +689,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             // And we must have reached the blend stage.
             .after(blend_stage);
         // Then, simply find the next round that matches binds the parent and child texture.
-        blend_point = rounds.resolve_binding_point(blend_point, blend_binding);
+        blend_point = rounds.bind_at_or_after(blend_point, blend_binding);
 
         rounds.ensure_exists(blend_point.round);
         rounds.round_mut(blend_point.round).push_blend_op(
@@ -937,7 +937,7 @@ impl Rounds {
             |layer| state.next_draw_after(layer.ready),
         );
         // While also ensuring the chosen round has a compatible texture binding.
-        draw_point = self.resolve_binding_point(draw_point, round_bindings);
+        draw_point = self.bind_at_or_after(draw_point, round_bindings);
         state.ready = draw_point;
         self.ensure_exists(draw_point.round);
         let target_round = self.round_mut(draw_point.round);
