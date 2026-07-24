@@ -27,6 +27,16 @@ This directory contains the core crates for the Vello rendering. Each crate serv
 
 This structure is **under active development** and subject to changes as the integration progresses. Contributions and feedback are welcome!
 
+## WebAssembly builds
+
+Browser-ready builds and the WebAssembly binary size check are available in
+the [`web`](web) directory. Run all three builds and enforce their size limits
+from the repository root with:
+
+```bash
+./sparse_strips/web/check_wasm_sizes.sh
+```
+
 ## Community
 
 Discussion of Vello Hybrid development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#vello channel](https://xi.zulipchat.com/#narrow/channel/197075-vello).
