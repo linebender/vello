@@ -12,6 +12,35 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- Inverse blurred rounded rectangles through the new `invert` parameter on `Scene::fill_blurred_rounded_rect`, enabling inset box shadows. ([#1715][] by [@nicoburns][])
+- `Resources::new_with_config` for configuring the image and glyph atlas used by resources. ([#1750][] by [@grebmeg][])
+- `FilterPrimitive::DropShadowOnly` for rendering a drop shadow without compositing the original input over it. ([#1763][] by [@LaurenzV][])
+
+### Changed
+
+- Breaking change: `WebGlRenderer::probe` is now asynchronous. It returns a `WebGlPendingProbe`, which can be polled with `try_finish`, avoiding a synchronous GPU-to-CPU readback stall and providing specific WebGL error codes on failure. ([#1671][], [#1735][] by [@LaurenzV][])
+- Breaking change: Vello Hybrid's core scene scheduling and rendering architecture has been rewritten, removing coarse rasterization. The rewrite improves layer performance, allows filter output beyond the root viewport, reduces memory use for filter-heavy scenes, and removes the need for scene constraints. ([#1759][] by [@LaurenzV][])
+- Breaking change: `RenderSettings` now contains `MemorySettings`, with separate image-atlas and intermediate-layer configuration. `SceneConstraints` and `RenderError::SlotsExhausted` have been removed, and `LayersConfig` allows applications to limit and tune intermediate textures. ([#1759][] by [@LaurenzV][])
+- WebGL APIs are now exported whenever the `webgl` feature is enabled, including on non-Wasm targets. ([#1682][] by [@jesses-canva][])
+- Relaxed the minimum versions of `wasm-bindgen`-related dependencies. ([#1683][] by [@LaurenzV][])
+
+### Fixed
+
+- Opaque image rendering when blend modes or masks are active. ([#1697][] by [@LaurenzV][])
+- Gaussian blur strength changing abruptly at decimation thresholds. ([#1720][] by [@grebmeg][])
+- Fast rectangle rendering at the maximum `u16` coordinates. ([#1666][] by [@dipeshbabu][])
+- WebGL renderer resources are now deleted when dropped instead of relying on garbage collection, allowing renderers to be recreated safely after context loss. ([#1674][] by [@LaurenzV][])
+- WebGL probing after rendering filter layers no longer corrupts the renderer's atlas state. ([#1734][] by [@LaurenzV][])
+
+### Optimized
+
+- Image-atlas textures and intermediate filter/layer textures are allocated lazily, substantially reducing initial GPU memory use for scenes that do not use images, layers, or filters. ([#1747][], [#1757][], [#1759][] by [@grebmeg][], [@LaurenzV][])
+- Clip-path intersection by skipping rows outside the paths' shared vertical extent and locating the first relevant strip with binary search. ([#1690][], [#1691][] by [@LaurenzV][])
+- Gradient lookup-table generation. ([#1726][] by [@LaurenzV][])
+- Rendering opaque `peniko::ImageData` by computing and retaining its transparency hint during conversion. ([#1760][] by [@tronical][])
+
 ## [0.0.9][] - 2026-05-30
 
 This release has an [MSRV][] of 1.88.
@@ -143,13 +172,16 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
+[@dipeshbabu]: https://github.com/dipeshbabu
 [@grebmeg]: https://github.com/grebmeg
+[@jesses-canva]: https://github.com/jesses-canva
 [@jrmoulton]: https://github.com/jrmoulton
 [@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
 [@oscargus]: https://github.com/oscargus
 [@taj-p]: https://github.com/taj-p
 [@tomcur]: https://github.com/tomcur
+[@tronical]: https://github.com/tronical
 [@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@xStrom]: https://github.com/xStrom
@@ -210,7 +242,26 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1639]: https://github.com/linebender/vello/pull/1639
 [#1659]: https://github.com/linebender/vello/pull/1659
 [#1668]: https://github.com/linebender/vello/pull/1668
+[#1666]: https://github.com/linebender/vello/pull/1666
+[#1671]: https://github.com/linebender/vello/pull/1671
 [#1673]: https://github.com/linebender/vello/pull/1673
+[#1674]: https://github.com/linebender/vello/pull/1674
+[#1682]: https://github.com/linebender/vello/pull/1682
+[#1683]: https://github.com/linebender/vello/pull/1683
+[#1690]: https://github.com/linebender/vello/pull/1690
+[#1691]: https://github.com/linebender/vello/pull/1691
+[#1697]: https://github.com/linebender/vello/pull/1697
+[#1715]: https://github.com/linebender/vello/pull/1715
+[#1720]: https://github.com/linebender/vello/pull/1720
+[#1726]: https://github.com/linebender/vello/pull/1726
+[#1734]: https://github.com/linebender/vello/pull/1734
+[#1735]: https://github.com/linebender/vello/pull/1735
+[#1747]: https://github.com/linebender/vello/pull/1747
+[#1750]: https://github.com/linebender/vello/pull/1750
+[#1757]: https://github.com/linebender/vello/pull/1757
+[#1759]: https://github.com/linebender/vello/pull/1759
+[#1760]: https://github.com/linebender/vello/pull/1760
+[#1763]: https://github.com/linebender/vello/pull/1763
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9

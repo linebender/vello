@@ -12,6 +12,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- Support for gradient interpolation in the unpremultiplied alpha space. ([#1268][] by [@sagudev][])
+
+### Fixed
+
+- Rendering scenes whose binning requires more than 256 bins. ([#1700][] by [@b0nes164][])
+
 ## [0.9.0][] - 2026-05-15
 
 This release has an [MSRV][] of 1.88.
@@ -308,6 +316,7 @@ This release has an [MSRV][] of 1.75.
 [@raphlinus]: https://github.com/raphlinus
 [@ArthurCose]: https://github.com/ArthurCose
 [@armansito]: https://github.com/armansito
+[@b0nes164]: https://github.com/b0nes164
 [@cfagot]: https://github.com/cfagot
 [@Cupnfish]: https://github.com/Cupnfish
 [@DasLixou]: https://github.com/DasLixou
@@ -422,6 +431,7 @@ This release has an [MSRV][] of 1.75.
 [#1192]: https://github.com/linebender/vello/pull/1192
 [#1224]: https://github.com/linebender/vello/pull/1224
 [#1229]: https://github.com/linebender/vello/pull/1229
+[#1268]: https://github.com/linebender/vello/pull/1268
 [#1273]: https://github.com/linebender/vello/pull/1273
 [#1280]: https://github.com/linebender/vello/pull/1280
 [#1323]: https://github.com/linebender/vello/pull/1323
@@ -439,6 +449,7 @@ This release has an [MSRV][] of 1.75.
 [#1637]: https://github.com/linebender/vello/pull/1637
 [#1638]: https://github.com/linebender/vello/pull/1638
 [#1643]: https://github.com/linebender/vello/pull/1643
+[#1700]: https://github.com/linebender/vello/pull/1700
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.9.0...HEAD
 [0.9.0]: https://github.com/linebender/vello/compare/v0.8.0...v0.9.0
