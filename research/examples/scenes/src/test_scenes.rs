@@ -2048,7 +2048,7 @@ mod impls {
             palette::css::BLACK,
             radius,
             std_dev,
-            true,
+            false,
         );
     }
 
