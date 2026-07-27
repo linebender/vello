@@ -1857,3 +1857,166 @@ fn filter_with_inner_clip_that_stays_alive(ctx: &mut impl Renderer) {
     ctx.fill_rect(&viewport);
     ctx.pop_clip_path();
 }
+
+#[vello_test(
+    skip_multithreaded,
+    width = 600,
+    height = 450,
+    cpu_u8_tolerance = 1,
+    hybrid_tolerance = 2
+)]
+fn filter_expansion_grid(ctx: &mut impl Renderer) {
+    #[derive(Clone, Copy)]
+    enum ExpansionFilter {
+        Blur {
+            std_deviation: f32,
+        },
+        DropShadow {
+            dx: f32,
+            dy: f32,
+            std_deviation: f32,
+            shadow_only: bool,
+        },
+    }
+
+    #[derive(Clone, Copy)]
+    struct ExpansionCase {
+        filter: ExpansionFilter,
+        rotation_degrees: f64,
+        scale: (f64, f64),
+    }
+
+    const fn expansion_blur(
+        std_deviation: f32,
+        rotation_degrees: f64,
+        scale: (f64, f64),
+    ) -> ExpansionCase {
+        ExpansionCase {
+            filter: ExpansionFilter::Blur { std_deviation },
+            rotation_degrees,
+            scale,
+        }
+    }
+
+    const fn expansion_shadow(
+        dx: f32,
+        dy: f32,
+        std_deviation: f32,
+        shadow_only: bool,
+        rotation_degrees: f64,
+        scale: (f64, f64),
+    ) -> ExpansionCase {
+        ExpansionCase {
+            filter: ExpansionFilter::DropShadow {
+                dx,
+                dy,
+                std_deviation,
+                shadow_only,
+            },
+            rotation_degrees,
+            scale,
+        }
+    }
+
+    fn draw_expansion_case(ctx: &mut impl Renderer, case: ExpansionCase, center: (f64, f64)) {
+        const RADIUS: f64 = 16.0;
+        const CONTENT_BOUNDS: Rect = Rect::new(-RADIUS, -RADIUS, RADIUS, RADIUS);
+
+        let filter = match case.filter {
+            ExpansionFilter::Blur { std_deviation } => {
+                Filter::from_primitive(FilterPrimitive::GaussianBlur {
+                    std_deviation,
+                    edge_mode: EdgeMode::None,
+                })
+            }
+            ExpansionFilter::DropShadow {
+                dx,
+                dy,
+                std_deviation,
+                shadow_only,
+            } => {
+                let color = AlphaColor::from_rgba8(0, 0, 0, 180);
+                let primitive = if shadow_only {
+                    FilterPrimitive::DropShadowOnly {
+                        dx,
+                        dy,
+                        std_deviation,
+                        color,
+                        edge_mode: EdgeMode::None,
+                    }
+                } else {
+                    FilterPrimitive::DropShadow {
+                        dx,
+                        dy,
+                        std_deviation,
+                        color,
+                        edge_mode: EdgeMode::None,
+                    }
+                };
+                Filter::from_primitive(primitive)
+            }
+        };
+
+        let transform = Affine::translate(center)
+            * Affine::rotate(case.rotation_degrees.to_radians())
+            * Affine::scale_non_uniform(case.scale.0, case.scale.1);
+
+        let circle = Circle::new((0.0, 0.0), RADIUS).to_path(0.1);
+
+        ctx.set_transform(transform);
+        ctx.push_filter_layer(filter.clone());
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_path(&circle);
+        ctx.pop_layer();
+
+        let content_bounds = transform.transform_rect_bbox(CONTENT_BOUNDS);
+        let expand = |expansion: Rect| {
+            Rect::new(
+                content_bounds.x0 + expansion.x0,
+                content_bounds.y0 + expansion.y0,
+                content_bounds.x1 + expansion.x1,
+                content_bounds.y1 + expansion.y1,
+            )
+        };
+        let source_bounds = expand(filter.source_expansion(&transform));
+        let filter_bounds = expand(filter.filter_expansion(&transform));
+
+        ctx.set_transform(Affine::IDENTITY);
+
+        ctx.set_stroke(Stroke::new(0.75));
+        ctx.set_paint(RED);
+        ctx.stroke_path(&source_bounds.to_path(0.1));
+        ctx.set_stroke(Stroke::new(0.75));
+        ctx.set_paint(GREEN);
+        ctx.stroke_path(&filter_bounds.to_path(0.1));
+    }
+
+    const CASES: [ExpansionCase; 12] = [
+        expansion_blur(1.0, 0.0, (1.0, 1.0)),
+        expansion_blur(4.0, 0.0, (1.0, 1.0)),
+        expansion_blur(8.0, 0.0, (1.0, 1.0)),
+        expansion_shadow(0.0, 0.0, 4.0, false, 0.0, (1.0, 1.0)),
+        expansion_shadow(16.0, 0.0, 2.0, false, 0.0, (1.0, 1.0)),
+        expansion_shadow(0.0, 16.0, 4.0, false, 0.0, (1.0, 1.0)),
+        expansion_shadow(-16.0, -12.0, 6.0, false, 0.0, (1.0, 1.0)),
+        expansion_shadow(14.0, -14.0, 3.0, false, 0.0, (1.0, 1.0)),
+        expansion_blur(5.0, 30.0, (1.0, 1.0)),
+        expansion_shadow(16.0, 8.0, 4.0, false, 0.0, (1.35, 0.65)),
+        expansion_shadow(-14.0, 12.0, 5.0, true, -30.0, (1.0, 1.0)),
+        expansion_shadow(12.0, 16.0, 7.0, true, 45.0, (0.75, 1.25)),
+    ];
+
+    const COLUMNS: usize = 4;
+    const CELL_WIDTH: f64 = 150.0;
+    const CELL_HEIGHT: f64 = 150.0;
+
+    for (index, case) in CASES.into_iter().enumerate() {
+        let column = index % COLUMNS;
+        let row = index / COLUMNS;
+        let center = (
+            (column as f64 + 0.5) * CELL_WIDTH,
+            (row as f64 + 0.5) * CELL_HEIGHT,
+        );
+        draw_expansion_case(ctx, case, center);
+    }
+}

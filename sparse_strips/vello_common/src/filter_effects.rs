@@ -578,8 +578,7 @@ impl FilterPrimitive {
     pub fn filter_expansion(&self) -> Rect {
         match self {
             Self::GaussianBlur { std_deviation, .. } => {
-                // Gaussian blur expands uniformly by 3*sigma (covers 99.7% of distribution)
-                let radius = (*std_deviation * 3.0) as f64;
+                let radius = blur_radius(*std_deviation);
                 Rect::new(-radius, -radius, radius, radius)
             }
             Self::Offset { dx, dy } => {
@@ -600,16 +599,15 @@ impl FilterPrimitive {
                 dy,
                 ..
             } => {
-                // The expansion rect encompasses both the blur and the offset.
-                let blur_radius = (*std_deviation * 3.0) as f64;
-                let dx = *dx as f64;
-                let dy = *dy as f64;
+                let blur_radius = blur_radius(*std_deviation);
+                let dx = f64::from(*dx);
+                let dy = f64::from(*dy);
 
                 Rect::new(
-                    -(blur_radius + (-dx).max(0.0)),
-                    -(blur_radius + (-dy).max(0.0)),
-                    blur_radius + dx.max(0.0),
-                    blur_radius + dy.max(0.0),
+                    (dx - blur_radius).min(0.0),
+                    (dy - blur_radius).min(0.0),
+                    (dx + blur_radius).max(0.0),
+                    (dy + blur_radius).max(0.0),
                 )
             }
             // Most other filters don't expand bounds
@@ -620,19 +618,47 @@ impl FilterPrimitive {
     /// The source expansion of the primitive, see [`Filter::source_expansion`].
     pub fn source_expansion(&self) -> Rect {
         match self {
-            Self::Offset { dx, dy }
-            | Self::DropShadow { dx, dy, .. }
-            | Self::DropShadowOnly { dx, dy, .. } => {
+            Self::Offset { dx, dy } => {
                 self.filter_expansion() - Vec2::new(f64::from(*dx), f64::from(*dy))
+            }
+            Self::DropShadow {
+                std_deviation,
+                dx,
+                dy,
+                ..
+            }
+            | Self::DropShadowOnly {
+                std_deviation,
+                dx,
+                dy,
+                ..
+            } => {
+                let blur_radius = blur_radius(*std_deviation);
+                let dx = -f64::from(*dx);
+                let dy = -f64::from(*dy);
+
+                Rect::new(
+                    (dx - blur_radius).min(0.0),
+                    (dy - blur_radius).min(0.0),
+                    (dx + blur_radius).max(0.0),
+                    (dy + blur_radius).max(0.0),
+                )
             }
             _ => self.filter_expansion(),
         }
     }
 }
 
+fn blur_radius(std_deviation: f32) -> f64 {
+    // Gaussian blur expands uniformly by 3*sigma (covers 99.7% of distribution)
+    f64::from(std_deviation * 3.0)
+}
+
 #[cfg(test)]
-mod offset_expansion_tests {
+mod expansion_tests {
     use super::FilterPrimitive;
+    use crate::color::palette::css::RED;
+    use crate::filter_effects::EdgeMode;
     use crate::kurbo::Rect;
 
     #[test]
@@ -643,6 +669,20 @@ mod offset_expansion_tests {
             Rect::new(0.0, -3.0, 2.5, 0.0),
             "Offset expansion should be asymmetric and include the shift vector"
         );
+    }
+
+    #[test]
+    fn drop_shadow_expansion_combines_blur_and_offset_tightly() {
+        let p = FilterPrimitive::DropShadow {
+            dx: 20.0,
+            dy: -10.0,
+            std_deviation: 8.0,
+            color: RED,
+            edge_mode: EdgeMode::None,
+        };
+
+        assert_eq!(p.filter_expansion(), Rect::new(-4.0, -34.0, 44.0, 14.0));
+        assert_eq!(p.source_expansion(), Rect::new(-44.0, -14.0, 4.0, 34.0));
     }
 }
 
