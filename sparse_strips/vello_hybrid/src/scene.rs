@@ -632,41 +632,19 @@ impl Scene {
 
     /// Fill a blurred rectangle with the given corner radius and standard deviation.
     ///
-    /// When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
-    /// paint is fully opaque outside the blurred rectangle and fades to transparent inside it. This
-    /// can be used to implement inset box shadows.
-    ///
     /// This operation uses the current transform and paint transform. Like Vello CPU, it only
     /// uses solid paints; non-solid paints fall back to black.
-    pub fn fill_blurred_rounded_rect(
-        &mut self,
-        rect: &Rect,
-        radius: f32,
-        std_dev: f32,
-        invert: bool,
-    ) {
+    pub fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
         if !self.paint_visible {
             return;
         }
 
         self.with_optional_filter_or_blend_layer(|ctx| {
             let rect = rect.abs();
-            let color = match ctx.render_state.paint {
-                PaintType::Solid(s) => s,
-                _ => BLACK,
-            };
-            let blurred_rect = BlurredRoundedRectangle {
-                rect,
-                color,
-                radius,
-                std_dev,
-                invert,
-            };
+            let paint = ctx.encode_blurred_rounded_rect(rect, radius, std_dev, false);
 
             let kernel_size = 2.5 * std_dev;
             let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-            let transform = ctx.effective_paint_transform();
-            let paint = blurred_rect.encode_into(&mut ctx.encoded_paints, transform, None);
 
             if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
                 ctx.recorder
@@ -694,6 +672,72 @@ impl Scene {
                 );
             }
         });
+    }
+
+    /// Fill `path` with a blurred rounded rectangle with the given corner radius and standard
+    /// deviation.
+    ///
+    /// This effectively draws the blurred rounded rectangle clipped to `path`. If just the blurred
+    /// rounded rectangle is desired without clipping, use the simpler
+    /// [`Self::fill_blurred_rounded_rect`], which will be easier to use for many users.
+    ///
+    /// For performance reasons, `path` should not extend more than approximately 2.5 times
+    /// `std_dev` away from the edges of `rect` (as any such points will not be perceptably painted
+    /// to, but calculations will still be performed for them).
+    ///
+    /// `path` is filled using the current fill rule.
+    ///
+    /// When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
+    /// paint is fully opaque outside the blurred rectangle and fades to transparent inside it. This
+    /// can be used to implement inset box shadows.
+    ///
+    /// This operation uses the current transform and paint transform. Like Vello CPU, it only
+    /// uses solid paints; non-solid paints fall back to black.
+    pub fn fill_blurred_rounded_rect_in(
+        &mut self,
+        path: &BezPath,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+        invert: bool,
+    ) {
+        if !self.paint_visible {
+            return;
+        }
+
+        self.with_optional_filter_or_blend_layer(|ctx| {
+            let paint = ctx.encode_blurred_rounded_rect(rect.abs(), radius, std_dev, invert);
+            ctx.fill_path_with(
+                path,
+                ctx.effective_path_transform(),
+                ctx.render_state.fill_rule,
+                paint,
+                ctx.aliasing_threshold,
+            );
+        });
+    }
+
+    fn encode_blurred_rounded_rect(
+        &mut self,
+        rect: Rect,
+        radius: f32,
+        std_dev: f32,
+        invert: bool,
+    ) -> Paint {
+        let color = match self.render_state.paint {
+            PaintType::Solid(s) => s,
+            _ => BLACK,
+        };
+        let blurred_rect = BlurredRoundedRectangle {
+            rect,
+            color,
+            radius,
+            std_dev,
+            invert,
+        };
+
+        let transform = self.effective_paint_transform();
+        blurred_rect.encode_into(&mut self.encoded_paints, transform, None)
     }
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
