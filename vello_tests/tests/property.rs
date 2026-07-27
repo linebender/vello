@@ -112,9 +112,12 @@ fn blurred_rounded_rect_invert(use_cpu: bool) {
     let radius = 0.0;
     let std_dev = 5.0;
 
+    let shape = rect.inflate(rect.origin().x.abs(), rect.origin().y.abs());
+
     let render = |invert: bool| {
         let mut scene = Scene::new();
-        scene.draw_blurred_rounded_rect(
+        scene.draw_blurred_rounded_rect_in(
+            &shape,
             Affine::IDENTITY,
             rect,
             palette::css::BLACK,

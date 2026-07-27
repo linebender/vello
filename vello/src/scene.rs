@@ -253,10 +253,6 @@ impl Scene {
     }
 
     /// Draw a rounded rectangle blurred with a gaussian filter.
-    ///
-    /// When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
-    /// brush is fully opaque outside the blurred rounded rectangle and fades to transparent inside
-    /// it. This can be used to implement inset box shadows.
     pub fn draw_blurred_rounded_rect(
         &mut self,
         transform: Affine,
@@ -264,25 +260,13 @@ impl Scene {
         brush: Color,
         radius: f64,
         std_dev: f64,
-        invert: bool,
     ) {
-        let inflated_rect = if invert {
-            rect.inflate(rect.origin().x.abs(), rect.origin().y.abs())
-        } else {
-            // The impulse response of a gaussian filter is infinite.
-            // For performance reason we cut off the filter at some extent where the response is close to zero.
-            let kernel_size = 2.5 * std_dev;
-            rect.inflate(kernel_size, kernel_size)
-        };
-        self.draw_blurred_rounded_rect_in(
-            &inflated_rect,
-            transform,
-            rect,
-            brush,
-            radius,
-            std_dev,
-            invert,
-        );
+        // The impulse response of a gaussian filter is infinite.
+        // For performance reason we cut off the filter at some extent where the response is close to zero.
+        let kernel_size = 2.5 * std_dev;
+
+        let shape: Rect = rect.inflate(kernel_size, kernel_size);
+        self.draw_blurred_rounded_rect_in(&shape, transform, rect, brush, radius, std_dev, false);
     }
 
     /// Draw a rounded rectangle blurred with a gaussian filter in `shape`.
