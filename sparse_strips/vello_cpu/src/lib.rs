@@ -57,9 +57,9 @@
 //! assert_eq!(&result, expected_render);
 //! ```
 //!
-//! Feel free to take a look at some further
+//! See the
 //! [examples](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
-//! to better understand how to interact with Vello CPU's API,
+//! for more complete demonstrations of Vello CPU's API.
 //!
 //! # Features
 //!
@@ -82,20 +82,26 @@
 //! You might choose to disable one of these pipelines if your application
 //! won't use it, so as to reduce binary size.
 //!
-//! # Caveats
+//! # Current state
 //!
-//! Overall, Vello CPU is already very feature-rich and should be ready for
-//! production use cases. The main caveat at the moment is that the API is
-//! still likely to change and not stable yet. For example, we have
-//! known plans to change the API around how image resources are used.
+//! Vello CPU is a solid CPU-only 2D renderer with broad, reliable feature
+//! support. It provides excellent performance across a wide range of workloads,
+//! with optimized SIMD implementations for all major architectures. The
+//! renderer is still under active development, however, and a few limitations
+//! remain:
 //!
-//! Additionally, there are certain APIs that are still very much experimental,
-//! including for example support for filters. This will be reflected in the
-//! documentation of those APIs.
+//! - Some features are not yet supported and may panic, including filters during multi-threaded
+//!   rendering and complex filter graphs.
+//! - Parts of the API and its documentation are still suboptimal, for example 
+//!   the [`Resources`][] lifecycle. 
+//! - Some exposed features remain experimental and are not recommended for use, 
+//!   including glyph caching. Experimental APIs are identified in their method 
+//!   documentation.
+//! - There is still more room for performance improvements, in particular on
+//!   x86 systems and also for multi-threaded rendering.
 //!
-//! Another caveat is that multi-threading with large thread counts
-//! (more than 4) might give diminishing returns, especially when
-//! making heavy use of layers and clip paths.
+//! With that said, we are continuously improving Vello CPU and will address 
+//! these and other limitations in future releases.
 //!
 //! # Performance
 //!

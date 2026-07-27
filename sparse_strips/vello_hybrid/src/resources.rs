@@ -11,6 +11,8 @@ use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasConfig;
 
 /// Persistent resources required by Vello Hybrid for rendering.
+///
+/// You should create one such instance per renderer.
 #[derive(Debug)]
 pub struct Resources {
     pub(crate) image_cache: ImageCache,

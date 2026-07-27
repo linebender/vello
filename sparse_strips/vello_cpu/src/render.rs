@@ -57,6 +57,8 @@ pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 pub(crate) const ATLAS_IMAGE_ID_BASE: u32 = u32::MAX / 2;
 
 /// Persistent resources required by Vello CPU for rendering.
+///
+/// You should create one such instance per renderer.
 #[derive(Debug, Default)]
 pub struct Resources {
     pub(crate) image_registry: ImageRegistry,
@@ -459,6 +461,10 @@ impl RenderContext {
     /// Note that the mask, if provided, needs to have the same size as the render context. Otherwise,
     /// it will be ignored. In addition to that, the mask will not be affected by the current
     /// transformation matrix in place.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `filter` is provided when this context uses multi-threaded rendering.
     pub fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -539,6 +545,10 @@ impl RenderContext {
     /// WARNING: Note that filters are currently incomplete and experimental. In
     /// particular, they will lead to a panic when used in combination with
     /// multi-threaded rendering.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this context uses multi-threaded rendering.
     pub fn push_filter_layer(&mut self, filter: Filter) {
         self.push_layer(None, None, None, None, Some(filter));
     }
@@ -677,6 +687,9 @@ impl RenderContext {
     ///
     /// This sets a filter that will be applied to the next drawn element.
     /// To apply a filter to multiple elements, use `push_filter_layer` instead.
+    /// # Panics
+    ///
+    /// When this context uses multi-threaded rendering.
     pub fn set_filter_effect(&mut self, filter: Filter) {
         self.filter = Some(filter);
     }

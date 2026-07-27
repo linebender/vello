@@ -498,6 +498,8 @@ impl Scene {
     /// [source regions][`SampleRect::source_region`] must be within bounds of that texture. The
     /// texture is treated as premultiplied alpha in the render target's color space. See the
     /// backend's binding type for more information on texture requirements.
+    ///
+    /// This operation is currently only supported for the wgpu backend.
     pub fn draw_texture_rects(
         &mut self,
         texture_id: TextureId,
@@ -716,6 +718,10 @@ impl Scene {
     }
 
     /// Push a new layer with the given properties.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `mask` is provided because mask layers are not yet supported.
     pub fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -798,7 +804,9 @@ impl Scene {
 
     /// Push a new mask layer.
     ///
-    /// Note that masks are not yet supported in `vello_hybrid`.
+    /// # Panics
+    ///
+    /// This method currently always panics since masks are not supported yet.
     pub fn push_mask_layer(&mut self, mask: Mask) {
         self.push_layer(None, None, None, Some(mask), None);
     }

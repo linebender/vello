@@ -39,6 +39,31 @@
 //! - `Renderer` or `WebGlRenderer`: Handles GPU resource management and executes draw operations
 //!
 //! See the individual module documentation for more details on usage and implementation.
+//!
+//! # Current state
+//!
+//! Vello Hybrid is a solid GPU-accelerated 2D renderer with broad, reliable 
+//! feature support. Although it does not match Vello Classic's raw performance 
+//! on dynamic and vector-heavy workloads, it provides excellent performance 
+//! on workloads that benefit from GPU acceleration, such as images,
+//! gradients, and filters. Overall, we still consider it to be slightly less 
+//! mature than its CPU-only counterpart Vello CPU.
+//!
+//! Vello Hybrid remains under active development. Known limitations include:
+//!
+//! - Some features are not yet supported and may panic, including mask layers 
+//!   and complex filter graphs.
+//! - Parts of the API and its documentation are still suboptimal, for example
+//!   the lifecycle and ownership of external resources through [`Resources`][].
+//! - Some exposed features remain experimental and are not recommended for use, 
+//!   including glyph caching. Experimental APIs are identified in their method 
+//!   documentation.
+//! - Parts of the rendering pipeline are not yet fully optimized, particularly 
+//!   the wgpu backend, but also other aspects.
+//! - Some failures panic instead of being reported through a user-facing error.
+//!
+//! With that said, we are continuously improving Vello Hybrid and will address
+//! these and other limitations in future releases.
 
 #![no_std]
 
