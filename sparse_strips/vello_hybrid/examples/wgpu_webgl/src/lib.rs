@@ -241,7 +241,7 @@ impl AppState {
         self.width = width;
         self.height = height;
 
-        self.scene = Scene::new(width as u16, height as u16);
+        self.scene.reset_and_resize(width as u16, height as u16);
         self.renderer_wrapper.resize(width, height);
 
         self.need_render = true;

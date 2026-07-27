@@ -934,6 +934,14 @@ impl Scene {
         }
     }
 
+    /// Reset the scene and update its size.
+    pub fn reset_and_resize(&mut self, width: u16, height: u16) {
+        self.width = width;
+        self.height = height;
+
+        self.reset();
+    }
+
     /// Reset scene to default values.
     pub fn reset(&mut self) {
         self.viewport_state.reset(self.width, self.height);
@@ -1020,6 +1028,25 @@ mod tests {
         scene.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
 
         assert_eq!(scene.recorder.draws.len(), 1);
+    }
+
+    #[test]
+    fn reset_and_resize_updates_scene_size() {
+        let mut scene = Scene::new(8, 4);
+
+        scene.reset_and_resize(4, 8);
+        assert_eq!(scene.width(), 4);
+        assert_eq!(scene.height(), 8);
+        assert_eq!(scene.recorder.scene_size.width(), 4);
+        assert_eq!(scene.recorder.scene_size.height(), 8);
+
+        scene.set_paint(BLUE);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 8.0, 8.0));
+
+        let RecordedDraw::Rect(rect) = &scene.recorder.draws[0] else {
+            panic!("expected a recorded rectangle");
+        };
+        assert_eq!(rect.rect, Rect::new(0.0, 0.0, 4.0, 8.0));
     }
 
     #[test]
