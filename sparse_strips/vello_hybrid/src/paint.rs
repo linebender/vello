@@ -18,7 +18,7 @@ const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
 const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5;
 
-// See the layout information in `render.wgsl`.
+// See the layout information in `render.wesl`.
 pub(crate) const COLOR_SOURCE_SHIFT: u32 = 29;
 const PAINT_TYPE_SHIFT: u32 = 26;
 const PAINT_TEXTURE_INDEX_MASK: u32 = (1 << PAINT_TYPE_SHIFT) - 1;
