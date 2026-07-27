@@ -356,23 +356,23 @@ pub struct Config {
 /// A GPU strip instance for rendering.
 ///
 /// This struct corresponds to the `StripInstance` struct in the shader.
-/// See the `StripInstance` documentation in `render.wgsl` for detailed field descriptions.
+/// See the `StripInstance` documentation in `render.wesl` for detailed field descriptions.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub struct GpuStrip {
-    /// See `StripInstance::xy` documentation in `render.wgsl`.
+    /// See `StripInstance::xy` documentation in `render.wesl`.
     pub x: u16,
-    /// See `StripInstance::xy` documentation in `render.wgsl`.
+    /// See `StripInstance::xy` documentation in `render.wesl`.
     pub y: u16,
-    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wgsl`.
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wesl`.
     pub width: u16,
-    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wgsl`.
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wesl`.
     pub dense_width_or_rect_height: u16,
-    /// See `StripInstance::col_idx_or_rect_frac` documentation in `render.wgsl`.
+    /// See `StripInstance::col_idx_or_rect_frac` documentation in `render.wesl`.
     pub col_idx_or_rect_frac: u32,
-    /// See `StripInstance::payload` documentation in `render.wgsl`.
+    /// See `StripInstance::payload` documentation in `render.wesl`.
     pub payload: u32,
-    /// See `StripInstance::paint_and_rect_flag` documentation in `render.wgsl`.
+    /// See `StripInstance::paint_and_rect_flag` documentation in `render.wesl`.
     pub paint_and_rect_flag: u32,
     /// Painter's-order index used to compute z-depth for early-z rejection in shader.
     /// In other words, the back-most draw has index 0 and every additional draw in front

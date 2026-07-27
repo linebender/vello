@@ -1,0 +1,3 @@
+edition = "2026_pre"
+root = "./shaders"
+include = ["./shaders/**/*.wesl"]
