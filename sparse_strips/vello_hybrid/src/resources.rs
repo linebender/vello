@@ -26,6 +26,21 @@ impl Resources {
         Self::new_with_config(AtlasConfig::default())
     }
 
+    /// Returns the CPU-side image cache for debugging.
+    #[doc(hidden)]
+    pub fn debug_image_cache(&self) -> &ImageCache {
+        &self.image_cache
+    }
+
+    /// Returns the glyph atlas cache for debugging, if it has been initialized.
+    #[cfg(feature = "text")]
+    #[doc(hidden)]
+    pub fn debug_glyph_atlas(&self) -> Option<&glifo::GlyphAtlas> {
+        self.glyph_resources
+            .as_ref()
+            .map(|resources| &resources.glyph_atlas)
+    }
+
     /// Create a new set of renderer resources with a custom image/glyph atlas configuration.
     ///
     /// This should match the

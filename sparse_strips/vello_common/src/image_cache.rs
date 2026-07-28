@@ -175,6 +175,12 @@ impl ImageCache {
         &self.atlas_manager
     }
 
+    /// Returns the raw image-resource slots for debugging.
+    #[doc(hidden)]
+    pub fn debug_slots(&self) -> &[Option<ImageResource>] {
+        &self.slots
+    }
+
     /// Get the number of atlases.
     pub fn atlas_count(&self) -> usize {
         self.atlas_manager.atlas_count()
