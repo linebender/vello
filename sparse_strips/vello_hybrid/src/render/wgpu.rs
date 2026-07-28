@@ -690,14 +690,14 @@ impl Renderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
-                        let image_resource: Option<&ImageResource> = image_cache.get(image_id);
-                        if let Some(image_resource) = image_resource {
-                            let image_paint = self.encode_image_paint(img, image_resource);
-                            self.encoded_paints[encoded_paint_idx] = image_paint;
-                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
-                        }
-                    }
+                    let ImageSource::OpaqueId { id: image_id, .. } = img.source else {
+                        panic!("pixmap image sources are not supported by Vello Hybrid");
+                    };
+
+                    let image_resource = image_cache.get(image_id).unwrap();
+                    let image_paint = self.encode_image_paint(img, image_resource);
+                    self.encoded_paints[encoded_paint_idx] = image_paint;
+                    current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                 }
                 EncodedPaint::ExternalTexture(img) => {
                     if texture_bindings.get(img.texture_id).is_none() {

@@ -651,14 +651,14 @@ impl WebGlRenderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
-                        let image_resource: Option<&ImageResource> = image_cache.get(image_id);
-                        if let Some(image_resource) = image_resource {
-                            let gpu_image = self.encode_image_paint(img, image_resource);
-                            self.encoded_paints[encoded_paint_idx] = gpu_image;
-                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
-                        }
-                    }
+                    let ImageSource::OpaqueId { id: image_id, .. } = img.source else {
+                        panic!("pixmap image sources are not supported by Vello Hybrid");
+                    };
+                    
+                    let image_resource = image_cache.get(image_id).unwrap();
+                    let gpu_image = self.encode_image_paint(img, image_resource);
+                    self.encoded_paints[encoded_paint_idx] = gpu_image;
+                    current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                 }
                 EncodedPaint::Gradient(gradient) => {
                     let (gradient_start, gradient_width) =
