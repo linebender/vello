@@ -93,6 +93,10 @@ pub enum RenderError {
     /// A draw referenced a [`TextureId`] that was not provided at render time.
     #[error("Missing texture binding for {0:?}")]
     MissingTextureBinding(TextureId),
+    /// WebGL reported an error after rendering completed.
+    #[cfg(feature = "webgl")]
+    #[error("WebGL error: {}", render::webgl_error_name(*.0))]
+    WebGlError(u32),
     // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 

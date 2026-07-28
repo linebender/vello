@@ -50,9 +50,7 @@ use crate::{
         RootTarget, TextureParity,
     },
 };
-use alloc::sync::Arc;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{borrow::Cow, format, sync::Arc, vec, vec::Vec};
 use core::fmt::Debug;
 #[cfg(feature = "text")]
 use glifo::{GLYPH_PADDING, PendingClearRect};
@@ -76,6 +74,21 @@ use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
     WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
+
+pub(crate) fn webgl_error_name(error: u32) -> Cow<'static, str> {
+    let name = match error {
+        WebGl2RenderingContext::NO_ERROR => "NO_ERROR",
+        WebGl2RenderingContext::INVALID_ENUM => "INVALID_ENUM",
+        WebGl2RenderingContext::INVALID_VALUE => "INVALID_VALUE",
+        WebGl2RenderingContext::INVALID_OPERATION => "INVALID_OPERATION",
+        WebGl2RenderingContext::INVALID_FRAMEBUFFER_OPERATION => "INVALID_FRAMEBUFFER_OPERATION",
+        WebGl2RenderingContext::OUT_OF_MEMORY => "OUT_OF_MEMORY",
+        WebGl2RenderingContext::CONTEXT_LOST_WEBGL => "CONTEXT_LOST_WEBGL",
+        _ => return Cow::Owned(format!("UNKNOWN_WEBGL_ERROR ({error:#06x})")),
+    };
+
+    Cow::Borrowed(name)
+}
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -297,6 +310,14 @@ impl WebGlRenderer {
             resources.after_render(self, |renderer, rect| {
                 clear_atlas_region(renderer, rect);
             });
+        }
+
+        // Note that this might yield errors that existed before Vello started
+        // rendering, but still better to err on the side of caution and return
+        // an error if there is one.
+        let webgl_error = self.gl.get_error();
+        if webgl_error != WebGl2RenderingContext::NO_ERROR {
+            return Err(RenderError::WebGlError(webgl_error));
         }
 
         Ok(())

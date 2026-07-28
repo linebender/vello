@@ -5,11 +5,11 @@ use crate::render::common::IMAGE_PADDING;
 use crate::render::webgl::resource::Framebuffer;
 use crate::render::webgl::{
     WebGlStateConfig, WebGlStateGuard, create_atlas_texture_array, create_framebuffer_for_texture,
-    create_texture,
+    create_texture, webgl_error_name,
 };
 use crate::target::RootTarget;
 use crate::{RenderError, RenderSize, Scene, WebGlRenderer};
-use alloc::{borrow::Cow, format, sync::Arc};
+use alloc::sync::Arc;
 use core::ops::Deref;
 use thiserror::Error;
 use vello_common::filter_effects::Filter;
@@ -252,21 +252,6 @@ impl WebGlPendingProbe {
     fn finish_failure(&self) -> WebGlProbeError {
         WebGlProbeError::FinishFailed(self.gl.get_error())
     }
-}
-
-fn webgl_error_name(error: u32) -> Cow<'static, str> {
-    let name = match error {
-        WebGl2RenderingContext::NO_ERROR => "NO_ERROR",
-        WebGl2RenderingContext::INVALID_ENUM => "INVALID_ENUM",
-        WebGl2RenderingContext::INVALID_VALUE => "INVALID_VALUE",
-        WebGl2RenderingContext::INVALID_OPERATION => "INVALID_OPERATION",
-        WebGl2RenderingContext::INVALID_FRAMEBUFFER_OPERATION => "INVALID_FRAMEBUFFER_OPERATION",
-        WebGl2RenderingContext::OUT_OF_MEMORY => "OUT_OF_MEMORY",
-        WebGl2RenderingContext::CONTEXT_LOST_WEBGL => "CONTEXT_LOST_WEBGL",
-        _ => return Cow::Owned(format!("UNKNOWN_WEBGL_ERROR ({error:#06x})")),
-    };
-
-    Cow::Borrowed(name)
 }
 
 impl Drop for WebGlPendingProbe {

@@ -5,7 +5,8 @@
 
 use vello_common::pixmap::Pixmap;
 use vello_hybrid::{
-    AtlasConfig, AtlasTextureInfo, MemorySettings, RenderSettings, Resources, WebGlRenderer,
+    AtlasConfig, AtlasTextureInfo, MemorySettings, RenderError, RenderSettings, RenderSize,
+    Resources, Scene, WebGlRenderer,
 };
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
@@ -68,6 +69,36 @@ fn image_atlas_placeholder_is_promoted_on_first_upload() {
         WebGl2RenderingContext::NO_ERROR,
         "first atlas upload should not produce a WebGL error"
     );
+}
+
+#[wasm_bindgen_test]
+fn render_returns_queued_webgl_error() {
+    let document = web_sys::window().unwrap().document().unwrap();
+    let canvas = document
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into::<HtmlCanvasElement>()
+        .unwrap();
+    canvas.set_width(100);
+    canvas.set_height(100);
+
+    let mut renderer = WebGlRenderer::new(&canvas);
+    let mut resources = Resources::new();
+    let scene = Scene::new(100, 100);
+    let render_size = RenderSize {
+        width: 100,
+        height: 100,
+    };
+
+    renderer.gl_context().enable(u32::MAX);
+
+    let error = renderer
+        .render(&scene, &mut resources, &render_size)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        RenderError::WebGlError(WebGl2RenderingContext::INVALID_ENUM)
+    ));
 }
 
 /// Uploading an image that is larger than the configured atlas must fail with
