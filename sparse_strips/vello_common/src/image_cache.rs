@@ -4,7 +4,7 @@
 //! Image resource caching with multi-atlas allocation.
 //!
 //! This module provides an [`ImageCache`] that manages image resources across multiple texture
-//! atlases, supporting allocation, deallocation, and slot reuse.
+//! atlases, supporting allocation and deallocation.
 
 use crate::multi_atlas::{
     AllocId, AllocationStrategy, AtlasConfig, AtlasError, AtlasId, MultiAtlasManager,
@@ -122,13 +122,11 @@ impl ImageCache {
             exclude_atlas_id,
         )?;
 
-        let slot_idx = self.free_idxs.pop().unwrap_or_else(|| {
-            // No free slots, append to vector
-            let index = self.slots.len();
-            // Placeholder, will be replaced
-            self.slots.push(None);
-            index
-        });
+        // TEMPORARY DIAGNOSTIC: Do not reuse `free_idxs`. Keeping image IDs
+        // monotonically increasing helps identify stale scene/paint references
+        // that still point at a deallocated image ID.
+        let slot_idx = self.slots.len();
+        self.slots.push(None);
 
         let image_id = ImageId::new(slot_idx as u32);
         let image_resource = ImageResource {
@@ -289,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn test_slot_reuse_after_remove() {
+    fn test_slot_is_not_reused_after_remove() {
         let mut cache = ImageCache::new_with_config(AtlasConfig {
             atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
             ..Default::default()
@@ -308,10 +306,10 @@ mod tests {
         cache.deallocate(id2);
         assert!(cache.get(id2).is_none());
 
-        // Register a new image - should reuse slot 1
+        // Register a new image. IDs temporarily remain monotonic instead of
+        // reusing the freed slot 1.
         let id4 = cache.allocate(80, 80, 0).unwrap();
-        // Reused slot 1
-        assert_eq!(id4.as_u32(), 1);
+        assert_eq!(id4.as_u32(), 3);
 
         // Verify other images are still there
         assert!(cache.get(id1).is_some());
@@ -321,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_remove_and_reuse() {
+    fn test_multiple_removed_slots_are_not_reused() {
         let mut cache = ImageCache::new_with_config(AtlasConfig {
             atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
             ..Default::default()
@@ -336,13 +334,13 @@ mod tests {
         cache.deallocate(ids[1]);
         cache.deallocate(ids[3]);
 
-        // Register new images - should reuse the freed slots
+        // Register new images. The freed slots remain vacant so IDs continue
+        // increasing.
         let new_id1 = cache.allocate(200, 200, 0).unwrap();
         let new_id2 = cache.allocate(300, 300, 0).unwrap();
 
-        // Should have reused slots 3 and 1 (in reverse order due to stack behavior)
-        assert_eq!(new_id1.as_u32(), 3);
-        assert_eq!(new_id2.as_u32(), 1);
+        assert_eq!(new_id1.as_u32(), 5);
+        assert_eq!(new_id2.as_u32(), 6);
         assert_ne!(new_id1.as_u32(), new_id2.as_u32());
     }
 }
