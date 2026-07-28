@@ -121,17 +121,17 @@ with optimized SIMD implementations for all major architectures. The
 renderer is still under active development, however, and a few limitations
 remain:
 
-- Some features are not yet supported and may panic, including filters during multi-threaded
-  rendering and complex filter graphs.
-- Parts of the API and its documentation are still suboptimal, for example 
-  the [`Resources`][] lifecycle. 
-- Some exposed features remain experimental and are not recommended for use, 
-  including glyph caching. Experimental APIs are identified in their method 
+- Complex filter graphs are currently not supported at all and will panic.
+  In multi-threaded mode, even simple filters are currently unsupported.
+- Parts of the API and its documentation are still suboptimal, for example
+  the [`Resources`][] lifecycle.
+- Some exposed features remain experimental and are not recommended for use,
+  including glyph caching. Experimental APIs are identified in their method
   documentation.
 - There is still more room for performance improvements, in particular on
   x86 systems and also for multi-threaded rendering.
 
-With that said, we are continuously improving Vello CPU and will address 
+With that said, we are continuously improving Vello CPU and will address
 these and other limitations in future releases.
 
 ## Performance
