@@ -400,7 +400,7 @@ fn approx_parabola_inv_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
 #[inline(always)]
 fn pt_splat_simd<S: Simd>(simd: S, pt: Point32) -> f32x8<S> {
     let p_f64: f64 = bytemuck::cast(pt);
-    simd.reinterpret_f32_f64x4(f64x4::splat(simd, p_f64))
+    f64x4::splat(simd, p_f64).bitcast()
 }
 
 #[inline(always)]
@@ -419,12 +419,12 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
     );
 
     let split_single = |input: f32x4<S>| {
-        let t1 = simd.reinterpret_f64_f32x4(input);
+        let t1: f64x2<S> = input.bitcast();
         let p0 = simd.zip_low_f64x2(t1, t1);
         let p1 = simd.zip_high_f64x2(t1, t1);
 
-        let p0 = simd.reinterpret_f32_f64x2(p0);
-        let p1 = simd.reinterpret_f32_f64x2(p1);
+        let p0: f32x4<S> = p0.bitcast();
+        let p1: f32x4<S> = p1.bitcast();
 
         (f32x8::block_splat(p0), f32x8::block_splat(p1))
     };
