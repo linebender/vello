@@ -301,6 +301,9 @@ impl AtlasCacher<'_> {
 /// A backend for glyph run builders.
 pub trait GlyphRunBackend<'a>: Sized {
     /// Enable or disable atlas-backed glyph caching for the glyph run.
+    ///
+    /// **Note: Atlas caching is currently highly experimental and not
+    /// recommended for external use.**
     fn atlas_cache(self, enabled: bool) -> Self;
 
     /// Fill the given glyph sequence using the configured builder state.
@@ -936,6 +939,9 @@ where
     B: GlyphRunBackend<'a>,
 {
     /// Enable or disable the glyph atlas cache.
+    ///
+    /// **Note: Atlas caching is currently highly experimental and not
+    /// recommended for external use.**
     pub fn atlas_cache(self, enabled: bool) -> Self {
         Self {
             run: self.run,
