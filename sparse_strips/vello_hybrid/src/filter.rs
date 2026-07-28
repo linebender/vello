@@ -23,11 +23,11 @@ use vello_common::util::RetainVec;
 /// do use checked accesses for the offset filter, the bottleneck is formed by the gaussian blur
 /// convolution.
 ///
-/// Keep this in sync with `FILTER_ATLAS_PADDING` in `filter.wesl`!
+/// Keep this in sync with `FILTER_ATLAS_PADDING` in `filter.wgsl`!
 #[expect(clippy::cast_possible_truncation, reason = "safe in this case")]
 pub(crate) const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 
-// Note: Keep these variables and struct layouts in sync with `filter.wesl`!
+// Note: Keep these variables and struct layouts in sync with `filter.wgsl`!
 
 // Since we store in RGBA32 texture.
 const BYTES_PER_TEXEL: usize = 16;

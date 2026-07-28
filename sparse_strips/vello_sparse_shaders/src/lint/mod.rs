@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Lints for the WGSL output linked from WESL shaders.
+//! Lints for the WGSL shaders.
 //!
 //! [`lint`] is the entry point. Each individual pass lives in its own submodule
 //! under `lint::*` and exposes a `check(module: &Module) -> Option<LintReport>`.
@@ -32,7 +32,7 @@ pub(crate) fn lint(shader_name: &str, module: &Module) {
         return;
     }
 
-    let mut message = format!("`{shader_name}.wesl` failed shader lints:\n");
+    let mut message = format!("`{shader_name}.wgsl` failed shader lints:\n");
     for report in &reports {
         use std::fmt::Write as _;
         write!(
@@ -48,4 +48,27 @@ pub(crate) fn lint(shader_name: &str, module: &Module) {
         }
     }
     panic!("{message}");
+}
+
+#[cfg(test)]
+mod tests {
+    use naga::front::wgsl;
+
+    use super::*;
+
+    #[test]
+    fn every_shipped_shader_passes_the_lint() {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let shader_dir = manifest_dir.join("shaders");
+        let shaders =
+            crate::shader_info::load_shader_infos(&shader_dir).expect("load WGSL shaders");
+        assert!(
+            !shaders.is_empty(),
+            "expected at least one shader in {shader_dir:?}"
+        );
+        for shader in shaders {
+            let module = wgsl::parse_str(&shader.wgsl_source).expect("WGSL parses");
+            lint(&shader.name, &module);
+        }
+    }
 }

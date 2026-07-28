@@ -77,7 +77,7 @@ impl CompiledGlsl {
     /// identifier mappings are also generated from the wgsl identifier to the compiled naga
     /// identifier.
     pub(crate) fn to_generated_code(&self, shader_name: &str) -> String {
-        let mut code = format!("/// Compiled GLSL for `{shader_name}.wesl`.\n");
+        let mut code = format!("/// Compiled glsl for `{shader_name}.wgsl`\n");
         code.push_str(&format!("pub mod {shader_name} {{\n"));
         code.push_str(r#"    #![allow(missing_docs, reason="No metadata to generate precise documentation for generated code.")]"#);
         code.push_str("\n\n");

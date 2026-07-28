@@ -8,6 +8,8 @@ mod compile;
 #[cfg(feature = "glsl")]
 mod lint;
 #[cfg(feature = "glsl")]
+mod shader_info;
+#[cfg(feature = "glsl")]
 mod types;
 
 #[cfg(feature = "glsl")]
@@ -16,15 +18,22 @@ fn main() {
     let output_dir = manifest_dir.join("generated_glsl");
     std::fs::create_dir_all(&output_dir).unwrap();
 
-    for &(name, wgsl_source) in vello_sparse_shaders::wgsl::ALL {
-        let shader = compile::compile_wgsl_shader(wgsl_source, name, "vs_main", "fs_main");
+    let shader_infos = shader_info::load_shader_infos(&manifest_dir.join("shaders")).unwrap();
+
+    for shader_info in shader_infos {
+        let shader = compile::compile_wgsl_shader(
+            &shader_info.wgsl_source,
+            &shader_info.name,
+            "vs_main",
+            "fs_main",
+        );
         std::fs::write(
-            output_dir.join(format!("{name}.vert.glsl")),
+            output_dir.join(format!("{}.vert.glsl", shader_info.name)),
             shader.vertex.source,
         )
         .unwrap();
         std::fs::write(
-            output_dir.join(format!("{name}.frag.glsl")),
+            output_dir.join(format!("{}.frag.glsl", shader_info.name)),
             shader.fragment.source,
         )
         .unwrap();
