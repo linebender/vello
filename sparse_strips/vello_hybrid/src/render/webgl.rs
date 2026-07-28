@@ -654,7 +654,7 @@ impl WebGlRenderer {
                     let ImageSource::OpaqueId { id: image_id, .. } = img.source else {
                         panic!("pixmap image sources are not supported by Vello Hybrid");
                     };
-                    
+
                     let image_resource = image_cache.get(image_id).unwrap();
                     let gpu_image = self.encode_image_paint(img, image_resource);
                     self.encoded_paints[encoded_paint_idx] = gpu_image;
