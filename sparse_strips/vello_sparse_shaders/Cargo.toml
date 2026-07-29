@@ -21,7 +21,13 @@ naga = { workspace = true, features = ["wgsl-in", "glsl-out"], optional = true }
 
 [build-dependencies]
 naga = { workspace = true, features = ["wgsl-in", "glsl-out"], optional = true }
-wesl = "0.4.0"
+# Pinned exactly: the 0.4.1 releases of wesl and its wgsl-* crates require rustc 1.96,
+# newer than our toolchain. The wgsl-*/wesl-macros pins force wesl's own `^0.4`
+# transitive requirements to resolve to 0.4.0 as well.
+wesl = "=0.4.0"
+wesl-macros = "=0.4.0"
+wgsl-parse = "=0.4.0"
+wgsl-types = "=0.4.0"
 
 [features]
 glsl = ["dep:naga"]
