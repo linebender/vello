@@ -4582,6 +4582,9 @@ version = "0.0.9"
 dependencies = [
  "naga",
  "wesl",
+ "wesl-macros",
+ "wgsl-parse",
+ "wgsl-types",
 ]
 
 [[package]]
