@@ -212,6 +212,39 @@ impl Renderer {
         }
     }
 
+    /// Number of depth textures created because no cached entry matched the
+    /// requested `RenderSize` (cache misses).
+    pub fn depth_recreations(&self) -> u64 {
+        self.programs.depth_cache.recreations
+    }
+
+    /// Bytes currently held by the depth-texture cache (the active depth
+    /// texture is not counted).
+    pub fn depth_cache_bytes(&self) -> u64 {
+        self.programs.depth_cache.total_bytes
+    }
+
+    /// Set the depth-texture cache byte budget (default 32 MB) and enforce it
+    /// immediately.
+    pub fn set_depth_cache_budget(&mut self, bytes: u64) {
+        self.programs.depth_cache.set_budget(bytes);
+    }
+
+    /// Signal a host-frame boundary to the depth-texture cache. `render()` runs
+    /// once per *target*, so the renderer cannot infer frame boundaries itself.
+    /// Entries used since the previous tick form the frame's working set, which
+    /// budget enforcement never evicts. Optional: without ticks the cache falls
+    /// back to a plain byte budget.
+    pub fn depth_cache_frame_tick(&mut self) {
+        self.programs.depth_cache.frame_tick();
+    }
+
+    /// Drop every cached depth texture (e.g. on memory pressure). The active
+    /// depth texture is unaffected; the cache repopulates lazily.
+    pub fn clear_depth_cache(&mut self) {
+        self.programs.depth_cache.clear();
+    }
+
     /// Render `scene`.
     ///
     /// Every [`TextureId`] referenced by the scene must have a binding; this returns
@@ -456,6 +489,13 @@ impl Renderer {
             &self.paint_idxs,
             &self.schedule_storage.filter_context,
         );
+
+        // Only user-surface renders attach a depth texture (see
+        // `DrawPassTarget::enable_opaque`); atlas-target renders must not
+        // allocate one at full atlas size.
+        if matches!(root_output_target, RootTarget::UserSurface) {
+            self.programs.ensure_depth_texture(device, render_size);
+        }
 
         if clear {
             Self::clear_view(encoder, view);
@@ -902,6 +942,189 @@ fn clear_atlas_region(queue: &Queue, renderer: &mut Renderer, rect: &PendingClea
     );
 }
 
+/// Per-size cache of inactive depth textures.
+///
+/// The renderer recreates its depth texture whenever the `RenderSize` changes,
+/// so a frame that interleaves offscreen renders at a different size would
+/// otherwise reallocate it on every switch (~8 MB at 1080p). Cached textures
+/// are keyed by exact size, so each size is allocated at most once.
+///
+/// The cache is byte-budgeted rather than entry-capped (a single 4096²
+/// `Depth24Plus` entry is ~67 MB), evicting largest-first with an LRU tiebreak.
+/// Entries used since the last [`Renderer::depth_cache_frame_tick`] form the
+/// current frame's working set and are never evicted — evicting a size the
+/// frame cycles through would reintroduce the per-frame churn this cache
+/// exists to eliminate. Without ticks, the budget is enforced at store time
+/// with no working-set protection. The active depth texture lives outside the
+/// cache.
+#[derive(Debug)]
+struct DepthTextureCache {
+    /// Linear scan; real frames use only a handful of distinct sizes.
+    entries: Vec<DepthCacheEntry>,
+    /// Total bytes across `entries`.
+    total_bytes: u64,
+    /// Byte budget for `entries`.
+    budget_bytes: u64,
+    /// Monotonic use clock, bumped on every take/store.
+    clock: u64,
+    /// `clock` at the most recent [`Self::frame_tick`]; entries used since then
+    /// form the working set.
+    tick_clock: u64,
+    /// Whether [`Self::frame_tick`] has ever been called; without it, `store`
+    /// enforces the budget directly.
+    ticked: bool,
+    /// Warn-once latch for a working set exceeding the budget; re-arms once a
+    /// tick ends under budget.
+    warned_over_budget: bool,
+    /// Cache misses: depth textures created because no entry matched.
+    recreations: u64,
+}
+
+#[derive(Debug)]
+struct DepthCacheEntry {
+    size: RenderSize,
+    texture: Texture,
+    view: TextureView,
+    bytes: u64,
+    last_used: u64,
+}
+
+impl DepthTextureCache {
+    const DEFAULT_BUDGET_BYTES: u64 = 32 * 1024 * 1024;
+
+    fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            total_bytes: 0,
+            budget_bytes: Self::DEFAULT_BUDGET_BYTES,
+            clock: 0,
+            tick_clock: 0,
+            ticked: false,
+            warned_over_budget: false,
+            recreations: 0,
+        }
+    }
+
+    #[inline]
+    fn estimate_bytes(size: &RenderSize) -> u64 {
+        // `Depth24Plus`: drivers commonly back it with 32 bits/px.
+        u64::from(size.width.max(1)) * u64::from(size.height.max(1)) * 4
+    }
+
+    /// Remove and return the cached texture for `size`, if present.
+    fn take(&mut self, size: &RenderSize) -> Option<(Texture, TextureView)> {
+        let idx = self.entries.iter().position(|e| e.size == *size)?;
+        let entry = self.entries.swap_remove(idx);
+        self.total_bytes -= entry.bytes;
+        self.clock += 1;
+        Some((entry.texture, entry.view))
+    }
+
+    /// Park a no-longer-active depth texture under its size. Ticking callers
+    /// defer budget enforcement to [`Self::frame_tick`]; non-ticking callers
+    /// enforce here.
+    fn store(&mut self, size: RenderSize, texture: Texture, view: TextureView) {
+        debug_assert!(
+            !self.entries.iter().any(|e| e.size == size),
+            "DepthTextureCache::store: duplicate size {size:?} (active texture must never also be cached)"
+        );
+        let bytes = Self::estimate_bytes(&size);
+        self.clock += 1;
+        self.total_bytes += bytes;
+        self.entries.push(DepthCacheEntry {
+            size,
+            texture,
+            view,
+            bytes,
+            last_used: self.clock,
+        });
+        if !self.ticked {
+            self.enforce_budget(false);
+        }
+    }
+
+    /// Frame boundary: evict entries not used since the previous tick, warn
+    /// once if the working set alone exceeds the budget, and open the next
+    /// frame's working-set window.
+    fn frame_tick(&mut self) {
+        self.ticked = true;
+        self.enforce_budget(true);
+        if self.total_bytes > self.budget_bytes {
+            if !self.warned_over_budget {
+                self.warned_over_budget = true;
+                log::warn!(
+                    "depth-texture cache: this frame's working set ({} bytes across {} sizes) \
+                     exceeds the budget ({} bytes); keeping it — evicting would recreate a depth \
+                     texture every frame (raise via set_depth_cache_budget)",
+                    self.total_bytes,
+                    self.entries.len(),
+                    self.budget_bytes
+                );
+            }
+        } else {
+            self.warned_over_budget = false;
+        }
+        self.tick_clock = self.clock;
+    }
+
+    /// Drop every cached entry. The active `Programs::depth_texture` is not
+    /// stored here, so it survives.
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.total_bytes = 0;
+        self.warned_over_budget = false;
+    }
+
+    fn set_budget(&mut self, bytes: u64) {
+        self.budget_bytes = bytes;
+        self.warned_over_budget = false;
+        self.enforce_budget(self.ticked);
+    }
+
+    /// Evict largest-first (LRU tiebreak) until under budget. With
+    /// `protect_working_set`, entries used since the previous tick are exempt
+    /// and the cache may stay over budget.
+    fn enforce_budget(&mut self, protect_working_set: bool) {
+        while self.total_bytes > self.budget_bytes {
+            let victim = select_eviction_victim(
+                self.entries.iter().map(|e| (e.bytes, e.last_used)),
+                self.tick_clock,
+                protect_working_set,
+            );
+            let Some(victim) = victim else { break };
+            let evicted = self.entries.swap_remove(victim);
+            self.total_bytes -= evicted.bytes;
+        }
+    }
+}
+
+/// Choose the eviction victim among `(bytes, last_used)` candidates: largest
+/// `bytes` first, smallest `last_used` on ties. With `protect_working_set`,
+/// candidates with `last_used > tick_clock` are skipped; returns `None` when
+/// every candidate is protected.
+fn select_eviction_victim(
+    candidates: impl Iterator<Item = (u64, u64)>,
+    tick_clock: u64,
+    protect_working_set: bool,
+) -> Option<usize> {
+    let mut victim: Option<(usize, u64, u64)> = None;
+    for (i, (bytes, last_used)) in candidates.enumerate() {
+        if protect_working_set && last_used > tick_clock {
+            continue;
+        }
+        let better = match victim {
+            Some((_, best_bytes, best_last_used)) => {
+                bytes > best_bytes || (bytes == best_bytes && last_used < best_last_used)
+            }
+            None => true,
+        };
+        if better {
+            victim = Some((i, bytes, last_used));
+        }
+    }
+    victim.map(|(i, _, _)| i)
+}
+
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
@@ -917,6 +1140,11 @@ struct Programs {
     depth_texture_view: TextureView,
     /// Whether the depth buffer has been cleared this frame.
     depth_cleared_this_frame: bool,
+    /// Per-size cache of inactive depth textures — see [`DepthTextureCache`].
+    depth_cache: DepthTextureCache,
+    /// Size of the active `depth_texture`. Tracked separately from
+    /// `render_size` because depth is only ensured for renders that attach it.
+    depth_size: RenderSize,
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
     /// Bind group layout for encoded paints
@@ -1732,6 +1960,11 @@ impl Programs {
             depth_texture,
             depth_texture_view,
             depth_cleared_this_frame: false,
+            depth_cache: DepthTextureCache::new(),
+            depth_size: RenderSize {
+                width: render_target_config.width,
+                height: render_target_config.height,
+            },
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
@@ -2211,7 +2444,7 @@ impl Programs {
         self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(device, queue, max_texture_dimension_2d, new_render_size);
+        self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints);
@@ -2379,7 +2612,6 @@ impl Programs {
     /// Update config buffer if dimensions changed.
     fn maybe_update_config_buffer(
         &mut self,
-        device: &Device,
         queue: &Queue,
         max_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
@@ -2400,14 +2632,34 @@ impl Programs {
                 .expect("Buffer only ever holds `Config`");
             buffer.copy_from_slice(bytemuck::bytes_of(&config));
 
-            self.depth_texture =
-                Self::create_depth_texture(device, new_render_size.width, new_render_size.height);
-            self.depth_texture_view = self
-                .depth_texture
-                .create_view(&TextureViewDescriptor::default());
-
+            // The depth texture is deliberately not resized here;
+            // `ensure_depth_texture` handles it, and only for renders that
+            // attach depth (`RootTarget::UserSurface`).
             self.render_size = new_render_size.clone();
         }
+    }
+
+    /// Ensure the active depth texture matches `size`, swapping through the
+    /// per-size [`DepthTextureCache`]. Called only for renders that attach
+    /// depth (`RootTarget::UserSurface`), so atlas-target renders never
+    /// allocate an atlas-sized depth texture.
+    fn ensure_depth_texture(&mut self, device: &Device, size: &RenderSize) {
+        if self.depth_size == *size {
+            return;
+        }
+        let (texture, view) = match self.depth_cache.take(size) {
+            Some(cached) => cached,
+            None => {
+                self.depth_cache.recreations += 1;
+                let texture = Self::create_depth_texture(device, size.width, size.height);
+                let view = texture.create_view(&TextureViewDescriptor::default());
+                (texture, view)
+            }
+        };
+        let old_texture = core::mem::replace(&mut self.depth_texture, texture);
+        let old_view = core::mem::replace(&mut self.depth_texture_view, view);
+        let old_size = core::mem::replace(&mut self.depth_size, size.clone());
+        self.depth_cache.store(old_size, old_texture, old_view);
     }
 
     /// Resize the texture array to accommodate more atlases.
@@ -3409,6 +3661,39 @@ impl AtlasWriter for Arc<Pixmap> {
             offset,
             width,
             height,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_eviction_victim;
+
+    #[test]
+    fn select_victim_prefers_largest_then_lru() {
+        // (bytes, last_used)
+        let candidates = [(100, 5), (300, 2), (300, 9), (50, 1)];
+        assert_eq!(
+            select_eviction_victim(candidates.iter().copied(), 0, false),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn select_victim_protects_working_set() {
+        let candidates = [(300, 10), (100, 3)];
+        // Entry 0 (last_used 10 > tick_clock 5) is in the working set and exempt.
+        assert_eq!(
+            select_eviction_victim(candidates.iter().copied(), 5, true),
+            Some(1)
+        );
+        assert_eq!(
+            select_eviction_victim([(300, 10)].iter().copied(), 5, true),
+            None
+        );
+        assert_eq!(
+            select_eviction_victim(candidates.iter().copied(), 5, false),
+            Some(0)
         );
     }
 }
