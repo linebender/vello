@@ -12,11 +12,16 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.1.0][] - 2026-07-29
+
+This release has an [MSRV][] of 1.88.
+
 ### Added
 
 - Inverse blurred rounded rectangles through the new `invert` parameter on `Scene::fill_blurred_rounded_rect`, enabling inset box shadows. ([#1715][] by [@nicoburns][])
 - `Resources::new_with_config` for configuring the image and glyph atlas used by resources. ([#1750][] by [@grebmeg][])
 - `FilterPrimitive::DropShadowOnly` for rendering a drop shadow without compositing the original input over it. ([#1763][] by [@LaurenzV][])
+- `Scene::reset_and_resize`, allowing a scene to be reused after its target size changes. ([#1769][] by [@LaurenzV][])
 
 ### Changed
 
@@ -262,8 +267,10 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1759]: https://github.com/linebender/vello/pull/1759
 [#1760]: https://github.com/linebender/vello/pull/1760
 [#1763]: https://github.com/linebender/vello/pull/1763
+[#1769]: https://github.com/linebender/vello/pull/1769
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
+[0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
 [0.0.8]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...sparse-strips-v0.0.8
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7

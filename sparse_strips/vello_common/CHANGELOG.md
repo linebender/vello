@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.1.0][] - 2026-07-29
+
+This release has an [MSRV][] of 1.88.
+
 ### Added
 
 - `FilterPrimitive::DropShadowOnly` for rendering a drop shadow without compositing the original input over it. ([#1763][] by [@LaurenzV][])
@@ -38,6 +42,7 @@ This release has an [MSRV][] of 1.88.
 - Gradient lookup-table generation. ([#1726][] by [@LaurenzV][])
 - x86 rendering, including blending and high-quality image sampling, through improved SIMD code generation. ([#1688][] by [@LaurenzV][])
 - Rendering opaque `peniko::ImageData` by computing and retaining its transparency hint during conversion. ([#1760][] by [@tronical][])
+- Filter processing for drop shadows by tightening their source and output bounds. ([#1768][] by [@LaurenzV][])
 
 ## [0.0.9][] - 2026-05-30
 
@@ -289,8 +294,10 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1760]: https://github.com/linebender/vello/pull/1760
 [#1762]: https://github.com/linebender/vello/pull/1762
 [#1763]: https://github.com/linebender/vello/pull/1763
+[#1768]: https://github.com/linebender/vello/pull/1768
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
+[0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
 [0.0.8]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...sparse-strips-v0.0.8
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7

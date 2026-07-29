@@ -10,8 +10,9 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 ## [Unreleased]
 
-TODO: Before making a 0.0.10 (or 0.1.0) release, resolve the following issue:
-https://github.com/linebender/vello/pull/1665#issuecomment-4667033939!
+This release has an [MSRV][] of 1.88.
+
+## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
 
@@ -261,7 +262,8 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1760]: https://github.com/linebender/vello/pull/1760
 [#1763]: https://github.com/linebender/vello/pull/1763
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
+[0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
 [0.0.8]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...sparse-strips-v0.0.8
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7

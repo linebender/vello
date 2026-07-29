@@ -89,6 +89,9 @@ impl Resources {
     }
 }
 
+// TODO: Consider changing `Replace` to overwrite only the rendered region, leaving pixels outside
+// it unchanged. See https://github.com/linebender/vello/pull/1665#issuecomment-4667033939
+
 /// The composition mode that should be used when rendering into a pixmap.
 ///
 /// For performance reason it is _highly_ recommended that you use `CompositeMode::Replace`, even

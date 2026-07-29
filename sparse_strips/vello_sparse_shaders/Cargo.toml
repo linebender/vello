@@ -1,7 +1,7 @@
 [package]
 name = "vello_sparse_shaders"
 # When updating, also update the version in the workspace dependency in the root Cargo.toml
-version = "0.0.9"
+version = "0.1.0"
 description = "Provide WESL shaders linked to WGSL and GLSL for the `vello_hybrid` backends."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
