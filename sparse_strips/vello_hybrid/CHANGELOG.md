@@ -14,9 +14,9 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- Inverse blurred rounded rectangles through the new `invert` parameter on `Scene::fill_blurred_rounded_rect`, enabling inset box shadows. ([#1715][] by [@nicoburns][])
 - `Resources::new_with_config` for configuring the image and glyph atlas used by resources. ([#1750][] by [@grebmeg][])
 - `FilterPrimitive::DropShadowOnly` for rendering a drop shadow without compositing the original input over it. ([#1763][] by [@LaurenzV][])
+- `Scene::fill_blurred_rounded_rect_in` for painting a blurred rounded rectangle inside an arbitrary path, with an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. ([#1715][], [#1767][] by [@nicoburns][])
 
 ### Changed
 
@@ -262,6 +262,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1759]: https://github.com/linebender/vello/pull/1759
 [#1760]: https://github.com/linebender/vello/pull/1760
 [#1763]: https://github.com/linebender/vello/pull/1763
+[#1767]: https://github.com/linebender/vello/pull/1767
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9

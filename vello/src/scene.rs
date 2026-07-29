@@ -266,7 +266,7 @@ impl Scene {
         let kernel_size = 2.5 * std_dev;
 
         let shape: Rect = rect.inflate(kernel_size, kernel_size);
-        self.draw_blurred_rounded_rect_in(&shape, transform, rect, brush, radius, std_dev);
+        self.draw_blurred_rounded_rect_in(&shape, transform, rect, brush, radius, std_dev, false);
     }
 
     /// Draw a rounded rectangle blurred with a gaussian filter in `shape`.
@@ -279,6 +279,10 @@ impl Scene {
     /// If just the blurred rounded rectangle is desired without clipping,
     /// use the simpler [`Self::draw_blurred_rounded_rect`].
     /// For many users, that method will be easier to use.
+    ///
+    /// When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
+    /// brush is fully opaque outside the blurred rounded rectangle and fades to transparent inside
+    /// it. This can be used to implement inset box shadows.
     pub fn draw_blurred_rounded_rect_in(
         &mut self,
         shape: &impl Shape,
@@ -287,6 +291,7 @@ impl Scene {
         brush: Color,
         radius: f64,
         std_dev: f64,
+        invert: bool,
     ) {
         let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(t);
@@ -304,6 +309,7 @@ impl Scene {
                 rect.height() as _,
                 radius as _,
                 std_dev as _,
+                invert,
             );
         }
     }
