@@ -768,8 +768,9 @@ impl WgpuEngine {
             }
         }
         for id in free_images {
-            if let Some((_texture, _view)) = self.bind_map.image_map.remove(&id) {
+            if let Some((texture, _view)) = self.bind_map.image_map.remove(&id) {
                 // TODO: have a pool to avoid needless re-allocation
+                texture.destroy();
             }
         }
         Ok(())
