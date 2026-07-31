@@ -43,6 +43,12 @@ fn vs_main_fullscreen(
 
 @fragment
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    // Clear with transparent pixels
+    // The WGPU render pipeline multiplies this by its dynamic blend constant.
+    // The WebGL backend currently doesn't use this entry point.
+    return vec4<f32>(1.0, 1.0, 1.0, 1.0);
+}
+
+@fragment
+fn fs_transparent(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
-} 
+}

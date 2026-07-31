@@ -403,6 +403,7 @@ impl ApplicationHandler for App<'_> {
                         &render_size,
                         &texture_view,
                         &texture_bindings,
+                        vello_hybrid::ClearSettings::default(),
                     )
                     .unwrap();
 
