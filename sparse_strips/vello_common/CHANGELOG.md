@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- Public helpers in `rect` (`pixel_coverage`, `coverage_to_u8`, `corner_coverage_u8`, `combine_coverage_u8`) exposing the strip renderer's exact rectangle coverage quantization, so other rasterizers can reproduce its bytes. ([#1784][] by [@AdrianEddy][])
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -211,6 +215,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) release.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@b0nes164]: https://github.com/b0nes164
 [@conor-93]: https://github.com/conor-93
 [@dipeshbabu]: https://github.com/dipeshbabu
@@ -295,6 +300,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1762]: https://github.com/linebender/vello/pull/1762
 [#1763]: https://github.com/linebender/vello/pull/1763
 [#1768]: https://github.com/linebender/vello/pull/1768
+[#1784]: https://github.com/linebender/vello/pull/1784
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0

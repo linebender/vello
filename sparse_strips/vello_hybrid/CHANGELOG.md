@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Fixed
+
+- Rectangles drawn through the GPU rect fast path now produce exactly the same bytes as the CPU strip path. The two rasterizers used to round anti-aliased coverage differently (up to one alpha step at fractional edges and corners, more at large coordinates), so pushing a clip (which routes rects through strips) changed pixels the clip didn't even touch. ([#1784][] by [@AdrianEddy][])
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -175,6 +179,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@dipeshbabu]: https://github.com/dipeshbabu
@@ -268,6 +273,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1760]: https://github.com/linebender/vello/pull/1760
 [#1763]: https://github.com/linebender/vello/pull/1763
 [#1769]: https://github.com/linebender/vello/pull/1769
+[#1784]: https://github.com/linebender/vello/pull/1784
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0

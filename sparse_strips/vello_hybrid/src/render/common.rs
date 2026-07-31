@@ -374,9 +374,10 @@ pub struct GpuStrip {
     pub payload: u32,
     /// See `StripInstance::paint_and_rect_flag` documentation in `render.wesl`.
     pub paint_and_rect_flag: u32,
-    /// Painter's-order index used to compute z-depth for early-z rejection in shader.
-    /// In other words, the back-most draw has index 0 and every additional draw in front
-    /// has an incrementing index.
+    /// Painter's-order index used to compute z-depth for early-z rejection in shader,
+    /// in the low 24 bits: the back-most draw has index 0 and every additional draw in
+    /// front has an incrementing index. For rect strips, the top byte carries the corner
+    /// corrections (see `RectPart::corner_adjust`).
     pub depth_index: u32,
 }
 
