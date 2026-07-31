@@ -3,9 +3,9 @@
 
 use super::test_support::{SceneCase, ScheduledCase};
 use super::{IntermediateTextureAllocations, IntermediateTextureRequirements, ScheduleStorage};
-use crate::RenderError;
 use crate::filter::FILTER_ATLAS_PADDING;
 use crate::target::{RootTarget, TextureParity};
+use crate::{IntermediateTextureError, RenderError};
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::geometry::SizeU16;
 use vello_common::kurbo::Rect;
@@ -36,28 +36,28 @@ fn intermediate_texture_requirements_validate_limit() {
     assert!(base.validate(allocations([0, 3], false), Some(4)).is_err());
     assert!(matches!(
         base.validate(allocations([2, 0], false), Some(3)),
-        Err(RenderError::IntermediateTextureLimitReached {
+        Err(IntermediateTextureError::LimitReached {
             required: 4,
             max: 3,
         })
     ));
     assert!(matches!(
         base.validate(allocations([1, 0], true), Some(2)),
-        Err(RenderError::IntermediateTextureLimitReached {
+        Err(IntermediateTextureError::LimitReached {
             required: 3,
             max: 2,
         })
     ));
     assert!(matches!(
         base.validate(allocations([0, 2], false), Some(3)),
-        Err(RenderError::IntermediateTextureLimitReached {
+        Err(IntermediateTextureError::LimitReached {
             required: 4,
             max: 3,
         })
     ));
     assert!(matches!(
         base.validate(allocations([2, 2], false), Some(4)),
-        Err(RenderError::IntermediateTextureLimitReached {
+        Err(IntermediateTextureError::LimitReached {
             required: 5,
             max: 4,
         })
@@ -370,10 +370,12 @@ fn root_blend_budget() {
     );
     assert!(matches!(
         case.schedule(RootTarget::UserSurface, SizeU16::new(16), 2,),
-        Err(RenderError::IntermediateTextureLimitReached {
-            required: 3,
-            max: 2,
-        })
+        Err(RenderError::IntermediateTexture(
+            IntermediateTextureError::LimitReached {
+                required: 3,
+                max: 2,
+            }
+        ))
     ));
 }
 

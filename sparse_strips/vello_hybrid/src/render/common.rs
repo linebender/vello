@@ -8,6 +8,7 @@
     reason = "GPU paint structures have small, fixed sizes that fit in u32"
 )]
 
+use crate::IntermediateTextureError;
 use crate::blend::GpuBlendInstance;
 use crate::copy::GpuCopyInstance;
 use crate::filter::FILTER_ATLAS_PADDING;
@@ -15,7 +16,6 @@ use crate::scene::{LayersConfig, MemorySettings, RecordedDraw};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::geometry::{SizeU16, SizeU32};
-use vello_common::multi_atlas::AtlasError;
 use vello_common::record::CommandRecorder;
 
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
@@ -130,7 +130,7 @@ impl LayersConfig {
     pub(crate) fn required_intermediate_texture_size(
         self,
         recorder: &CommandRecorder<RecordedDraw>,
-    ) -> Result<SizeU16, AtlasError> {
+    ) -> Result<SizeU16, IntermediateTextureError> {
         let min_size = self.min_texture_size;
         let max_size = self.max_texture_size;
 
@@ -138,7 +138,7 @@ impl LayersConfig {
             if size.width() > u32::from(max_size.width())
                 || size.height() > u32::from(max_size.height())
             {
-                return Err(AtlasError::TextureTooLarge {
+                return Err(IntermediateTextureError::TooLarge {
                     width: size.width(),
                     height: size.height(),
                     max_width: u32::from(max_size.width()),
@@ -174,8 +174,8 @@ impl LayersConfig {
 mod tests {
     use super::DeviceLimits;
     use crate::scene::RecordedDraw;
-    use crate::{LayersConfig, MemorySettings, SizeU16};
-    use vello_common::multi_atlas::{AtlasConfig, AtlasError};
+    use crate::{IntermediateTextureError, LayersConfig, MemorySettings, SizeU16};
+    use vello_common::multi_atlas::AtlasConfig;
     use vello_common::record::CommandRecorder;
 
     fn device_limits(max_texture_dimension_2d: u32, max_texture_array_layers: u32) -> DeviceLimits {
@@ -297,7 +297,7 @@ mod tests {
 
         assert!(matches!(
             config.required_intermediate_texture_size(&recorder),
-            Err(AtlasError::TextureTooLarge {
+            Err(IntermediateTextureError::TooLarge {
                 width: 513,
                 height: 10,
                 max_width: 512,

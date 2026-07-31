@@ -141,7 +141,7 @@ use crate::schedule::allocate::AllocatedTextureRegion;
 use crate::target::{
     DrawTarget, LayerTextureRegion, RootTarget, RoundBindings, TextureParity, TextureRegion,
 };
-use crate::{RenderError, Scene, blend::BlendStrip};
+use crate::{IntermediateTextureError, RenderError, Scene, blend::BlendStrip};
 use alloc::vec::Vec;
 use vello_common::filter::FilterLayerPlacement;
 use vello_common::geometry::{RectU16, SizeU16};
@@ -250,13 +250,13 @@ impl IntermediateTextureRequirements {
         self,
         existing: IntermediateTextureAllocations,
         max_textures: Option<usize>,
-    ) -> Result<(), RenderError> {
+    ) -> Result<(), IntermediateTextureError> {
         let retained_textures = self.allocations.combine(existing).texture_count();
 
         if let Some(max) = max_textures
             && retained_textures > max
         {
-            return Err(RenderError::IntermediateTextureLimitReached {
+            return Err(IntermediateTextureError::LimitReached {
                 required: retained_textures,
                 max,
             });

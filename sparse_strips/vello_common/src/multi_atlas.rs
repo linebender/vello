@@ -196,19 +196,10 @@ impl MultiAtlasManager {
         }
     }
 
-    fn space_diagnostics(
-        &self,
-        width: u32,
-        height: u32,
-        exclude_atlas_id: Option<AtlasId>,
-    ) -> AtlasSpaceDiagnostics {
+    fn space_diagnostics(&self, width: u32, height: u32) -> AtlasSpaceDiagnostics {
         let mut atlases = Vec::new();
 
         for atlas in &self.atlases {
-            if Some(atlas.id) == exclude_atlas_id {
-                continue;
-            }
-
             let mut free_area = 0_u64;
             let mut free_rectangle_count = 0;
             let mut largest_free_width = 0;
@@ -248,24 +239,14 @@ impl MultiAtlasManager {
         }
     }
 
-    fn no_space_available(
-        &self,
-        width: u32,
-        height: u32,
-        exclude_atlas_id: Option<AtlasId>,
-    ) -> AtlasError {
-        AtlasError::NoSpaceAvailable(self.space_diagnostics(width, height, exclude_atlas_id))
+    fn no_space_available(&self, width: u32, height: u32) -> AtlasError {
+        AtlasError::NoSpaceAvailable(self.space_diagnostics(width, height))
     }
 
-    fn atlas_limit_reached(
-        &self,
-        width: u32,
-        height: u32,
-        exclude_atlas_id: Option<AtlasId>,
-    ) -> AtlasError {
+    fn atlas_limit_reached(&self, width: u32, height: u32) -> AtlasError {
         AtlasError::AtlasLimitReached {
             max_atlases: self.config.max_atlases,
-            diagnostics: self.space_diagnostics(width, height, exclude_atlas_id),
+            diagnostics: self.space_diagnostics(width, height),
         }
     }
 
@@ -291,10 +272,9 @@ impl MultiAtlasManager {
 
         // Try creating a new atlas if auto-grow is enabled
         if self.config.auto_grow {
-            if self.atlases.len() >= self.config.max_atlases {
-                return Err(self.atlas_limit_reached(width, height, exclude_atlas_id));
-            }
-            let atlas_id = self.create_atlas()?;
+            let atlas_id = self
+                .create_atlas()
+                .map_err(|_| self.atlas_limit_reached(width, height))?;
             let atlas = self.atlases.last_mut().unwrap();
             if let Some(allocation) = atlas.allocate(width, height) {
                 return Ok(AtlasAllocation {
@@ -304,7 +284,7 @@ impl MultiAtlasManager {
             }
         }
 
-        Err(self.no_space_available(width, height, exclude_atlas_id))
+        Err(self.no_space_available(width, height))
     }
 
     /// Allocate using best-fit strategy: choose the atlas with the smallest remaining space that
@@ -417,10 +397,9 @@ impl MultiAtlasManager {
 
         // Try creating a new atlas if auto-grow is enabled
         if self.config.auto_grow {
-            if self.atlases.len() >= self.config.max_atlases {
-                return Err(self.atlas_limit_reached(width, height, exclude_atlas_id));
-            }
-            let atlas_id = self.create_atlas()?;
+            let atlas_id = self
+                .create_atlas()
+                .map_err(|_| self.atlas_limit_reached(width, height))?;
             let atlas = self.atlases.last_mut().unwrap();
             if let Some(allocation) = atlas.allocate(width, height) {
                 self.round_robin_counter = self.atlases.len() - 1;
@@ -431,7 +410,7 @@ impl MultiAtlasManager {
             }
         }
 
-        Err(self.no_space_available(width, height, exclude_atlas_id))
+        Err(self.no_space_available(width, height))
     }
 
     /// Deallocate space in the specified atlas.

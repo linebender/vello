@@ -8,10 +8,10 @@
 //! preferring to advance the base round count in case a requested allocation doesn't fit
 //! into the current round, and only resorting to adding more textures as a last resort.
 
-use crate::RenderError;
 use crate::schedule::allocate::{
     AllocatedTextureRegion, Allocation, Atlases, LayerAllocationRequest,
 };
+use crate::{IntermediateTextureError, RenderError};
 use alloc::vec::Vec;
 
 /// The round cursor.
@@ -75,7 +75,7 @@ impl Cursor {
             .allocate_layer(&request)
             // If we successfully added a new texture but allocation still fails, it means the layer
             // itself is larger than the maximum texture size, so it cannot possibly fit.
-            .ok_or(RenderError::IntermediateTextureTooLarge {
+            .ok_or(IntermediateTextureError::TooLarge {
                 width: requested_size.width(),
                 height: requested_size.height(),
                 max_width: u32::from(texture_size.width()),
@@ -139,9 +139,9 @@ impl Cursor {
 #[cfg(test)]
 mod tests {
     use super::Cursor;
-    use crate::RenderError;
     use crate::schedule::allocate::{Atlases, LayerAllocationRequest};
     use crate::target::{LayerTextureId, TextureParity};
+    use crate::{IntermediateTextureError, RenderError};
     use vello_common::geometry::{RectU16, SizeU16};
     use vello_common::record::RecordedLayerKind;
 
@@ -212,12 +212,14 @@ mod tests {
 
         assert!(matches!(
             cursor.allocate_layer(request(TextureParity::Even, SizeU16::from_wh(9, 8),)),
-            Err(RenderError::IntermediateTextureTooLarge {
-                width: 9,
-                height: 8,
-                max_width: 8,
-                max_height: 8,
-            })
+            Err(RenderError::IntermediateTexture(
+                IntermediateTextureError::TooLarge {
+                    width: 9,
+                    height: 8,
+                    max_width: 8,
+                    max_height: 8,
+                }
+            ))
         ));
     }
 

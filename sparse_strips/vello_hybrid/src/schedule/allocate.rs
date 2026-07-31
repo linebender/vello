@@ -134,7 +134,7 @@ impl LayerAllocationRequest {
     }
 
     pub(super) fn allocation_size(self) -> SizeU32 {
-        SizeU32::from(self.region.size) + u32::from(self.region.padding) * 2
+        self.region.allocation_size()
     }
 }
 
@@ -145,6 +145,13 @@ struct RegionProps {
     size: SizeU16,
     /// Transparent padding reserved around the usable region.
     padding: u16,
+}
+
+impl RegionProps {
+    /// Size of the atlas allocation needed to hold the region and its padding.
+    fn allocation_size(self) -> SizeU32 {
+        SizeU32::from(self.size) + u32::from(self.padding) * 2
+    }
 }
 
 /// Texture region and allocator metadata needed to release it.
@@ -201,7 +208,7 @@ impl AtlasExt for Atlas {
         let padding = u32::from(props.padding);
         let width = props.size.width();
         let height = props.size.height();
-        let allocation_size = SizeU32::from(props.size) + padding * 2;
+        let allocation_size = props.allocation_size();
         let allocation = self.allocate(allocation_size.width(), allocation_size.height())?;
         let x = u16::try_from(allocation.x + padding).unwrap();
         let y = u16::try_from(allocation.y + padding).unwrap();
