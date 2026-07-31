@@ -22,7 +22,7 @@ use crate::draw::ExternalTextureRun;
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
 use crate::{
-    GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
+    ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
     blend::{BlendStrip, GpuBlendInstance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
@@ -51,10 +51,11 @@ use crate::{
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
-use core::{fmt::Debug, num::NonZeroU64};
+use core::{fmt::Debug, mem, num::NonZeroU64};
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use hashbrown::{HashMap, hash_map::Entry};
+use vello_common::color::{AlphaColor, Srgb};
 use vello_common::image_cache::{ImageCache, ImageResource};
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
@@ -237,6 +238,7 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
         texture_bindings: &TextureBindings,
+        clear: ClearSettings<'_>,
     ) -> Result<(), RenderError> {
         #[cfg(feature = "text")]
         {
@@ -278,7 +280,7 @@ impl Renderer {
             view,
             &resources.image_cache,
             &scene.encoded_paints,
-            true,
+            clear,
             RootTarget::UserSurface,
             texture_bindings,
         );
@@ -356,7 +358,7 @@ impl Renderer {
         // Swap in the stub atlas bind group to avoid the read-write conflict:
         // the real atlas texture is used as the render target (COLOR_TARGET), so it
         // cannot also be bound as a shader resource (TEXTURE_BINDING) in the same pass.
-        core::mem::swap(
+        mem::swap(
             &mut self.programs.resources.atlas_bind_group,
             &mut self.programs.resources.stub_atlas_bind_group,
         );
@@ -375,14 +377,14 @@ impl Renderer {
             &layer_view,
             &dummy_image_cache,
             encoded_paints,
-            false,
+            ClearSettings::DontClear,
             RootTarget::AtlasLayer,
             texture_bindings,
         );
         self.dummy_image_cache = Some(dummy_image_cache);
 
         // Restore the real atlas bind group.
-        core::mem::swap(
+        mem::swap(
             &mut self.programs.resources.atlas_bind_group,
             &mut self.programs.resources.stub_atlas_bind_group,
         );
@@ -408,9 +410,6 @@ impl Renderer {
 
     /// Shared render pipeline: prepares GPU resources, runs the scheduler against
     /// the provided `view` at `render_size`, and maintains caches.
-    ///
-    /// When `clear` is true the render target is cleared to transparent black
-    /// before drawing (normal frame rendering).
     fn render_scene(
         &mut self,
         scene: &Scene,
@@ -421,7 +420,7 @@ impl Renderer {
         view: &TextureView,
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
-        clear: bool,
+        clear: ClearSettings<'_>,
         root_output_target: RootTarget,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
@@ -466,9 +465,6 @@ impl Renderer {
             &self.schedule_storage.filter_context,
         );
 
-        if clear {
-            Self::clear_view(encoder, view);
-        }
         let mut ctx = RendererContext {
             programs: &mut self.programs,
             device,
@@ -479,7 +475,10 @@ impl Renderer {
             external_paint_source_bind_groups: HashMap::new(),
             scratch_buffers: &mut self.scratch_buffers,
             use_depth_buffer: self.use_depth_buffer,
+            root_load_op: wgpu::LoadOp::Load,
         };
+
+        ctx.init_root_clear(clear, root_output_target);
 
         crate::schedule::execute(
             &mut ctx,
@@ -488,30 +487,11 @@ impl Renderer {
             root_output_target,
         );
 
+        ctx.finish_root_clear();
+
         self.gradient_cache.maintain();
 
         Ok(())
-    }
-
-    /// Clear the view to transparent black.
-    // TODO: Investigate adding tests for the clear_view behavior.
-    fn clear_view(encoder: &mut CommandEncoder, view: &TextureView) {
-        encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Clear View"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
     }
 
     /// Upload image to cache and atlas in one step. Returns the `ImageId`.
@@ -955,6 +935,8 @@ struct Programs {
     filter_pipeline: RenderPipeline,
     /// Layer-clear pipeline.
     clear_pipeline: RenderPipeline,
+    /// User-target rectangle-clear pipeline.
+    root_clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
     atlas_clear_pipeline: RenderPipeline,
     /// Blend pipeline.
@@ -1267,43 +1249,59 @@ impl Programs {
             Some(depth_stencil(true)),
         );
 
-        let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Clear Pipeline"),
-            layout: Some(&clear_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &clear_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: size_of::<GpuClearInstance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &wgpu::vertex_attr_array![
-                        0 => Uint32x2,
-                        1 => Uint32x2,
-                        2 => Uint32x2,
-                    ],
-                }],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &clear_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    // No blending needed for clearing
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
+        let clear_blend_component = wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::Constant,
+            dst_factor: wgpu::BlendFactor::Zero,
+            operation: wgpu::BlendOperation::Add,
+        };
+        let clear_blend = Some(BlendState {
+            color: clear_blend_component,
+            alpha: clear_blend_component,
         });
+
+        let clear_vertex_state = wgpu::VertexBufferLayout {
+            array_stride: size_of::<GpuClearInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Uint32x2,
+                1 => Uint32x2,
+                2 => Uint32x2,
+            ],
+        };
+        let create_clear_pipeline = |label, format| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&clear_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &clear_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: core::slice::from_ref(&clear_vertex_state),
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &clear_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format,
+                        blend: clear_blend,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let clear_pipeline =
+            create_clear_pipeline("Clear Pipeline", wgpu::TextureFormat::Rgba8Unorm);
+        let root_clear_pipeline =
+            create_clear_pipeline("Root Clear Pipeline", render_target_config.format);
 
         // Create atlas clear pipeline
         let atlas_clear_pipeline_layout =
@@ -1312,6 +1310,7 @@ impl Programs {
                 bind_group_layouts: &[],
                 immediate_size: 0,
             });
+        // TODO: Change the atlas clear pipeline to use the existing layer clear mechanism.
         let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Atlas Clear Pipeline"),
             layout: Some(&atlas_clear_pipeline_layout),
@@ -1324,7 +1323,7 @@ impl Programs {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &clear_shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_transparent"),
                 targets: &[Some(ColorTargetState {
                     format: wgpu::TextureFormat::Rgba8Unorm,
                     blend: None,
@@ -1760,6 +1759,7 @@ impl Programs {
                 height: render_target_config.height,
             },
             clear_pipeline,
+            root_clear_pipeline,
             atlas_clear_pipeline,
             filter_input_bind_group_layouts,
             filter_sampler,
@@ -2728,9 +2728,53 @@ struct RendererContext<'a> {
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
     scratch_buffers: &'a mut ScratchBuffers,
     use_depth_buffer: bool,
+    root_load_op: wgpu::LoadOp<wgpu::Color>,
 }
 
 impl RendererContext<'_> {
+    fn init_root_clear(&mut self, clear: ClearSettings<'_>, root_target: RootTarget) {
+        self.root_load_op = match clear {
+            ClearSettings::DontClear => wgpu::LoadOp::Load,
+            ClearSettings::Viewport { color } => wgpu::LoadOp::Clear(clear_color(color)),
+            ClearSettings::Rects { .. } => {
+                self.clear_pass_inner(DrawPassTarget::Root(root_target), clear);
+
+                wgpu::LoadOp::Load
+            }
+        };
+    }
+
+    fn finish_root_clear(&mut self) {
+        // If the load mode was set to clear but no actual drawing instructions were
+        // emitted, we still need to start a pass to clear the output.
+        if let wgpu::LoadOp::Clear(color) = self.take_root_load_op() {
+            Self::clear_full_target(self.encoder, self.view, color);
+        }
+    }
+
+    fn take_root_load_op(&mut self) -> wgpu::LoadOp<wgpu::Color> {
+        mem::replace(&mut self.root_load_op, wgpu::LoadOp::Load)
+    }
+
+    fn clear_full_target(encoder: &mut CommandEncoder, view: &TextureView, color: wgpu::Color) {
+        encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Clear Target"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(color),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+    }
+
     fn external_paint_source_bind_group_for_texture(
         &mut self,
         texture_id: TextureId,
@@ -2778,6 +2822,12 @@ impl RendererContext<'_> {
         let opaque_count = opaque_count as u32;
         let alpha_count = alpha_count as u32;
 
+        let color_load_op = if matches!(target, DrawPassTarget::Root(_)) {
+            self.take_root_load_op()
+        } else {
+            // For layer targets we always want to load.
+            wgpu::LoadOp::Load
+        };
         let (view, config_buffer, bind_group_target) = match target {
             DrawPassTarget::Root(_) => (
                 self.view,
@@ -2851,7 +2901,7 @@ impl RendererContext<'_> {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
+                    load: color_load_op,
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -3074,20 +3124,59 @@ impl RendererContext<'_> {
         }
     }
 
-    fn clear_pass_inner(&mut self, target: LayerTextureId, rects: &[RectU16]) {
-        let texture_size = self.texture_size();
-        let target_size = [
-            u32::from(texture_size.width()),
-            u32::from(texture_size.height()),
-        ];
+    fn clear_pass_inner(&mut self, target: DrawPassTarget, settings: ClearSettings<'_>) {
+        let Some(color) = settings.clear_color().map(clear_color) else {
+            return;
+        };
+
+        let view = match target {
+            DrawPassTarget::Root(_) => self.view,
+            DrawPassTarget::Layer(target) => self.programs.resources.layer_view(target),
+        };
+        let rects = match settings {
+            ClearSettings::DontClear => unreachable!(),
+            ClearSettings::Viewport { .. } => {
+                Self::clear_full_target(self.encoder, view, color);
+
+                return;
+            }
+            ClearSettings::Rects { rects, .. } => rects,
+        };
+
+        let (target_size, pipeline) = match target {
+            DrawPassTarget::Root(_) => (
+                [
+                    u16::try_from(self.programs.render_size.width).unwrap(),
+                    u16::try_from(self.programs.render_size.height).unwrap(),
+                ],
+                &self.programs.root_clear_pipeline,
+            ),
+            DrawPassTarget::Layer(_) => {
+                let texture_size = self.texture_size();
+                (
+                    [texture_size.width(), texture_size.height()],
+                    &self.programs.clear_pipeline,
+                )
+            }
+        };
+        let bounds = RectU16::new(0, 0, target_size[0], target_size[1]);
+        let target_size = target_size.map(u32::from);
         self.scratch_buffers.clear_instances.clear();
-        self.scratch_buffers
-            .clear_instances
-            .extend(rects.iter().copied().map(|rect| GpuClearInstance {
-                origin: [u32::from(rect.x0), u32::from(rect.y0)],
-                size: [u32::from(rect.width()), u32::from(rect.height())],
-                target_size,
-            }));
+        self.scratch_buffers.clear_instances.extend(
+            rects
+                .iter()
+                .map(|rect| rect.intersect(bounds))
+                .filter(|rect| !rect.is_empty())
+                .map(|rect| GpuClearInstance {
+                    origin: [u32::from(rect.x0), u32::from(rect.y0)],
+                    size: [u32::from(rect.width()), u32::from(rect.height())],
+                    target_size,
+                }),
+        );
+
+        if self.scratch_buffers.clear_instances.is_empty() {
+            return;
+        }
 
         let clear_buffer = self
             .device
@@ -3096,7 +3185,6 @@ impl RendererContext<'_> {
                 contents: bytemuck::cast_slice(&self.scratch_buffers.clear_instances),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-        let view = self.programs.resources.layer_view(target);
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear Rects"),
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -3113,7 +3201,8 @@ impl RendererContext<'_> {
             timestamp_writes: None,
             multiview_mask: None,
         });
-        render_pass.set_pipeline(&self.programs.clear_pipeline);
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_blend_constant(color);
         render_pass.set_vertex_buffer(0, clear_buffer.slice(..));
         render_pass.draw(
             0..4,
@@ -3162,7 +3251,13 @@ impl Backend for RendererContext<'_> {
     }
 
     fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) {
-        self.clear_pass_inner(target, rects);
+        self.clear_pass_inner(
+            DrawPassTarget::Layer(target),
+            ClearSettings::Rects {
+                color: AlphaColor::TRANSPARENT,
+                rects,
+            },
+        );
     }
 }
 
@@ -3432,5 +3527,15 @@ impl AtlasWriter for Arc<Pixmap> {
             width,
             height,
         );
+    }
+}
+
+fn clear_color(color: AlphaColor<Srgb>) -> wgpu::Color {
+    let [r, g, b, a] = color.premultiply().components;
+    wgpu::Color {
+        r: f64::from(r),
+        g: f64::from(g),
+        b: f64::from(b),
+        a: f64::from(a),
     }
 }
