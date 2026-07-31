@@ -7,7 +7,7 @@ use crate::render::webgl::{
     create_texture,
 };
 use crate::target::RootTarget;
-use crate::{RenderError, RenderSize, Scene, WebGlRenderer};
+use crate::{ClearSettings, RenderError, RenderSize, Scene, WebGlRenderer};
 use alloc::{borrow::Cow, format};
 use core::ops::Deref;
 use thiserror::Error;
@@ -157,7 +157,7 @@ impl WebGlRenderer {
             &scene,
             &ImageCache::new_dummy(),
             &render_size,
-            true,
+            ClearSettings::default(),
             RootTarget::AtlasLayer,
             &texture_bindings,
         );
