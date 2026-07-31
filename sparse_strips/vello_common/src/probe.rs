@@ -63,6 +63,63 @@ pub struct ProbeResult {
     pub actual: ProbeImage,
 }
 
+/// Summary of the differences between the expected and actual probe images.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProbeStatistics {
+    /// Number of probe cells represented by [`Self::difference_mask`].
+    pub element_count: usize,
+    /// Whether the expected and actual images have different dimensions.
+    pub mismatched_dimensions: bool,
+    /// Number of pixels whose channels differ by more than the probe tolerance.
+    pub different_pixel_count: usize,
+    /// Largest absolute difference between corresponding channels.
+    pub max_channel_discrepancy: u8,
+    /// Bitmask identifying probe cells containing a pixel outside the probe tolerance.
+    ///
+    /// Bit `n` corresponds to the `n`th probe cell in rendering order.
+    pub difference_mask: u32,
+}
+
+impl ProbeResult {
+    /// Return the statistics of the probe.
+    pub fn statistics(&self) -> ProbeStatistics {
+        let layout = GridLayout::from_elements(&ELEMENTS);
+        let mut statistics = ProbeStatistics {
+            element_count: ELEMENTS.len(),
+            mismatched_dimensions: self.expected.width != self.actual.width
+                || self.expected.height != self.actual.height,
+            ..Default::default()
+        };
+
+        for (pixel_index, (expected, actual)) in self
+            .expected
+            .data
+            .chunks_exact(4)
+            .zip(self.actual.data.chunks_exact(4))
+            .enumerate()
+        {
+            if expected[3] != 0 || actual[3] != 0 {
+                for (expected, actual) in expected.iter().zip(actual) {
+                    statistics.max_channel_discrepancy = statistics
+                        .max_channel_discrepancy
+                        .max(expected.abs_diff(*actual));
+                }
+            }
+
+            if !pixels_within_tolerance(expected, actual, CHANNEL_TOLERANCE) {
+                statistics.different_pixel_count += 1;
+
+                let cell_index = layout.cell_index_for_pixel(pixel_index);
+                if cell_index < ELEMENTS.len() {
+                    statistics.difference_mask |= 1 << cell_index;
+                }
+            }
+        }
+
+        statistics
+    }
+}
+
 /// A probe image stored as RGBA8 bytes.
 #[derive(Debug, Clone)]
 pub struct ProbeImage {
@@ -174,10 +231,10 @@ impl GridLayout {
     }
 
     fn canvas_size(self) -> (u16, u16) {
-        let width = self.columns as f64 * self.cell_width
-            + self.columns.saturating_sub(1) as f64 * ELEMENT_MARGIN;
-        let height = self.rows as f64 * self.cell_height
-            + self.rows.saturating_sub(1) as f64 * ELEMENT_MARGIN;
+        let (cell_stride_x, cell_stride_y) = self.cell_stride();
+        // Margin only exists between cells, so subtract one.
+        let width = self.columns as f64 * cell_stride_x - ELEMENT_MARGIN;
+        let height = self.rows as f64 * cell_stride_y - ELEMENT_MARGIN;
         (width.ceil() as u16, height.ceil() as u16)
     }
 
@@ -186,12 +243,30 @@ impl GridLayout {
         Rect::new(0.0, 0.0, f64::from(width), f64::from(height))
     }
 
+    fn cell_stride(self) -> (f64, f64) {
+        (
+            self.cell_width + ELEMENT_MARGIN,
+            self.cell_height + ELEMENT_MARGIN,
+        )
+    }
+
     fn cell_rect(self, index: usize) -> Rect {
         let column = index % self.columns;
         let row = index / self.columns;
-        let x0 = column as f64 * (self.cell_width + ELEMENT_MARGIN);
-        let y0 = row as f64 * (self.cell_height + ELEMENT_MARGIN);
+        let (cell_stride_x, cell_stride_y) = self.cell_stride();
+        let x0 = column as f64 * cell_stride_x;
+        let y0 = row as f64 * cell_stride_y;
         Rect::new(x0, y0, x0 + self.cell_width, y0 + self.cell_height)
+    }
+
+    fn cell_index_for_pixel(self, pixel_index: usize) -> usize {
+        let (cell_stride_x, cell_stride_y) = self.cell_stride();
+        let image_width = usize::from(self.canvas_size().0);
+        let x = pixel_index % image_width;
+        let y = pixel_index / image_width;
+        let column = x / cell_stride_x as usize;
+        let row = y / cell_stride_y as usize;
+        row * self.columns + column
     }
 }
 
@@ -401,6 +476,68 @@ fn draw_layered_difference_circles(ctx: &mut impl ProbeRenderer, cell: Rect) {
     );
     ctx.pop_layer();
     ctx.pop_layer();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn probe_result_reports_pixel_and_cell_differences() {
+        let (width, height) = canvas_size();
+        let pixel_count = usize::from(width) * usize::from(height);
+        let expected = ProbeImage {
+            width,
+            height,
+            data: vec![255; pixel_count * 4],
+        };
+        let mut actual = expected.clone();
+        let layout = GridLayout::from_elements(&ELEMENTS);
+
+        let set_channel = |actual: &mut ProbeImage, cell_index: usize, channel: usize, value| {
+            let center = layout.cell_rect(cell_index).center();
+            let x = center.x.floor() as usize;
+            let y = center.y.floor() as usize;
+            actual.data[(y * usize::from(width) + x) * 4 + channel] = value;
+        };
+
+        // This stays within the probe tolerance.
+        set_channel(&mut actual, 0, 0, 254);
+
+        set_channel(&mut actual, 1, 0, 249);
+        set_channel(&mut actual, 5, 1, 0);
+
+        let result = ProbeResult { expected, actual };
+        assert_eq!(
+            result.statistics(),
+            ProbeStatistics {
+                element_count: ELEMENTS.len(),
+                mismatched_dimensions: false,
+                different_pixel_count: 2,
+                max_channel_discrepancy: 255,
+                difference_mask: (1 << 1) | (1 << 5),
+            }
+        );
+    }
+
+    #[test]
+    fn probe_statistics_reports_dimension_mismatch() {
+        let result = ProbeResult {
+            expected: ProbeImage {
+                width: 1,
+                height: 1,
+                data: vec![0; 4],
+            },
+            actual: ProbeImage {
+                width: 2,
+                height: 1,
+                data: vec![0; 8],
+            },
+        };
+
+        assert!(result.statistics().mismatched_dimensions);
+    }
 }
 
 fn linear_gradient(rect: &Rect) -> Gradient {
