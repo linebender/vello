@@ -43,6 +43,10 @@ impl Atlases {
         self.scratch_texture
     }
 
+    pub(super) fn texture_size(&self) -> SizeU16 {
+        self.texture_size
+    }
+
     pub(super) fn allocate_layer(
         &mut self,
         request: &LayerAllocationRequest,
@@ -127,6 +131,10 @@ impl LayerAllocationRequest {
             texture_parity,
             region,
         }
+    }
+
+    pub(super) fn allocation_size(self) -> SizeU32 {
+        SizeU32::from(self.region.size) + u32::from(self.region.padding) * 2
     }
 }
 

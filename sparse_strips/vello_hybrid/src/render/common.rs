@@ -141,6 +141,8 @@ impl LayersConfig {
                 return Err(AtlasError::TextureTooLarge {
                     width: size.width(),
                     height: size.height(),
+                    max_width: u32::from(max_size.width()),
+                    max_height: u32::from(max_size.height()),
                 });
             }
 
@@ -297,7 +299,9 @@ mod tests {
             config.required_intermediate_texture_size(&recorder),
             Err(AtlasError::TextureTooLarge {
                 width: 513,
-                height: 10
+                height: 10,
+                max_width: 512,
+                max_height: 512,
             })
         ));
     }

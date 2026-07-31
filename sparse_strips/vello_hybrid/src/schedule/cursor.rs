@@ -8,11 +8,11 @@
 //! preferring to advance the base round count in case a requested allocation doesn't fit
 //! into the current round, and only resorting to adding more textures as a last resort.
 
+use crate::RenderError;
 use crate::schedule::allocate::{
     AllocatedTextureRegion, Allocation, Atlases, LayerAllocationRequest,
 };
 use alloc::vec::Vec;
-use vello_common::multi_atlas::AtlasError;
 
 /// The round cursor.
 #[derive(Debug)]
@@ -51,7 +51,7 @@ impl Cursor {
     pub(super) fn allocate_layer(
         &mut self,
         request: LayerAllocationRequest,
-    ) -> Result<Allocation, AtlasError> {
+    ) -> Result<Allocation, RenderError> {
         // TODO: This can be optimized further. Currently, we try go through all pending releases
         // until we have enough space or are forced to create a new texture. However, we don't
         // consider the parity of the texture request. In case we are requesting an even
@@ -68,12 +68,19 @@ impl Cursor {
         // Therefore, we need to attempt to create a new one.
         self.atlases.add_layer_atlas(request.texture_parity);
 
+        let requested_size = request.allocation_size();
+        let texture_size = self.atlases.texture_size();
         let allocation = self
             .atlases
             .allocate_layer(&request)
             // If we successfully added a new texture but allocation still fails, it means the layer
             // itself is larger than the maximum texture size, so it cannot possibly fit.
-            .ok_or(AtlasError::NoSpaceAvailable)?;
+            .ok_or(RenderError::IntermediateTextureTooLarge {
+                width: requested_size.width(),
+                height: requested_size.height(),
+                max_width: u32::from(texture_size.width()),
+                max_height: u32::from(texture_size.height()),
+            })?;
 
         Ok(Allocation {
             allocation,
@@ -132,6 +139,7 @@ impl Cursor {
 #[cfg(test)]
 mod tests {
     use super::Cursor;
+    use crate::RenderError;
     use crate::schedule::allocate::{Atlases, LayerAllocationRequest};
     use crate::target::{LayerTextureId, TextureParity};
     use vello_common::geometry::{RectU16, SizeU16};
@@ -196,6 +204,21 @@ mod tests {
             grown.allocation.region.target,
             LayerTextureId::new(TextureParity::Even, 1)
         );
+    }
+
+    #[test]
+    fn oversized_layer_reports_texture_dimensions() {
+        let mut cursor = cursor();
+
+        assert!(matches!(
+            cursor.allocate_layer(request(TextureParity::Even, SizeU16::from_wh(9, 8),)),
+            Err(RenderError::IntermediateTextureTooLarge {
+                width: 9,
+                height: 8,
+                max_width: 8,
+                max_height: 8,
+            })
+        ));
     }
 
     #[test]

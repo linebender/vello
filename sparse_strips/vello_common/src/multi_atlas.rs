@@ -139,7 +139,10 @@ impl MultiAtlasManager {
     /// Create a new atlas and return its ID.
     pub fn create_atlas(&mut self) -> Result<AtlasId, AtlasError> {
         if self.atlases.len() >= self.config.max_atlases {
-            return Err(AtlasError::AtlasLimitReached);
+            return Err(AtlasError::AtlasLimitReached {
+                max_atlases: self.config.max_atlases,
+                diagnostics: AtlasSpaceDiagnostics::Unavailable,
+            });
         }
 
         let atlas_id = AtlasId::new(self.next_atlas_id());
@@ -170,7 +173,12 @@ impl MultiAtlasManager {
     ) -> Result<AtlasAllocation, AtlasError> {
         // Check if the image is too large for any atlas
         if width > self.config.atlas_size.0 || height > self.config.atlas_size.1 {
-            return Err(AtlasError::TextureTooLarge { width, height });
+            return Err(AtlasError::TextureTooLarge {
+                width,
+                height,
+                max_width: self.config.atlas_size.0,
+                max_height: self.config.atlas_size.1,
+            });
         }
 
         // Try allocation based on strategy
@@ -185,6 +193,79 @@ impl MultiAtlasManager {
             AllocationStrategy::RoundRobin => {
                 self.allocate_round_robin(width, height, exclude_atlas_id)
             }
+        }
+    }
+
+    fn space_diagnostics(
+        &self,
+        width: u32,
+        height: u32,
+        exclude_atlas_id: Option<AtlasId>,
+    ) -> AtlasSpaceDiagnostics {
+        let mut atlases = Vec::new();
+
+        for atlas in &self.atlases {
+            if Some(atlas.id) == exclude_atlas_id {
+                continue;
+            }
+
+            let mut free_area = 0_u64;
+            let mut free_rectangle_count = 0;
+            let mut largest_free_width = 0;
+            let mut largest_free_height = 0;
+            let mut largest_free_area = 0_u64;
+            atlas.allocator.for_each_free_rectangle(|rect| {
+                let rect_width = rect.width() as u32;
+                let rect_height = rect.height() as u32;
+                let rect_area = u64::from(rect_width) * u64::from(rect_height);
+                free_area += rect_area;
+                free_rectangle_count += 1;
+
+                if rect_area > largest_free_area {
+                    largest_free_area = rect_area;
+                    largest_free_width = rect_width;
+                    largest_free_height = rect_height;
+                }
+            });
+
+            atlases.push(AtlasLayerDiagnostics {
+                atlas_id: atlas.id,
+                total_area: u64::from(atlas.stats.total_area),
+                free_area,
+                free_rectangle_count,
+                largest_free_width,
+                largest_free_height,
+            });
+        }
+
+        AtlasSpaceDiagnostics::Allocation {
+            width,
+            height,
+            atlas_width: self.config.atlas_size.0,
+            atlas_height: self.config.atlas_size.1,
+            max_atlases: self.config.max_atlases,
+            atlases,
+        }
+    }
+
+    fn no_space_available(
+        &self,
+        width: u32,
+        height: u32,
+        exclude_atlas_id: Option<AtlasId>,
+    ) -> AtlasError {
+        AtlasError::NoSpaceAvailable(self.space_diagnostics(width, height, exclude_atlas_id))
+    }
+
+    fn atlas_limit_reached(
+        &self,
+        width: u32,
+        height: u32,
+        exclude_atlas_id: Option<AtlasId>,
+    ) -> AtlasError {
+        AtlasError::AtlasLimitReached {
+            max_atlases: self.config.max_atlases,
+            diagnostics: self.space_diagnostics(width, height, exclude_atlas_id),
         }
     }
 
@@ -210,6 +291,9 @@ impl MultiAtlasManager {
 
         // Try creating a new atlas if auto-grow is enabled
         if self.config.auto_grow {
+            if self.atlases.len() >= self.config.max_atlases {
+                return Err(self.atlas_limit_reached(width, height, exclude_atlas_id));
+            }
             let atlas_id = self.create_atlas()?;
             let atlas = self.atlases.last_mut().unwrap();
             if let Some(allocation) = atlas.allocate(width, height) {
@@ -220,7 +304,7 @@ impl MultiAtlasManager {
             }
         }
 
-        Err(AtlasError::NoSpaceAvailable)
+        Err(self.no_space_available(width, height, exclude_atlas_id))
     }
 
     /// Allocate using best-fit strategy: choose the atlas with the smallest remaining space that
@@ -333,6 +417,9 @@ impl MultiAtlasManager {
 
         // Try creating a new atlas if auto-grow is enabled
         if self.config.auto_grow {
+            if self.atlases.len() >= self.config.max_atlases {
+                return Err(self.atlas_limit_reached(width, height, exclude_atlas_id));
+            }
             let atlas_id = self.create_atlas()?;
             let atlas = self.atlases.last_mut().unwrap();
             if let Some(allocation) = atlas.allocate(width, height) {
@@ -344,7 +431,7 @@ impl MultiAtlasManager {
             }
         }
 
-        Err(AtlasError::NoSpaceAvailable)
+        Err(self.no_space_available(width, height, exclude_atlas_id))
     }
 
     /// Deallocate space in the specified atlas.
@@ -395,22 +482,181 @@ impl core::fmt::Debug for MultiAtlasManager {
 #[derive(Debug, Clone, Error)]
 pub enum AtlasError {
     /// No space available in any atlas.
-    #[error("No space available in any atlas")]
-    NoSpaceAvailable,
+    #[error("No space available in any atlas{0}")]
+    NoSpaceAvailable(AtlasSpaceDiagnostics),
     /// Maximum number of atlases reached.
-    #[error("Maximum number of atlases reached")]
-    AtlasLimitReached,
+    #[error("Maximum atlas count reached ({max_atlases}){diagnostics}")]
+    AtlasLimitReached {
+        /// The configured maximum number of atlases.
+        max_atlases: usize,
+        /// Details about the failed allocation, when available.
+        diagnostics: AtlasSpaceDiagnostics,
+    },
     /// The requested texture size is too large for any atlas.
-    #[error("Texture too large ({width}x{height}) for atlas")]
+    #[error("Texture too large ({width}x{height}) for atlas (maximum {max_width}x{max_height})")]
     TextureTooLarge {
         /// The width of the requested texture.
         width: u32,
         /// The height of the requested texture.
         height: u32,
+        /// The maximum texture width supported by the atlas.
+        max_width: u32,
+        /// The maximum texture height supported by the atlas.
+        max_height: u32,
     },
     /// The specified atlas was not found.
     #[error("Atlas with Id {0:?} not found")]
     AtlasNotFound(AtlasId),
+}
+
+/// Free-space details collected after an atlas allocation fails.
+#[derive(Clone)]
+pub enum AtlasSpaceDiagnostics {
+    /// No allocation context is available.
+    Unavailable,
+    /// Details about the requested allocation and available atlas space.
+    Allocation {
+        /// The requested allocation width.
+        width: u32,
+        /// The requested allocation height.
+        height: u32,
+        /// The width shared by all atlas layers.
+        atlas_width: u32,
+        /// The height shared by all atlas layers.
+        atlas_height: u32,
+        /// The configured maximum number of atlas layers.
+        max_atlases: usize,
+        /// Per-layer details for each atlas considered for the allocation.
+        atlases: Vec<AtlasLayerDiagnostics>,
+    },
+}
+
+impl core::fmt::Debug for AtlasSpaceDiagnostics {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let Self::Allocation {
+            width,
+            height,
+            atlas_width,
+            atlas_height,
+            max_atlases,
+            atlases,
+        } = self
+        else {
+            return f.write_str("Unavailable");
+        };
+
+        f.debug_struct("Allocation")
+            .field("requested", &Dimensions(*width, *height))
+            .field("layer_size", &Dimensions(*atlas_width, *atlas_height))
+            .field("max_atlases", max_atlases)
+            .field("atlas_layers", atlases)
+            .finish()
+    }
+}
+
+impl core::fmt::Display for AtlasSpaceDiagnostics {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let Self::Allocation {
+            width,
+            height,
+            atlas_width: _,
+            atlas_height: _,
+            max_atlases,
+            atlases,
+        } = self
+        else {
+            return Ok(());
+        };
+
+        let total_area = atlases.iter().map(|atlas| atlas.total_area).sum::<u64>();
+        let free_area = atlases.iter().map(|atlas| atlas.free_area).sum::<u64>();
+        let used_percentage = if total_area == 0 {
+            0.0
+        } else {
+            (1.0 - free_area as f64 / total_area as f64) * 100.0
+        };
+        write!(
+            f,
+            ": failed to allocate {width}x{height} across {} atlas layers \
+             (maximum {max_atlases}; {used_percentage:.1}% used)",
+            atlases.len(),
+        )
+    }
+}
+
+/// Free-space details for one atlas texture-array layer.
+#[derive(Clone)]
+pub struct AtlasLayerDiagnostics {
+    /// The atlas represented by this layer.
+    pub atlas_id: AtlasId,
+    /// The total layer area, in texels.
+    pub total_area: u64,
+    /// The total free layer area, in texels.
+    pub free_area: u64,
+    /// The number of disjoint free rectangles in the layer.
+    pub free_rectangle_count: usize,
+    /// The width of the largest free rectangle by area.
+    pub largest_free_width: u32,
+    /// The height of the largest free rectangle by area.
+    pub largest_free_height: u32,
+}
+
+impl AtlasLayerDiagnostics {
+    /// Calculate layer utilization as a percentage from 0 to 100.
+    pub fn utilization_percentage(&self) -> f64 {
+        if self.total_area == 0 {
+            0.0
+        } else {
+            (1.0 - self.free_area as f64 / self.total_area as f64) * 100.0
+        }
+    }
+
+    /// Calculate layer fragmentation as a percentage from 0 to 100.
+    pub fn fragmentation_percentage(&self) -> f64 {
+        if self.free_area == 0 {
+            0.0
+        } else {
+            let largest_free_area =
+                u64::from(self.largest_free_width) * u64::from(self.largest_free_height);
+            (1.0 - largest_free_area as f64 / self.free_area as f64) * 100.0
+        }
+    }
+}
+
+impl core::fmt::Debug for AtlasLayerDiagnostics {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Layer")
+            .field("atlas_id", &self.atlas_id)
+            .field("utilization", &Percentage(self.utilization_percentage()))
+            .field("capacity", &self.total_area)
+            .field("free", &self.free_area)
+            .field(
+                "largest_free_rectangle",
+                &Dimensions(self.largest_free_width, self.largest_free_height),
+            )
+            .field("free_rectangles", &self.free_rectangle_count)
+            .field(
+                "fragmentation",
+                &Percentage(self.fragmentation_percentage()),
+            )
+            .finish()
+    }
+}
+
+struct Dimensions(u32, u32);
+
+impl core::fmt::Debug for Dimensions {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}x{}", self.0, self.1)
+    }
+}
+
+struct Percentage(f64);
+
+impl core::fmt::Debug for Percentage {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:.1}%", self.0)
+    }
 }
 
 /// Unique identifier for an atlas.
@@ -560,7 +806,102 @@ mod tests {
             auto_grow: false,
         });
 
-        assert!(manager.create_atlas().is_err());
+        assert!(matches!(
+            manager.create_atlas(),
+            Err(AtlasError::AtlasLimitReached {
+                max_atlases: 1,
+                diagnostics: AtlasSpaceDiagnostics::Unavailable,
+            })
+        ));
+    }
+
+    #[test]
+    fn test_no_space_diagnostics() {
+        let mut manager = MultiAtlasManager::new(AtlasConfig {
+            initial_atlas_count: 1,
+            max_atlases: 1,
+            atlas_size: (256, 256),
+            auto_grow: false,
+            ..Default::default()
+        });
+        manager.try_allocate(128, 256).unwrap();
+
+        let Err(AtlasError::NoSpaceAvailable(AtlasSpaceDiagnostics::Allocation {
+            width: 129,
+            height: 256,
+            atlas_width: 256,
+            atlas_height: 256,
+            max_atlases: 1,
+            atlases,
+        })) = manager.try_allocate(129, 256)
+        else {
+            panic!("expected no-space diagnostics");
+        };
+        assert_eq!(atlases.len(), 1);
+        let atlas = &atlases[0];
+        assert_eq!(atlas.atlas_id, AtlasId::new(0));
+        assert_eq!(atlas.total_area, 65_536);
+        assert_eq!(atlas.free_area, 32_768);
+        assert_eq!(atlas.free_rectangle_count, 1);
+        assert_eq!(
+            (atlas.largest_free_width, atlas.largest_free_height),
+            (128, 256)
+        );
+        assert_eq!(atlas.fragmentation_percentage(), 0.0);
+    }
+
+    #[test]
+    fn test_atlas_limit_diagnostics() {
+        let mut manager = MultiAtlasManager::new(AtlasConfig {
+            initial_atlas_count: 1,
+            max_atlases: 1,
+            atlas_size: (256, 256),
+            auto_grow: true,
+            ..Default::default()
+        });
+        manager.try_allocate(128, 256).unwrap();
+
+        let Err(AtlasError::AtlasLimitReached {
+            max_atlases: 1,
+            diagnostics:
+                AtlasSpaceDiagnostics::Allocation {
+                    width: 129,
+                    height: 256,
+                    atlas_width: 256,
+                    atlas_height: 256,
+                    max_atlases: 1,
+                    atlases,
+                },
+        }) = manager.try_allocate(129, 256)
+        else {
+            panic!("expected atlas-limit diagnostics");
+        };
+        assert_eq!(atlases.len(), 1);
+    }
+
+    #[test]
+    fn test_fragmentation_per_atlas_layer() {
+        let atlases = [
+            AtlasLayerDiagnostics {
+                atlas_id: AtlasId::new(0),
+                total_area: 100,
+                free_area: 100,
+                free_rectangle_count: 1,
+                largest_free_width: 10,
+                largest_free_height: 10,
+            },
+            AtlasLayerDiagnostics {
+                atlas_id: AtlasId::new(1),
+                total_area: 100,
+                free_area: 100,
+                free_rectangle_count: 2,
+                largest_free_width: 5,
+                largest_free_height: 10,
+            },
+        ];
+
+        assert_eq!(atlases[0].fragmentation_percentage(), 0.0);
+        assert_eq!(atlases[1].fragmentation_percentage(), 50.0);
     }
 
     #[test]
@@ -571,7 +912,15 @@ mod tests {
         });
 
         let result = manager.try_allocate(300, 300);
-        assert!(matches!(result, Err(AtlasError::TextureTooLarge { .. })));
+        assert!(matches!(
+            result,
+            Err(AtlasError::TextureTooLarge {
+                width: 300,
+                height: 300,
+                max_width: 256,
+                max_height: 256,
+            })
+        ));
     }
 
     #[test]
