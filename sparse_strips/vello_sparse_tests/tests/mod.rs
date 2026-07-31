@@ -48,6 +48,7 @@ mod layer;
 mod mask;
 mod mix;
 mod opacity;
+mod rect_parity;
 mod renderer;
 mod scenes;
 #[macro_use]

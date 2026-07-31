@@ -115,7 +115,7 @@ struct Config {
 //   ----------------------+-----------------------------------+-----------------------------------
 //   xy                    | Strip position                    | Rect top-left (snapped outward)
 //   widths_or_rect_height | [width, dense_width]              | [width, height] (both snapped)
-//   col_idx_or_rect_frac  | Alpha column index                | Packed AA edge fractions (4 × u8)
+//   col_idx_or_rect_frac  | Alpha column index                | Boundary coverage bytes (4 × u8)
 //   payload               | Color / scene coords / layer xy   | Color / scene coords / layer xy
 //   paint_and_rect_flag   | Paint encoding                    | Paint encoding | RECT_STRIP_FLAG
 //
@@ -174,7 +174,8 @@ struct StripInstance {
     widths_or_rect_height: u32,
     // For normal strips: alpha texture column index where this strip's alpha values begin.
     // There are [`Config::strip_height`] alpha values per column.
-    // For rect strips: packed fractional edge offsets for AA.
+    // For rect strips: packed coverage bytes of the rect's boundary pixels
+    // (first column, last column, first row, last row); 0xffffffff = fully covered.
     @location(2)
     col_idx_or_rect_frac: u32,
     // See StripInstance documentation above.
@@ -205,11 +206,15 @@ struct VertexOutput {
     // Packed paint payload or layer sample coordinate.
     @location(4) @interpolate(flat)
     payload: u32,
-    // Packed fractional edge offsets for rectangles.
-    // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
+    // Packed boundary-pixel coverage bytes for rectangles.
+    // Bits 0-7: first column, 8-15: last column, 16-23: first row, 24-31: last row.
     // Zero for normal strips.
     @location(5) @interpolate(flat)
     rect_frac: u32,
+    // Corner corrections for rectangles (2 bits per corner, biased by 1); see
+    // `RectPart::corner_adjust`. Zero for normal strips.
+    @location(6) @interpolate(flat)
+    rect_corner_adjust: u32,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position)
     position: vec4<f32>,
@@ -257,9 +262,13 @@ fn vs_main(
         height = dense_width;
         out.dense_end_or_rect_size = width | (dense_width << 16u);
         out.rect_frac = instance.col_idx_or_rect_frac;
+        // Rect strips carry their corner corrections in the depth index's top byte
+        // (the z value only uses the low 24 bits).
+        out.rect_corner_adjust = instance.depth_index >> 24u;
     } else {
         out.dense_end_or_rect_size = instance.col_idx_or_rect_frac + dense_width;
         out.rect_frac = 0u;
+        out.rect_corner_adjust = 0u;
     }
     // Calculate the pixel coordinates of the current vertex within the strip.
     // Don't forget to apply the strip offset!
@@ -310,7 +319,7 @@ fn vs_main(
 
     // Divide by a power of 2 to ensure exact f32 arithmetic (and divide by the expected depth
     // buffer precision of 24 bits).
-    let z = 1.0 - f32(instance.depth_index) / f32(1u << 24u);
+    let z = 1.0 - f32(instance.depth_index & 0xffffffu) / f32(1u << 24u);
     // Flip it based on the flag.
     let final_ndc_y = select(ndc.y, -ndc.y, config.ndc_y_negate != 0u);
     out.position = vec4<f32>(ndc.x, final_ndc_y, z, 1.0);
@@ -334,26 +343,52 @@ fn fs_main(
     @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
     @location(4) @interpolate(flat) payload: u32,
     @location(5) @interpolate(flat) rect_frac: u32,
+    @location(6) @interpolate(flat) rect_corner_adjust: u32,
     @builtin(position) position: vec4<f32>,
 ) -> @location(0) vec4<f32> {
     var alpha = 1.0;
     let is_rect = (paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
     // TODO: Explore doing these calculations only for rectangle parts that actually need anti-aliasing. See
     // https://github.com/linebender/vello/pull/1482#discussion_r2861311034
-    if is_rect && rect_frac != 0u {
-        let frac = unpack4x8unorm(rect_frac);
-        // Calculate how much of the pixel is actually covered by the rect.
-        // We do this by simply calculating the fractions in the x and y direction, and
-        // then multiplying them.
-        // For (maybe?) better performance, we calculate the x and y dimension in a single
-        // pass by packing everything into a vec2.
-        let rect_size = vec2<f32>(unpack_u16_pair(dense_end_or_rect_size));
-        let tc = tex_coord;
-        // + 0.5 and -0.5 since the fragment shader positions the coordinates in the center of the pixel.
-        let bottom_and_right = min(tc + 0.5, rect_size - frac.zw);
-        let top_and_left = max(tc - 0.5, frac.xy);
-        let a = clamp(bottom_and_right - top_and_left, vec2(0.0), vec2(1.0));
-        alpha = a.x * a.y;
+    // A part is skippable only when its boundary bytes are all 255 AND its
+    // corner corrections carry the all-exactly-255 marker (0xff): edges less
+    // than half an alpha step inside an integer round their byte to 255 while
+    // the exact corner alpha is 254.
+    if is_rect && !(rect_frac == 0xffffffffu && rect_corner_adjust == 0xffu) {
+        // Only the rect's boundary pixels can be partially covered; their coverage bytes
+        // arrive precomputed in rect_frac (first column, last column, first row, last row).
+        // A pixel in both a boundary column and a boundary row (a corner) combines the two
+        // bytes with round(x * y / 255), evaluated in integer arithmetic. The CPU strip
+        // renderer quantizes coverage with the same rules (see vello_common::rect), so a
+        // rect drawn as this quad is byte-identical to the same rect drawn as strips.
+        let col = u32(tex_coord.x);
+        let row = u32(tex_coord.y);
+        let rect_size = unpack_u16_pair(dense_end_or_rect_size);
+        let last_col = rect_size.x - 1u;
+        let last_row = rect_size.y - 1u;
+
+        var cov_x = 255u;
+        if col == 0u {
+            cov_x = rect_frac & 0xffu;
+        } else if col == last_col {
+            cov_x = (rect_frac >> 8u) & 0xffu;
+        }
+        var cov_y = 255u;
+        if row == 0u {
+            cov_y = (rect_frac >> 16u) & 0xffu;
+        } else if row == last_row {
+            cov_y = (rect_frac >> 24u) & 0xffu;
+        }
+
+        let p = cov_x * cov_y + 128u;
+        var alpha_u8 = (p + (p >> 8u)) >> 8u;
+        // Corner pixels (boundary on both axes) apply their precomputed 2-bit correction so
+        // the result lands exactly on the byte the CPU strip renderer writes for this pixel.
+        if (col == 0u || col == last_col) && (row == 0u || row == last_row) {
+            let slot = select(1u, 0u, col == 0u) | (select(1u, 0u, row == 0u) << 1u);
+            alpha_u8 = alpha_u8 + ((rect_corner_adjust >> (slot * 2u)) & 0x3u) - 1u;
+        }
+        alpha = f32(alpha_u8) * (1.0 / 255.0);
     } else if !is_rect && dense_end_or_rect_size != 0u {
         let x = u32(floor(tex_coord.x));
         let y = u32(floor(tex_coord.y));
