@@ -2020,3 +2020,17 @@ fn filter_expansion_grid(ctx: &mut impl Renderer) {
         draw_expansion_case(ctx, case, center);
     }
 }
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+fn filter_with_clip_and_inner_clip(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur { std_deviation: 10.0, edge_mode: EdgeMode::None } );
+    let clip1 = Rect::new(25.0, 25.0, 75.0, 75.0).to_path(0.1);
+    let clip2 = Rect::new(30.0, 30.0, 70.0, 70.0).to_path(0.1);
+
+    ctx.push_layer(Some(&clip1), None, None, None, Some(filter));
+    ctx.push_clip_layer(&clip2);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
