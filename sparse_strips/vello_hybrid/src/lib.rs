@@ -103,7 +103,7 @@ pub use render::{
 };
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
-pub use render::{Config, GpuStrip, RenderSize};
+pub use render::{ClearSettings, Config, GpuStrip, RenderSize};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{PROBE_ELEMENTS, Probe, ProbeFeature, ProbeResult, ProbeStatistics};
 #[cfg(all(feature = "webgl", feature = "probe"))]
@@ -115,7 +115,7 @@ pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
 pub use util::DimensionConstraints;
 pub use vello_common::TextureId;
-pub use vello_common::geometry::SizeU16;
+pub use vello_common::geometry::{RectU16, SizeU16};
 pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
 pub use vello_common::pixmap::Pixmap;
 

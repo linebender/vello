@@ -235,6 +235,7 @@ impl AppState {
                 &surface_texture_view,
                 Some(&self.renderer_wrapper.depth_texture_view),
                 &vello_hybrid::TextureBindings::new(),
+                vello_hybrid::ClearSettings::default(),
             )
             .unwrap();
 
@@ -668,6 +669,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             &surface_texture_view,
             Some(&depth_texture_view),
             &vello_hybrid::TextureBindings::new(),
+            vello_hybrid::ClearSettings::default(),
         )
         .unwrap();
 
