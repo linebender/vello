@@ -478,6 +478,25 @@ fn draw_layered_difference_circles(ctx: &mut impl ProbeRenderer, cell: Rect) {
     ctx.pop_layer();
 }
 
+fn linear_gradient(rect: &Rect) -> Gradient {
+    Gradient {
+        kind: LinearGradientPosition {
+            start: Point::new(rect.x0, rect.y0),
+            end: Point::new(rect.x1, rect.y0),
+        }
+        .into(),
+        stops: ColorStops::from(
+            [
+                ColorStop::from((0.0, css::BLUE)),
+                ColorStop::from((1.0, css::RED)),
+            ]
+            .as_slice(),
+        ),
+        extend: Extend::Pad,
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,24 +556,5 @@ mod tests {
         };
 
         assert!(result.statistics().mismatched_dimensions);
-    }
-}
-
-fn linear_gradient(rect: &Rect) -> Gradient {
-    Gradient {
-        kind: LinearGradientPosition {
-            start: Point::new(rect.x0, rect.y0),
-            end: Point::new(rect.x1, rect.y0),
-        }
-        .into(),
-        stops: ColorStops::from(
-            [
-                ColorStop::from((0.0, css::BLUE)),
-                ColorStop::from((1.0, css::RED)),
-            ]
-            .as_slice(),
-        ),
-        extend: Extend::Pad,
-        ..Default::default()
     }
 }
