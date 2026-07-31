@@ -70,6 +70,7 @@ impl<T> ScratchTexture<T> {
         &self.0
     }
 
+    #[cfg(feature = "webgl")]
     pub(crate) fn get_mut(&mut self) -> &mut T {
         &mut self.0
     }
