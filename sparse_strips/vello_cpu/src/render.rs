@@ -733,6 +733,18 @@ impl RenderContext {
         );
     }
 
+    /// Push an axis-aligned rectangle clip.
+    ///
+    /// Renders like pushing the rectangle as a clip path, but cheaper: the mask
+    /// comes from the rect strip renderer instead of the path pipeline. Falls
+    /// back to the path pipeline under rotation or skew. Pop with
+    /// [`pop_clip_path`](Self::pop_clip_path).
+    pub fn push_clip_rect(&mut self, rect: &Rect) {
+        let transform = self.transforms().clip_path_transform();
+        self.dispatcher
+            .push_clip_rect(rect, transform, self.aliasing_threshold);
+    }
+
     /// Pop a clip path from the clip stack.
     ///
     /// Note that unlike `push_clip_layer`, it is permissible to have pending

@@ -4,7 +4,9 @@
 //! Managing clipping state.
 
 use crate::geometry::RectU16;
-use crate::kurbo::{Affine, BezPath, PathEl};
+#[cfg(not(feature = "std"))]
+use crate::kurbo::common::FloatFuncs as _;
+use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Shape};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use crate::tile::Tile;
@@ -15,6 +17,292 @@ use core::ops::Range;
 use fearless_simd::{Level, Simd, SimdBase, dispatch, u8x16};
 use peniko::Fill;
 
+/// Maximum number of rectangles tracked in an [`IntRectSet`].
+pub const MAX_INT_CLIP_RECTS: usize = 16;
+
+/// Maximum number of path elements captured for integer-rectangle clip detection: a set of
+/// [`MAX_INT_CLIP_RECTS`] rectangles needs at most `MoveTo + 5 LineTo + ClosePath` per
+/// rectangle. Longer clip paths conservatively fail detection.
+const MAX_DETECT_ELEMENTS: usize = MAX_INT_CLIP_RECTS * 7;
+
+/// Tolerance for treating a device-space clip edge as lying on an integer pixel boundary.
+///
+/// Snapping is byte-exact only if every mask byte still quantizes to 0 or 255. The worst case
+/// is a pixel touched by TWO snapped edges — a corner, a 1px-thin rect, or a 1x1 rect — where
+/// the coverage is a product: for a 1x1 rect with all four edges snapped inward by `e`, the
+/// mask byte is `floor((1 - 2e)^2 * 255 + 0.5)`, which stays 255 only for `e <= ~1/2040`
+/// (a single 1D edge would allow `e < 1/510`). `1/4096` keeps a comfortable margin below
+/// that bound; on the outside, coverage `e` quantizes to 0 whenever `e < 1/510`, which holds
+/// trivially.
+const INT_EDGE_EPSILON: f64 = 1.0 / 4096.0;
+
+/// A small inline set of pairwise-disjoint, axis-aligned integer rectangles.
+///
+/// Used to mark clip stacks whose combined effect is exactly a union of such rectangles:
+/// anti-aliasing on integer edges degenerates to a 0/255 step, so clipping content to the set
+/// is byte-identical to intersecting with the rasterized clip mask.
+#[derive(Debug, Clone, Copy)]
+pub struct IntRectSet {
+    rects: [RectU16; MAX_INT_CLIP_RECTS],
+    len: u8,
+}
+
+impl IntRectSet {
+    fn new() -> Self {
+        Self {
+            rects: [RectU16::ZERO; MAX_INT_CLIP_RECTS],
+            len: 0,
+        }
+    }
+
+    /// Add a rectangle to the set. Empty rectangles are ignored. Returns `false` when the set
+    /// is full.
+    fn push(&mut self, rect: RectU16) -> bool {
+        if rect.is_empty() {
+            return true;
+        }
+        if (self.len as usize) == MAX_INT_CLIP_RECTS {
+            return false;
+        }
+        self.rects[self.len as usize] = rect;
+        self.len += 1;
+        true
+    }
+
+    /// The rectangles in the set.
+    #[inline]
+    pub fn as_slice(&self) -> &[RectU16] {
+        &self.rects[..self.len as usize]
+    }
+
+    /// Intersect two disjoint sets. The pairwise intersections of two internally disjoint
+    /// families are themselves pairwise disjoint. Returns `None` when the result would exceed
+    /// [`MAX_INT_CLIP_RECTS`].
+    fn intersect(&self, other: &Self) -> Option<Self> {
+        let mut out = Self::new();
+        for a in self.as_slice() {
+            for b in other.as_slice() {
+                if !out.push(a.intersect(*b)) {
+                    return None;
+                }
+            }
+        }
+        Some(out)
+    }
+}
+
+/// Decompose `path` (after `transform`) into a set of pairwise-disjoint, axis-aligned
+/// rectangles whose edges lie on integer device coordinates once clamped to `viewport`.
+///
+/// Returns `None` if any subpath is not such a rectangle (curves, diagonal edges, fractional
+/// in-viewport edges), if the rectangles overlap, or if there are more than
+/// [`MAX_INT_CLIP_RECTS`] of them. Rectangles fully outside `viewport` are dropped.
+pub(crate) fn path_as_integer_rect_set(
+    path: impl IntoIterator<Item = PathEl>,
+    transform: Affine,
+    viewport: RectU16,
+) -> Option<IntRectSet> {
+    let mut set = IntRectSet::new();
+    // Corners of the subpath currently being walked: the `MoveTo` point plus up to four
+    // `LineTo` points (the last of which may return to the start).
+    let mut pts = [Point::ZERO; 6];
+    let mut n = 0_usize;
+    let mut open = false;
+
+    let finish = |pts: &[Point], set: &mut IntRectSet| -> bool {
+        match subpath_as_integer_rect(pts, viewport) {
+            SubpathRect::Rect(rect) => set.push(rect),
+            SubpathRect::Empty => true,
+            SubpathRect::NotARect => false,
+        }
+    };
+
+    for el in path {
+        match el {
+            PathEl::MoveTo(p) => {
+                if open && !finish(&pts[..n], &mut set) {
+                    return None;
+                }
+                pts[0] = transform * p;
+                n = 1;
+                open = true;
+            }
+            PathEl::LineTo(p) => {
+                if !open || n == pts.len() {
+                    return None;
+                }
+                pts[n] = transform * p;
+                n += 1;
+            }
+            PathEl::QuadTo(..) | PathEl::CurveTo(..) => return None,
+            PathEl::ClosePath => {
+                if open && !finish(&pts[..n], &mut set) {
+                    return None;
+                }
+                open = false;
+            }
+        }
+    }
+    if open && !finish(&pts[..n], &mut set) {
+        return None;
+    }
+
+    // Overlapping rectangles form a union we cannot decompose here; reject them.
+    let rects = set.as_slice();
+    for (i, a) in rects.iter().enumerate() {
+        for b in &rects[i + 1..] {
+            if !a.intersect(*b).is_empty() {
+                return None;
+            }
+        }
+    }
+
+    Some(set)
+}
+
+/// The result of interpreting one subpath as an integer rectangle.
+enum SubpathRect {
+    Rect(RectU16),
+    /// A valid rectangle that clamps to nothing inside the viewport.
+    Empty,
+    NotARect,
+}
+
+/// Interpret already-transformed subpath corners as an axis-aligned rectangle loop with
+/// integer device edges (after clamping to `viewport`).
+fn subpath_as_integer_rect(pts: &[Point], viewport: RectU16) -> SubpathRect {
+    let mut n = pts.len();
+    // Drop an explicit closing point that returns to the start.
+    if n == 5 && point_eq(pts[4], pts[0]) {
+        n = 4;
+    }
+    if n != 4 {
+        return SubpathRect::NotARect;
+    }
+
+    // Consecutive edges (including the closing one) must be axis-parallel and alternate
+    // between horizontal and vertical; this excludes diagonal "Z" quads whose corners still
+    // span a rectangle.
+    let horizontal = |a: Point, b: Point| (a.y - b.y).abs() <= INT_EDGE_EPSILON;
+    let vertical = |a: Point, b: Point| (a.x - b.x).abs() <= INT_EDGE_EPSILON;
+    let mut first_horizontal = false;
+    for i in 0..4 {
+        let (a, b) = (pts[i], pts[(i + 1) % 4]);
+        let h = horizontal(a, b);
+        let v = vertical(a, b);
+        if h == v {
+            // Degenerate (both) or diagonal (neither).
+            return SubpathRect::NotARect;
+        }
+        if i == 0 {
+            first_horizontal = h;
+        } else if h != (first_horizontal == (i % 2 == 0)) {
+            return SubpathRect::NotARect;
+        }
+    }
+
+    let x0 = pts
+        .iter()
+        .take(4)
+        .map(|p| p.x)
+        .fold(f64::INFINITY, f64::min);
+    let x1 = pts
+        .iter()
+        .take(4)
+        .map(|p| p.x)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let y0 = pts
+        .iter()
+        .take(4)
+        .map(|p| p.y)
+        .fold(f64::INFINITY, f64::min);
+    let y1 = pts
+        .iter()
+        .take(4)
+        .map(|p| p.y)
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    // Clamp to the viewport first: out-of-viewport edges land on the (integer) viewport
+    // bounds, so only the surviving in-viewport edges need to be integers themselves.
+    let x0 = x0.max(f64::from(viewport.x0)).min(f64::from(viewport.x1));
+    let x1 = x1.max(f64::from(viewport.x0)).min(f64::from(viewport.x1));
+    let y0 = y0.max(f64::from(viewport.y0)).min(f64::from(viewport.y1));
+    let y1 = y1.max(f64::from(viewport.y0)).min(f64::from(viewport.y1));
+
+    let snap = |v: f64| -> Option<u16> {
+        let r = v.round();
+        ((v - r).abs() <= INT_EDGE_EPSILON).then_some(r as u16)
+    };
+    let (Some(x0), Some(x1), Some(y0), Some(y1)) = (snap(x0), snap(x1), snap(y0), snap(y1)) else {
+        return SubpathRect::NotARect;
+    };
+
+    let rect = RectU16::new(x0, y0, x1, y1);
+    if rect.is_empty() {
+        SubpathRect::Empty
+    } else {
+        SubpathRect::Rect(rect)
+    }
+}
+
+#[inline]
+fn point_eq(a: Point, b: Point) -> bool {
+    (a.x - b.x).abs() <= INT_EDGE_EPSILON && (a.y - b.y).abs() <= INT_EDGE_EPSILON
+}
+
+/// Interpret an already-transformed axis-aligned rectangle as a single-element integer
+/// rectangle set, when its edges land on integer device coordinates (same snap tolerance
+/// as the path detection). The rectangle is clamped to `viewport` first; a rectangle that
+/// clamps to nothing yields an empty set (the clip removes everything), and fractional
+/// edges yield `None`.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "edges are clamped to the u16 viewport before rounding"
+)]
+pub(crate) fn rect_as_integer_rect_set(rect: Rect, viewport: RectU16) -> Option<IntRectSet> {
+    let x0 = rect
+        .x0
+        .max(f64::from(viewport.x0))
+        .min(f64::from(viewport.x1));
+    let x1 = rect
+        .x1
+        .max(f64::from(viewport.x0))
+        .min(f64::from(viewport.x1));
+    let y0 = rect
+        .y0
+        .max(f64::from(viewport.y0))
+        .min(f64::from(viewport.y1));
+    let y1 = rect
+        .y1
+        .max(f64::from(viewport.y0))
+        .min(f64::from(viewport.y1));
+
+    let snap = |v: f64| -> Option<u16> {
+        let r = v.round();
+        ((v - r).abs() <= INT_EDGE_EPSILON).then_some(r as u16)
+    };
+    let (Some(x0), Some(x1), Some(y0), Some(y1)) = (snap(x0), snap(x1), snap(y0), snap(y1)) else {
+        return None;
+    };
+
+    let mut set = IntRectSet::new();
+    // An empty rectangle is ignored by `push`, leaving the (valid) empty set.
+    set.push(RectU16::new(x0, y0, x1, y1));
+    Some(set)
+}
+
+/// Whether `transform` maps axis-aligned rectangles to axis-aligned rectangles
+/// (no rotation or skew; scaling and mirroring are fine).
+///
+/// Deliberately an exact zero test, unlike the epsilon-based helpers elsewhere:
+/// a false negative only routes the clip through the (always correct) path
+/// pipeline, while a false positive would silently drop a near-zero skew.
+#[inline]
+fn transform_is_axis_aligned(transform: Affine) -> bool {
+    let c = transform.as_coeffs();
+    c[1] == 0.0 && c[2] == 0.0
+}
+
 #[derive(Debug)]
 struct ClipData {
     alpha_start: u32,
@@ -24,6 +312,11 @@ struct ClipData {
     ///
     /// These bounds have already been intersected with the viewport.
     bbox: RectU16,
+
+    /// When the whole clip stack up to and including this entry is equivalent to a set of
+    /// pairwise-disjoint integer rectangles, that effective set (clamped to the viewport).
+    /// `None` means "not representable", never "empty".
+    int_rects: Option<IntRectSet>,
 }
 
 impl ClipData {
@@ -48,6 +341,9 @@ pub struct ClipContext {
     storage: StripStorage,
     temp_storage: StripStorage,
     clip_stack: Vec<ClipData>,
+    /// Reusable capture buffer for integer-rectangle clip detection; see
+    /// [`Self::push_clip`].
+    detect_buf: Vec<PathEl>,
 }
 
 impl Default for ClipContext {
@@ -66,6 +362,7 @@ impl ClipContext {
             storage: main_storage,
             temp_storage: StripStorage::default(),
             clip_stack: vec![],
+            detect_buf: vec![],
         }
     }
 
@@ -83,6 +380,21 @@ impl ClipContext {
         self.clip_stack
             .last()
             .map(|c| c.to_path_data_ref(&self.storage))
+    }
+
+    /// Whether the current clip stack (possibly empty) is exactly representable as a set of
+    /// pairwise-disjoint integer rectangles.
+    #[inline]
+    pub fn is_int_rect_clip(&self) -> bool {
+        self.clip_stack.last().is_none_or(|c| c.int_rects.is_some())
+    }
+
+    /// The effective clip region as a set of pairwise-disjoint integer rectangles, when every
+    /// clip on the stack is such a set. `None` when the stack is empty or the region is not
+    /// representable.
+    #[inline]
+    pub fn effective_int_rect_set(&self) -> Option<IntRectSet> {
+        self.clip_stack.last().and_then(|c| c.int_rects)
     }
 
     /// Push a new clip path to the stack.
@@ -105,6 +417,16 @@ impl ClipContext {
             .last()
             .map(|c| c.to_path_data_ref(&self.storage));
 
+        // Capture a bounded prefix of the path while it streams into generation, for the
+        // integer-rectangle detection below (the path is only iterable once).
+        self.detect_buf.clear();
+        let detect_buf = &mut self.detect_buf;
+        let clip_path = clip_path.into_iter().inspect(|el| {
+            if detect_buf.len() <= MAX_DETECT_ELEMENTS {
+                detect_buf.push(*el);
+            }
+        });
+
         strip_generator.generate_filled_path(
             clip_path,
             fill_rule,
@@ -115,10 +437,75 @@ impl ClipContext {
         );
 
         let bbox = strip_bbox(&self.temp_storage.strips).unwrap_or(RectU16::ZERO);
+
+        // Track whether the stack remains an exact union of disjoint integer rectangles.
+        // An aliasing threshold changes how the mask quantizes (bytes snap to 0/255 around
+        // the threshold, and the thresholded mask can extend to tile bounds), so the
+        // byte-exactness argument doesn't hold there — never claim the fast state.
+        let int_rects = if aliasing_threshold.is_some()
+            || self.detect_buf.len() > MAX_DETECT_ELEMENTS
+        {
+            None
+        } else {
+            let viewport = RectU16::new(0, 0, strip_generator.width(), strip_generator.height());
+            let own =
+                |buf: &[PathEl]| path_as_integer_rect_set(buf.iter().copied(), transform, viewport);
+            match self.clip_stack.last() {
+                Some(parent) => parent
+                    .int_rects
+                    .and_then(|parent_set| parent_set.intersect(&own(&self.detect_buf)?)),
+                None => own(&self.detect_buf),
+            }
+        };
+
         let clip_data = ClipData {
             alpha_start,
             strip_start,
             bbox,
+            int_rects,
+        };
+
+        self.storage.extend(&self.temp_storage);
+        self.clip_stack.push(clip_data);
+    }
+
+    /// Push an axis-aligned rectangle clip whose transform has already been applied.
+    ///
+    /// Does the same job as [`push_clip`](Self::push_clip) for a rectangle, but skips the
+    /// path machinery: the mask strips come from the closed-form rect strip renderer, and
+    /// the integer-rectangle tracking reads the rectangle's edges directly.
+    pub fn push_clip_rect(&mut self, rect: Rect, strip_generator: &mut StripGenerator) {
+        // Normalize inverted rectangles once, so the mask (which normalizes
+        // internally) and the integer-rectangle tracking below agree.
+        let rect = rect.abs();
+        self.temp_storage.clear();
+
+        let alpha_start = self.storage.alphas.len() as u32;
+        let strip_start = self.storage.strips.len() as u32;
+
+        let existing_clip = self
+            .clip_stack
+            .last()
+            .map(|c| c.to_path_data_ref(&self.storage));
+
+        strip_generator.generate_filled_rect_fast(&rect, &mut self.temp_storage, existing_clip);
+
+        let bbox = strip_bbox(&self.temp_storage.strips).unwrap_or(RectU16::ZERO);
+
+        let viewport = RectU16::new(0, 0, strip_generator.width(), strip_generator.height());
+        let own = rect_as_integer_rect_set(rect, viewport);
+        let int_rects = match self.clip_stack.last() {
+            Some(parent) => parent
+                .int_rects
+                .and_then(|parent_set| parent_set.intersect(&own?)),
+            None => own,
+        };
+
+        let clip_data = ClipData {
+            alpha_start,
+            strip_start,
+            bbox,
+            int_rects,
         };
 
         self.storage.extend(&self.temp_storage);
@@ -137,11 +524,20 @@ impl ClipContext {
 /// Raw data of a previously pushed clip path.
 #[derive(Debug)]
 struct RawClip {
-    /// The range of commands in [`ClipState::path_elements`] belonging to this clip path.
-    path: Range<usize>,
+    /// The clip's geometry, kept so the clip can be replayed into a fresh context.
+    kind: RawClipKind,
     fill_rule: Fill,
     transform: Affine,
     aliasing_threshold: Option<u8>,
+}
+
+/// The geometry of a pushed clip.
+#[derive(Debug)]
+enum RawClipKind {
+    /// The range of commands in [`ClipState::path_elements`] belonging to this clip path.
+    Path(Range<usize>),
+    /// An axis-aligned rectangle in local coordinates.
+    Rect(Rect),
 }
 
 /// A frame containing clipping-relevant state for the root layer or a filter layer.
@@ -211,6 +607,19 @@ impl ClipState {
         self.context.get()
     }
 
+    /// Whether the active clip stack degenerates to integer-rectangle clipping,
+    /// so fast strips can still be emitted under it. See
+    /// [`ClipContext::is_int_rect_clip`].
+    pub fn is_int_rect_clip(&self) -> bool {
+        self.context.is_int_rect_clip()
+    }
+
+    /// The integer-rectangle set the active clip stack reduces to, if any. See
+    /// [`ClipContext::effective_int_rect_set`].
+    pub fn effective_int_rect_set(&self) -> Option<IntRectSet> {
+        self.context.effective_int_rect_set()
+    }
+
     /// Push a new root viewport.
     pub fn push_root_viewport(
         &mut self,
@@ -263,8 +672,44 @@ impl ClipState {
             aliasing_threshold,
         );
         self.raw_clips.push(RawClip {
-            path,
+            kind: RawClipKind::Path(path),
             fill_rule,
+            transform,
+            aliasing_threshold,
+        });
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    /// Push an axis-aligned rectangle clip.
+    ///
+    /// Cheaper than pushing the equivalent rectangle path: no path analysis, and the mask
+    /// comes from the rect strip renderer. Falls back to the path route when the effective
+    /// transform rotates or skews (the rectangle is then no longer axis-aligned), or when
+    /// an aliasing threshold is set.
+    pub fn push_clip_rect(
+        &mut self,
+        rect: &Rect,
+        strip_generator: &mut StripGenerator,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
+    ) {
+        let clip_transform = self.active_shift() * transform;
+        if aliasing_threshold.is_some() || !transform_is_axis_aligned(clip_transform) {
+            self.push_clip(
+                &rect.to_path(0.1),
+                strip_generator,
+                Fill::NonZero,
+                transform,
+                aliasing_threshold,
+            );
+            return;
+        }
+
+        self.context
+            .push_clip_rect(clip_transform.transform_rect_bbox(*rect), strip_generator);
+        self.raw_clips.push(RawClip {
+            kind: RawClipKind::Rect(*rect),
+            fill_rule: Fill::NonZero,
             transform,
             aliasing_threshold,
         });
@@ -274,7 +719,9 @@ impl ClipState {
     /// Pop the active clip path.
     pub fn pop_clip(&mut self) {
         let raw_clip = self.raw_clips.pop().expect("clip stack underflowed");
-        self.path_elements.truncate(raw_clip.path.start);
+        if let RawClipKind::Path(path) = &raw_clip.kind {
+            self.path_elements.truncate(path.start);
+        }
         self.context.pop_clip();
         self.revision = self.revision.wrapping_add(1);
     }
@@ -300,13 +747,22 @@ impl ClipState {
         self.context.reset();
         let active_shift = self.active_shift();
         for raw_clip in &self.raw_clips {
-            self.context.push_clip(
-                self.path_elements[raw_clip.path.clone()].iter().copied(),
-                strip_generator,
-                raw_clip.fill_rule,
-                active_shift * raw_clip.transform,
-                raw_clip.aliasing_threshold,
-            );
+            match &raw_clip.kind {
+                RawClipKind::Path(path) => self.context.push_clip(
+                    self.path_elements[path.clone()].iter().copied(),
+                    strip_generator,
+                    raw_clip.fill_rule,
+                    active_shift * raw_clip.transform,
+                    raw_clip.aliasing_threshold,
+                ),
+                // Rect clips are only recorded when their effective transform is
+                // axis-aligned, and `active_shift` is a pure translation, so the
+                // replayed transform is axis-aligned too.
+                RawClipKind::Rect(rect) => self.context.push_clip_rect(
+                    (active_shift * raw_clip.transform).transform_rect_bbox(*rect),
+                    strip_generator,
+                ),
+            }
         }
     }
 }
@@ -765,13 +1221,352 @@ fn should_create_new_strip(
 
 #[cfg(test)]
 mod tests {
-    use crate::clip::{PathDataRef, Region, RowIterator, first_strip_at_or_after, intersect};
+    use crate::clip::{
+        ClipContext, PathDataRef, Region, RowIterator, first_strip_at_or_after, intersect,
+        path_as_integer_rect_set, rect_as_integer_rect_set,
+    };
     use crate::geometry::RectU16;
+    use crate::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape};
     use crate::strip::Strip;
-    use crate::strip_generator::StripStorage;
+    use crate::strip_generator::{StripGenerator, StripStorage};
     use crate::tile::Tile;
     use fearless_simd::Level;
+    use peniko::Fill;
     use std::vec;
+
+    const VIEWPORT: RectU16 = RectU16::new(0, 0, 200, 100);
+
+    fn rect_path(x0: f64, y0: f64, x1: f64, y1: f64) -> BezPath {
+        Rect::new(x0, y0, x1, y1).to_path(0.1)
+    }
+
+    fn detect(path: &BezPath, transform: Affine) -> Option<vec::Vec<RectU16>> {
+        path_as_integer_rect_set(path.iter(), transform, VIEWPORT)
+            .map(|set| set.as_slice().to_vec())
+    }
+
+    #[test]
+    fn detect_integer_rect() {
+        let detected = detect(&rect_path(10.0, 20.0, 50.0, 40.0), Affine::IDENTITY);
+        assert_eq!(detected, Some(vec![RectU16::new(10, 20, 50, 40)]));
+    }
+
+    #[test]
+    fn detect_integer_rect_reverse_winding() {
+        let mut p = BezPath::new();
+        p.move_to((10.0, 20.0));
+        p.line_to((10.0, 40.0));
+        p.line_to((50.0, 40.0));
+        p.line_to((50.0, 20.0));
+        p.close_path();
+        assert_eq!(
+            detect(&p, Affine::IDENTITY),
+            Some(vec![RectU16::new(10, 20, 50, 40)])
+        );
+    }
+
+    #[test]
+    fn detect_open_rect_without_close() {
+        let mut p = BezPath::new();
+        p.move_to((0.0, 0.0));
+        p.line_to((8.0, 0.0));
+        p.line_to((8.0, 8.0));
+        p.line_to((0.0, 8.0));
+        assert_eq!(
+            detect(&p, Affine::IDENTITY),
+            Some(vec![RectU16::new(0, 0, 8, 8)])
+        );
+    }
+
+    #[test]
+    fn detect_rejects_fractional_rect() {
+        assert_eq!(
+            detect(&rect_path(10.5, 20.0, 50.0, 40.0), Affine::IDENTITY),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_snaps_near_integer_edges() {
+        let detected = detect(
+            &rect_path(10.0 + 1.0 / 8192.0, 20.0, 50.0 - 1.0 / 8192.0, 40.0),
+            Affine::IDENTITY,
+        );
+        assert_eq!(detected, Some(vec![RectU16::new(10, 20, 50, 40)]));
+        assert_eq!(
+            detect(&rect_path(10.01, 20.0, 50.0, 40.0), Affine::IDENTITY),
+            None
+        );
+    }
+
+    /// The snap tolerance must reject offsets whose mask bytes no longer
+    /// quantize to 0/255. A corner (or a 1x1 rect) sees the PRODUCT of two
+    /// snapped edges, so tolerances that are safe for a single edge (like
+    /// 1/512 or 1/1024) already produce a 254 corner byte — those offsets must
+    /// fail detection, while offsets within the corrected tolerance pass.
+    #[test]
+    fn detect_snap_tolerance_covers_two_edge_pixels() {
+        // 1/1024 off on two perpendicular edges: corner byte would be 254.
+        assert_eq!(
+            detect(
+                &rect_path(10.0 + 1.0 / 1024.0, 20.0 + 1.0 / 1024.0, 50.0, 40.0),
+                Affine::IDENTITY,
+            ),
+            None
+        );
+        // A 1x1 rect with all four edges snapped by 1/1024: worst case.
+        assert_eq!(
+            detect(
+                &rect_path(
+                    10.0 + 1.0 / 1024.0,
+                    20.0 + 1.0 / 1024.0,
+                    11.0 - 1.0 / 1024.0,
+                    21.0 - 1.0 / 1024.0,
+                ),
+                Affine::IDENTITY,
+            ),
+            None
+        );
+        // The same worst case within the tolerance still detects, and its
+        // exact-coverage byte stays 255: (1 - 2/4096)^2 * 255 + 0.5 > 255.
+        assert_eq!(
+            detect(
+                &rect_path(
+                    10.0 + 1.0 / 8192.0,
+                    20.0 + 1.0 / 8192.0,
+                    11.0 - 1.0 / 8192.0,
+                    21.0 - 1.0 / 8192.0,
+                ),
+                Affine::IDENTITY,
+            ),
+            Some(vec![RectU16::new(10, 20, 11, 21)])
+        );
+    }
+
+    #[test]
+    fn detect_applies_transform() {
+        let detected = detect(&rect_path(5.0, 10.0, 25.0, 20.0), Affine::scale(2.0));
+        assert_eq!(detected, Some(vec![RectU16::new(10, 20, 50, 40)]));
+        // 90° rotation maps an axis-aligned rect back to an axis-aligned rect.
+        let rotated =
+            Affine::rotate(core::f64::consts::FRAC_PI_2) * Affine::translate((0.0, -60.0));
+        let detected = detect(&rect_path(10.0, 20.0, 30.0, 50.0), rotated);
+        assert_eq!(detected, Some(vec![RectU16::new(10, 10, 40, 30)]));
+        // A non-integer scale of integer coordinates is fractional in device space.
+        assert_eq!(
+            detect(&rect_path(5.0, 10.0, 25.0, 20.0), Affine::scale(1.25)),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_rejects_non_rects() {
+        let mut triangle = BezPath::new();
+        triangle.move_to((0.0, 0.0));
+        triangle.line_to((10.0, 0.0));
+        triangle.line_to((0.0, 10.0));
+        triangle.close_path();
+        assert_eq!(detect(&triangle, Affine::IDENTITY), None);
+
+        // Corners span a rectangle but the edges are diagonal.
+        let mut z_quad = BezPath::new();
+        z_quad.move_to((0.0, 0.0));
+        z_quad.line_to((10.0, 10.0));
+        z_quad.line_to((0.0, 10.0));
+        z_quad.line_to((10.0, 0.0));
+        z_quad.close_path();
+        assert_eq!(detect(&z_quad, Affine::IDENTITY), None);
+
+        let circle = Circle::new(Point::new(20.0, 20.0), 10.0).to_path(0.1);
+        assert_eq!(detect(&circle, Affine::IDENTITY), None);
+    }
+
+    #[test]
+    fn detect_clamps_to_viewport() {
+        // Out-of-viewport edges land on the integer viewport bounds, so they may be fractional.
+        let detected = detect(&rect_path(-5.3, -2.7, 50.0, 300.9), Affine::IDENTITY);
+        assert_eq!(detected, Some(vec![RectU16::new(0, 0, 50, 100)]));
+        // Fully outside: a valid, empty set (everything is clipped away).
+        let detected = detect(&rect_path(300.0, 0.0, 400.0, 50.0), Affine::IDENTITY);
+        assert_eq!(detected, Some(vec![]));
+    }
+
+    #[test]
+    fn detect_multi_rect_set() {
+        let mut p = rect_path(0.0, 0.0, 40.0, 100.0);
+        p.extend(rect_path(60.0, 0.0, 100.0, 100.0).iter());
+        assert_eq!(
+            detect(&p, Affine::IDENTITY),
+            Some(vec![
+                RectU16::new(0, 0, 40, 100),
+                RectU16::new(60, 0, 100, 100)
+            ])
+        );
+    }
+
+    #[test]
+    fn detect_rejects_overlapping_rects() {
+        let mut p = rect_path(0.0, 0.0, 50.0, 50.0);
+        p.extend(rect_path(40.0, 40.0, 90.0, 90.0).iter());
+        assert_eq!(detect(&p, Affine::IDENTITY), None);
+    }
+
+    #[test]
+    fn detect_rejects_too_many_rects() {
+        let mut p = BezPath::new();
+        for i in 0..17_usize {
+            let x = (i * 10) as f64;
+            p.extend(rect_path(x, 0.0, x + 5.0, 5.0).iter());
+        }
+        assert_eq!(detect(&p, Affine::IDENTITY), None);
+    }
+
+    #[test]
+    fn clip_stack_tracks_int_rects() {
+        let mut ctx = ClipContext::new();
+        let mut generator = StripGenerator::new(200, 100, Level::baseline());
+        let push = |ctx: &mut ClipContext, generator: &mut StripGenerator, path: &BezPath| {
+            ctx.push_clip(
+                path.iter(),
+                generator,
+                Fill::NonZero,
+                Affine::IDENTITY,
+                None,
+            );
+        };
+        assert!(ctx.is_int_rect_clip());
+        assert!(ctx.effective_int_rect_set().is_none());
+
+        push(&mut ctx, &mut generator, &rect_path(10.0, 10.0, 90.0, 90.0));
+        assert!(ctx.is_int_rect_clip());
+        assert_eq!(
+            ctx.effective_int_rect_set().unwrap().as_slice(),
+            &[RectU16::new(10, 10, 90, 90)]
+        );
+
+        // Nested integer rect: effective set is the intersection.
+        push(&mut ctx, &mut generator, &rect_path(50.0, 0.0, 120.0, 60.0));
+        assert_eq!(
+            ctx.effective_int_rect_set().unwrap().as_slice(),
+            &[RectU16::new(50, 10, 90, 60)]
+        );
+
+        // A non-rect clip poisons the stack until it is popped.
+        let mut triangle = BezPath::new();
+        triangle.move_to((0.0, 0.0));
+        triangle.line_to((100.0, 0.0));
+        triangle.line_to((0.0, 100.0));
+        triangle.close_path();
+        push(&mut ctx, &mut generator, &triangle);
+        assert!(!ctx.is_int_rect_clip());
+        assert!(ctx.effective_int_rect_set().is_none());
+
+        ctx.pop_clip();
+        assert_eq!(
+            ctx.effective_int_rect_set().unwrap().as_slice(),
+            &[RectU16::new(50, 10, 90, 60)]
+        );
+        ctx.pop_clip();
+        ctx.pop_clip();
+        assert!(ctx.is_int_rect_clip());
+        assert!(ctx.effective_int_rect_set().is_none());
+    }
+
+    /// An aliasing threshold changes how the clip mask quantizes, so a clip
+    /// pushed under one must never claim the integer-rectangle fast state.
+    #[test]
+    fn aliasing_threshold_poisons_int_rect_tracking() {
+        let mut ctx = ClipContext::new();
+        let mut generator = StripGenerator::new(200, 100, Level::baseline());
+        ctx.push_clip(
+            rect_path(10.0, 10.0, 90.0, 90.0).iter(),
+            &mut generator,
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Some(128),
+        );
+        assert!(!ctx.is_int_rect_clip());
+        assert!(ctx.effective_int_rect_set().is_none());
+    }
+
+    /// `push_clip_rect` tracks the rectangle directly (no path analysis) and
+    /// intersects with the parent set exactly like the path route.
+    #[test]
+    fn push_clip_rect_tracks_int_rects() {
+        let mut ctx = ClipContext::new();
+        let mut generator = StripGenerator::new(200, 100, Level::baseline());
+
+        ctx.push_clip_rect(Rect::new(10.0, 10.0, 90.0, 90.0), &mut generator);
+        assert!(ctx.is_int_rect_clip());
+        assert_eq!(
+            ctx.effective_int_rect_set().unwrap().as_slice(),
+            &[RectU16::new(10, 10, 90, 90)]
+        );
+
+        // Nested: intersection, same as the path route.
+        ctx.push_clip_rect(Rect::new(50.0, 0.0, 120.0, 60.0), &mut generator);
+        assert_eq!(
+            ctx.effective_int_rect_set().unwrap().as_slice(),
+            &[RectU16::new(50, 10, 90, 60)]
+        );
+
+        // Fractional edges take the mask route for tracking purposes: no set.
+        ctx.push_clip_rect(Rect::new(50.5, 10.0, 80.0, 60.0), &mut generator);
+        assert!(!ctx.is_int_rect_clip());
+        ctx.pop_clip();
+
+        // Inverted rectangles normalize instead of clipping everything away.
+        ctx.push_clip_rect(Rect::new(90.0, 60.0, 50.0, 10.0), &mut generator);
+        assert_eq!(
+            ctx.effective_int_rect_set().unwrap().as_slice(),
+            &[RectU16::new(50, 10, 90, 60)]
+        );
+    }
+
+    #[test]
+    fn rect_as_integer_rect_set_snaps_clamps_and_rejects() {
+        let viewport = RectU16::new(0, 0, 200, 100);
+        // Near-integer edges snap.
+        let set =
+            rect_as_integer_rect_set(Rect::new(10.0 + 1.0 / 8192.0, 20.0, 50.0, 40.0), viewport)
+                .unwrap();
+        assert_eq!(set.as_slice(), &[RectU16::new(10, 20, 50, 40)]);
+        // Out-of-viewport edges clamp to the (integer) viewport bounds.
+        let set = rect_as_integer_rect_set(Rect::new(-5.3, 20.0, 300.7, 40.0), viewport).unwrap();
+        assert_eq!(set.as_slice(), &[RectU16::new(0, 20, 200, 40)]);
+        // A rect fully outside the viewport yields the empty set (clips everything).
+        let set = rect_as_integer_rect_set(Rect::new(300.0, 20.0, 400.0, 40.0), viewport).unwrap();
+        assert!(set.as_slice().is_empty());
+        // Fractional in-viewport edges are not representable.
+        assert!(rect_as_integer_rect_set(Rect::new(10.5, 20.0, 50.0, 40.0), viewport).is_none());
+    }
+
+    #[test]
+    fn int_rect_below_non_rect_stays_unrepresentable() {
+        let mut ctx = ClipContext::new();
+        let mut generator = StripGenerator::new(200, 100, Level::baseline());
+        let mut triangle = BezPath::new();
+        triangle.move_to((0.0, 0.0));
+        triangle.line_to((100.0, 0.0));
+        triangle.line_to((0.0, 100.0));
+        triangle.close_path();
+        ctx.push_clip(
+            triangle.iter(),
+            &mut generator,
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+        );
+        ctx.push_clip(
+            rect_path(10.0, 10.0, 50.0, 50.0).iter(),
+            &mut generator,
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+        );
+        assert!(!ctx.is_int_rect_clip());
+        assert!(ctx.effective_int_rect_set().is_none());
+    }
 
     #[test]
     fn intersect_partly_overlapping_strips() {

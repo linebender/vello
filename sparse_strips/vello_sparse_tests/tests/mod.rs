@@ -34,6 +34,8 @@ mod basic;
 mod blurred_rounded_rect;
 mod clear;
 mod clip;
+mod clip_exact;
+mod clip_rect_cpu;
 mod compose;
 mod external_texture;
 mod filter;

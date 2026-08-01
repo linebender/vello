@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `ClipState::push_clip_rect`: axis-aligned rectangle clips without the path machinery — the mask comes from the rect strip renderer, and rectangles on integer device coordinates are tracked exactly (`ClipContext::is_int_rect_clip`/`effective_int_rect_set`), so consumers can clamp content to the clip instead of intersecting with a mask. Rectangle clip paths pushed through `push_clip` are detected too. ([#1786][] by [@AdrianEddy][])
+
 ## [0.2.0][] - 2026-08-07
 
 This release has an [MSRV][] of 1.88.
@@ -224,6 +228,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) release.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@b0nes164]: https://github.com/b0nes164
 [@conor-93]: https://github.com/conor-93
 [@dipeshbabu]: https://github.com/dipeshbabu
@@ -310,6 +315,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1768]: https://github.com/linebender/vello/pull/1768
 [#1778]: https://github.com/linebender/vello/pull/1778
 [#1779]: https://github.com/linebender/vello/pull/1779
+[#1786]: https://github.com/linebender/vello/pull/1786
 [#1801]: https://github.com/linebender/vello/pull/1801
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD

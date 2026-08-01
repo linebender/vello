@@ -393,6 +393,20 @@ impl Scene {
         );
     }
 
+    /// Push an axis-aligned rectangle clip.
+    ///
+    /// Renders like pushing the rectangle as a clip path, but cheaper: the mask comes from
+    /// the rect strip renderer instead of the path pipeline, and a rectangle on integer
+    /// device coordinates keeps rect content on the GPU fast path instead of demoting it to
+    /// CPU strips — with output identical to the mask route, since an integer clip edge is
+    /// an exact 0/255 coverage step. Falls back to the path pipeline under rotation or skew.
+    /// Pop with [`pop_clip_path`](Self::pop_clip_path).
+    pub fn push_clip_rect(&mut self, rect: &Rect) {
+        let transform = self.transforms().clip_path_transform();
+        self.viewport_state
+            .push_clip_rect(rect, transform, self.aliasing_threshold);
+    }
+
     /// Pop a clip path from the clip stack.
     ///
     /// Note that unlike `push_clip_layer`, it is permissible to have pending
@@ -464,8 +478,7 @@ impl Scene {
             let paint = ctx.encode_current_paint();
 
             if let Some(bounds) = ctx.fast_rect_bounds(rect) {
-                ctx.recorder
-                    .push_draw(RecordedDraw::new_rect(bounds, paint), &[]);
+                ctx.push_fast_rect_clipped(bounds, paint);
 
                 return;
             }
@@ -556,8 +569,7 @@ impl Scene {
                         transform,
                     );
 
-                    ctx.recorder
-                        .push_draw(RecordedDraw::new_rect(transformed_rect, paint), &[]);
+                    ctx.push_fast_rect_clipped(transformed_rect, paint);
                 } else {
                     let paint = ctx.encode_external_texture_paint(
                         texture_id,
@@ -605,7 +617,39 @@ impl Scene {
 
     #[inline]
     fn can_emit_fast_strips(&self) -> bool {
-        self.viewport_state.clip().is_none() && self.aliasing_threshold.is_none()
+        // An integer-rectangle clip (or no clip) keeps anti-aliasing on a 0/255
+        // step, so fast strips stay byte-identical to the rasterized clip mask;
+        // `push_fast_rect_clipped` clamps the emitted rect to that clip set.
+        self.viewport_state.is_int_rect_clip() && self.aliasing_threshold.is_none()
+    }
+
+    /// Emit a fast (no-clip-strip) rect, clamped to the active integer-rectangle
+    /// clip set. With no clip the rect is emitted as-is; with a disjoint
+    /// integer-rect clip it is split into one piece per clip rect, so disjoint
+    /// pieces never double-blend (paints still sample by absolute position, so
+    /// the pieces need no UV adjustment).
+    fn push_fast_rect_clipped(&mut self, bounds: Rect, paint: Paint) {
+        match self.viewport_state.effective_int_rect_set() {
+            None => {
+                self.recorder
+                    .push_draw(RecordedDraw::new_rect(bounds, paint), &[]);
+            }
+            Some(clip_set) => {
+                for clip_rect in clip_set.as_slice() {
+                    let clip = Rect::new(
+                        f64::from(clip_rect.x0),
+                        f64::from(clip_rect.y0),
+                        f64::from(clip_rect.x1),
+                        f64::from(clip_rect.y1),
+                    );
+                    let piece = bounds.intersect(clip);
+                    if !piece.is_zero_area() {
+                        self.recorder
+                            .push_draw(RecordedDraw::new_rect(piece, paint.clone()), &[]);
+                    }
+                }
+            }
+        }
     }
 
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
@@ -678,8 +722,7 @@ impl Scene {
             let paint = blurred_rect.encode_into(&mut ctx.encoded_paints, transform, None);
 
             if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
-                ctx.recorder
-                    .push_draw(RecordedDraw::new_rect(bounds, paint), &[]);
+                ctx.push_fast_rect_clipped(bounds, paint);
                 return;
             }
 

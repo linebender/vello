@@ -15,6 +15,7 @@ This release has an [MSRV][] of 1.88.
 ### Added
 
 - Partial (damage-region) rendering: `Renderer::render` takes a `RenderRegion` that confines root drawing to a set of damage rects (overlapping rects are normalized internally into a disjoint union, so content is composited exactly once). Pixels outside the rects are preserved byte-exact, pixels inside are byte-identical to a full render, and root strips entirely outside the rects are culled before reaching the GPU. `Renderer::partial_renders`/`Renderer::culled_strips` report engagement. ([#1737][] by [@AdrianEddy][])
+- `Scene::push_clip_rect`: axis-aligned rectangle clips, cheaper than the equivalent clip path. A rectangle on integer device coordinates keeps rect content (`fill_rect`, `draw_texture_rects`, `fill_blurred_rounded_rect`, glyph quads) on the GPU fast path instead of demoting it to CPU strips; output is byte-identical either way. ([#1786][] by [@AdrianEddy][])
 
 ## [0.2.0][] - 2026-08-07
 
@@ -303,6 +304,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1778]: https://github.com/linebender/vello/pull/1778
 [#1779]: https://github.com/linebender/vello/pull/1779
 [#1781]: https://github.com/linebender/vello/pull/1781
+[#1786]: https://github.com/linebender/vello/pull/1786
 [#1791]: https://github.com/linebender/vello/pull/1791
 [#1792]: https://github.com/linebender/vello/pull/1792
 [#1794]: https://github.com/linebender/vello/pull/1794

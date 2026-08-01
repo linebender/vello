@@ -52,6 +52,7 @@ pub(crate) trait Dispatcher: Debug + Send {
         transform: Affine,
         aliasing_threshold: Option<u8>,
     );
+    fn push_clip_rect(&mut self, rect: &Rect, transform: Affine, aliasing_threshold: Option<u8>);
     fn pop_clip_path(&mut self);
     fn push_layer(
         &mut self,
