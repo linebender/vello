@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Changed
+
+- Breaking change: `RenderSettings` gains a `glyph_maintenance` field (`GlyphMaintenance::{PerRender, Explicit}`), plus `Renderer::maintain_glyphs` and `WebGlRenderer::maintain_glyphs`. Applications rendering multiple scenes per frame can tick glyph-cache aging once per frame, instead of per `render` call which could evict atlas entries still referenced later in the same frame. ([#1788][] by [@AdrianEddy][])
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -175,6 +179,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@dipeshbabu]: https://github.com/dipeshbabu
@@ -268,6 +273,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1760]: https://github.com/linebender/vello/pull/1760
 [#1763]: https://github.com/linebender/vello/pull/1763
 [#1769]: https://github.com/linebender/vello/pull/1769
+[#1788]: https://github.com/linebender/vello/pull/1788
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
