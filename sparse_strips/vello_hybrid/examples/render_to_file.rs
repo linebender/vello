@@ -101,6 +101,8 @@ async fn run() {
             &render_size,
             &texture_view,
             &vello_hybrid::TextureBindings::new(),
+            vello_hybrid::ClearSettings::default(),
+            vello_hybrid::RenderRegion::Full,
         )
         .unwrap();
 

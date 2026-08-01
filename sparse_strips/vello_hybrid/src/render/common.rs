@@ -14,7 +14,8 @@ use crate::filter::FILTER_ATLAS_PADDING;
 use crate::scene::{LayersConfig, MemorySettings, RecordedDraw};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use vello_common::geometry::{SizeU16, SizeU32};
+use vello_common::color::{AlphaColor, Srgb};
+use vello_common::geometry::{RectU16, SizeU16, SizeU32};
 use vello_common::multi_atlas::AtlasError;
 use vello_common::record::CommandRecorder;
 
@@ -31,6 +32,61 @@ pub(crate) const GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS: u32 =
 // TODO: If we want to use native bilinear sampling for uploaded images,
 // we can pass 1 instead of 0 here.
 pub(crate) const IMAGE_PADDING: u16 = 0;
+
+/// Controls how the output target is cleared before drawing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ClearSettings<'a> {
+    /// Do not clear the target.
+    DontClear,
+    /// Clear the complete viewport to `color`.
+    Viewport {
+        /// The clear color.
+        color: AlphaColor<Srgb>,
+    },
+    /// Clear each rectangle to `color`.
+    Rects {
+        /// The clear color.
+        color: AlphaColor<Srgb>,
+        /// The rectangles to clear.
+        rects: &'a [RectU16],
+    },
+}
+
+impl ClearSettings<'_> {
+    pub(crate) fn clear_color(self) -> Option<AlphaColor<Srgb>> {
+        match self {
+            Self::DontClear => None,
+            Self::Viewport { color } | Self::Rects { color, .. } => Some(color),
+        }
+    }
+}
+
+impl Default for ClearSettings<'_> {
+    fn default() -> Self {
+        Self::Viewport {
+            color: AlphaColor::TRANSPARENT,
+        }
+    }
+}
+
+/// Controls where drawing happens: the whole target, or only a damage region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RenderRegion<'a> {
+    /// Draw the whole target.
+    #[default]
+    Full,
+    /// Confine drawing to these pairwise-disjoint device-pixel rectangles.
+    ///
+    /// Pixels outside the rectangles are left untouched, and pixels inside them come out
+    /// byte-identical to a [`Full`](Self::Full) render of the same scene. Rectangles are
+    /// clamped to the target; a set that is empty (or clamps entirely away) draws nothing.
+    ///
+    /// Note that clearing is separate: [`ClearSettings::Viewport`] still clears the whole
+    /// target. Damage-region rendering typically pairs this with
+    /// [`ClearSettings::DontClear`] (when the scene repaints the region opaquely) or
+    /// [`ClearSettings::Rects`] over the same rectangles.
+    Rects(&'a [RectU16]),
+}
 
 /// Texture limits reported by the rendering device.
 #[derive(Debug, Clone, Copy)]

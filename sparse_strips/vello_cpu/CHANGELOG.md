@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `RenderContext::push_clip_rect`: axis-aligned rectangle clips whose mask comes from the rect strip renderer instead of the path pipeline, falling back to the path route under rotation or skew. ([#1786][] by [@AdrianEddy][])
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -196,6 +200,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10) release.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@grebmeg]: https://github.com/grebmeg
@@ -261,6 +266,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1756]: https://github.com/linebender/vello/pull/1756
 [#1760]: https://github.com/linebender/vello/pull/1760
 [#1763]: https://github.com/linebender/vello/pull/1763
+[#1786]: https://github.com/linebender/vello/pull/1786
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0

@@ -87,6 +87,7 @@ impl SceneCase {
             texture_size,
             IntermediateTextureAllocations::default(),
             Some(max_textures),
+            &[],
         )
     }
 

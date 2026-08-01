@@ -121,6 +121,22 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         true
     }
 
+    /// Whether `strip` (spanning `height` device pixels from its top) lies
+    /// fully outside the root damage region and can be skipped. Only the root
+    /// target carries a [`StripCull`]; on every other target this is a no-op
+    /// that returns `false`. Counts each skipped strip in
+    /// [`DrawState::culled_strips`].
+    #[inline]
+    fn cull_root_strip(&mut self, strip: &GpuStrip, height: u16) -> bool {
+        if let Some(cull) = self.state.root_cull.as_ref()
+            && cull.culls_quad(strip.x, strip.y, strip.width, height)
+        {
+            self.state.culled_strips += 1;
+            return true;
+        }
+        false
+    }
+
     fn push_path(
         &mut self,
         path: &RecordedPath,
@@ -156,6 +172,11 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                     depth_index,
                 );
 
+                // A fill strip is exactly one tile row tall.
+                if builder.cull_root_strip(&strip, Tile::HEIGHT) {
+                    return;
+                }
+
                 builder
                     .draw
                     .push(builder.strips, strip, paint.external_texture_id);
@@ -171,6 +192,11 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                     paint.paint,
                     depth_index,
                 );
+
+                // A fill strip is exactly one tile row tall.
+                if builder.cull_root_strip(&strip, Tile::HEIGHT) {
+                    return;
+                }
 
                 if !paint.opaque || !builder.push_opaque(strip) {
                     builder
@@ -216,6 +242,12 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                 paint.paint,
                 depth_index,
             );
+
+            // Each split part is an independent quad spanning its own height;
+            // parts entirely outside the root damage region are skipped.
+            if self.cull_root_strip(&strip, strip.dense_width_or_rect_height) {
+                continue;
+            }
 
             if !(paint.opaque && part.frac == 0 && self.push_opaque(strip)) {
                 self.draw
@@ -322,6 +354,97 @@ impl DrawBuffers {
     }
 }
 
+/// A damage-region cull for root-destined strips.
+///
+/// Given the set of scissor rectangles a partial render is confined to (see
+/// [`RenderRegion::Rects`](crate::RenderRegion::Rects)), a strip that falls entirely outside
+/// every rectangle produces no pixel and can be dropped before it reaches the
+/// GPU. The scissor test at draw time already guarantees correctness; this
+/// cull is a build-time optimization that keeps such strips out of the vertex
+/// buffer in the first place.
+///
+/// Only content destined for the root user surface is culled. Intermediate
+/// layer and atlas targets always render in full because the root pass samples
+/// them, so a cull there could drop pixels that later become visible.
+#[derive(Debug, Clone)]
+pub(crate) struct StripCull {
+    /// Bounding box of `rects` — left/top inclusive, right/bottom exclusive,
+    /// device pixels. The cheap first test (and the whole test for a single
+    /// rect).
+    x0: u16,
+    y0: u16,
+    x1: u16,
+    y1: u16,
+    /// The individual scissor rects in the same edge form, populated only when
+    /// there is more than one (multi-rect damage): a quad inside the bounding
+    /// box must still intersect one of these to survive.
+    rects: Vec<[u16; 4]>,
+}
+
+impl StripCull {
+    /// Build cull bounds from the damage scissor rectangles.
+    ///
+    /// An empty or fully degenerate set culls everything (a partial render with
+    /// no drawable area). Zero-area rects are ignored.
+    pub(crate) fn new(scissors: &[RectU16]) -> Self {
+        let mut rects: Vec<[u16; 4]> = Vec::new();
+        let (mut x0, mut y0, mut x1, mut y1) = (u16::MAX, u16::MAX, 0_u16, 0_u16);
+        for rect in scissors {
+            if rect.width() == 0 || rect.height() == 0 {
+                continue;
+            }
+            let r = [rect.x0, rect.y0, rect.x1, rect.y1];
+            x0 = x0.min(r[0]);
+            y0 = y0.min(r[1]);
+            x1 = x1.max(r[2]);
+            y1 = y1.max(r[3]);
+            rects.push(r);
+        }
+        if rects.is_empty() {
+            // Everything degenerate: cull everything.
+            return Self {
+                x0: 0,
+                y0: 0,
+                x1: 0,
+                y1: 0,
+                rects,
+            };
+        }
+        if rects.len() == 1 {
+            // The bounding box IS the one rect — no per-rect pass needed.
+            rects.clear();
+        }
+        Self {
+            x0,
+            y0,
+            x1,
+            y1,
+            rects,
+        }
+    }
+
+    /// Whether a quad at `(x, y)` spanning `width × height` pixels lies fully
+    /// outside every scissor rect (and therefore cannot produce any pixel in
+    /// the scissored root draws).
+    #[inline(always)]
+    fn culls_quad(&self, x: u16, y: u16, width: u16, height: u16) -> bool {
+        let outside_bounds = x >= self.x1
+            || y >= self.y1
+            || u32::from(x) + u32::from(width) <= u32::from(self.x0)
+            || u32::from(y) + u32::from(height) <= u32::from(self.y0);
+        if outside_bounds || self.rects.is_empty() {
+            return outside_bounds;
+        }
+        // Multi-rect: a quad in the gap between rects has no scissored draw.
+        !self.rects.iter().any(|&[rx0, ry0, rx1, ry1]| {
+            x < rx1
+                && y < ry1
+                && u32::from(x) + u32::from(width) > u32::from(rx0)
+                && u32::from(y) + u32::from(height) > u32::from(ry0)
+        })
+    }
+}
+
 /// Target-specific state used while encoding a draw.
 #[derive(Debug)]
 pub(crate) struct DrawState<T: DrawTarget> {
@@ -331,6 +454,13 @@ pub(crate) struct DrawState<T: DrawTarget> {
     depth_counter: DepthCounter,
     /// Scene-space bounds visible in the target.
     pub(crate) target_bbox: RectU16,
+    /// Damage-region cull applied to root-destined strips. Only ever set for
+    /// the root user surface; intermediate layer and atlas targets keep this
+    /// `None` so their contents are never culled (the parent samples them in
+    /// full). See [`StripCull`].
+    pub(crate) root_cull: Option<StripCull>,
+    /// Number of root strips skipped by [`Self::root_cull`] while encoding.
+    pub(crate) culled_strips: u64,
 }
 
 impl<T: DrawTarget> DrawState<T> {
@@ -339,6 +469,8 @@ impl<T: DrawTarget> DrawState<T> {
             target,
             depth_counter: DepthCounter::default(),
             target_bbox,
+            root_cull: None,
+            culled_strips: 0,
         }
     }
 }

@@ -32,7 +32,10 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 mod basic;
 mod blurred_rounded_rect;
+mod clear;
 mod clip;
+mod clip_exact;
+mod clip_rect_cpu;
 mod compose;
 mod external_texture;
 mod filter;
@@ -47,6 +50,7 @@ mod layer;
 mod mask;
 mod mix;
 mod opacity;
+mod partial_render;
 mod renderer;
 mod scenes;
 #[macro_use]
