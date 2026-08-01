@@ -245,6 +245,10 @@ impl MultiThreadedDispatcher {
     }
 
     fn flush_tasks(&mut self) {
+        if self.allocation_group.render_tasks.is_empty() {
+            return;
+        }
+
         self.send_pending_tasks();
 
         self.batch_cost = 0.0;

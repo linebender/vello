@@ -1263,6 +1263,26 @@ mod tests {
 
     #[cfg(feature = "multithreading")]
     #[test]
+    fn multithreaded_push_clip_path_before_draw() {
+        use crate::RenderSettings;
+
+        let mut ctx = RenderContext::new_with(
+            100,
+            100,
+            RenderSettings {
+                num_threads: 1,
+                ..Default::default()
+            },
+        );
+        let clip = Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1);
+
+        // Just make sure we don't panic.
+        ctx.push_clip_path(&clip);
+        ctx.flush();
+    }
+
+    #[cfg(feature = "multithreading")]
+    #[test]
     fn multithreaded_reset_with_pending_tasks() {
         use crate::RenderSettings;
 
