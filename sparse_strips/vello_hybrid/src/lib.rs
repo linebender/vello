@@ -99,7 +99,7 @@ pub use render::{Probe, ProbeResult};
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 pub use resources::Resources;
 pub use sampling::SampleRect;
-pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
+pub use scene::{GlyphMaintenance, LayersConfig, MemorySettings, RenderSettings, Scene};
 #[cfg(feature = "text")]
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
 pub use util::DimensionConstraints;

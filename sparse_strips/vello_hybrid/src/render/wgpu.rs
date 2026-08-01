@@ -18,6 +18,8 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+#[cfg(feature = "text")]
+use crate::GlyphMaintenance;
 use crate::draw::ExternalTextureRun;
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
@@ -166,6 +168,10 @@ pub struct Renderer {
     layers_config: LayersConfig,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
+    /// When glyph-cache maintenance runs: after every [`Self::render`]
+    /// (default), or only on explicit [`Self::maintain_glyphs`] calls.
+    #[cfg(feature = "text")]
+    glyph_maintenance: GlyphMaintenance,
 }
 
 impl Renderer {
@@ -209,6 +215,8 @@ impl Renderer {
             layers_config: layer_config,
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
+            #[cfg(feature = "text")]
+            glyph_maintenance: settings.glyph_maintenance,
         }
     }
 
@@ -276,10 +284,26 @@ impl Renderer {
         );
 
         #[cfg(feature = "text")]
+        if self.glyph_maintenance == GlyphMaintenance::PerRender {
+            self.maintain_glyphs(resources, queue);
+        }
+        result
+    }
+
+    /// Run glyph-cache maintenance: advance the cache age by one tick and
+    /// periodically evict entries that have not been used recently, clearing
+    /// their atlas regions.
+    ///
+    /// With [`GlyphMaintenance::Explicit`], call this once per frame,
+    /// typically right after the frame's last render. With
+    /// [`GlyphMaintenance::PerRender`] (the default), [`Self::render`]
+    /// already calls this itself; extra manual calls age the cache faster.
+    /// See [`GlyphMaintenance`] for the full contract.
+    #[cfg(feature = "text")]
+    pub fn maintain_glyphs(&mut self, resources: &mut Resources, queue: &Queue) {
         resources.after_render(self, |renderer, rect| {
             clear_atlas_region(queue, renderer, rect);
         });
-        result
     }
 
     /// Render a `scene` directly into an atlas layer.
