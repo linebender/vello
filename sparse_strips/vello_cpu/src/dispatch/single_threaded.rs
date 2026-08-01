@@ -500,6 +500,11 @@ impl Dispatcher for SingleThreadedDispatcher {
             .push_clip(path, fill_rule, transform, aliasing_threshold);
     }
 
+    fn push_clip_rect(&mut self, rect: &Rect, transform: Affine, aliasing_threshold: Option<u8>) {
+        self.viewport
+            .push_clip_rect(rect, transform, aliasing_threshold);
+    }
+
     fn pop_clip_path(&mut self) {
         self.viewport.pop_clip();
     }

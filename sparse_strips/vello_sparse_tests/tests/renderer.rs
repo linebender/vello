@@ -320,6 +320,12 @@ pub(crate) struct HybridRenderer {
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl HybridRenderer {
+    /// Mutable access to the underlying scene, for hybrid-only APIs not on the
+    /// shared `Renderer` trait (e.g. `Scene::push_clip_rect`).
+    pub(crate) fn scene_mut(&mut self) -> &mut Scene {
+        &mut self.scene
+    }
+
     /// Number of partial ([`vello_hybrid::RenderRegion::Rects`]) renders this
     /// renderer has performed.
     pub(crate) fn partial_renders(&self) -> u64 {

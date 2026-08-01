@@ -3,9 +3,9 @@
 
 //! Shared viewport state.
 
-use crate::clip::{ClipState, PathDataRef};
+use crate::clip::{ClipState, IntRectSet, PathDataRef};
 use crate::filter::FilterData;
-use crate::kurbo::{Affine, BezPath};
+use crate::kurbo::{Affine, BezPath, Rect};
 use crate::strip_generator::StripGenerator;
 use alloc::vec::Vec;
 use fearless_simd::Level;
@@ -47,6 +47,18 @@ impl ViewportState {
         self.clip_state.get()
     }
 
+    /// Whether the active clip stack degenerates to integer-rectangle clipping.
+    /// See [`ClipState::is_int_rect_clip`].
+    pub fn is_int_rect_clip(&self) -> bool {
+        self.clip_state.is_int_rect_clip()
+    }
+
+    /// The integer-rectangle set the active clip stack reduces to, if any. See
+    /// [`ClipState::effective_int_rect_set`].
+    pub fn effective_int_rect_set(&self) -> Option<IntRectSet> {
+        self.clip_state.effective_int_rect_set()
+    }
+
     /// Whether any root viewports are currently pushed.
     pub fn has_root_viewports(&self) -> bool {
         !self.strip_generator_stack.is_empty()
@@ -74,6 +86,21 @@ impl ViewportState {
             path,
             &mut self.strip_generator,
             fill_rule,
+            transform,
+            aliasing_threshold,
+        );
+    }
+
+    /// Push an axis-aligned rectangle clip.
+    pub fn push_clip_rect(
+        &mut self,
+        rect: &Rect,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
+    ) {
+        self.clip_state.push_clip_rect(
+            rect,
+            &mut self.strip_generator,
             transform,
             aliasing_threshold,
         );

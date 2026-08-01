@@ -699,6 +699,30 @@ impl Dispatcher for MultiThreadedDispatcher {
         }
     }
 
+    fn push_clip_rect(&mut self, rect: &Rect, transform: Affine, aliasing_threshold: Option<u8>) {
+        use crate::kurbo::Shape;
+        self.flush_tasks();
+        // Mirror `ClipState::push_clip_rect`'s routing: the rect route needs an
+        // axis-aligned transform (exact test, matching `vello_common::clip`)
+        // and no aliasing threshold; otherwise the path pipeline handles it.
+        let coeffs = transform.as_coeffs();
+        let axis_aligned = coeffs[1] == 0.0 && coeffs[2] == 0.0;
+        if aliasing_threshold.is_some() || !axis_aligned {
+            self.clip_context.push_clip(
+                rect.to_path(0.1).iter(),
+                &mut self.strip_generator,
+                Fill::NonZero,
+                transform,
+                aliasing_threshold,
+            );
+        } else {
+            self.clip_context.push_clip_rect(
+                transform.transform_rect_bbox(*rect),
+                &mut self.strip_generator,
+            );
+        }
+    }
+
     fn push_clip_path(
         &mut self,
         path: &BezPath,
