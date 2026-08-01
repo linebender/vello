@@ -1093,3 +1093,194 @@ fn glyphs_decoration_transformed(ctx: &mut impl Renderer, enable_caching: bool) 
         y += buffer;
     }
 }
+
+/// A frame that issues many `render` calls (e.g. offscreen captures plus a
+/// main scene) must be able to defer glyph-cache aging to its own frame
+/// boundary via `GlyphMaintenance::Explicit`. Under the default per-render
+/// maintenance, a frame with more renders than the glyph cache's maximum
+/// entry age evicts atlas entries that the scene still references, leaving
+/// dangling atlas image ids. This pins that with `Explicit`, atlas entries
+/// stay valid for any number of renders within a frame, and that entries
+/// re-encoded each frame survive many frame-boundary `maintain_glyphs`
+/// ticks, including the eviction passes they trigger.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn glyph_atlas_explicit_maintenance_survives_many_renders_per_frame() {
+    use vello_hybrid::{
+        GlyphMaintenance, RenderSettings, RenderSize, RenderTargetConfig, Resources, Scene,
+        TextureBindings,
+    };
+
+    const WIDTH: u16 = 300;
+    const HEIGHT: u16 = 70;
+    // Enough renders that per-render aging would run multiple eviction passes
+    // over entries encoded once at the start of the "frame".
+    const RENDERS_PER_FRAME: usize = 200;
+
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        force_fallback_adapter: false,
+        compatible_surface: None,
+    }))
+    .expect("Failed to find an appropriate adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("Device"),
+        required_features: wgpu::Features::empty(),
+        ..Default::default()
+    }))
+    .expect("Failed to create device");
+
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Render Target"),
+        size: wgpu::Extent3d {
+            width: WIDTH.into(),
+            height: HEIGHT.into(),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let settings = RenderSettings {
+        glyph_maintenance: GlyphMaintenance::Explicit,
+        ..RenderSettings::default()
+    };
+    let (mut renderer, mut resources) = vello_hybrid::Renderer::new_with(
+        &device,
+        &RenderTargetConfig {
+            format: texture.format(),
+            width: WIDTH.into(),
+            height: HEIGHT.into(),
+        },
+        settings,
+    );
+    let mut scene = Scene::new_with(WIDTH, HEIGHT, settings.level);
+
+    // Encoding glyphs inserts entries into the glyph atlas cache (stamping
+    // them with the current cache age) and bakes their atlas image ids into
+    // the scene.
+    let font_size = 50.0_f32;
+    let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
+    let encode_glyphs = |scene: &mut Scene, resources: &mut Resources| {
+        scene.set_transform(Affine::translate((0.0, f64::from(font_size))));
+        scene.set_paint(BLACK);
+        scene
+            .glyph_run(resources, &font)
+            .font_size(font_size)
+            .atlas_cache(true)
+            .hint(true)
+            .fill_glyphs(glyphs.clone().into_iter());
+    };
+    encode_glyphs(&mut scene, &mut resources);
+
+    let render_size = RenderSize {
+        width: WIDTH.into(),
+        height: HEIGHT.into(),
+    };
+    let texture_bindings = TextureBindings::new();
+
+    let render_once =
+        |renderer: &mut vello_hybrid::Renderer, resources: &mut Resources, scene: &Scene| {
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            renderer
+                .render(
+                    scene,
+                    resources,
+                    &device,
+                    &queue,
+                    &mut encoder,
+                    &render_size,
+                    &texture_view,
+                    None,
+                    &texture_bindings,
+                )
+                .unwrap();
+            queue.submit([encoder.finish()]);
+        };
+
+    let read_pixels = || {
+        let bytes_per_row = (u32::from(WIDTH) * 4).next_multiple_of(256);
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Output Buffer"),
+            size: u64::from(bytes_per_row) * u64::from(HEIGHT),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: None,
+                },
+            },
+            wgpu::Extent3d {
+                width: WIDTH.into(),
+                height: HEIGHT.into(),
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
+        buffer.slice(..).map_async(wgpu::MapMode::Read, |result| {
+            result.expect("Failed to map texture for reading");
+        });
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let pixels = buffer
+            .slice(..)
+            .get_mapped_range()
+            .chunks_exact(bytes_per_row as usize)
+            .flat_map(|row| &row[0..usize::from(WIDTH) * 4])
+            .copied()
+            .collect::<Vec<u8>>();
+        buffer.unmap();
+        pixels
+    };
+
+    render_once(&mut renderer, &mut resources, &scene);
+    let first_frame = read_pixels();
+    assert!(
+        first_frame.iter().any(|&byte| byte != 0),
+        "glyphs should have been rendered"
+    );
+
+    for _ in 1..RENDERS_PER_FRAME {
+        render_once(&mut renderer, &mut resources, &scene);
+    }
+    let last_render = read_pixels();
+    assert!(
+        first_frame == last_render,
+        "glyph atlas entries referenced by the scene were invalidated mid-frame"
+    );
+
+    // Frame-aligned aging: run many frames of encode -> render ->
+    // `maintain_glyphs`. 130 frames crosses multiple eviction passes under
+    // `Explicit`, pinning that entries re-stamped by each frame's encode
+    // survive frame-boundary maintenance and keep rendering identically.
+    for _ in 0..130 {
+        scene.reset();
+        encode_glyphs(&mut scene, &mut resources);
+        render_once(&mut renderer, &mut resources, &scene);
+        renderer.maintain_glyphs(&mut resources, &queue);
+    }
+    let after_frames = read_pixels();
+    assert!(
+        first_frame == after_frames,
+        "glyph atlas entries re-used every frame were evicted by frame-aligned maintenance"
+    );
+}
