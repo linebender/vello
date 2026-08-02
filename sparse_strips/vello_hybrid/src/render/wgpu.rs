@@ -164,6 +164,11 @@ pub struct Renderer {
     schedule_storage: ScheduleStorage,
     scratch_buffers: ScratchBuffers,
     layers_config: LayersConfig,
+    /// Images destroyed via [`destroy_image`](Self::destroy_image), awaiting the
+    /// next [`render`](Self::render) call. Their cache slots and atlas regions stay
+    /// allocated (so nothing can reuse them) and the GPU clear is not enqueued
+    /// until then; see `flush_pending_image_destroys` for the ordering argument.
+    pending_image_destroys: Vec<vello_common::paint::ImageId>,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
 }
@@ -207,6 +212,7 @@ impl Renderer {
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
+            pending_image_destroys: Vec::new(),
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
         }
@@ -230,6 +236,11 @@ impl Renderer {
         view: &TextureView,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
+        // Retire images destroyed since the previous render call, before glyph
+        // maintenance below so freed regions are reusable by this frame's
+        // glyph allocations.
+        self.flush_pending_image_destroys(resources, queue);
+
         #[cfg(feature = "text")]
         {
             resources.before_render(
@@ -614,31 +625,60 @@ impl Renderer {
         );
     }
 
-    /// Destroy an image from the cache and clear the allocated slot in the atlas.
-    pub fn destroy_image(
-        &mut self,
-        resources: &mut Resources,
-        queue: &Queue,
-        image_id: vello_common::paint::ImageId,
-    ) {
-        if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
-            let padding = image_resource.padding as u32;
+    /// Destroy an image: its cache slot and atlas region are retired at the start
+    /// of the next [`render`](Self::render) call, where the freed region is also
+    /// cleared to transparent.
+    ///
+    /// The destruction is deferred, not immediate, to stay correct on both GPU
+    /// orderings involved:
+    ///
+    /// * A clear issued here via `queue.write_texture` would execute before *all*
+    ///   command buffers in the next submit, including a render that was already
+    ///   encoded (but not yet submitted) and still samples this image.
+    /// * A clear recorded on an encoder would execute after *all* queued texture
+    ///   writes in its submit, including a later re-upload into the reused region,
+    ///   wiping it.
+    ///
+    /// Deferring until the next `render` call resolves both: every submit that
+    /// could reference the old content has been made by then (command buffers must
+    /// be submitted before the next `render` call, the same cadence
+    /// [`render_to_atlas`](Self::render_to_atlas) documents), and the region is
+    /// only returned to the allocator at that point, so any re-upload's
+    /// `write_texture` is enqueued after the clear's and stays ordered with it.
+    ///
+    /// `image_id` must belong to the `Resources` that will be passed to that next
+    /// `render` call, and the caller must not reference the image in scenes
+    /// rendered after this call.
+    pub fn destroy_image(&mut self, resources: &Resources, image_id: vello_common::paint::ImageId) {
+        if resources.image_cache.get(image_id).is_some() {
+            self.pending_image_destroys.push(image_id);
+        }
+    }
 
-            // Clear via `queue.write_texture` rather than an encoder pass: wgpu
-            // runs all queued texture writes before any command buffers in a
-            // submit, so an encoder-based clear would land AFTER a same-frame
-            // re-upload into this slot and wipe it. Queue writes stay in call
-            // order.
-            self.clear_atlas_region_via_queue(
-                queue,
-                image_resource.atlas_id,
-                [
-                    image_resource.offset[0] as u32 - padding,
-                    image_resource.offset[1] as u32 - padding,
-                ],
-                image_resource.width as u32 + padding * 2,
-                image_resource.height as u32 + padding * 2,
-            );
+    /// Retire images destroyed since the previous render call: return their slots
+    /// to the image cache and zero the freed atlas regions.
+    ///
+    /// Called at the start of [`render`](Self::render). At that point every
+    /// command buffer that could sample the old content has been submitted, so the
+    /// `write_texture` clears enqueued here execute after those reads (queue
+    /// writes run at the head of the *next* submit). Regions become reusable only
+    /// now, so any subsequent re-upload is enqueued after the clear and queue-write
+    /// call order keeps the pair correct.
+    fn flush_pending_image_destroys(&mut self, resources: &mut Resources, queue: &Queue) {
+        while let Some(image_id) = self.pending_image_destroys.pop() {
+            if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
+                let padding = u32::from(image_resource.padding);
+                self.clear_atlas_region_via_queue(
+                    queue,
+                    image_resource.atlas_id,
+                    [
+                        u32::from(image_resource.offset[0]) - padding,
+                        u32::from(image_resource.offset[1]) - padding,
+                    ],
+                    u32::from(image_resource.width) + padding * 2,
+                    u32::from(image_resource.height) + padding * 2,
+                );
+            }
         }
     }
 
@@ -653,7 +693,12 @@ impl Renderer {
     /// placeholder is zero-initialised, and the next frame grows it back as
     /// needed via `maybe_resize_atlas_texture_array` (which skips the
     /// stale-layer copy while promoting the placeholder).
+    ///
+    /// Destroys still pending from [`destroy_image`](Self::destroy_image) are
+    /// dropped: their `ImageId`s belong to the discarded allocator, and the
+    /// recreated texture has no stale content to clear.
     pub fn reset_atlas_textures(&mut self, device: &Device) {
+        self.pending_image_destroys.clear();
         let (texture, view) = Programs::create_atlas_texture_array(device, 1, 1, 1);
         self.programs.resources.atlas_bind_group = Programs::create_paint_source_bind_group(
             device,
