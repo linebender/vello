@@ -597,7 +597,7 @@ pub(crate) fn pack_image_params(
 /// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.
 ///
 /// The tint color is premultiplied before packing into a u32 in the same layout
-/// as WGSL `pack4x8unorm`. No tint is encoded as opaque white in multiply mode.
+/// as WGSL `pack4x8unorm`.
 #[inline(always)]
 pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
     match tint {

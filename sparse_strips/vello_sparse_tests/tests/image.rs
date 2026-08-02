@@ -737,8 +737,8 @@ fn image_fully_transparent_tint(ctx: &mut impl Renderer) {
         },
     };
 
-    for (x, mode) in [(0.0, TintMode::AlphaMask), (10.0, TintMode::Multiply)] {
-        ctx.set_transform(Affine::translate((x, 0.0)));
+    for (x, mode) in [(0.0, TintMode::AlphaMask), (50.0, TintMode::Multiply)] {
+        ctx.set_transform(Affine::translate((x, 0.0)) * Affine::scale(5.0));
         ctx.set_tint(Some(Tint {
             color: Color::from_rgba8(255, 255, 255, 0),
             mode,
