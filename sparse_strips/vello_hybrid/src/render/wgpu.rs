@@ -152,7 +152,8 @@ impl TextureBindings {
 }
 
 /// Clamp the [`RenderRegion`] to the `size` render target so the draw-time
-/// scissor never exceeds the render attachment.
+/// scissor never exceeds the render attachment, and normalize the result into
+/// a pairwise-disjoint set.
 ///
 /// [`RenderRegion::Full`] yields an empty set (no scissoring). For
 /// [`RenderRegion::Rects`], rects are clamped and dropped when they become
@@ -166,7 +167,7 @@ fn clamp_region_to_target(region: RenderRegion<'_>, size: &RenderSize) -> Vec<Re
     };
     let w = size.width.min(u32::from(u16::MAX)) as u16;
     let h = size.height.min(u32::from(u16::MAX)) as u16;
-    let mut clamped: Vec<RectU16> = rects
+    let clamped: Vec<RectU16> = rects
         .iter()
         .filter_map(|r| {
             let x0 = r.x0.min(w);
@@ -176,10 +177,91 @@ fn clamp_region_to_target(region: RenderRegion<'_>, size: &RenderSize) -> Vec<Re
             (x1 > x0 && y1 > y0).then(|| RectU16::new(x0, y0, x1, y1))
         })
         .collect();
-    if clamped.is_empty() {
-        clamped.push(RectU16::new(0, 0, 0, 0));
+    let mut disjoint = normalize_disjoint(clamped);
+    if disjoint.is_empty() {
+        disjoint.push(RectU16::new(0, 0, 0, 0));
     }
-    clamped
+    disjoint
+}
+
+/// Whether two non-empty rects share any pixel.
+#[inline]
+fn rects_intersect(a: &RectU16, b: &RectU16) -> bool {
+    a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0
+}
+
+/// Normalize `rects` into a pairwise-disjoint set covering the same pixels.
+///
+/// The root draw sequence is replayed once per damage rect under that rect's
+/// scissor, so a pixel covered by more than one rect would have translucent
+/// content composited once per covering rect. Splitting overlaps away keeps
+/// the replay single-composite regardless of what the caller's damage
+/// tracking produced. Already-disjoint input — the common case — is detected
+/// with a pairwise sweep and returned unchanged.
+fn normalize_disjoint(rects: Vec<RectU16>) -> Vec<RectU16> {
+    let already_disjoint = rects
+        .iter()
+        .enumerate()
+        .all(|(i, a)| rects[..i].iter().all(|b| !rects_intersect(a, b)));
+    if already_disjoint {
+        return rects;
+    }
+
+    // For each rect, keep only the parts not covered by previously accepted
+    // rects: subtract each accepted rect from the current fragment set.
+    let mut out: Vec<RectU16> = Vec::with_capacity(rects.len());
+    let mut fragments: Vec<RectU16> = Vec::new();
+    let mut remaining: Vec<RectU16> = Vec::new();
+    for rect in rects {
+        fragments.clear();
+        fragments.push(rect);
+        for &cover in &out {
+            remaining.clear();
+            for &fragment in &fragments {
+                subtract_rect_into(fragment, cover, &mut remaining);
+            }
+            mem::swap(&mut fragments, &mut remaining);
+            if fragments.is_empty() {
+                break;
+            }
+        }
+        out.extend_from_slice(&fragments);
+    }
+    out
+}
+
+/// Push the (up to four) non-empty parts of `fragment` not covered by `cover`.
+fn subtract_rect_into(fragment: RectU16, cover: RectU16, out: &mut Vec<RectU16>) {
+    if !rects_intersect(&fragment, &cover) {
+        out.push(fragment);
+        return;
+    }
+    // Band above and band below the cover, full fragment width.
+    if fragment.y0 < cover.y0 {
+        out.push(RectU16::new(
+            fragment.x0,
+            fragment.y0,
+            fragment.x1,
+            cover.y0,
+        ));
+    }
+    if fragment.y1 > cover.y1 {
+        out.push(RectU16::new(
+            fragment.x0,
+            cover.y1,
+            fragment.x1,
+            fragment.y1,
+        ));
+    }
+    // Left and right parts within the shared vertical span.
+    let y0 = fragment.y0.max(cover.y0);
+    let y1 = fragment.y1.min(cover.y1);
+    if fragment.x0 < cover.x0 {
+        out.push(RectU16::new(fragment.x0, y0, cover.x0, y1));
+    }
+    if fragment.x1 > cover.x1 {
+        out.push(RectU16::new(cover.x1, y0, fragment.x1, y1));
+    }
 }
 
 /// Vello Hybrid's Renderer.
@@ -2790,8 +2872,11 @@ struct RendererContext<'a> {
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
     scratch_buffers: &'a mut ScratchBuffers,
     root_load_op: wgpu::LoadOp<wgpu::Color>,
-    /// Disjoint device-pixel damage rects to scissor root drawing to. Empty
-    /// means draw the whole target. Only applied to the root user surface.
+    /// Device-pixel damage rects to scissor root drawing to, already clamped
+    /// and normalized to a pairwise-disjoint set by `clamp_region_to_target`
+    /// (the draw sequence is replayed once per rect, so an overlap would
+    /// composite translucent content twice). Empty means draw the whole
+    /// target. Only applied to the root user surface.
     root_scissors: &'a [RectU16],
 }
 
@@ -3663,6 +3748,62 @@ mod tests {
         assert_eq!(
             clamp_region_to_target(RenderRegion::Rects(&[]), &size(100, 100)),
             [RectU16::new(0, 0, 0, 0)]
+        );
+    }
+
+    /// Exhaustively compare a normalized set's coverage against the input's:
+    /// every pixel covered by the input must be covered by exactly one output
+    /// rect, and no other pixel by any.
+    fn assert_disjoint_same_coverage(input: &[RectU16], output: &[RectU16], w: u16, h: u16) {
+        for y in 0..h {
+            for x in 0..w {
+                let contains = |r: &RectU16| x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1;
+                let expected = usize::from(input.iter().any(contains));
+                let got = output.iter().filter(|r| contains(r)).count();
+                assert_eq!(
+                    got, expected,
+                    "pixel ({x}, {y}): covered by {got} output rects"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn normalize_splits_overlapping_rects_into_a_disjoint_union() {
+        // The draw sequence is replayed once per rect, so any overlap would
+        // composite translucent content twice.
+        let cases: &[&[RectU16]] = &[
+            // Plain two-rect overlap.
+            &[RectU16::new(0, 0, 20, 20), RectU16::new(10, 10, 30, 30)],
+            // One rect fully inside another (the contained one must vanish).
+            &[RectU16::new(0, 0, 30, 30), RectU16::new(5, 5, 10, 10)],
+            // Duplicate rects.
+            &[RectU16::new(4, 4, 12, 12), RectU16::new(4, 4, 12, 12)],
+            // Cross shape: three rects sharing a center.
+            &[
+                RectU16::new(10, 0, 20, 30),
+                RectU16::new(0, 10, 30, 20),
+                RectU16::new(5, 5, 25, 25),
+            ],
+        ];
+        for input in cases {
+            let output = clamp_region_to_target(RenderRegion::Rects(input), &size(40, 40));
+            assert_disjoint_same_coverage(input, &output, 40, 40);
+        }
+    }
+
+    #[test]
+    fn normalize_keeps_already_disjoint_rects_unchanged() {
+        // Touching edges (x1 == x0) are not overlaps; the set passes through
+        // in its original form and order.
+        let rects = [
+            RectU16::new(0, 0, 10, 10),
+            RectU16::new(10, 0, 20, 10),
+            RectU16::new(0, 10, 20, 20),
+        ];
+        assert_eq!(
+            clamp_region_to_target(RenderRegion::Rects(&rects), &size(100, 100)),
+            rects
         );
     }
 }
