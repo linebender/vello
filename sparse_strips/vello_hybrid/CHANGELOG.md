@@ -12,6 +12,19 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `Renderer::reset_atlas_textures` to rebuild the atlas texture array (e.g. after a memory-pressure resource rebuild), plus `Resources::image_cache`/`image_cache_mut` and `Scene::transform` accessors for driving `render_to_atlas` from external code. ([#1739][] by [@AdrianEddy][])
+- `Renderer::render_to_atlas` takes a `clear_rect: Option<RectU16>` that clears the destination slot to transparent before compositing (for reused slots whose stale pixels would otherwise show through source-over), recorded after the atlas grows and before the scene render. ([#1739][] by [@AdrianEddy][])
+
+### Changed
+
+- `Renderer::destroy_image` no longer takes an `encoder` or `queue`, and takes `&Resources`; the destruction is deferred to the start of the next `render` call. ([#1739][] by [@AdrianEddy][])
+
+### Fixed
+
+- `Renderer::destroy_image` now defers retiring the slot until the start of the next `render` call, where the freed region is cleared via `queue.write_texture`. This keeps an already-encoded (but not yet submitted) render sampling the image intact, and orders the clear before any re-upload into the reused region. ([#1739][] by [@AdrianEddy][])
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -175,6 +188,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@dipeshbabu]: https://github.com/dipeshbabu
@@ -261,6 +275,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1726]: https://github.com/linebender/vello/pull/1726
 [#1734]: https://github.com/linebender/vello/pull/1734
 [#1735]: https://github.com/linebender/vello/pull/1735
+[#1739]: https://github.com/linebender/vello/pull/1739
 [#1747]: https://github.com/linebender/vello/pull/1747
 [#1750]: https://github.com/linebender/vello/pull/1750
 [#1757]: https://github.com/linebender/vello/pull/1757
