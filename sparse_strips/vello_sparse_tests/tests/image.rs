@@ -11,7 +11,7 @@ use std::sync::Arc;
 use vello_common::color::palette::css::REBECCA_PURPLE;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::kurbo::{Shape, Triangle};
-use vello_common::paint::{Image, ImageSource, Tint, TintMode};
+use vello_common::paint::{CoverageContrast, Image, ImageSource, Tint, TintMode};
 use vello_common::peniko::Color;
 use vello_common::peniko::ImageSampler;
 use vello_common::peniko::{BlendMode, Compose, Extend, ImageQuality, Mix};
@@ -690,7 +690,15 @@ fn image_spritesheet(ctx: &mut impl Renderer) {
     let mut cursor_x = start_x;
 
     for glyph in HELLO_WORLD {
-        render_sprite(ctx, &atlas_src, glyph, cursor_x, start_y, None);
+        render_sprite(
+            ctx,
+            &atlas_src,
+            glyph,
+            cursor_x,
+            start_y,
+            None,
+            CoverageContrast::NONE,
+        );
         cursor_x += glyph.width;
     }
 }
@@ -703,10 +711,12 @@ fn render_sprite(
     screen_x: f64,
     screen_y: f64,
     tint: Option<Color>,
+    contrast: CoverageContrast,
 ) {
     ctx.set_tint(tint.map(|color| Tint {
         color,
         mode: TintMode::AlphaMask,
+        contrast,
     }));
     ctx.set_transform(Affine::translate((screen_x, screen_y + glyph.y_offset)));
     ctx.set_paint_transform(Affine::translate((-glyph.atlas_x, -glyph.atlas_y)));
@@ -741,6 +751,60 @@ fn image_spritesheet_tinted(ctx: &mut impl Renderer) {
             cursor_x,
             start_y,
             Some(REBECCA_PURPLE),
+            CoverageContrast::NONE,
+        );
+        cursor_x += glyph.width;
+    }
+}
+
+/// Same as `image_spritesheet_tinted`, with the coverage-contrast steepening
+/// term enabled. Pins the fine-stage kernels and the shader's strength
+/// readers against the reference curve for a non-`NONE` contrast.
+#[vello_test(width = 60, height = 30, skip_multithreaded)]
+fn image_spritesheet_tinted_coverage_contrast(ctx: &mut impl Renderer) {
+    let atlas_id = ctx.register_image(load_image!("glyph_atlas"));
+    let atlas_src = ImageSource::opaque_id(atlas_id);
+
+    let start_x = 10.0;
+    let start_y = 8.0;
+
+    let mut cursor_x = start_x;
+
+    for glyph in HELLO_WORLD {
+        render_sprite(
+            ctx,
+            &atlas_src,
+            glyph,
+            cursor_x,
+            start_y,
+            Some(REBECCA_PURPLE),
+            CoverageContrast::from_strength(0.6),
+        );
+        cursor_x += glyph.width;
+    }
+}
+
+/// Both curve terms enabled: steepening plus the weight bias. Pins the
+/// weight byte's position in the packed tint word on the GPU path.
+#[vello_test(width = 60, height = 30, skip_multithreaded)]
+fn image_spritesheet_tinted_coverage_contrast_weight(ctx: &mut impl Renderer) {
+    let atlas_id = ctx.register_image(load_image!("glyph_atlas"));
+    let atlas_src = ImageSource::opaque_id(atlas_id);
+
+    let start_x = 10.0;
+    let start_y = 8.0;
+
+    let mut cursor_x = start_x;
+
+    for glyph in HELLO_WORLD {
+        render_sprite(
+            ctx,
+            &atlas_src,
+            glyph,
+            cursor_x,
+            start_y,
+            Some(REBECCA_PURPLE),
+            CoverageContrast::from_strength(0.5).with_weight_strength(0.4),
         );
         cursor_x += glyph.width;
     }
@@ -761,6 +825,7 @@ fn image_fully_transparent_tint(ctx: &mut impl Renderer) {
         ctx.set_tint(Some(Tint {
             color: Color::from_rgba8(255, 255, 255, 0),
             mode,
+            contrast: CoverageContrast::NONE,
         }));
         ctx.set_paint(image.clone());
         ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));

@@ -9,7 +9,7 @@ mod tests {
     use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{Affine, Circle, Rect, Shape};
-    use vello_common::paint::{Image, ImageSource, Tint, TintMode};
+    use vello_common::paint::{CoverageContrast, Image, ImageSource, Tint, TintMode};
     use vello_common::peniko::{Color, Extend, ImageQuality, ImageSampler};
     use vello_common::pixmap::Pixmap;
     use vello_dev_macros::vello_test;
@@ -265,6 +265,7 @@ mod tests {
         ctx.set_tint(Some(Tint {
             color: Color::from_rgba8(128, 102, 204, 160),
             mode: TintMode::Multiply,
+            contrast: CoverageContrast::NONE,
         }));
         ctx.draw_texture_rect(texture_rect(tint_source, 16., 38., 68., 24., false));
         ctx.draw_texture_rect(texture_rect(tint_source, 38., 16., 24., 68., false));

@@ -26,7 +26,7 @@ use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
+use vello_common::paint::{CoverageContrast, ImageId, ImageResolver, Paint, PaintType, Tint};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::{Pixmap, PixmapMut};
@@ -175,6 +175,10 @@ pub struct RenderContext {
         allow(dead_code, reason = "used when the `text` feature is enabled")
     )]
     pub(crate) render_settings: RenderSettings,
+    /// Coverage transfer applied to atlas-cached glyph coverage. A
+    /// renderer-wide display policy, so it lives outside [`RenderState`] and
+    /// survives `reset`, `save_state` and `restore_state`.
+    pub(crate) glyph_coverage_contrast: CoverageContrast,
     dispatcher: Box<dyn Dispatcher>,
 }
 
@@ -244,6 +248,7 @@ impl RenderContext {
             temp_path,
             encoded_paints,
             filter: None,
+            glyph_coverage_contrast: CoverageContrast::NONE,
         }
     }
 
@@ -615,6 +620,21 @@ impl RenderContext {
     /// Clear the tint, so subsequent image paints are drawn without tinting.
     pub fn reset_tint(&mut self) {
         self.state.tint = None;
+    }
+
+    /// Set the coverage transfer applied to atlas-cached glyph coverage.
+    ///
+    /// Defaults to [`CoverageContrast::NONE`], which is bit-exact with
+    /// rendering that predates the setting. A display policy rather than a
+    /// paint attribute: unaffected by `reset`, `save_state` and
+    /// `restore_state`.
+    pub fn set_glyph_coverage_contrast(&mut self, contrast: CoverageContrast) {
+        self.glyph_coverage_contrast = contrast;
+    }
+
+    /// The coverage transfer applied to atlas-cached glyph coverage.
+    pub fn glyph_coverage_contrast(&self) -> CoverageContrast {
+        self.glyph_coverage_contrast
     }
 
     /// Set the blend mode that should be used when drawing objects.

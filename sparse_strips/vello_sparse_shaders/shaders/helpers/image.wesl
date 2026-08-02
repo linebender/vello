@@ -16,6 +16,12 @@ const IMAGE_SOURCE_EXTERNAL: u32 = 1u;
 const TINT_MODE_ALPHA_MASK: u32 = 0u;
 const TINT_MODE_MULTIPLY: u32 = 1u;
 
+/// Bit positions of the coverage-contrast strengths within texel2.z. Must
+/// match `GPU_TINT_CONTRAST_SHIFT` / `GPU_TINT_WEIGHT_SHIFT` in
+/// `vello_hybrid/src/render/common.rs`.
+const TINT_CONTRAST_SHIFT: u32 = 8u;
+const TINT_WEIGHT_SHIFT: u32 = 16u;
+
 // Encoded image layout. Must match `GpuEncodedImage` in `vello_hybrid/src/render/common.rs`.
 //
 // texel0.x: image_params
@@ -29,8 +35,22 @@ const TINT_MODE_MULTIPLY: u32 = 1u;
 // texel0.w/texel1.x/texel1.y/texel1.z: transform matrix [a, b, c, d]
 // texel1.w/texel2.x: translation [tx, ty]
 // texel2.y: premultiplied tint color packed as RGBA8 unorm
-// texel2.z: GPU tint mode
+// texel2.z: tint mode in bits 0-7, coverage-contrast strength in bits 8-15,
+//           coverage-weight strength in bits 16-23
 // texel2.w: transparent padding pixels around the image in the atlas
+
+/// Tint mode, from the low byte of texel2.z.
+fn get_image_tint_mode(texel2: vec4<u32>) -> u32 { return texel2.z & 0xFFu; }
+
+/// Coverage-contrast steepening strength in [0, 255]; 0 disables the term.
+fn get_image_tint_contrast(texel2: vec4<u32>) -> u32 {
+    return (texel2.z >> TINT_CONTRAST_SHIFT) & 0xFFu;
+}
+
+/// Coverage-contrast weight strength in [0, 255]; 0 disables the term.
+fn get_image_tint_weight(texel2: vec4<u32>) -> u32 {
+    return (texel2.z >> TINT_WEIGHT_SHIFT) & 0xFFu;
+}
 
 /// The rendering quality of the image.
 fn get_image_quality(texel0: vec4<u32>) -> u32 { return texel0.x & 0x3u; }
