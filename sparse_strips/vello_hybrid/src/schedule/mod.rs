@@ -133,7 +133,7 @@ pub(crate) use self::execute::{Backend, execute};
 use self::round::{
     BlendOp, FilterOp, FilterTextureRegions, Round, RoundStage, Rounds, SchedulePoint,
 };
-use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState, RectU16Ext};
+use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState, RectU16Ext, StripCull};
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
@@ -161,6 +161,9 @@ pub(crate) struct Schedule {
     rounds: Rounds,
     /// Intermediate textures required to execute this schedule.
     intermediate_textures: IntermediateTextureRequirements,
+    /// Number of root strips skipped by the damage-region cull while building
+    /// this schedule.
+    culled_strips: u64,
 }
 
 impl Schedule {
@@ -172,6 +175,7 @@ impl Schedule {
         texture_size: SizeU16,
         backend_allocations: IntermediateTextureAllocations,
         max_textures: Option<usize>,
+        scissors: &[RectU16],
     ) -> Result<Self, RenderError> {
         storage.clear();
 
@@ -192,6 +196,7 @@ impl Schedule {
             paint_resolver,
             texture_size,
             storage,
+            scissors,
         );
 
         let schedule = scheduler.build()?;
@@ -206,6 +211,12 @@ impl Schedule {
 
     pub(crate) fn intermediate_texture_requirements(&self) -> IntermediateTextureRequirements {
         self.intermediate_textures
+    }
+
+    /// Number of root strips the damage-region cull skipped while building this
+    /// schedule.
+    pub(crate) fn culled_strips(&self) -> u64 {
+        self.culled_strips
     }
 }
 
@@ -281,6 +292,10 @@ struct Scheduler<'a, 'p> {
     texture_size: SizeU16,
     /// Reusable buffers populated while constructing the schedule.
     storage: &'p mut ScheduleStorage,
+    /// Damage-region cull for root draws, or `None` for a full render.
+    root_cull: Option<StripCull>,
+    /// Number of root strips skipped by [`Self::root_cull`].
+    culled_strips: u64,
 }
 
 impl<'a, 'p> Scheduler<'a, 'p> {
@@ -293,7 +308,12 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         paint_resolver: PaintResolver<'a>,
         texture_size: SizeU16,
         storage: &'p mut ScheduleStorage,
+        scissors: &[RectU16],
     ) -> Self {
+        // An empty scissor set is a full render (no cull). Otherwise cull root
+        // strips against the damage rects; the draw-time scissor is what makes
+        // the output correct, so this only trims work.
+        let root_cull = (!scissors.is_empty()).then(|| StripCull::new(scissors));
         Self {
             recorder,
             scene_bbox,
@@ -303,6 +323,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             cursor: Cursor::new(Atlases::new(texture_size)),
             texture_size,
             storage,
+            root_cull,
+            culled_strips: 0,
         }
     }
 
@@ -327,6 +349,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         Ok(Schedule {
             rounds,
             intermediate_textures,
+            culled_strips: self.culled_strips,
         })
     }
 
@@ -336,6 +359,10 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
         let mut state =
             TargetScheduleState::new(target, self.cursor.current_round(), self.scene_bbox);
+        // Only the root target is culled against the damage region. Layer and
+        // atlas states created elsewhere keep `root_cull == None`, so their
+        // contents (which the root samples) are never dropped.
+        state.draw_state.root_cull = self.root_cull.clone();
 
         if self.recorder.root_is_blend_target {
             // If the layer is a target of a non-default blending operation, we need to be able to
@@ -378,6 +405,10 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 }
             }
         };
+
+        // The root is the only culled target, so its accumulated count is the
+        // whole schedule's.
+        self.culled_strips += state.draw_state.culled_strips;
 
         Ok(())
     }

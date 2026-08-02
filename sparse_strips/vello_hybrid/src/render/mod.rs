@@ -16,7 +16,7 @@ mod webgl;
 #[cfg(feature = "wgpu")]
 mod wgpu;
 
-pub use common::{Config, GpuStrip, RenderSize};
+pub use common::{ClearSettings, Config, GpuStrip, RenderRegion, RenderSize};
 
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use probe::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};

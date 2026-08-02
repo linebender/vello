@@ -22,7 +22,8 @@ use crate::draw::ExternalTextureRun;
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
 use crate::{
-    GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
+    ClearSettings, GpuStrip, LayersConfig, RenderError, RenderRegion, RenderSettings, RenderSize,
+    Resources,
     blend::{BlendStrip, GpuBlendInstance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
@@ -51,10 +52,11 @@ use crate::{
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
-use core::{fmt::Debug, num::NonZeroU64};
+use core::{fmt::Debug, mem, num::NonZeroU64};
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use hashbrown::{HashMap, hash_map::Entry};
+use vello_common::color::{AlphaColor, Srgb};
 use vello_common::image_cache::{ImageCache, ImageResource};
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
@@ -149,6 +151,119 @@ impl TextureBindings {
     }
 }
 
+/// Clamp the [`RenderRegion`] to the `size` render target so the draw-time
+/// scissor never exceeds the render attachment, and normalize the result into
+/// a pairwise-disjoint set.
+///
+/// [`RenderRegion::Full`] yields an empty set (no scissoring). For
+/// [`RenderRegion::Rects`], rects are clamped and dropped when they become
+/// empty; if none survive (including an empty input set), a single zero-area
+/// sentinel is returned instead: the strip cull then discards every root strip,
+/// so the render draws nothing rather than silently falling back to a full,
+/// unscissored render.
+fn clamp_region_to_target(region: RenderRegion<'_>, size: &RenderSize) -> Vec<RectU16> {
+    let RenderRegion::Rects(rects) = region else {
+        return Vec::new();
+    };
+    let w = size.width.min(u32::from(u16::MAX)) as u16;
+    let h = size.height.min(u32::from(u16::MAX)) as u16;
+    let clamped: Vec<RectU16> = rects
+        .iter()
+        .filter_map(|r| {
+            let x0 = r.x0.min(w);
+            let y0 = r.y0.min(h);
+            let x1 = r.x1.min(w);
+            let y1 = r.y1.min(h);
+            (x1 > x0 && y1 > y0).then(|| RectU16::new(x0, y0, x1, y1))
+        })
+        .collect();
+    let mut disjoint = normalize_disjoint(clamped);
+    if disjoint.is_empty() {
+        disjoint.push(RectU16::new(0, 0, 0, 0));
+    }
+    disjoint
+}
+
+/// Whether two non-empty rects share any pixel.
+#[inline]
+fn rects_intersect(a: &RectU16, b: &RectU16) -> bool {
+    a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0
+}
+
+/// Normalize `rects` into a pairwise-disjoint set covering the same pixels.
+///
+/// The root draw sequence is replayed once per damage rect under that rect's
+/// scissor, so a pixel covered by more than one rect would have translucent
+/// content composited once per covering rect. Splitting overlaps away keeps
+/// the replay single-composite regardless of what the caller's damage
+/// tracking produced. Already-disjoint input — the common case — is detected
+/// with a pairwise sweep and returned unchanged.
+fn normalize_disjoint(rects: Vec<RectU16>) -> Vec<RectU16> {
+    let already_disjoint = rects
+        .iter()
+        .enumerate()
+        .all(|(i, a)| rects[..i].iter().all(|b| !rects_intersect(a, b)));
+    if already_disjoint {
+        return rects;
+    }
+
+    // For each rect, keep only the parts not covered by previously accepted
+    // rects: subtract each accepted rect from the current fragment set.
+    let mut out: Vec<RectU16> = Vec::with_capacity(rects.len());
+    let mut fragments: Vec<RectU16> = Vec::new();
+    let mut remaining: Vec<RectU16> = Vec::new();
+    for rect in rects {
+        fragments.clear();
+        fragments.push(rect);
+        for &cover in &out {
+            remaining.clear();
+            for &fragment in &fragments {
+                subtract_rect_into(fragment, cover, &mut remaining);
+            }
+            mem::swap(&mut fragments, &mut remaining);
+            if fragments.is_empty() {
+                break;
+            }
+        }
+        out.extend_from_slice(&fragments);
+    }
+    out
+}
+
+/// Push the (up to four) non-empty parts of `fragment` not covered by `cover`.
+fn subtract_rect_into(fragment: RectU16, cover: RectU16, out: &mut Vec<RectU16>) {
+    if !rects_intersect(&fragment, &cover) {
+        out.push(fragment);
+        return;
+    }
+    // Band above and band below the cover, full fragment width.
+    if fragment.y0 < cover.y0 {
+        out.push(RectU16::new(
+            fragment.x0,
+            fragment.y0,
+            fragment.x1,
+            cover.y0,
+        ));
+    }
+    if fragment.y1 > cover.y1 {
+        out.push(RectU16::new(
+            fragment.x0,
+            cover.y1,
+            fragment.x1,
+            fragment.y1,
+        ));
+    }
+    // Left and right parts within the shared vertical span.
+    let y0 = fragment.y0.max(cover.y0);
+    let y1 = fragment.y1.min(cover.y1);
+    if fragment.x0 < cover.x0 {
+        out.push(RectU16::new(fragment.x0, y0, cover.x0, y1));
+    }
+    if fragment.x1 > cover.x1 {
+        out.push(RectU16::new(cover.x1, y0, fragment.x1, y1));
+    }
+}
+
 /// Vello Hybrid's Renderer.
 #[derive(Debug)]
 pub struct Renderer {
@@ -166,6 +281,14 @@ pub struct Renderer {
     layers_config: LayersConfig,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
+    /// Number of [`Self::render`] calls that drew a partial
+    /// ([`RenderRegion::Rects`]) region. Lets damage-tracking callers assert
+    /// that partial rendering actually happened rather than silently falling
+    /// back to a full render.
+    partial_renders: u64,
+    /// Number of root-destined strips skipped by the damage-region cull across
+    /// all renders. Lets damage-tracking callers assert the cull engaged.
+    culled_strips: u64,
 }
 
 impl Renderer {
@@ -209,7 +332,24 @@ impl Renderer {
             layers_config: layer_config,
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
+            partial_renders: 0,
+            culled_strips: 0,
         }
+    }
+
+    /// Number of [`Self::render`] calls that drew a partial
+    /// ([`RenderRegion::Rects`]) region. Lets damage-tracking callers assert
+    /// the partial path actually engaged.
+    pub fn partial_renders(&self) -> u64 {
+        self.partial_renders
+    }
+
+    /// Number of root-destined strips skipped by the damage-region cull across
+    /// all renders (the fast-path coverage, gap, and rectangle quads that fell
+    /// entirely outside the [`RenderRegion::Rects`] set). Lets damage-tracking
+    /// callers assert the cull actually engaged.
+    pub fn culled_strips(&self) -> u64 {
+        self.culled_strips
     }
 
     /// Render `scene`.
@@ -219,6 +359,12 @@ impl Renderer {
     /// requirements on the bound texture views.
     ///
     /// To render without any texture bindings, you can pass an empty [`TextureBindings`].
+    ///
+    /// For damage-region rendering, pass the damaged rects as
+    /// [`RenderRegion::Rects`]: only that region is redrawn (byte-identical to a
+    /// full render of the same scene) and the rest of the target is preserved.
+    /// Pair it with [`ClearSettings::DontClear`], or [`ClearSettings::Rects`]
+    /// over the same rects when the scene does not repaint the region opaquely.
     pub fn render(
         &mut self,
         scene: &Scene,
@@ -229,7 +375,13 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
         texture_bindings: &TextureBindings,
+        clear: ClearSettings<'_>,
+        region: RenderRegion<'_>,
     ) -> Result<(), RenderError> {
+        if !matches!(region, RenderRegion::Full) {
+            self.partial_renders += 1;
+        }
+
         #[cfg(feature = "text")]
         {
             resources.before_render(
@@ -270,7 +422,8 @@ impl Renderer {
             view,
             &resources.image_cache,
             &scene.encoded_paints,
-            true,
+            clear,
+            region,
             RootTarget::UserSurface,
             texture_bindings,
         );
@@ -348,7 +501,7 @@ impl Renderer {
         // Swap in the stub atlas bind group to avoid the read-write conflict:
         // the real atlas texture is used as the render target (COLOR_TARGET), so it
         // cannot also be bound as a shader resource (TEXTURE_BINDING) in the same pass.
-        core::mem::swap(
+        mem::swap(
             &mut self.programs.resources.atlas_bind_group,
             &mut self.programs.resources.stub_atlas_bind_group,
         );
@@ -367,14 +520,15 @@ impl Renderer {
             &layer_view,
             &dummy_image_cache,
             encoded_paints,
-            false,
+            ClearSettings::DontClear,
+            RenderRegion::Full,
             RootTarget::AtlasLayer,
             texture_bindings,
         );
         self.dummy_image_cache = Some(dummy_image_cache);
 
         // Restore the real atlas bind group.
-        core::mem::swap(
+        mem::swap(
             &mut self.programs.resources.atlas_bind_group,
             &mut self.programs.resources.stub_atlas_bind_group,
         );
@@ -400,9 +554,6 @@ impl Renderer {
 
     /// Shared render pipeline: prepares GPU resources, runs the scheduler against
     /// the provided `view` at `render_size`, and maintains caches.
-    ///
-    /// When `clear` is true the render target is cleared to transparent black
-    /// before drawing (normal frame rendering).
     fn render_scene(
         &mut self,
         scene: &Scene,
@@ -413,11 +564,17 @@ impl Renderer {
         view: &TextureView,
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
-        clear: bool,
+        clear: ClearSettings<'_>,
+        region: RenderRegion<'_>,
         root_output_target: RootTarget,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
+        // Clamp the damage rects to the target so the draw-time scissor never
+        // exceeds the render attachment, and so a partial render whose rects all
+        // clamp away draws nothing instead of silently falling back to a full
+        // render. Both the strip cull and the scissor loop use the clamped set.
+        let clamped_scissors = clamp_region_to_target(region, render_size);
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
         let required_texture_size = self
             .layers_config
@@ -440,7 +597,9 @@ impl Renderer {
             texture_size,
             current_allocations,
             self.layers_config.max_textures,
+            &clamped_scissors,
         )?;
+        self.culled_strips += schedule.culled_strips();
         self.programs
             .prepare_intermediate_textures(device, &schedule);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -457,9 +616,6 @@ impl Renderer {
             &self.schedule_storage.filter_context,
         );
 
-        if clear {
-            Self::clear_view(encoder, view);
-        }
         let mut ctx = RendererContext {
             programs: &mut self.programs,
             device,
@@ -469,7 +625,11 @@ impl Renderer {
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
             scratch_buffers: &mut self.scratch_buffers,
+            root_load_op: wgpu::LoadOp::Load,
+            root_scissors: &clamped_scissors,
         };
+
+        ctx.init_root_clear(clear, root_output_target);
 
         crate::schedule::execute(
             &mut ctx,
@@ -478,30 +638,11 @@ impl Renderer {
             root_output_target,
         );
 
+        ctx.finish_root_clear();
+
         self.gradient_cache.maintain();
 
         Ok(())
-    }
-
-    /// Clear the view to transparent black.
-    // TODO: Investigate adding tests for the clear_view behavior.
-    fn clear_view(encoder: &mut CommandEncoder, view: &TextureView) {
-        encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Clear View"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
     }
 
     /// Upload image to cache and atlas in one step. Returns the `ImageId`.
@@ -943,8 +1084,10 @@ struct Programs {
     filter_pair_bind_groups: HashMap<FilterPassBindings, FilterPairBindGroups>,
     /// Pipeline for applying filter effects.
     filter_pipeline: RenderPipeline,
-    /// Layer-clear pipeline.
+    /// Layer-clear pipeline (layer textures are always `Rgba8Unorm`).
     clear_pipeline: RenderPipeline,
+    /// User-target rectangle-clear pipeline.
+    root_clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
     atlas_clear_pipeline: RenderPipeline,
     /// Blend pipeline.
@@ -1256,43 +1399,59 @@ impl Programs {
             Some(depth_stencil(true)),
         );
 
-        let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Clear Pipeline"),
-            layout: Some(&clear_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &clear_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: size_of::<GpuClearInstance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &wgpu::vertex_attr_array![
-                        0 => Uint32x2,
-                        1 => Uint32x2,
-                        2 => Uint32x2,
-                    ],
-                }],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &clear_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    // No blending needed for clearing
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
+        let clear_blend_component = wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::Constant,
+            dst_factor: wgpu::BlendFactor::Zero,
+            operation: wgpu::BlendOperation::Add,
+        };
+        let clear_blend = Some(BlendState {
+            color: clear_blend_component,
+            alpha: clear_blend_component,
         });
+
+        let clear_vertex_state = wgpu::VertexBufferLayout {
+            array_stride: size_of::<GpuClearInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Uint32x2,
+                1 => Uint32x2,
+                2 => Uint32x2,
+            ],
+        };
+        let create_clear_pipeline = |label, format| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&clear_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &clear_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: core::slice::from_ref(&clear_vertex_state),
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &clear_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format,
+                        blend: clear_blend,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let clear_pipeline =
+            create_clear_pipeline("Clear Pipeline", wgpu::TextureFormat::Rgba8Unorm);
+        let root_clear_pipeline =
+            create_clear_pipeline("Root Clear Pipeline", render_target_config.format);
 
         // Create atlas clear pipeline
         let atlas_clear_pipeline_layout =
@@ -1301,6 +1460,7 @@ impl Programs {
                 bind_group_layouts: &[],
                 immediate_size: 0,
             });
+        // TODO: Change the atlas clear pipeline to use the existing layer clear mechanism.
         let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Atlas Clear Pipeline"),
             layout: Some(&atlas_clear_pipeline_layout),
@@ -1313,7 +1473,7 @@ impl Programs {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &clear_shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_transparent"),
                 targets: &[Some(ColorTargetState {
                     format: wgpu::TextureFormat::Rgba8Unorm,
                     blend: None,
@@ -1748,6 +1908,7 @@ impl Programs {
                 height: render_target_config.height,
             },
             clear_pipeline,
+            root_clear_pipeline,
             atlas_clear_pipeline,
             filter_input_bind_group_layouts,
             filter_sampler,
@@ -2710,9 +2871,59 @@ struct RendererContext<'a> {
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
     scratch_buffers: &'a mut ScratchBuffers,
+    root_load_op: wgpu::LoadOp<wgpu::Color>,
+    /// Device-pixel damage rects to scissor root drawing to, already clamped
+    /// and normalized to a pairwise-disjoint set by `clamp_region_to_target`
+    /// (the draw sequence is replayed once per rect, so an overlap would
+    /// composite translucent content twice). Empty means draw the whole
+    /// target. Only applied to the root user surface.
+    root_scissors: &'a [RectU16],
 }
 
 impl RendererContext<'_> {
+    fn init_root_clear(&mut self, clear: ClearSettings<'_>, root_target: RootTarget) {
+        self.root_load_op = match clear {
+            ClearSettings::DontClear => wgpu::LoadOp::Load,
+            ClearSettings::Viewport { color } => wgpu::LoadOp::Clear(clear_color(color)),
+            ClearSettings::Rects { .. } => {
+                self.clear_pass_inner(DrawPassTarget::Root(root_target), clear);
+
+                wgpu::LoadOp::Load
+            }
+        };
+    }
+
+    fn finish_root_clear(&mut self) {
+        // If the load mode was set to clear but no actual drawing instructions were
+        // emitted, we still need to start a pass to clear the output.
+        if let wgpu::LoadOp::Clear(color) = self.take_root_load_op() {
+            Self::clear_full_target(self.encoder, self.view, color);
+        }
+    }
+
+    fn take_root_load_op(&mut self) -> wgpu::LoadOp<wgpu::Color> {
+        mem::replace(&mut self.root_load_op, wgpu::LoadOp::Load)
+    }
+
+    fn clear_full_target(encoder: &mut CommandEncoder, view: &TextureView, color: wgpu::Color) {
+        encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Clear Target"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(color),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+    }
+
     fn external_paint_source_bind_group_for_texture(
         &mut self,
         texture_id: TextureId,
@@ -2760,6 +2971,12 @@ impl RendererContext<'_> {
         let opaque_count = opaque_count as u32;
         let alpha_count = alpha_count as u32;
 
+        let color_load_op = if matches!(target, DrawPassTarget::Root(_)) {
+            self.take_root_load_op()
+        } else {
+            // For layer targets we always want to load.
+            wgpu::LoadOp::Load
+        };
         let (view, config_buffer, bind_group_target) = match target {
             DrawPassTarget::Root(_) => (
                 self.view,
@@ -2803,6 +3020,15 @@ impl RendererContext<'_> {
 
         let enable_opaque = target.enable_opaque();
 
+        // Damage scissoring: only the root user surface is confined to the
+        // damage rects; layer and atlas targets always render in full.
+        let scissors: &[RectU16] =
+            if matches!(target, DrawPassTarget::Root(RootTarget::UserSurface)) {
+                self.root_scissors
+            } else {
+                &[]
+            };
+
         let depth_stencil_attachment = if enable_opaque {
             let depth_load = if self.programs.depth_cleared_this_frame {
                 wgpu::LoadOp::Load
@@ -2829,7 +3055,7 @@ impl RendererContext<'_> {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
+                    load: color_load_op,
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -2843,46 +3069,59 @@ impl RendererContext<'_> {
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
 
-        if opaque_count > 0 {
-            // Opaque pass
-            debug_assert!(
-                enable_opaque,
-                "opaque strips require the final view depth attachment"
-            );
-            render_pass.set_pipeline(&self.programs.opaque_strip_pipeline);
-            render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
-            render_pass.draw(0..4, 0..opaque_count);
-        }
-
-        if alpha_count > 0 {
-            // Alpha pass
-            if enable_opaque {
-                render_pass.set_pipeline(&self.programs.alpha_strip_pipeline);
-            } else {
-                render_pass.set_pipeline(&self.programs.intermediate_strip_pipeline);
+        // Replay the draw sequence once per damage rect (with that rect as the
+        // scissor), or once unscissored when there are no damage rects.
+        for pass_idx in 0..scissors.len().max(1) {
+            if let Some(rect) = scissors.get(pass_idx) {
+                render_pass.set_scissor_rect(
+                    u32::from(rect.x0),
+                    u32::from(rect.y0),
+                    u32::from(rect.width()),
+                    u32::from(rect.height()),
+                );
             }
 
-            let alpha_start = opaque_count;
-            if external_texture_runs.is_empty() {
+            if opaque_count > 0 {
+                // Opaque pass
+                debug_assert!(
+                    enable_opaque,
+                    "opaque strips require the final view depth attachment"
+                );
+                render_pass.set_pipeline(&self.programs.opaque_strip_pipeline);
                 render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
-                render_pass.draw(0..4, alpha_start..alpha_start + alpha_count);
-            } else {
-                // Each run is drawn with a different external texture binding. Runs go from
-                // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
-                // the strips buffer.
-                for (i, run) in external_texture_runs.iter().enumerate() {
-                    let paint_source_bind_group = self
-                        .external_paint_source_bind_groups
-                        .get(&run.texture_id)
-                        .unwrap();
-                    render_pass.set_bind_group(1, paint_source_bind_group, &[]);
-                    let start = u32::try_from(run.strips_start).unwrap();
-                    let end = external_texture_runs
-                        .get(i + 1)
-                        .map_or(alpha_count, |next| {
-                            u32::try_from(next.strips_start).unwrap()
-                        });
-                    render_pass.draw(0..4, alpha_start + start..alpha_start + end);
+                render_pass.draw(0..4, 0..opaque_count);
+            }
+
+            if alpha_count > 0 {
+                // Alpha pass
+                if enable_opaque {
+                    render_pass.set_pipeline(&self.programs.alpha_strip_pipeline);
+                } else {
+                    render_pass.set_pipeline(&self.programs.intermediate_strip_pipeline);
+                }
+
+                let alpha_start = opaque_count;
+                if external_texture_runs.is_empty() {
+                    render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
+                    render_pass.draw(0..4, alpha_start..alpha_start + alpha_count);
+                } else {
+                    // Each run is drawn with a different external texture binding. Runs go from
+                    // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
+                    // the strips buffer.
+                    for (i, run) in external_texture_runs.iter().enumerate() {
+                        let paint_source_bind_group = self
+                            .external_paint_source_bind_groups
+                            .get(&run.texture_id)
+                            .unwrap();
+                        render_pass.set_bind_group(1, paint_source_bind_group, &[]);
+                        let start = u32::try_from(run.strips_start).unwrap();
+                        let end = external_texture_runs
+                            .get(i + 1)
+                            .map_or(alpha_count, |next| {
+                                u32::try_from(next.strips_start).unwrap()
+                            });
+                        render_pass.draw(0..4, alpha_start + start..alpha_start + end);
+                    }
                 }
             }
         }
@@ -3052,20 +3291,59 @@ impl RendererContext<'_> {
         }
     }
 
-    fn clear_pass_inner(&mut self, target: LayerTextureId, rects: &[RectU16]) {
-        let texture_size = self.texture_size();
-        let target_size = [
-            u32::from(texture_size.width()),
-            u32::from(texture_size.height()),
-        ];
+    fn clear_pass_inner(&mut self, target: DrawPassTarget, settings: ClearSettings<'_>) {
+        let Some(color) = settings.clear_color().map(clear_color) else {
+            return;
+        };
+
+        let view = match target {
+            DrawPassTarget::Root(_) => self.view,
+            DrawPassTarget::Layer(target) => self.programs.resources.layer_view(target),
+        };
+        let rects = match settings {
+            ClearSettings::DontClear => unreachable!(),
+            ClearSettings::Viewport { .. } => {
+                Self::clear_full_target(self.encoder, view, color);
+
+                return;
+            }
+            ClearSettings::Rects { rects, .. } => rects,
+        };
+
+        let (target_size, pipeline) = match target {
+            DrawPassTarget::Root(_) => (
+                [
+                    u16::try_from(self.programs.render_size.width).unwrap(),
+                    u16::try_from(self.programs.render_size.height).unwrap(),
+                ],
+                &self.programs.root_clear_pipeline,
+            ),
+            DrawPassTarget::Layer(_) => {
+                let texture_size = self.texture_size();
+                (
+                    [texture_size.width(), texture_size.height()],
+                    &self.programs.clear_pipeline,
+                )
+            }
+        };
+        let bounds = RectU16::new(0, 0, target_size[0], target_size[1]);
+        let target_size = target_size.map(u32::from);
         self.scratch_buffers.clear_instances.clear();
-        self.scratch_buffers
-            .clear_instances
-            .extend(rects.iter().copied().map(|rect| GpuClearInstance {
-                origin: [u32::from(rect.x0), u32::from(rect.y0)],
-                size: [u32::from(rect.width()), u32::from(rect.height())],
-                target_size,
-            }));
+        self.scratch_buffers.clear_instances.extend(
+            rects
+                .iter()
+                .map(|rect| rect.intersect(bounds))
+                .filter(|rect| !rect.is_empty())
+                .map(|rect| GpuClearInstance {
+                    origin: [u32::from(rect.x0), u32::from(rect.y0)],
+                    size: [u32::from(rect.width()), u32::from(rect.height())],
+                    target_size,
+                }),
+        );
+
+        if self.scratch_buffers.clear_instances.is_empty() {
+            return;
+        }
 
         let clear_buffer = self
             .device
@@ -3074,7 +3352,6 @@ impl RendererContext<'_> {
                 contents: bytemuck::cast_slice(&self.scratch_buffers.clear_instances),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-        let view = self.programs.resources.layer_view(target);
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear Rects"),
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -3091,7 +3368,8 @@ impl RendererContext<'_> {
             timestamp_writes: None,
             multiview_mask: None,
         });
-        render_pass.set_pipeline(&self.programs.clear_pipeline);
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_blend_constant(color);
         render_pass.set_vertex_buffer(0, clear_buffer.slice(..));
         render_pass.draw(
             0..4,
@@ -3140,7 +3418,13 @@ impl Backend for RendererContext<'_> {
     }
 
     fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) {
-        self.clear_pass_inner(target, rects);
+        self.clear_pass_inner(
+            DrawPassTarget::Layer(target),
+            ClearSettings::Rects {
+                color: AlphaColor::TRANSPARENT,
+                rects,
+            },
+        );
     }
 }
 
@@ -3409,6 +3693,117 @@ impl AtlasWriter for Arc<Pixmap> {
             offset,
             width,
             height,
+        );
+    }
+}
+
+fn clear_color(color: AlphaColor<Srgb>) -> wgpu::Color {
+    let [r, g, b, a] = color.premultiply().components;
+    wgpu::Color {
+        r: f64::from(r),
+        g: f64::from(g),
+        b: f64::from(b),
+        a: f64::from(a),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RenderRegion, RenderSize, clamp_region_to_target};
+    use vello_common::geometry::RectU16;
+
+    fn size(width: u32, height: u32) -> RenderSize {
+        RenderSize { width, height }
+    }
+
+    #[test]
+    fn clamp_trims_overhang_and_drops_out_of_bounds() {
+        let rects = [
+            RectU16::new(10, 20, 40, 60),     // in-bounds: unchanged
+            RectU16::new(90, 90, 140, 140),   // overhang: trimmed to the target
+            RectU16::new(200, 200, 210, 210), // fully outside: dropped
+            RectU16::new(5, 5, 5, 12),        // zero width: dropped
+        ];
+        assert_eq!(
+            clamp_region_to_target(RenderRegion::Rects(&rects), &size(100, 100)),
+            [RectU16::new(10, 20, 40, 60), RectU16::new(90, 90, 100, 100)]
+        );
+    }
+
+    #[test]
+    fn clamp_full_region_yields_no_scissors() {
+        assert!(clamp_region_to_target(RenderRegion::Full, &size(100, 100)).is_empty());
+    }
+
+    #[test]
+    fn clamp_degenerate_region_yields_zero_area_sentinel() {
+        // A partial region that clamps entirely away (or is empty to begin
+        // with) must draw nothing, signalled by a single zero-area rect rather
+        // than an empty (full-render) set.
+        let rects = [RectU16::new(200, 200, 240, 240)];
+        assert_eq!(
+            clamp_region_to_target(RenderRegion::Rects(&rects), &size(100, 100)),
+            [RectU16::new(0, 0, 0, 0)]
+        );
+        assert_eq!(
+            clamp_region_to_target(RenderRegion::Rects(&[]), &size(100, 100)),
+            [RectU16::new(0, 0, 0, 0)]
+        );
+    }
+
+    /// Exhaustively compare a normalized set's coverage against the input's:
+    /// every pixel covered by the input must be covered by exactly one output
+    /// rect, and no other pixel by any.
+    fn assert_disjoint_same_coverage(input: &[RectU16], output: &[RectU16], w: u16, h: u16) {
+        for y in 0..h {
+            for x in 0..w {
+                let contains = |r: &RectU16| x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1;
+                let expected = usize::from(input.iter().any(contains));
+                let got = output.iter().filter(|r| contains(r)).count();
+                assert_eq!(
+                    got, expected,
+                    "pixel ({x}, {y}): covered by {got} output rects"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn normalize_splits_overlapping_rects_into_a_disjoint_union() {
+        // The draw sequence is replayed once per rect, so any overlap would
+        // composite translucent content twice.
+        let cases: &[&[RectU16]] = &[
+            // Plain two-rect overlap.
+            &[RectU16::new(0, 0, 20, 20), RectU16::new(10, 10, 30, 30)],
+            // One rect fully inside another (the contained one must vanish).
+            &[RectU16::new(0, 0, 30, 30), RectU16::new(5, 5, 10, 10)],
+            // Duplicate rects.
+            &[RectU16::new(4, 4, 12, 12), RectU16::new(4, 4, 12, 12)],
+            // Cross shape: three rects sharing a center.
+            &[
+                RectU16::new(10, 0, 20, 30),
+                RectU16::new(0, 10, 30, 20),
+                RectU16::new(5, 5, 25, 25),
+            ],
+        ];
+        for input in cases {
+            let output = clamp_region_to_target(RenderRegion::Rects(input), &size(40, 40));
+            assert_disjoint_same_coverage(input, &output, 40, 40);
+        }
+    }
+
+    #[test]
+    fn normalize_keeps_already_disjoint_rects_unchanged() {
+        // Touching edges (x1 == x0) are not overlaps; the set passes through
+        // in its original form and order.
+        let rects = [
+            RectU16::new(0, 0, 10, 10),
+            RectU16::new(10, 0, 20, 10),
+            RectU16::new(0, 10, 20, 20),
+        ];
+        assert_eq!(
+            clamp_region_to_target(RenderRegion::Rects(&rects), &size(100, 100)),
+            rects
         );
     }
 }
