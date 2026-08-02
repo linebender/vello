@@ -726,3 +726,26 @@ fn image_spritesheet_tinted(ctx: &mut impl Renderer) {
         cursor_x += glyph.width;
     }
 }
+
+#[vello_test]
+fn image_fully_transparent_tint(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_10x10(ctx);
+
+    for (x, mode) in [(0.0, TintMode::AlphaMask), (10.0, TintMode::Multiply)] {
+        ctx.set_transform(Affine::translate((x, 0.0)));
+        ctx.set_tint(Some(Tint {
+            color: Color::from_rgba8(255, 255, 255, 0),
+            mode,
+        }));
+        ctx.set_paint(Image {
+            image: image_source.clone(),
+            sampler: ImageSampler {
+                x_extend: Extend::Pad,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
+        });
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
+    }
+}
