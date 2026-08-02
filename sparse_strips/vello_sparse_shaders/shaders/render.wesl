@@ -381,7 +381,9 @@ fn fs_main(
             // When packed_tint is zero (no tint), use identity color vec4(1.0) with
             // Multiply mode so the math reduces to sample_color * 1.0 = sample_color.
             let image_tint = select(vec4<f32>(1.0), unpack4x8unorm(packed_tint), has_tint);
-            let is_multiply = !has_tint || image_texel2.z != TINT_MODE_ALPHA_MASK;
+            let is_multiply = !has_tint || get_image_tint_mode(image_texel2) != TINT_MODE_ALPHA_MASK;
+            let tint_contrast = get_image_tint_contrast(image_texel2);
+            let tint_weight = get_image_tint_weight(image_texel2);
             let local_xy = sample_xy - image_offset;
             // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
             // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
@@ -436,8 +438,12 @@ fn fs_main(
                 );
             }
 
+            // In alpha-mask mode the sampled alpha is a coverage channel, so
+            // it may be contrast-enhanced before tinting. `alpha` (the strip
+            // coverage) is the quad's own anti-aliased edge and is not.
+            let mask_alpha = apply_coverage_contrast(sample_color.a, tint_contrast, tint_weight);
             final_color = alpha * select(
-                image_tint * sample_color.a,
+                image_tint * mask_alpha,
                 sample_color * image_tint,
                 is_multiply
             );
@@ -546,6 +552,30 @@ fn fs_main(
 const TINT_MODE_ALPHA_MASK: u32 = 0u;
 const TINT_MODE_MULTIPLY: u32 = 1u;
 
+/// Bit positions of the coverage-contrast strengths within texel2.z. Must
+/// match `GPU_TINT_CONTRAST_SHIFT` / `GPU_TINT_WEIGHT_SHIFT` in
+/// `vello_hybrid/src/render/common.rs`.
+const TINT_CONTRAST_SHIFT: u32 = 8u;
+const TINT_WEIGHT_SHIFT: u32 = 16u;
+
+// Coverage transfer for alpha-mask (glyph) coverage:
+//
+//   a' = a + c * a * (1 - a) * (2a - 1)   // steepen
+//          + w * a * (1 - a)              // weight bias
+//
+// The wire satisfies c + w <= 255 (`CoverageContrast::from_bits` caps the
+// weight), under which the curve is monotone within [0, 1] — no clamp needed.
+// Must stay in sync with `CoverageContrast::apply` in vello_common and with
+// vello_cpu's fine stages: same expression, same order.
+fn apply_coverage_contrast(coverage: f32, contrast: u32, weight: u32) -> f32 {
+    if (contrast | weight) == 0u {
+        return coverage;
+    }
+    let c = f32(contrast) * (1.0 / 255.0);
+    let w = f32(weight) * (1.0 / 255.0);
+    return coverage + c * coverage * (1.0 - coverage) * (2.0 * coverage - 1.0) + w * coverage * (1.0 - coverage);
+}
+
 // Convert a flat texel index to 2D texture coordinates for the encoded paints texture.
 fn encoded_paint_coord(flat_idx: u32) -> vec2<u32> {
     return vec2<u32>(
@@ -575,8 +605,23 @@ fn load_encoded_paint_texel(paint_tex_idx: u32, texel_offset: u32) -> vec4<u32> 
 // texel0.w/texel1.x/texel1.y/texel1.z: transform matrix [a, b, c, d]
 // texel1.w/texel2.x: translation [tx, ty]
 // texel2.y: premultiplied tint color packed as RGBA8 unorm; 0 means no tint
-// texel2.z: tint mode, only meaningful when texel2.y != 0
+// texel2.z: tint mode in bits 0-7, coverage-contrast strength in bits 8-15,
+//           coverage-weight strength in bits 16-23; only meaningful when
+//           texel2.y != 0
 // texel2.w: transparent padding pixels around the image in the atlas
+
+/// Tint mode, from the low byte of texel2.z.
+fn get_image_tint_mode(texel2: vec4<u32>) -> u32 { return texel2.z & 0xFFu; }
+
+/// Coverage-contrast steepening strength in [0, 255]; 0 disables the term.
+fn get_image_tint_contrast(texel2: vec4<u32>) -> u32 {
+    return (texel2.z >> TINT_CONTRAST_SHIFT) & 0xFFu;
+}
+
+/// Coverage-contrast weight strength in [0, 255]; 0 disables the term.
+fn get_image_tint_weight(texel2: vec4<u32>) -> u32 {
+    return (texel2.z >> TINT_WEIGHT_SHIFT) & 0xFFu;
+}
 
 /// The rendering quality of the image.
 fn get_image_quality(texel0: vec4<u32>) -> u32 { return texel0.x & 0x3u; }

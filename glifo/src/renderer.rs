@@ -22,7 +22,7 @@ use kurbo::{Affine, BezPath, Rect, Shape};
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{Extend, ImageQuality, ImageSampler};
-use vello_common::paint::{Image, ImageSource, Tint, TintMode};
+use vello_common::paint::{CoverageContrast, Image, ImageSource, PaintType, Tint, TintMode};
 
 /// Outcome of a cache-first render attempt.
 ///
@@ -209,10 +209,22 @@ fn fill_uncached_outline_glyph(
     outline_transform: Affine,
     paint_transform: Affine,
 ) {
+    // Match the atlas path's tinting conditions: the coverage transfer applies
+    // to solid-painted fills only, resolved against the same color the atlas
+    // path tints with, so a glyph looks the same whether it was drawn from the
+    // atlas or directly from its outline.
+    let coverage_transfer = if matches!(renderer.current_paint(), PaintType::Solid(_)) {
+        renderer
+            .glyph_coverage_contrast()
+            .resolve_for_color(renderer.get_context_color())
+    } else {
+        CoverageContrast::NONE
+    };
+
     let state = renderer.save_state();
     renderer.set_transform(outline_transform.pre_scale(scale));
     renderer.set_paint_transform(paint_transform);
-    renderer.fill_path(path);
+    renderer.fill_glyph_path(path, coverage_transfer);
     renderer.restore_state(state);
 }
 
@@ -536,9 +548,14 @@ fn render_outline_glyph_from_atlas(
         rect_transform,
         area,
         ImageQuality::Low,
+        // Glyphs that miss the atlas receive the same transfer at fill time;
+        // see `fill_uncached_outline_glyph`.
         Some(Tint {
             color: tint_color,
             mode: TintMode::AlphaMask,
+            contrast: renderer
+                .glyph_coverage_contrast()
+                .resolve_for_color(tint_color),
         }),
     );
 }

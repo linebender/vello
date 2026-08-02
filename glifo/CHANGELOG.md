@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `GlyphRenderer::glyph_coverage_contrast` (default `CoverageContrast::NONE`), applied to solid-painted outline glyphs with the weight term resolved per draw against the text color's luminance. Atlas-cached glyphs receive the transfer through their alpha-mask tint at sample time; glyphs drawn directly from their outlines receive the same transfer at fill time through the new `GlyphRenderer::fill_glyph_path` hook, so appearance does not depend on whether a glyph is cached. ([#1790][] by [@AdrianEddy][])
+
 ## [0.2.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -55,6 +59,8 @@ Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@con
 [#1672]: https://github.com/linebender/vello/pull/1672
 [#1774]: https://github.com/linebender/vello/pull/1774
 
+[#1790]: https://github.com/linebender/vello/pull/1790
+[@AdrianEddy]: https://github.com/AdrianEddy
 [Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/glifo-v0.1.1...glifo-v0.2.0
 [0.1.1]: https://github.com/linebender/vello/compare/glifo-v0.1.0...glifo-v0.1.1

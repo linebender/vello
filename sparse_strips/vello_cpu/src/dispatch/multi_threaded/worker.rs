@@ -72,19 +72,22 @@ impl Worker {
                     blend_mode,
                     aliasing_threshold,
                     mask,
+                    coverage_transfer,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
                     let path = &render_task.allocation_group.path
                         [path_range.start as usize..path_range.end as usize];
 
-                    self.strip_generator.generate_filled_path(
-                        path.iter().copied(),
-                        fill_rule,
-                        transform,
-                        aliasing_threshold,
-                        &mut self.strip_storage,
-                        path_clip,
-                    );
+                    self.strip_generator
+                        .generate_filled_path_with_coverage_transfer(
+                            path.iter().copied(),
+                            fill_rule,
+                            transform,
+                            aliasing_threshold,
+                            coverage_transfer,
+                            &mut self.strip_storage,
+                            path_clip,
+                        );
                     let end = self.strip_storage.strips.len() as u32;
 
                     let recorded_command = RecordedCommand::RenderPath {

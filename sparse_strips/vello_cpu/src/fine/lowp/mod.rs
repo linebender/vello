@@ -168,6 +168,28 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
             || {
                 let tint_v = u32x8::block_splat(u32x4::splat(simd, color)).to_bytes();
 
+                // Opt-in coverage-contrast path; see the highp counterpart.
+                // The curve is evaluated in f32 per distinct alpha via
+                // `apply_u8`, so this pipeline agrees with `F32Kernel` and the
+                // shader on the function and differs only by the final
+                // rounding the u8 pipeline already imposes. No LUT: this runs
+                // per span, and 256 entries would cost more than they save.
+                if tint.mode == TintMode::AlphaMask && !tint.contrast.is_none() {
+                    let contrast = tint.contrast;
+                    let mut mapped = [0_u8; 32];
+                    for chunk in dest.chunks_exact_mut(32) {
+                        for (px, out) in chunk.chunks_exact(4).zip(mapped.chunks_exact_mut(4)) {
+                            // Replicate across the pixel's 4 lanes, matching
+                            // what `splat_4th` produces on the untouched path.
+                            out.fill(contrast.apply_u8(px[3]));
+                        }
+                        let alphas = u8x32::from_slice(simd, &mapped);
+                        let tinted = tint_v.normalized_mul(alphas);
+                        tinted.store_slice(chunk);
+                    }
+                    return;
+                }
+
                 match tint.mode {
                     TintMode::AlphaMask => {
                         for chunk in dest.chunks_exact_mut(32) {
