@@ -12,7 +12,7 @@ use core::fmt::Debug;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter::FilterData;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, Paint};
+use vello_common::paint::{CoverageContrast, ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
 
 pub(crate) trait Dispatcher: Debug + Send {
@@ -26,6 +26,7 @@ pub(crate) trait Dispatcher: Debug + Send {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        coverage_transfer: CoverageContrast,
     );
     fn stroke_path(
         &mut self,

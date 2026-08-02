@@ -436,6 +436,15 @@ impl glifo::GlyphRenderer for RenderContext {
     }
 
     #[inline]
+    fn fill_glyph_path(
+        &mut self,
+        path: &BezPath,
+        coverage_transfer: vello_common::paint::CoverageContrast,
+    ) {
+        self.fill_path_with_coverage_transfer(path, coverage_transfer);
+    }
+
+    #[inline]
     fn get_context_color(&self) -> AlphaColor<Srgb> {
         let paint = self.paint().clone();
         match paint {

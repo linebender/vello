@@ -14,7 +14,7 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- `CoverageContrast`, an opt-in coverage transfer for alpha-mask tints that sharpens glyph edges: a symmetric edge-steepening term plus a luminance-resolved weight term. ([#1790][] by [@AdrianEddy][])
+- `CoverageContrast`, an opt-in coverage transfer for alpha-mask tints that sharpens glyph edges: a symmetric edge-steepening term plus a luminance-resolved weight term. `StripGenerator::generate_filled_path_with_coverage_transfer` applies the same transfer to generated coverage, for glyphs filled directly from their outlines. ([#1790][] by [@AdrianEddy][])
 
 ### Changed
 

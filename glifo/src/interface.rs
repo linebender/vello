@@ -75,17 +75,36 @@ pub trait GlyphRenderer: DrawSink {
     /// Set the tint for subsequent image draws.
     fn set_tint(&mut self, tint: Option<Tint>);
 
-    /// The coverage transfer to apply to atlas-cached outline glyphs'
-    /// coverage. Its weight term is the white-text strength; glifo scales it
-    /// per draw by the tint color's luminance
-    /// ([`CoverageContrast::resolve_for_color`]).
+    /// The coverage transfer to apply to outline glyphs' coverage. Its weight
+    /// term is the white-text strength; glifo scales it per draw by the text
+    /// color's luminance ([`CoverageContrast::resolve_for_color`]).
     ///
     /// Defaults to [`CoverageContrast::NONE`], which renders exactly as
     /// before this existed. Bitmap and COLR glyphs carry their own color
-    /// rather than a coverage mask and are unaffected, as are glyphs that
-    /// miss the atlas (drawn from outlines with linear coverage).
+    /// rather than a coverage mask and are unaffected. Atlas-cached glyphs
+    /// receive the transfer at sample time through their alpha-mask tint;
+    /// glyphs drawn directly from their outlines (atlas full, oversized,
+    /// rotated/skewed, or caching disabled) receive the same transfer through
+    /// [`Self::fill_glyph_path`], so appearance does not depend on whether a
+    /// glyph is cached.
     fn glyph_coverage_contrast(&self) -> CoverageContrast {
         CoverageContrast::NONE
+    }
+
+    /// Fill a path as glyph coverage, remapping the fill's coverage through
+    /// `coverage_transfer` before compositing (and before any clip
+    /// intersection). Used for solid-painted outline glyphs drawn directly,
+    /// bypassing the atlas, so they match atlas-cached glyphs whose transfer
+    /// is applied at sample time.
+    ///
+    /// The default ignores `coverage_transfer` and fills linearly, which is
+    /// only consistent for renderers whose
+    /// [`glyph_coverage_contrast`](Self::glyph_coverage_contrast) is
+    /// [`CoverageContrast::NONE`]; renderers reporting a transfer must
+    /// override this.
+    fn fill_glyph_path(&mut self, path: &BezPath, coverage_transfer: CoverageContrast) {
+        let _ = coverage_transfer;
+        self.fill_path(path);
     }
 
     /// Get the context color from the renderer's current paint, used for resolving the

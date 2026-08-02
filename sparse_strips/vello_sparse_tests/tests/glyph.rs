@@ -1093,3 +1093,72 @@ fn glyphs_decoration_transformed(ctx: &mut impl Renderer, enable_caching: bool) 
         y += buffer;
     }
 }
+
+/// A solid-painted outline glyph must look the same whether it is rendered
+/// from the atlas (transfer applied to the sampled coverage at tint time) or
+/// directly from its outline (transfer applied to the generated coverage at
+/// fill time). Regression test for the direct path keeping linear coverage,
+/// which made a glyph render softer whenever it bypassed the atlas and change
+/// appearance once cached.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn coverage_contrast_consistent_between_cached_and_direct_glyphs() {
+    use vello_common::paint::CoverageContrast;
+    use vello_cpu::{RasterizerSettings, RenderContext, RenderMode, Resources};
+
+    const W: u16 = 60;
+    const H: u16 = 60;
+    let font_size = 40_f32;
+
+    let render = |atlas_cache: bool, contrast: CoverageContrast| -> Pixmap {
+        // A single glyph at an integer position: subpixel quantization in the
+        // atlas key would otherwise shift the cached rasterization relative to
+        // the direct one and mask the property under test.
+        let (font, glyphs) = layout_glyphs_roboto("H", font_size);
+        let mut ctx = RenderContext::new(W, H);
+        let mut resources = Resources::new();
+        ctx.set_glyph_coverage_contrast(contrast);
+        ctx.set_paint(REBECCA_PURPLE);
+        ctx.set_transform(Affine::translate((10.0, 50.0)));
+        ctx.glyph_run(&mut resources, &font)
+            .font_size(font_size)
+            .atlas_cache(atlas_cache)
+            .hint(false)
+            .fill_glyphs(glyphs.into_iter());
+        ctx.flush();
+        let mut pixmap = Pixmap::new(W, H);
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                // The u8 pipeline applies `apply_u8` on both paths, so cached
+                // and direct rendering agree bit-for-bit.
+                render_mode: RenderMode::OptimizeSpeed,
+                ..Default::default()
+            },
+        );
+        pixmap
+    };
+
+    let contrast = CoverageContrast::from_strength(0.8).with_weight_strength(0.3);
+    let baseline = render(false, CoverageContrast::NONE);
+    let direct = render(false, contrast);
+    let cached = render(true, contrast);
+
+    assert!(
+        direct.data_as_u8_slice() != baseline.data_as_u8_slice(),
+        "the transfer must engage on the direct (uncached) glyph path"
+    );
+
+    let max_diff = cached
+        .data_as_u8_slice()
+        .iter()
+        .zip(direct.data_as_u8_slice())
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    assert!(
+        max_diff <= 1,
+        "cached and direct glyph rendering diverged: max channel diff {max_diff}"
+    );
+}

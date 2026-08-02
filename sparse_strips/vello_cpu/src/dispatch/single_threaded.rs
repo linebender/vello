@@ -17,7 +17,7 @@ use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, Paint};
+use vello_common::paint::{CoverageContrast, ImageResolver, Paint};
 use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::record::{
     CommandRecorder, LayerClip, LayerProps, Node, PoppedLayer, RecordedLayerKind,
@@ -283,16 +283,18 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        coverage_transfer: CoverageContrast,
     ) {
         let strip_start = self.strip_storage.strips.len();
         let strip_storage = &mut self.strip_storage;
         self.viewport
             .with_generator_and_clip(|strip_generator, clip_path| {
-                strip_generator.generate_filled_path(
+                strip_generator.generate_filled_path_with_coverage_transfer(
                     path,
                     fill_rule,
                     transform,
                     aliasing_threshold,
+                    coverage_transfer,
                     strip_storage,
                     clip_path,
                 );
@@ -533,7 +535,7 @@ mod tests {
     use super::*;
     use crate::kurbo::Shape;
     use vello_common::color::palette::css::BLUE;
-    use vello_common::paint::PremulColor;
+    use vello_common::paint::{CoverageContrast, PremulColor};
 
     /// Verifies that `reset()` properly clears all internal buffers and state.
     ///
@@ -552,6 +554,7 @@ mod tests {
             BlendMode::default(),
             None,
             None,
+            CoverageContrast::NONE,
         );
 
         // Ensure there is data to clear.

@@ -449,6 +449,22 @@ impl CoverageContrast {
         }
         (self.apply(f32::from(alpha) * (1.0 / 255.0)) * 255.0 + 0.5) as u8
     }
+
+    /// Apply the curve in place to a buffer of 8-bit coverage values, as
+    /// produced by strip generation.
+    ///
+    /// Each byte is remapped through [`Self::apply_u8`], so a glyph filled
+    /// directly from its outline agrees with one round-tripped through an
+    /// atlas, which stores linear 8-bit coverage and applies the transfer to
+    /// the sampled value at tint time.
+    pub fn apply_to_coverage(self, alphas: &mut [u8]) {
+        if self.is_none() {
+            return;
+        }
+        for alpha in alphas {
+            *alpha = self.apply_u8(*alpha);
+        }
+    }
 }
 
 /// A tint applied to image paints.
