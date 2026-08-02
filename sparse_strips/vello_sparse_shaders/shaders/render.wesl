@@ -377,10 +377,8 @@ fn fs_main(
             let image_source_kind = get_image_source_kind(image_texel0);
             let image_padding = get_image_padding(image_texel2);
             let packed_tint = image_texel2.y;
-            let tint_mode = image_texel2.z;
-            let has_tint = tint_mode != TINT_MODE_NONE;
-            let image_tint = select(vec4<f32>(1.0), unpack4x8unorm(packed_tint), has_tint);
-            let is_multiply = tint_mode != TINT_MODE_ALPHA_MASK;
+            let image_tint = unpack4x8unorm(packed_tint);
+            let is_multiply = image_texel2.z == TINT_MODE_MULTIPLY;
             let local_xy = sample_xy - image_offset;
             // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
             // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
@@ -542,9 +540,8 @@ fn fs_main(
 }
 
 /// Tint mode constants.
-const TINT_MODE_NONE: u32 = 0u;
-const TINT_MODE_ALPHA_MASK: u32 = 1u;
-const TINT_MODE_MULTIPLY: u32 = 2u;
+const TINT_MODE_ALPHA_MASK: u32 = 0u;
+const TINT_MODE_MULTIPLY: u32 = 1u;
 
 // Convert a flat texel index to 2D texture coordinates for the encoded paints texture.
 fn encoded_paint_coord(flat_idx: u32) -> vec2<u32> {

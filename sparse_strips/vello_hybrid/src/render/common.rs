@@ -594,26 +594,18 @@ pub(crate) fn pack_image_params(
     (atlas_index << 6) | (extend_y << 4) | (extend_x << 2) | quality
 }
 
-const GPU_TINT_MODE_NONE: u32 = 0;
-const GPU_TINT_MODE_ALPHA_MASK: u32 = 1;
-const GPU_TINT_MODE_MULTIPLY: u32 = 2;
-
 /// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.
 ///
 /// The tint color is premultiplied before packing into a u32 in the same layout
-/// as WGSL `pack4x8unorm`.
+/// as WGSL `pack4x8unorm`. No tint is encoded as opaque white in multiply mode.
 #[inline(always)]
 pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
     match tint {
         Some(t) => {
             let color = t.color.premultiply().to_rgba8().to_u32();
-            let mode = match t.mode {
-                vello_common::paint::TintMode::AlphaMask => GPU_TINT_MODE_ALPHA_MASK,
-                vello_common::paint::TintMode::Multiply => GPU_TINT_MODE_MULTIPLY,
-            };
-            (color, mode)
+            (color, t.mode.as_u32())
         }
-        None => (0, GPU_TINT_MODE_NONE),
+        None => (u32::MAX, vello_common::paint::TintMode::Multiply.as_u32()),
     }
 }
 
