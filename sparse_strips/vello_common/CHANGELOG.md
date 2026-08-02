@@ -12,6 +12,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `CoverageContrast`, an opt-in coverage transfer for alpha-mask tints that sharpens glyph edges: a symmetric edge-steepening term plus a luminance-resolved weight term. ([#1790][] by [@AdrianEddy][])
+
+### Changed
+
+- Breaking: `Tint` gained a `contrast` field; use `CoverageContrast::NONE` in struct literals to keep the previous behavior. ([#1790][] by [@AdrianEddy][])
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -296,6 +304,8 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1763]: https://github.com/linebender/vello/pull/1763
 [#1768]: https://github.com/linebender/vello/pull/1768
 
+[#1790]: https://github.com/linebender/vello/pull/1790
+[@AdrianEddy]: https://github.com/AdrianEddy
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9

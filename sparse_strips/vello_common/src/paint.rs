@@ -265,6 +265,192 @@ impl TintMode {
     }
 }
 
+/// Opt-in coverage transfer applied to an alpha-mask tint's coverage before
+/// tinting, used to sharpen glyph edges.
+///
+/// Analytic coverage is the exact area of the pixel covered by the outline: a
+/// linear ramp of slope 1.0 alpha/px across an edge, which reads slightly
+/// softer than mainstream text rasterizers. Coverage `a` is remapped as
+///
+/// ```text
+/// a' = a + c * a * (1 - a) * (2a - 1)   // steepen: lerp(identity, smoothstep)
+///        + w * a * (1 - a)              // weight bias: raises the 0.5 crossing by w/4
+/// ```
+///
+/// with strengths `c` (contrast) and `w` (weight) in `[0, 1]`, quantized to
+/// 8 bits so the CPU and GPU pipelines evaluate identical parameters.
+///
+/// Properties:
+///
+/// * `(0, 0)` is a bit-exact identity, and every consumer branches on
+///   [`Self::is_none`], so the disabled path executes unchanged instructions.
+///   Likewise `w = 0` leaves `c`-only output bit-identical: the appended
+///   weight term is exactly `+0.0`.
+/// * The `c` term is symmetric about `a = 0.5`: edges steepen, stem weight is
+///   preserved. The `w` term is Skia's mask-contrast form and adds weight.
+/// * With `t = a - 1/2` the derivative is `1 + c/2 - 6c*t^2 - 2w*t` — concave,
+///   minimized at `a = 1` where it equals `1 - c - w`. [`Self::from_bits`]
+///   therefore caps `w` at `1 - c`; under that invariant the curve is
+///   monotone with range `[0, 1]` and no per-pixel clamp is needed.
+/// * Peak slope of the `c` term is `1 + c/2`, spanning exact-area coverage
+///   (1.0 alpha/px) through a full `smoothstep` (1.5 alpha/px).
+///
+/// The weight term compensates polarity: blending in sRGB-encoded space makes
+/// light-on-dark text read thinner than dark-on-light.
+/// [`Self::resolve_for_color`] scales the stored `w` by the text color's
+/// approximate relative luminance, so black text keeps the weight-free curve
+/// while white text gets the full stored strength. Because the correction
+/// applies to sampled coverage rather than outlines, it never enters glyph
+/// atlas keys — light and dark text share one cached rasterization. This is
+/// distinct from glifo's `FontEmbolden`, which offsets outlines in em space
+/// and re-keys the atlas: the `w` term is a sub-pixel, device-space
+/// adjustment bounded by a fraction of a pixel, free to vary per draw.
+///
+/// Applies only to [`TintMode::AlphaMask`]; ignored for
+/// [`TintMode::Multiply`] and untinted images.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct CoverageContrast {
+    /// Edge-steepening strength `c`.
+    contrast: u8,
+    /// Weight-bias strength `w`. Invariant: `contrast + weight <= 255`,
+    /// enforced by [`Self::from_bits`].
+    weight: u8,
+}
+
+impl CoverageContrast {
+    /// No enhancement; coverage passes through bit-exact. The default.
+    pub const NONE: Self = Self {
+        contrast: 0,
+        weight: 0,
+    };
+
+    /// Build from an edge-steepening strength in `[0, 1]`; `0` disables and
+    /// `1` is a full `smoothstep`. The weight bias is `0`; dial it in with
+    /// [`Self::with_weight_strength`]. Out-of-range values clamp; `NaN` maps
+    /// to [`Self::NONE`].
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "clamped to [0, 1] before scaling, and float->int casts saturate"
+    )]
+    pub fn from_strength(strength: f32) -> Self {
+        Self {
+            contrast: (strength.clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
+            weight: 0,
+        }
+    }
+
+    /// Replace the weight-bias strength, in `[0, 1]`. Clamped and quantized
+    /// like [`Self::from_strength`], then capped at the contrast's headroom.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "clamped to [0, 1] before scaling, and float->int casts saturate"
+    )]
+    pub fn with_weight_strength(self, strength: f32) -> Self {
+        Self::from_bits(
+            self.contrast,
+            (strength.clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
+        )
+    }
+
+    /// Build from the raw 8-bit strengths. The weight is capped at the
+    /// contrast's headroom (`weight <= 255 - contrast`), the condition under
+    /// which the curve is monotone with range `[0, 1]` (see the type docs).
+    pub const fn from_bits(contrast: u8, weight: u8) -> Self {
+        let headroom = 255 - contrast;
+        Self {
+            contrast,
+            weight: if weight > headroom { headroom } else { weight },
+        }
+    }
+
+    /// The raw 8-bit edge-steepening strength.
+    pub const fn contrast_bits(self) -> u8 {
+        self.contrast
+    }
+
+    /// The raw 8-bit weight-bias strength.
+    pub const fn weight_bits(self) -> u8 {
+        self.weight
+    }
+
+    /// The edge-steepening strength `c` in `[0, 1]`.
+    pub fn contrast_strength(self) -> f32 {
+        f32::from(self.contrast) * (1.0 / 255.0)
+    }
+
+    /// The weight-bias strength `w` in `[0, 1]`.
+    pub fn weight_strength(self) -> f32 {
+        f32::from(self.weight) * (1.0 / 255.0)
+    }
+
+    /// Whether this is [`Self::NONE`], i.e. coverage passes through untouched.
+    pub const fn is_none(self) -> bool {
+        self.contrast == 0 && self.weight == 0
+    }
+
+    /// Scale the weight bias by `color`'s approximate relative luminance,
+    /// turning the stored white-text strength into the effective strength for
+    /// text drawn in `color`. The contrast term passes through untouched.
+    ///
+    /// Luminance is `0.2126*r^2 + 0.7152*g^2 + 0.0722*b^2` on channels
+    /// clamped to `[0, 1]` — a gamma-2 approximation of the sRGB transfer,
+    /// chosen because this runs per glyph and the exact piecewise transfer
+    /// costs a `powf` per channel. It is monotone per channel and exact at
+    /// the endpoints: black resolves to `w = 0` (bit-identical to the
+    /// `c`-only curve), white keeps the stored strength. Alpha is ignored.
+    /// `NaN` channels resolve to `w = 0`.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "luminance is clamped to [0, 1] before scaling, and float->int casts saturate"
+    )]
+    pub fn resolve_for_color(self, color: AlphaColor<Srgb>) -> Self {
+        if self.weight == 0 {
+            return self;
+        }
+        let [r, g, b, _] = color.components;
+        let r = r.clamp(0.0, 1.0);
+        let g = g.clamp(0.0, 1.0);
+        let b = b.clamp(0.0, 1.0);
+        let y = (0.2126 * r * r + 0.7152 * g * g + 0.0722 * b * b).clamp(0.0, 1.0);
+        // Scaling only reduces the weight, preserving the headroom invariant.
+        Self::from_bits(self.contrast, (f32::from(self.weight) * y + 0.5) as u8)
+    }
+
+    /// Apply the curve to a coverage value in `[0, 1]`.
+    ///
+    /// The guarantees assume in-range coverage; samplers that can overshoot
+    /// (e.g. bicubic filtering) produce out-of-range values for which the
+    /// result is finite but unspecified.
+    ///
+    /// This is the reference definition; `vello_cpu`'s fine stages and the
+    /// image branch of `render.wesl` evaluate the same expression in the same
+    /// order and must stay in sync. The `w` term is appended rather than
+    /// algebraically merged so that at `w = 0` it contributes exactly `+0.0`.
+    #[inline(always)]
+    pub fn apply(self, alpha: f32) -> f32 {
+        if self.is_none() {
+            return alpha;
+        }
+        let c = self.contrast_strength();
+        let w = self.weight_strength();
+        alpha + c * alpha * (1.0 - alpha) * (2.0 * alpha - 1.0) + w * alpha * (1.0 - alpha)
+    }
+
+    /// Apply the curve to an 8-bit coverage value, rounding as the 8-bit
+    /// pipeline rounds.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`apply` stays in [0, 1], and float->int casts saturate"
+    )]
+    #[inline(always)]
+    pub fn apply_u8(self, alpha: u8) -> u8 {
+        if self.is_none() {
+            return alpha;
+        }
+        (self.apply(f32::from(alpha) * (1.0 / 255.0)) * 255.0 + 0.5) as u8
+    }
+}
+
 /// A tint applied to image paints.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Tint {
@@ -272,6 +458,10 @@ pub struct Tint {
     pub color: Color,
     /// How the tint is applied.
     pub mode: TintMode,
+    /// Coverage transfer applied to the mask's coverage before tinting.
+    /// Only meaningful for [`TintMode::AlphaMask`]; defaults to
+    /// [`CoverageContrast::NONE`], which is bit-exact with no transfer.
+    pub contrast: CoverageContrast,
 }
 
 /// A kind of paint that can be used for filling and stroking shapes.

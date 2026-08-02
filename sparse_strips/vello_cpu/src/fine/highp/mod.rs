@@ -116,6 +116,28 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
             || {
                 let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
 
+                // Opt-in coverage-contrast path, handled before the mode match
+                // so the default executes the same instructions as before.
+                // Same expression, same order as `CoverageContrast::apply` and
+                // `apply_coverage_contrast` in `render.wesl`.
+                if tint.mode == TintMode::AlphaMask && !tint.contrast.is_none() {
+                    let c = tint.contrast.contrast_strength();
+                    let w = tint.contrast.weight_strength();
+                    let c_v = f32x16::splat(simd, c);
+                    let w_v = f32x16::splat(simd, w);
+                    let one = f32x16::splat(simd, 1.0);
+                    let two = f32x16::splat(simd, 2.0);
+
+                    for chunk in dest.chunks_exact_mut(16) {
+                        let pixel = f32x16::from_slice(simd, chunk);
+                        let a = pixel.splat_4th();
+                        let a = a + c_v * a * (one - a) * (two * a - one) + w_v * a * (one - a);
+                        let tinted = tint_v * a;
+                        tinted.store_slice(chunk);
+                    }
+                    return;
+                }
+
                 match tint.mode {
                     TintMode::AlphaMask => {
                         for chunk in dest.chunks_exact_mut(16) {

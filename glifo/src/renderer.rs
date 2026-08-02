@@ -536,9 +536,15 @@ fn render_outline_glyph_from_atlas(
         rect_transform,
         area,
         ImageQuality::Low,
+        // NOTE: the coverage transfer reaches atlas-cached outline glyphs
+        // only; glyphs that miss the atlas are filled straight from their
+        // outlines and keep linear coverage.
         Some(Tint {
             color: tint_color,
             mode: TintMode::AlphaMask,
+            contrast: renderer
+                .glyph_coverage_contrast()
+                .resolve_for_color(tint_color),
         }),
     );
 }

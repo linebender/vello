@@ -316,6 +316,11 @@ impl glifo::GlyphRenderer for Scene {
     }
 
     #[inline]
+    fn glyph_coverage_contrast(&self) -> vello_common::paint::CoverageContrast {
+        Self::glyph_coverage_contrast(self)
+    }
+
+    #[inline]
     fn get_context_color(&self) -> AlphaColor<Srgb> {
         let paint = self.paint().clone();
         match paint {

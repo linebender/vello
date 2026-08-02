@@ -23,7 +23,7 @@ use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
-use vello_common::paint::{Paint, PaintType, Tint};
+use vello_common::paint::{CoverageContrast, Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
@@ -223,6 +223,10 @@ pub struct Scene {
     pub(crate) strip_storage: RefCell<StripStorage>,
     /// Current filter effect applied to individual draw operations.
     filter: Option<Filter>,
+    /// Coverage transfer applied to atlas-cached glyph coverage. A
+    /// renderer-wide display policy, so it lives outside [`RenderState`] and
+    /// survives `reset`, `save_state` and `restore_state`.
+    glyph_coverage_contrast: CoverageContrast,
     /// The command recorder.
     pub(crate) recorder: CommandRecorder<RecordedDraw>,
 }
@@ -246,6 +250,7 @@ impl Scene {
             paint_visible: true,
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
+            glyph_coverage_contrast: CoverageContrast::NONE,
             recorder: CommandRecorder::new(width, height),
         }
     }
@@ -874,6 +879,21 @@ impl Scene {
     /// Set the tint for subsequent image paint operations.
     pub fn set_tint(&mut self, tint: Option<Tint>) {
         self.render_state.tint = tint;
+    }
+
+    /// Set the coverage transfer applied to atlas-cached glyph coverage.
+    ///
+    /// Defaults to [`CoverageContrast::NONE`], which is bit-exact with
+    /// rendering that predates the setting. A display policy rather than a
+    /// paint attribute: unaffected by `reset`, `save_state` and
+    /// `restore_state`.
+    pub fn set_glyph_coverage_contrast(&mut self, contrast: CoverageContrast) {
+        self.glyph_coverage_contrast = contrast;
+    }
+
+    /// The coverage transfer applied to atlas-cached glyph coverage.
+    pub fn glyph_coverage_contrast(&self) -> CoverageContrast {
+        self.glyph_coverage_contrast
     }
 
     /// Clear the tint, so subsequent image paints are drawn without tinting.

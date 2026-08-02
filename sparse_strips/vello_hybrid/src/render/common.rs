@@ -301,6 +301,49 @@ mod tests {
             })
         ));
     }
+    /// The strengths must occupy their own bytes of the mode word, leaving
+    /// the mode readable in the low byte, and `NONE` must contribute zero
+    /// bits.
+    #[test]
+    fn pack_tint_carries_contrast_without_disturbing_the_mode() {
+        use super::{GPU_TINT_CONTRAST_SHIFT, GPU_TINT_WEIGHT_SHIFT, pack_tint};
+        use vello_common::color::palette::css::RED;
+        use vello_common::paint::{CoverageContrast, Tint, TintMode};
+
+        assert_eq!(pack_tint(None), (0, 0));
+
+        for mode in [TintMode::AlphaMask, TintMode::Multiply] {
+            let off = pack_tint(Some(Tint {
+                color: RED,
+                mode,
+                contrast: CoverageContrast::NONE,
+            }));
+            assert_eq!(off.1, mode.as_u32(), "NONE must add no bits");
+
+            for contrast_bits in [0_u8, 1, 128, 255] {
+                for weight_bits in [0_u8, 1, 128, 255] {
+                    // `from_bits` caps the weight at the contrast's headroom;
+                    // the wire must round-trip the constructed pair.
+                    let contrast = CoverageContrast::from_bits(contrast_bits, weight_bits);
+                    let (color, packed) = pack_tint(Some(Tint {
+                        color: RED,
+                        mode,
+                        contrast,
+                    }));
+                    assert_eq!(color, off.0, "contrast must not touch the color");
+                    assert_eq!(packed & 0xFF, mode.as_u32(), "mode stays in the low byte");
+                    assert_eq!(
+                        (packed >> GPU_TINT_CONTRAST_SHIFT) & 0xFF,
+                        u32::from(contrast.contrast_bits()),
+                    );
+                    assert_eq!(
+                        (packed >> GPU_TINT_WEIGHT_SHIFT) & 0xFF,
+                        u32::from(contrast.weight_bits()),
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Dimensions of the rendering target.
@@ -595,17 +638,32 @@ pub(crate) fn pack_image_params(
     (atlas_index << 6) | (extend_y << 4) | (extend_x << 2) | quality
 }
 
+/// Bit positions of the packed
+/// [`CoverageContrast`](vello_common::paint::CoverageContrast) strengths
+/// within the tint mode word. Must match `TINT_CONTRAST_SHIFT` /
+/// `TINT_WEIGHT_SHIFT` in `render.wesl`.
+pub(crate) const GPU_TINT_CONTRAST_SHIFT: u32 = 8;
+pub(crate) const GPU_TINT_WEIGHT_SHIFT: u32 = 16;
+
 /// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.
 ///
 /// The tint color is premultiplied before packing into a u32 in the same layout
 /// as WGSL `pack4x8unorm`. Returns `(0, 0)` when no tint is specified, which
 /// the shader interprets as "no tint".
+///
+/// The mode word carries the tint mode in bits 0-7 and the coverage-contrast
+/// strengths in bits 8-23. [`CoverageContrast::NONE`](vello_common::paint::CoverageContrast::NONE)
+/// contributes zero bits, so paints that do not opt in encode byte-identically
+/// to before the transfer existed.
 #[inline(always)]
 pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
     match tint {
         Some(t) => {
             let color = t.color.premultiply().to_rgba8().to_u32();
-            (color, t.mode.as_u32())
+            let mode = t.mode.as_u32()
+                | (u32::from(t.contrast.contrast_bits()) << GPU_TINT_CONTRAST_SHIFT)
+                | (u32::from(t.contrast.weight_bits()) << GPU_TINT_WEIGHT_SHIFT);
+            (color, mode)
         }
         None => (0, 0),
     }
