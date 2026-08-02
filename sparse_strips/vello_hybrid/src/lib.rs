@@ -113,13 +113,45 @@ use thiserror::Error;
 /// Errors that can occur during rendering.
 #[derive(Error, Debug, Clone)]
 pub enum RenderError {
-    /// An atlas allocation failed.
+    /// An image atlas allocation failed.
     #[error("Atlas allocation failed: {0}")]
     AtlasError(#[from] vello_common::multi_atlas::AtlasError),
     /// A draw referenced a [`TextureId`] that was not provided at render time.
     #[error("Missing texture binding for {0:?}")]
     MissingTextureBinding(TextureId),
+    /// An intermediate texture allocation failed.
+    #[error(transparent)]
+    IntermediateTexture(#[from] IntermediateTextureError),
     // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
+}
+
+/// Errors that can occur while allocating intermediate textures.
+#[derive(Error, Debug, Clone)]
+pub enum IntermediateTextureError {
+    /// An intermediate texture allocation exceeds the configured texture dimensions.
+    #[error(
+        "Intermediate texture allocation {width}x{height} exceeds maximum {max_width}x{max_height}"
+    )]
+    TooLarge {
+        /// The requested allocation width.
+        width: u32,
+        /// The requested allocation height.
+        height: u32,
+        /// The maximum intermediate texture width.
+        max_width: u32,
+        /// The maximum intermediate texture height.
+        max_height: u32,
+    },
+    /// A render requires more intermediate textures than configured.
+    #[error(
+        "Render requires {required} intermediate textures, exceeding the configured maximum of {max}"
+    )]
+    LimitReached {
+        /// The number of intermediate textures required by the render.
+        required: usize,
+        /// The configured maximum number of intermediate textures.
+        max: usize,
+    },
 }
 
 #[cfg(test)]

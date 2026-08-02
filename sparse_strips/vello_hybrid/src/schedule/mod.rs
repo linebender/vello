@@ -141,11 +141,10 @@ use crate::schedule::allocate::AllocatedTextureRegion;
 use crate::target::{
     DrawTarget, LayerTextureRegion, RootTarget, RoundBindings, TextureParity, TextureRegion,
 };
-use crate::{RenderError, Scene, blend::BlendStrip};
+use crate::{IntermediateTextureError, RenderError, Scene, blend::BlendStrip};
 use alloc::vec::Vec;
 use vello_common::filter::FilterLayerPlacement;
 use vello_common::geometry::{RectU16, SizeU16};
-use vello_common::multi_atlas::AtlasError;
 use vello_common::peniko::BlendMode;
 use vello_common::record::{CommandRecorder, LayerProps, Node, RecordedLayer, RecordedLayerKind};
 use vello_common::strip::visit_strip_fill_segments;
@@ -251,11 +250,16 @@ impl IntermediateTextureRequirements {
         self,
         existing: IntermediateTextureAllocations,
         max_textures: Option<usize>,
-    ) -> Result<(), AtlasError> {
+    ) -> Result<(), IntermediateTextureError> {
         let retained_textures = self.allocations.combine(existing).texture_count();
 
-        if max_textures.is_some_and(|limit| retained_textures > limit) {
-            return Err(AtlasError::NoSpaceAvailable);
+        if let Some(max) = max_textures
+            && retained_textures > max
+        {
+            return Err(IntermediateTextureError::LimitReached {
+                required: retained_textures,
+                max,
+            });
         }
 
         Ok(())
