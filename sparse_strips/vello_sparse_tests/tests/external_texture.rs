@@ -1,6 +1,8 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// TODO: Increase test coverage to cover things like tinted external textures, etc.
+
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 mod tests {
     use std::sync::Arc;
