@@ -377,11 +377,8 @@ fn fs_main(
             let image_source_kind = get_image_source_kind(image_texel0);
             let image_padding = get_image_padding(image_texel2);
             let packed_tint = image_texel2.y;
-            let has_tint = packed_tint != 0u;
-            // When packed_tint is zero (no tint), use identity color vec4(1.0) with
-            // Multiply mode so the math reduces to sample_color * 1.0 = sample_color.
-            let image_tint = select(vec4<f32>(1.0), unpack4x8unorm(packed_tint), has_tint);
-            let is_multiply = !has_tint || image_texel2.z != TINT_MODE_ALPHA_MASK;
+            let image_tint = unpack4x8unorm(packed_tint);
+            let is_multiply = image_texel2.z == TINT_MODE_MULTIPLY;
             let local_xy = sample_xy - image_offset;
             // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
             // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
@@ -574,8 +571,8 @@ fn load_encoded_paint_texel(paint_tex_idx: u32, texel_offset: u32) -> vec4<u32> 
 // texel0.z: image_offset, packed as [x:16, y:16]
 // texel0.w/texel1.x/texel1.y/texel1.z: transform matrix [a, b, c, d]
 // texel1.w/texel2.x: translation [tx, ty]
-// texel2.y: premultiplied tint color packed as RGBA8 unorm; 0 means no tint
-// texel2.z: tint mode, only meaningful when texel2.y != 0
+// texel2.y: premultiplied tint color packed as RGBA8 unorm
+// texel2.z: GPU tint mode
 // texel2.w: transparent padding pixels around the image in the atlas
 
 /// The rendering quality of the image.

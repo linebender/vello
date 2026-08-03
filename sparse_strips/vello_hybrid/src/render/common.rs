@@ -443,9 +443,8 @@ pub(crate) struct GpuEncodedImage {
     /// Transform matrix [a, b, c, d, tx, ty].
     pub transform: [f32; 6],
     /// Premultiplied tint color packed as RGBA8 unorm (`pack4x8unorm` layout).
-    /// A value of `0` means no tint is applied.
     pub tint: u32,
-    /// [`TintMode`](vello_common::paint::TintMode) discriminant. Only meaningful when `tint != 0`.
+    /// GPU tint mode.
     pub tint_mode: u32,
     /// Number of transparent padding pixels around the image in the atlas.
     pub image_padding: u32,
@@ -602,8 +601,7 @@ pub(crate) fn pack_image_params(
 /// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.
 ///
 /// The tint color is premultiplied before packing into a u32 in the same layout
-/// as WGSL `pack4x8unorm`. Returns `(0, 0)` when no tint is specified, which
-/// the shader interprets as "no tint".
+/// as WGSL `pack4x8unorm`.
 #[inline(always)]
 pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
     match tint {
@@ -611,7 +609,10 @@ pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
             let color = t.color.premultiply().to_rgba8().to_u32();
             (color, t.mode.as_u32())
         }
-        None => (0, 0),
+        // With no tint, use `u32::MAX` (which corresponds to 1.0 on all lanes).
+        // Since we use `Multiply` this will essentially just yield the original image
+        // sample, having the same effect as no tinting at all.
+        None => (u32::MAX, vello_common::paint::TintMode::Multiply.as_u32()),
     }
 }
 
