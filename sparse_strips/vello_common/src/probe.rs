@@ -95,8 +95,8 @@ pub enum ProbeFeature {
 pub struct ProbeStatistics {
     /// Number of active features exercised by the probe.
     pub element_count: usize,
-    /// Whether the expected and actual images have different dimensions.
-    pub mismatched_dimensions: bool,
+    /// Width and height of the actual probe image.
+    pub actual_size: (u16, u16),
     /// Number of pixels whose channels differ by more than the probe tolerance.
     pub different_pixel_count: usize,
     /// Largest absolute difference between corresponding red, green, blue, and alpha channels.
@@ -120,8 +120,7 @@ impl ProbeResult {
         let layout = GridLayout::from_elements(&ELEMENTS);
         let mut statistics = ProbeStatistics {
             element_count: ELEMENTS.len(),
-            mismatched_dimensions: self.expected.width != self.actual.width
-                || self.expected.height != self.actual.height,
+            actual_size: (self.actual.width, self.actual.height),
             ..Default::default()
         };
 
@@ -557,7 +556,7 @@ mod tests {
             statistics,
             ProbeStatistics {
                 element_count: ELEMENTS.len(),
-                mismatched_dimensions: false,
+                actual_size: (width, height),
                 different_pixel_count: 2,
                 max_channel_discrepancy: [6, 255, 0, 155],
                 difference_mask: (1 << 1) | (1 << 6),
@@ -570,7 +569,7 @@ mod tests {
     }
 
     #[test]
-    fn probe_statistics_reports_dimension_mismatch() {
+    fn probe_statistics_reports_actual_size() {
         let result = ProbeResult {
             expected: ProbeImage {
                 width: 1,
@@ -584,6 +583,6 @@ mod tests {
             },
         };
 
-        assert!(result.statistics().mismatched_dimensions);
+        assert_eq!(result.statistics().actual_size, (2, 1));
     }
 }
