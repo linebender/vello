@@ -21,7 +21,7 @@ pub use common::{Config, GpuStrip, RenderSize};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use probe::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 #[cfg(all(feature = "webgl", feature = "probe"))]
-pub use vello_common::probe::{Probe, ProbeResult};
+pub use vello_common::probe::{Probe, ProbeFeature, ProbeResult, ProbeStatistics};
 #[cfg(feature = "webgl")]
 pub use webgl::{AtlasTextureInfo, WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 #[cfg(feature = "wgpu")]
