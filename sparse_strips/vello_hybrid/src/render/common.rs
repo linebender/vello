@@ -69,11 +69,6 @@ impl<T> ScratchTexture<T> {
     pub(crate) fn get(&self) -> &T {
         &self.0
     }
-
-    #[cfg(feature = "webgl")]
-    pub(crate) fn get_mut(&mut self) -> &mut T {
-        &mut self.0
-    }
 }
 
 /// Scratch allocations reused while rendering a frame.

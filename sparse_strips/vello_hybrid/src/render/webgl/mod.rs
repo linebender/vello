@@ -56,10 +56,7 @@ use crate::{
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::{
-    fmt::Debug,
-    ops::{Deref, DerefMut},
-};
+use core::fmt::Debug;
 #[cfg(feature = "text")]
 use glifo::{GLYPH_PADDING, PendingClearRect};
 use hashbrown::HashMap;
@@ -1073,11 +1070,11 @@ pub(crate) struct WebGlResources {
     /// VAO for copy rendering.
     copy_vao: VertexArray,
     /// Scratch texture.
-    scratch_texture: Option<ScratchTexture<ResizableTexture>>,
+    scratch_texture: Option<ScratchTexture<WebGlIntermediateTexture>>,
     /// Config buffer for rendering strips into a layer texture.
     layer_config_buffer: Buffer,
     /// Layer texture pages grouped by parity.
-    layer_textures: [Vec<ResizableTexture>; 2],
+    layer_textures: [Vec<WebGlIntermediateTexture>; 2],
 }
 
 impl WebGlResources {
@@ -1108,48 +1105,6 @@ impl WebGlResources {
 struct WebGlIntermediateTexture {
     texture: Texture,
     framebuffer: Framebuffer,
-}
-
-#[derive(Debug)]
-struct ResizableTexture {
-    inner: Option<WebGlIntermediateTexture>,
-}
-
-impl ResizableTexture {
-    fn new(texture: WebGlIntermediateTexture) -> Self {
-        Self {
-            inner: Some(texture),
-        }
-    }
-
-    fn resize(&mut self, create: impl FnOnce() -> WebGlIntermediateTexture) {
-        // Explicitly invoke the destructor of the old texture before creating
-        // the new one. The hope is that this will allow the WebGL driver to recognize
-        // that the memory of the old texture can be deallocated before allocating the
-        // new one, reducing peak memory consumption. It has not been validated whether
-        // this actually makes any difference in practice, but it shouldn't hurt either.
-        drop(self.inner.take());
-
-        self.inner = Some(create());
-    }
-}
-
-impl Deref for ResizableTexture {
-    type Target = WebGlIntermediateTexture;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner
-            .as_ref()
-            .expect("resizable texture must be present outside resize")
-    }
-}
-
-impl DerefMut for ResizableTexture {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner
-            .as_mut()
-            .expect("resizable texture must be present outside resize")
-    }
 }
 
 impl WebGlIntermediateTexture {
@@ -1273,33 +1228,37 @@ impl WebGlPrograms {
         for (index, textures) in self.resources.layer_textures.iter_mut().enumerate() {
             let required_page_count = layer_pages[index];
 
+            // When resizing textures, we explicitly first destroy the old textures before creating
+            // the new ones. The hope is that this will allow the WebGL driver to recognize
+            // that the memory of the old texture can be deallocated before allocating the
+            // new one, reducing peak memory consumption. It has not been validated whether
+            // this actually makes any difference in practice, but it shouldn't hurt either.
+
             // Note: Currently, `texture_size` only grows across frames, so if this condition
             // is true it means that the new required size is larger than what we currently have.
             if size_changed {
-                for texture in textures.iter_mut() {
-                    texture.resize(|| create_intermediate_texture(gl, texture_size));
-                }
+                let page_count = textures.len().max(required_page_count);
+                textures.clear();
+                textures
+                    .extend((0..page_count).map(|_| create_intermediate_texture(gl, texture_size)));
+            } else {
+                textures.extend(
+                    (textures.len()..required_page_count)
+                        .map(|_| create_intermediate_texture(gl, texture_size)),
+                );
             }
-
-            textures.extend(
-                (textures.len()..required_page_count)
-                    .map(|_| ResizableTexture::new(create_intermediate_texture(gl, texture_size))),
-            );
         }
 
         let recreate_scratch = (self.resources.scratch_texture.is_some() && size_changed)
             || (self.resources.scratch_texture.is_none() && scratch_required);
 
         if recreate_scratch {
-            if let Some(texture) = &mut self.resources.scratch_texture {
-                texture
-                    .get_mut()
-                    .resize(|| create_intermediate_texture(gl, texture_size));
-            } else {
-                self.resources.scratch_texture = Some(ScratchTexture::new(ResizableTexture::new(
-                    create_intermediate_texture(gl, texture_size),
-                )));
-            }
+            // Make sure the old texture is destroyed first.
+            let _ = self.resources.scratch_texture.take();
+
+            self.resources.scratch_texture = Some(ScratchTexture::new(
+                create_intermediate_texture(gl, texture_size),
+            ));
         }
 
         self.resources.texture_size = texture_size;
@@ -2385,7 +2344,7 @@ fn create_webgl_resources(
     );
     let placeholder_external_texture = create_placeholder_texture(gl);
 
-    let layer_textures: [Vec<ResizableTexture>; 2] = core::array::from_fn(|_| Vec::new());
+    let layer_textures: [Vec<WebGlIntermediateTexture>; 2] = core::array::from_fn(|_| Vec::new());
     let scratch_texture = None;
     let filter_data_texture = create_texture(
         gl,
