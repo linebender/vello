@@ -1279,7 +1279,7 @@ mod tests {
         // Just make sure we don't panic.
         ctx.push_clip_path(&clip);
         ctx.flush();
-        ctx.pop_clip_path(&clip);
+        ctx.pop_clip_path();
         ctx.flush();
     }
 
