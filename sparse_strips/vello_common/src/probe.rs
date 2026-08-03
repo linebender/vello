@@ -98,7 +98,7 @@ pub struct ProbeStatistics {
     /// Width and height of the actual probe image.
     pub actual_size: (u16, u16),
     /// Number of pixels whose channels differ by more than the probe tolerance.
-    pub different_pixel_count: usize,
+    pub different_pixel_count: u32,
     /// Largest absolute difference between corresponding red, green, blue, and alpha channels.
     pub max_channel_discrepancy: [u8; 4],
     /// Bitmask identifying probe features containing a pixel outside the probe tolerance.
