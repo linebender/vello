@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Fixed
+
+- Glyph pixel-snapping decisions (the atlas quad's floor/fract split and the hinting baseline round) are now stable under last-ulp noise in the translation, so two passes that compute the same glyph position through different floating-point op orders (e.g. a live render and a recorded or cached one) place the glyph on the same pixel. ([#1785][] by [@AdrianEddy][])
+
 ## [0.2.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -40,6 +44,7 @@ The first release of Glifo!
 
 Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@conor-93][], [@grebmeg][], [@jrmoulton][], [@LaurenzV][], [@nicoburns][], [@oscargus][], [@taj-p][], and [@xStrom][].
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@conor-93]: https://github.com/conor-93
 [@grebmeg]: https://github.com/grebmeg
 [@jrmoulton]: https://github.com/jrmoulton
@@ -54,6 +59,7 @@ Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@con
 [#1668]: https://github.com/linebender/vello/pull/1668
 [#1672]: https://github.com/linebender/vello/pull/1672
 [#1774]: https://github.com/linebender/vello/pull/1774
+[#1785]: https://github.com/linebender/vello/pull/1785
 
 [Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/glifo-v0.1.1...glifo-v0.2.0
