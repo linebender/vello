@@ -360,10 +360,9 @@ fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Regio
     for col in scratch[..width * TILE_HEIGHT_COMPONENTS].chunks_exact(CHUNK_LENGTH) {
         let casted: &[u32; 16] = cast_slice::<u8, u32>(col).try_into().unwrap();
 
-        let loaded = simd.load_interleaved_128_u32x16(casted).to_bytes();
-        let (loaded_lo, loaded_hi) = simd.split_u8x64(loaded);
-        let (loaded_1, loaded_2) = simd.split_u8x32(loaded_lo);
-        let (loaded_3, loaded_4) = simd.split_u8x32(loaded_hi);
+        let [loaded_1, loaded_2, loaded_3, loaded_4] = simd
+            .load_four_interleaved_u32x4(casted)
+            .map(u32x4::to_bytes);
 
         let (dest0, rest0) = row0.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
         let (dest1, rest1) = row1.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
@@ -440,9 +439,7 @@ fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch
         let r1 = f32x4::from_bytes(u8x16::from_slice(simd, src1));
         let r2 = f32x4::from_bytes(u8x16::from_slice(simd, src2));
         let r3 = f32x4::from_bytes(u8x16::from_slice(simd, src3));
-        let combined = simd.combine_f32x8(simd.combine_f32x4(r0, r1), simd.combine_f32x4(r2, r3));
-
-        simd.store_interleaved_128_f32x16(combined, col);
+        simd.store_four_interleaved_f32x4([r0, r1, r2, r3], col);
 
         row0 = rest0;
         row1 = rest1;
