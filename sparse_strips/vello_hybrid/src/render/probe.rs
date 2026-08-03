@@ -4,8 +4,8 @@
 use crate::render::common::IMAGE_PADDING;
 use crate::render::webgl::resource::Framebuffer;
 use crate::render::webgl::{
-    WebGlStateConfig, WebGlStateGuard, create_atlas_texture_array, create_framebuffer_for_texture,
-    create_texture,
+    WebGlStateConfig, WebGlStateGuard, WebGlTextureBindings, create_atlas_texture_array,
+    create_framebuffer_for_texture, create_texture,
 };
 use crate::target::RootTarget;
 use crate::{RenderError, RenderSize, Scene, WebGlRenderer};
@@ -167,6 +167,7 @@ impl WebGlRenderer {
             &render_size,
             true,
             RootTarget::AtlasLayer,
+            &WebGlTextureBindings::new(),
         );
         let probe_framebuffer = self
             .programs

@@ -23,6 +23,9 @@ pub use probe::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use vello_common::probe::{Probe, ProbeFeature, ProbeResult, ProbeStatistics};
 #[cfg(feature = "webgl")]
-pub use webgl::{AtlasTextureInfo, WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
+pub use webgl::{
+    AtlasTextureInfo, WebGlAtlasWriter, WebGlRenderer, WebGlTextureBindings,
+    WebGlTextureWithDimensions,
+};
 #[cfg(feature = "wgpu")]
 pub use wgpu::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};

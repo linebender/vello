@@ -498,8 +498,6 @@ impl Scene {
     /// [source regions][`SampleRect::source_region`] must be within bounds of that texture. The
     /// texture is treated as premultiplied alpha in the render target's color space. See the
     /// backend's binding type for more information on texture requirements.
-    ///
-    /// This operation is currently only supported for the wgpu backend.
     pub fn draw_texture_rects(
         &mut self,
         texture_id: TextureId,

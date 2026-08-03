@@ -73,21 +73,7 @@ pub(crate) trait Renderer: Sized {
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
-    #[cfg_attr(
-        all(target_arch = "wasm32", feature = "webgl"),
-        expect(
-            dead_code,
-            reason = "external textures are not wired up for the WebGL backend"
-        )
-    )]
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
-    #[cfg_attr(
-        all(target_arch = "wasm32", feature = "webgl"),
-        expect(
-            dead_code,
-            reason = "external textures are not wired up for the WebGL backend"
-        )
-    )]
     fn draw_texture_rects(
         &mut self,
         texture_id: TextureId,
@@ -298,10 +284,6 @@ pub(crate) struct HybridRenderer {
     texture_view: wgpu::TextureView,
     renderer: vello_hybrid::Renderer,
     external_textures: HashMap<TextureId, wgpu::TextureView>,
-    #[allow(
-        dead_code,
-        reason = "external texture snapshot scaffolding is not enabled yet"
-    )]
     next_external_texture_id: u64,
 }
 
@@ -717,6 +699,8 @@ pub(crate) struct HybridRenderer {
     resources: HybridResources,
     renderer: vello_hybrid::WebGlRenderer,
     gl: WebGl2RenderingContext,
+    external_textures: vello_hybrid::WebGlTextureBindings,
+    next_external_texture_id: u64,
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -768,6 +752,8 @@ impl Renderer for HybridRenderer {
             resources: HybridResources::new(),
             renderer,
             gl,
+            external_textures: vello_hybrid::WebGlTextureBindings::new(),
+            next_external_texture_id: 1,
         }
     }
 
@@ -905,7 +891,12 @@ impl Renderer for HybridRenderer {
             height: height.into(),
         };
         self.renderer
-            .render(&self.scene, &mut self.resources, &render_size)
+            .render(
+                &self.scene,
+                &mut self.resources,
+                &render_size,
+                &self.external_textures,
+            )
             .unwrap();
         let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
         self.gl
@@ -940,17 +931,63 @@ impl Renderer for HybridRenderer {
         self.scene.height()
     }
 
-    fn register_external_texture(&mut self, _: Arc<Pixmap>) -> TextureId {
-        unimplemented!("external textures are not wired up for the WebGL test backend")
+    fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId {
+        let texture_id = TextureId(self.next_external_texture_id);
+        self.next_external_texture_id += 1;
+
+        let texture = self.gl.create_texture().unwrap();
+        self.gl
+            .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
+        self.gl
+            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                WebGl2RenderingContext::RGBA8 as i32,
+                pixmap.width().into(),
+                pixmap.height().into(),
+                0,
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                Some(pixmap.data_as_u8_slice()),
+            )
+            .unwrap();
+        // `texelFetch` requires a complete texture, which a texture without mipmaps only is once
+        // its minification filter no longer samples mipmaps.
+        for (param, value) in [
+            (
+                WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+                WebGl2RenderingContext::NEAREST,
+            ),
+            (
+                WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+                WebGl2RenderingContext::NEAREST,
+            ),
+            (
+                WebGl2RenderingContext::TEXTURE_WRAP_S,
+                WebGl2RenderingContext::CLAMP_TO_EDGE,
+            ),
+            (
+                WebGl2RenderingContext::TEXTURE_WRAP_T,
+                WebGl2RenderingContext::CLAMP_TO_EDGE,
+            ),
+        ] {
+            self.gl
+                .tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, param, value as i32);
+        }
+        self.gl
+            .bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
+
+        self.external_textures.insert(texture_id, texture);
+        texture_id
     }
 
     fn draw_texture_rects(
         &mut self,
-        _: TextureId,
-        _: ImageQuality,
-        _: impl IntoIterator<Item = SampleRect>,
+        texture_id: TextureId,
+        quality: ImageQuality,
+        rects: impl IntoIterator<Item = SampleRect>,
     ) {
-        unimplemented!("external textures are not wired up for the WebGL test backend")
+        self.scene.draw_texture_rects(texture_id, quality, rects);
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {

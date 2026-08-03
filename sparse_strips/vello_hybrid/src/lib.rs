@@ -89,7 +89,10 @@ pub(crate) mod draw;
 pub mod util;
 
 #[cfg(feature = "webgl")]
-pub use render::{AtlasTextureInfo, WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
+pub use render::{
+    AtlasTextureInfo, WebGlAtlasWriter, WebGlRenderer, WebGlTextureBindings,
+    WebGlTextureWithDimensions,
+};
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
 pub use render::{Config, GpuStrip, RenderSize};
