@@ -605,6 +605,9 @@ pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
             let color = t.color.premultiply().to_rgba8().to_u32();
             (color, t.mode.as_u32())
         }
+        // With no tint, use `u32::MAX` (which corresponds to 1.0 on all lanes).
+        // Since we use `Multiply` this will essentially just yield the original image
+        // sample, having the same effect as no tinting at all.
         None => (u32::MAX, vello_common::paint::TintMode::Multiply.as_u32()),
     }
 }
