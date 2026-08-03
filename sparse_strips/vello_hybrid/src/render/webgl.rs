@@ -86,8 +86,6 @@ const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(G
     transform: [0.0; 6],
 });
 
-const EXTERNAL_IMAGE_SOURCE_FLAG: u32 = 1 << 14;
-
 /// Texture unit the strip program samples external textures from.
 const EXTERNAL_TEXTURE_UNIT: u32 = 5;
 
@@ -782,6 +780,7 @@ impl WebGlRenderer {
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
             image_resource.atlas_id.as_u32(),
+            false,
         );
         let (tint, tint_mode) = pack_tint(image.tint);
 
@@ -806,7 +805,8 @@ impl WebGlRenderer {
             texture.sampler.x_extend as u32,
             texture.sampler.y_extend as u32,
             0,
-        ) | EXTERNAL_IMAGE_SOURCE_FLAG;
+            true,
+        );
         let (tint, tint_mode) = pack_tint(texture.tint);
 
         GpuEncodedPaint::Image(GpuEncodedImage {
@@ -2509,9 +2509,7 @@ impl WebGlRendererContext<'_> {
     /// Draw `count` strip instances starting at `first_instance`, split into one draw per
     /// external texture run.
     ///
-    /// WebGL2 cannot offset the instance index at draw time, so each range is drawn by
-    /// re-specifying the vertex attribute pointers at that range's byte offset. The offsets are
-    /// restored to the start of the buffer before returning.
+    /// Strip attribute offsets are restored to the start of the buffer before returning.
     fn draw_strips(
         &self,
         external_texture_runs: &[ExternalTextureRun],

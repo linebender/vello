@@ -31,9 +31,8 @@ struct Arguments {
     skip_multithreaded: bool,
     /// Whether the test should not be run on the GPU (`vello_hybrid`).
     skip_hybrid: bool,
-    /// Whether `vello_hybrid` should generate the reference image instead of the scalar f32 CPU
-    /// renderer.
-    hybrid_reference: bool,
+    /// Whether only `vello_hybrid` should run and generate the reference image.
+    hybrid_only: bool,
     /// The maximum number of pixels that are allowed to completely deviate from the reference
     /// images. This attribute mainly exists because there are some test cases (like gradients),
     /// where, due to floating point inaccuracies, some pixels might land on a different color
@@ -59,7 +58,7 @@ impl Default for Arguments {
             skip_cpu: false,
             skip_multithreaded: false,
             skip_hybrid: false,
-            hybrid_reference: false,
+            hybrid_only: false,
             no_ref: false,
             glyph: false,
             diff_pixels: 0,
@@ -155,7 +154,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         skip_cpu,
         skip_multithreaded,
         mut skip_hybrid,
-        hybrid_reference,
+        hybrid_only,
         ignore_reason,
         no_ref,
         glyph,
@@ -217,8 +216,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             || input_fn_name_str.contains("mask")
     };
     assert!(
-        !(hybrid_reference && skip_hybrid),
-        "`hybrid_reference` cannot be combined with `skip_hybrid`"
+        !(hybrid_only && skip_hybrid),
+        "`hybrid_only` cannot be combined with `skip_hybrid`"
     );
 
     let empty_snippet = quote! {};
@@ -332,7 +331,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         f32_fn_name_str_scalar,
         input_fn_name_str.clone(),
         cpu_f32_tolerance_scalar,
-        !hybrid_reference,
+        !hybrid_only,
         0,
         quote! {"fallback"},
         skip_cpu,
@@ -356,7 +355,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         f32_fn_name_wasm_str,
         input_fn_name_str.clone(),
         cpu_f32_tolerance_scalar,
-        !hybrid_reference,
+        !hybrid_only,
         0,
         wasm_simd_level,
         skip_cpu,
@@ -471,7 +470,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             cached_cpu_f32_fn_name_str,
             cached_reference_test_name.clone(),
             cpu_f32_tolerance_scalar,
-            !hybrid_reference,
+            !hybrid_only,
             0,
             quote! {"fallback"},
             skip_cpu,
@@ -495,7 +494,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 #invoke_cached_test
                 ctx.flush();
                 if !#no_ref {
-                    check_ref(&mut ctx, #cached_reference_test_name, #cached_hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, #hybrid_reference, #reference_image_name);
+                    check_ref(&mut ctx, #cached_reference_test_name, #cached_hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, #hybrid_only, #reference_image_name);
                 }
             }
         }
@@ -545,7 +544,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             #invoke_test
             ctx.flush();
             if !#no_ref {
-                check_ref(&mut ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, #hybrid_reference, #reference_image_name);
+                check_ref(&mut ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, #hybrid_only, #reference_image_name);
             }
         }
 
@@ -606,7 +605,10 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "skip_cpu" => args.skip_cpu = true,
                     "skip_multithreaded" => args.skip_multithreaded = true,
                     "skip_hybrid" => args.skip_hybrid = true,
-                    "hybrid_reference" => args.hybrid_reference = true,
+                    "hybrid_only" => {
+                        args.skip_cpu = true;
+                        args.hybrid_only = true;
+                    }
                     "no_ref" => args.no_ref = true,
                     "glyph" => args.glyph = true,
                     "ignore" => {
