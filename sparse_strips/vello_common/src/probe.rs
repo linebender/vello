@@ -28,17 +28,17 @@ const CIRCLE_CENTER_OFFSET_X: f64 = 1.5;
 const IMAGE_SOURCE_SIZE: f64 = 5.0;
 const PATH_TOLERANCE: f64 = 0.1;
 
-const ELEMENTS: [ProbeElement; 8] = [
-    ProbeElement::SolidRect,
-    ProbeElement::AlphaBlending,
-    ProbeElement::Gradient,
-    ProbeElement::ImageNearest,
+const ELEMENTS: [ProbeFeature; 8] = [
+    ProbeFeature::SolidRect,
+    ProbeFeature::AlphaBlending,
+    ProbeFeature::Gradient,
+    ProbeFeature::ImageNearest,
     // Temporarily disabled.
-    // ProbeElement::Filter,
-    ProbeElement::ImageBilinear,
-    ProbeElement::OpacityLayer,
-    ProbeElement::Blending,
-    ProbeElement::Transformed,
+    // ProbeFeature::Filter,
+    ProbeFeature::ImageBilinear,
+    ProbeFeature::OpacityLayer,
+    ProbeFeature::Blending,
+    ProbeFeature::Transformed,
 ];
 /// Per-channel absolute tolerance used when comparing probe pixels.
 const CHANNEL_TOLERANCE: u8 = 3;
@@ -63,10 +63,37 @@ pub struct ProbeResult {
     pub actual: ProbeImage,
 }
 
+/// A feature exercised by the renderer probe.
+///
+/// Each discriminant is the stable bit index used by [`ProbeStatistics::difference_mask`].
+/// Existing discriminants must not be changed when features are reordered, disabled, or added.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProbeFeature {
+    /// Drawing a solid rectangle.
+    SolidRect = 0,
+    /// Alpha blending overlapping shapes.
+    AlphaBlending = 1,
+    /// Drawing a linear gradient.
+    Gradient = 2,
+    /// Drawing an image with nearest-neighbor sampling.
+    ImageNearest = 3,
+    /// Applying a filter effect.
+    Filter = 4,
+    /// Drawing an image with bilinear sampling.
+    ImageBilinear = 5,
+    /// Drawing within a layer with reduced opacity.
+    OpacityLayer = 6,
+    /// Drawing within a layer with a blend mode.
+    Blending = 7,
+    /// Drawing with a non-identity transform.
+    Transformed = 8,
+}
+
 /// Summary of the differences between the expected and actual probe images.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProbeStatistics {
-    /// Number of probe cells represented by [`Self::difference_mask`].
+    /// Number of active features exercised by the probe.
     pub element_count: usize,
     /// Whether the expected and actual images have different dimensions.
     pub mismatched_dimensions: bool,
@@ -74,10 +101,17 @@ pub struct ProbeStatistics {
     pub different_pixel_count: usize,
     /// Largest absolute difference between corresponding channels.
     pub max_channel_discrepancy: u8,
-    /// Bitmask identifying probe cells containing a pixel outside the probe tolerance.
+    /// Bitmask identifying probe features containing a pixel outside the probe tolerance.
     ///
-    /// Bit `n` corresponds to the `n`th probe cell in rendering order.
+    /// Bit `n` corresponds to the [`ProbeFeature`] whose discriminant is `n`.
     pub difference_mask: u32,
+}
+
+impl ProbeStatistics {
+    /// Returns whether `feature` contained a pixel outside the probe tolerance.
+    pub fn differs(&self, feature: ProbeFeature) -> bool {
+        self.difference_mask & (1_u32 << feature as u8) != 0
+    }
 }
 
 impl ProbeResult {
@@ -110,8 +144,8 @@ impl ProbeResult {
                 statistics.different_pixel_count += 1;
 
                 let cell_index = layout.cell_index_for_pixel(pixel_index);
-                if cell_index < ELEMENTS.len() {
-                    statistics.difference_mask |= 1 << cell_index;
+                if let Some(feature) = ELEMENTS.get(cell_index) {
+                    statistics.difference_mask |= 1_u32 << *feature as u8;
                 }
             }
         }
@@ -190,19 +224,6 @@ pub trait ProbeRenderer {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum ProbeElement {
-    SolidRect,
-    Transformed,
-    AlphaBlending,
-    Gradient,
-    ImageNearest,
-    // Filter,
-    ImageBilinear,
-    OpacityLayer,
-    Blending,
-}
-
-#[derive(Clone, Copy, Debug)]
 struct GridLayout {
     columns: usize,
     rows: usize,
@@ -211,13 +232,13 @@ struct GridLayout {
 }
 
 impl GridLayout {
-    fn from_elements(elements: &[ProbeElement]) -> Self {
+    fn from_elements(elements: &[ProbeFeature]) -> Self {
         let columns = ELEMENTS_PER_ROW.min(elements.len());
         let rows = elements.len().div_ceil(columns);
         let (cell_width, cell_height) = elements
             .iter()
             .copied()
-            .map(ProbeElement::bounds)
+            .map(ProbeFeature::bounds)
             .fold((0.0_f64, 0.0_f64), |(max_w, max_h), (w, h)| {
                 (max_w.max(w), max_h.max(h))
             });
@@ -270,14 +291,14 @@ impl GridLayout {
     }
 }
 
-impl ProbeElement {
+impl ProbeFeature {
     fn bounds(self) -> (f64, f64) {
         let (width, height) = match self {
             Self::SolidRect
             | Self::Gradient
             | Self::ImageNearest
             | Self::ImageBilinear
-            // | Self::Filter
+            | Self::Filter
             | Self::OpacityLayer => (RECT_SIZE, RECT_SIZE),
             Self::Transformed => (
                 RECT_SIZE * core::f64::consts::SQRT_2,
@@ -362,19 +383,19 @@ fn pixels_within_tolerance(expected: &[u8], actual: &[u8], channel_tolerance: u8
 fn draw_probe_element(
     ctx: &mut impl ProbeRenderer,
     cell: Rect,
-    element: ProbeElement,
+    element: ProbeFeature,
     image_nearest: &PaintType,
     image_bilinear: &PaintType,
 ) {
     match element {
-        ProbeElement::SolidRect => {
+        ProbeFeature::SolidRect => {
             ctx.set_paint(css::BLUE.into());
             ctx.fill_rect(&centered_rect(cell, RECT_SIZE, RECT_SIZE));
         }
-        ProbeElement::Transformed => {
+        ProbeFeature::Transformed => {
             draw_transformed_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE));
         }
-        ProbeElement::AlphaBlending => {
+        ProbeFeature::AlphaBlending => {
             let center = cell.center();
             ctx.set_paint(css::YELLOW.with_alpha(0.5).into());
             ctx.fill_path(
@@ -387,18 +408,18 @@ fn draw_probe_element(
                     .to_path(PATH_TOLERANCE),
             );
         }
-        ProbeElement::Gradient => {
+        ProbeFeature::Gradient => {
             let rect = centered_rect(cell, RECT_SIZE, RECT_SIZE);
             ctx.set_paint(linear_gradient(&rect).into());
             ctx.fill_rect(&rect);
         }
-        ProbeElement::ImageNearest => draw_centered_padded_image(ctx, cell, image_nearest),
-        // ProbeElement::Filter => draw_blurred_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE)),
-        ProbeElement::ImageBilinear => draw_centered_padded_image(ctx, cell, image_bilinear),
-        ProbeElement::OpacityLayer => {
+        ProbeFeature::ImageNearest => draw_centered_padded_image(ctx, cell, image_nearest),
+        ProbeFeature::Filter => draw_blurred_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE)),
+        ProbeFeature::ImageBilinear => draw_centered_padded_image(ctx, cell, image_bilinear),
+        ProbeFeature::OpacityLayer => {
             draw_opacity_layer_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE));
         }
-        ProbeElement::Blending => draw_layered_difference_circles(ctx, cell),
+        ProbeFeature::Blending => draw_layered_difference_circles(ctx, cell),
     }
 }
 
@@ -528,16 +549,21 @@ mod tests {
         set_channel(&mut actual, 5, 1, 0);
 
         let result = ProbeResult { expected, actual };
+        let statistics = result.statistics();
         assert_eq!(
-            result.statistics(),
+            statistics,
             ProbeStatistics {
                 element_count: ELEMENTS.len(),
                 mismatched_dimensions: false,
                 different_pixel_count: 2,
                 max_channel_discrepancy: 255,
-                difference_mask: (1 << 1) | (1 << 5),
+                difference_mask: (1 << 1) | (1 << 6),
             }
         );
+        assert!(statistics.differs(ProbeFeature::AlphaBlending));
+        assert!(statistics.differs(ProbeFeature::OpacityLayer));
+        assert!(!statistics.differs(ProbeFeature::Filter));
+        assert!(!statistics.differs(ProbeFeature::ImageBilinear));
     }
 
     #[test]
