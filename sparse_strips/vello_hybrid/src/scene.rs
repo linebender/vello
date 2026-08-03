@@ -230,15 +230,19 @@ pub struct Scene {
 impl Scene {
     /// Create a new render context with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
-        Self::new_with(width, height, RenderSettings::default())
+        Self::new_with(
+            width,
+            height,
+            Level::try_detect().unwrap_or(Level::baseline()),
+        )
     }
 
-    /// Create a new render context with specific settings.
-    pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
+    /// Create a new render context with a specific SIMD level.
+    pub fn new_with(width: u16, height: u16, level: Level) -> Self {
         Self {
             width,
             height,
-            viewport_state: ViewportState::new(width, height, settings.level),
+            viewport_state: ViewportState::new(width, height, level),
             render_state: RenderState::default(),
             root_transforms: RootTransforms::default(),
             aliasing_threshold: None,
@@ -1080,7 +1084,7 @@ mod tests {
         }];
 
         let mut scene = Scene::new(200, 200);
-        let mut resources = Resources::new();
+        let mut resources = Resources::new(vello_common::multi_atlas::AtlasConfig::default());
         let mut triangle = BezPath::new();
         triangle.move_to((10.0, 10.0));
         triangle.line_to((90.0, 50.0));

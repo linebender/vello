@@ -93,9 +93,7 @@ impl RendererWrapper {
             level: Level::try_detect().unwrap_or(Level::baseline()),
             ..Default::default()
         };
-        let resources =
-            vello_hybrid::Resources::new_with_config(settings.memory_settings.image_atlas_config);
-        let renderer = Renderer::new_with(
+        let (renderer, resources) = Renderer::new_with(
             &device,
             &RenderTargetConfig {
                 format: surface_format,

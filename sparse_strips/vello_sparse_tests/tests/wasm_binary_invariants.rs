@@ -69,7 +69,7 @@ async fn webgl_probe_succeeds() {
     canvas.set_width(200);
     canvas.set_height(200);
 
-    let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+    let (mut renderer, _) = vello_hybrid::WebGlRenderer::new(&canvas);
     let mut pending = renderer
         .probe()
         .unwrap_or_else(|error| panic!("WebGlRenderer::probe() failed to render: {error:?}"));

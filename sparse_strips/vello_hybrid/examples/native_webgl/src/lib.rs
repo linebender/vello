@@ -30,9 +30,7 @@ struct RendererWrapper {
 impl RendererWrapper {
     fn new(canvas: HtmlCanvasElement) -> Self {
         let settings = RenderSettings::default();
-        let resources =
-            vello_hybrid::Resources::new_with_config(settings.memory_settings.image_atlas_config);
-        let renderer = vello_hybrid::WebGlRenderer::new_with(&canvas, settings);
+        let (renderer, resources) = vello_hybrid::WebGlRenderer::new_with(&canvas, settings);
 
         Self {
             renderer,

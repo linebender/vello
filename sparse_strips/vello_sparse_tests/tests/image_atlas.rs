@@ -4,9 +4,7 @@
 //! Tests for the image/glyph atlas configuration of the WebGL renderer.
 
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{
-    AtlasConfig, AtlasTextureInfo, MemorySettings, RenderSettings, Resources, WebGlRenderer,
-};
+use vello_hybrid::{AtlasConfig, AtlasTextureInfo, MemorySettings, RenderSettings, WebGlRenderer};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
@@ -34,8 +32,7 @@ fn image_atlas_placeholder_is_promoted_on_first_upload() {
         },
         ..RenderSettings::default()
     };
-    let mut renderer = WebGlRenderer::new_with(&canvas, settings);
-    let mut resources = Resources::new_with_config(atlas_config);
+    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings);
 
     assert_eq!(
         renderer.atlas_info(),
@@ -73,8 +70,8 @@ fn image_atlas_placeholder_is_promoted_on_first_upload() {
 /// Uploading an image that is larger than the configured atlas must fail with
 /// `AtlasError::TextureTooLarge`.
 ///
-/// The renderer and the resources are both configured with a 10x10 atlas: the renderer sizes the
-/// GPU atlas texture, while the resources own the allocator that runs the `TextureTooLarge` check.
+/// The renderer constructor configures both the 10x10 GPU atlas texture and the allocator in the
+/// returned resources, which runs the `TextureTooLarge` check.
 #[wasm_bindgen_test]
 #[should_panic(expected = "TextureTooLarge")]
 fn image_atlas_upload_larger_than_atlas_fails() {
@@ -87,7 +84,6 @@ fn image_atlas_upload_larger_than_atlas_fails() {
     canvas.set_width(100);
     canvas.set_height(100);
 
-    // Both the renderer and the resources must use the same 10x10 atlas config.
     let atlas_config = AtlasConfig {
         atlas_size: (10, 10),
         ..AtlasConfig::default()
@@ -100,8 +96,7 @@ fn image_atlas_upload_larger_than_atlas_fails() {
         ..RenderSettings::default()
     };
 
-    let mut renderer = WebGlRenderer::new_with(&canvas, settings);
-    let mut resources = Resources::new_with_config(atlas_config);
+    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings);
 
     // The image is much larger than the 10x10 atlas, so the upload must fail.
     let image = Pixmap::new(64, 64);

@@ -184,13 +184,13 @@ pub struct AtlasTextureInfo {
 }
 
 impl WebGlRenderer {
-    /// Creates a new WebGL2 renderer
-    pub fn new(canvas: &HtmlCanvasElement) -> Self {
+    /// Creates a new WebGL2 renderer and its persistent resources.
+    pub fn new(canvas: &HtmlCanvasElement) -> (Self, Resources) {
         Self::new_with(canvas, RenderSettings::default())
     }
 
-    /// Creates a new WebGL2 renderer with specific settings.
-    pub fn new_with(canvas: &HtmlCanvasElement, mut settings: RenderSettings) -> Self {
+    /// Creates a new WebGL2 renderer and its persistent resources with specific settings.
+    pub fn new_with(canvas: &HtmlCanvasElement, mut settings: RenderSettings) -> (Self, Resources) {
         #[allow(
             clippy::assertions_on_constants,
             reason = "intentional guard against non-wasm32 use"
@@ -276,7 +276,7 @@ impl WebGlRenderer {
                 >= 24.0,
             "Depth buffer must be at least 24 bits"
         );
-        let image_cache = ImageCache::new_with_config(settings.memory_settings.image_atlas_config);
+        let resources = Resources::new(settings.memory_settings.image_atlas_config);
         let max_texture_dimension_2d = device_limits.max_texture_dimension_2d;
 
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
@@ -285,8 +285,8 @@ impl WebGlRenderer {
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
         let layer_config = settings.memory_settings.layers_config;
-        Self {
-            programs: WebGlPrograms::new(gl.clone(), &image_cache, layer_config),
+        let renderer = Self {
+            programs: WebGlPrograms::new(gl.clone(), &resources.image_cache, layer_config),
             gl,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
@@ -295,7 +295,9 @@ impl WebGlRenderer {
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
-        }
+        };
+
+        (renderer, resources)
     }
 
     /// Render `scene` using WebGL2
