@@ -99,8 +99,8 @@ pub struct ProbeStatistics {
     pub mismatched_dimensions: bool,
     /// Number of pixels whose channels differ by more than the probe tolerance.
     pub different_pixel_count: usize,
-    /// Largest absolute difference between corresponding channels.
-    pub max_channel_discrepancy: u8,
+    /// Largest absolute difference between corresponding red, green, blue, and alpha channels.
+    pub max_channel_discrepancy: [u8; 4],
     /// Bitmask identifying probe features containing a pixel outside the probe tolerance.
     ///
     /// Bit `n` corresponds to the [`ProbeFeature`] whose discriminant is `n`.
@@ -133,10 +133,12 @@ impl ProbeResult {
             .enumerate()
         {
             if expected[3] != 0 || actual[3] != 0 {
-                for (expected, actual) in expected.iter().zip(actual) {
-                    statistics.max_channel_discrepancy = statistics
-                        .max_channel_discrepancy
-                        .max(expected.abs_diff(*actual));
+                for (max_discrepancy, (expected, actual)) in statistics
+                    .max_channel_discrepancy
+                    .iter_mut()
+                    .zip(expected.iter().zip(actual))
+                {
+                    *max_discrepancy = (*max_discrepancy).max(expected.abs_diff(*actual));
                 }
             }
 
@@ -547,6 +549,7 @@ mod tests {
 
         set_channel(&mut actual, 1, 0, 249);
         set_channel(&mut actual, 5, 1, 0);
+        set_channel(&mut actual, 5, 3, 100);
 
         let result = ProbeResult { expected, actual };
         let statistics = result.statistics();
@@ -556,7 +559,7 @@ mod tests {
                 element_count: ELEMENTS.len(),
                 mismatched_dimensions: false,
                 different_pixel_count: 2,
-                max_channel_discrepancy: 255,
+                max_channel_discrepancy: [6, 255, 0, 155],
                 difference_mask: (1 << 1) | (1 << 6),
             }
         );
