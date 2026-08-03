@@ -6,13 +6,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glifo::GlyphRunBackend;
+use vello_common::color::AlphaColor;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
+use vello_cpu::{
+    CompositeMode, Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources,
+};
 use vello_hybrid::{
     ClearSettings, RectU16, RenderSettings as HybridRenderSettings, Resources as HybridResources,
     SampleRect, Scene, TextureId,
@@ -257,12 +260,23 @@ impl Renderer for CpuRenderer {
 
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
         apply_clear(&mut self.target, self.clear);
+        // We still want to exercise the `Replace` path for the common case since it's
+        // the default, so use it whenever possible.
+        let composite_mode = match self.clear {
+            ClearSettings::Viewport { color } if color == AlphaColor::TRANSPARENT => {
+                CompositeMode::Replace
+            }
+            ClearSettings::DontClear
+            | ClearSettings::Viewport { .. }
+            | ClearSettings::Rects { .. } => CompositeMode::SrcOver,
+        };
 
         self.ctx.render_with(
             &mut self.target,
             &mut self.resources,
             RasterizerSettings {
                 render_mode: self.render_mode,
+                composite_mode,
                 ..Default::default()
             },
         );
