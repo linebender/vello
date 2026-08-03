@@ -1238,6 +1238,53 @@ mod tests {
 
     #[cfg(feature = "multithreading")]
     #[test]
+    fn multithreaded_render_empty_frame_after_reset() {
+        use crate::RenderSettings;
+
+        let mut ctx = RenderContext::new_with(
+            100,
+            100,
+            RenderSettings {
+                num_threads: 4,
+                ..Default::default()
+            },
+        );
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(100, 100);
+
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+        ctx.flush();
+        ctx.render(&mut pixmap, &mut resources);
+
+        ctx.reset();
+        ctx.flush();
+        ctx.render(&mut pixmap, &mut resources);
+    }
+
+    #[cfg(feature = "multithreading")]
+    #[test]
+    fn multithreaded_push_clip_path_before_draw() {
+        use crate::RenderSettings;
+
+        let mut ctx = RenderContext::new_with(
+            100,
+            100,
+            RenderSettings {
+                num_threads: 1,
+                ..Default::default()
+            },
+        );
+        let clip = Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1);
+
+        // Just make sure we don't panic.
+        ctx.push_clip_path(&clip);
+        ctx.flush();
+        ctx.pop_clip_path();
+        ctx.flush();
+    }
+
+    #[cfg(feature = "multithreading")]
+    #[test]
     fn multithreaded_reset_with_pending_tasks() {
         use crate::RenderSettings;
 
