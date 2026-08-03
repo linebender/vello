@@ -128,6 +128,7 @@ impl AppState {
                 &self.scene,
                 &mut self.renderer_wrapper.resources,
                 &render_size,
+                &vello_hybrid::WebGlTextureBindings::new(),
             )
             .unwrap();
         self.need_render = false;
@@ -548,7 +549,12 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         height: height as u32,
     };
     renderer
-        .render(&scene, &mut resources, &render_size)
+        .render(
+            &scene,
+            &mut resources,
+            &render_size,
+            &vello_hybrid::WebGlTextureBindings::new(),
+        )
         .unwrap();
 }
 

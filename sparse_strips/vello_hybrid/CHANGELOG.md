@@ -12,6 +12,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- Support for sampling from external textures through `Scene::draw_texture_rects` in the `webgl` backend, bringing it to parity with the `wgpu` backend. Textures are bound at render time through the new `WebGlTextureBindings`.
+
+### Changed
+
+- Breaking change: `WebGlRenderer::render` and `WebGlRenderer::render_to_atlas` now take a `WebGlTextureBindings`, providing the external textures referenced by the scene. Pass `&WebGlTextureBindings::new()` if the scene does not use any.
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.

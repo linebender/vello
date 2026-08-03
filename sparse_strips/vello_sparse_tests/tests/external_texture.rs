@@ -3,7 +3,6 @@
 
 // TODO: Increase test coverage to cover things like tinted external textures, etc.
 
-#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 mod tests {
     use std::sync::Arc;
 
@@ -94,28 +93,64 @@ mod tests {
     ///
     /// Necessary, because currently the [`vello_dev_macros::vello_test`] macro generates the snapshot
     /// using [`vello_cpu`].
-    fn hybrid_snapshot_test<const WIDTH: u16, const HEIGHT: u16>(
+    ///
+    /// This is a macro so the reference image can be embedded at compile time, which is how the
+    /// WebGL backend gets at it: browsers can't read the snapshot directory.
+    macro_rules! hybrid_snapshot_test {
+        ($width:expr, $height:expr, $test_name:literal, $f:expr) => {{
+            #[cfg(target_arch = "wasm32")]
+            const REFERENCE_IMAGE: &[u8] = include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/snapshots/",
+                $test_name,
+                ".png"
+            ));
+            #[cfg(not(target_arch = "wasm32"))]
+            const REFERENCE_IMAGE: &[u8] = &[];
+
+            run_hybrid_snapshot_test($width, $height, $test_name, REFERENCE_IMAGE, $f);
+        }};
+    }
+
+    fn run_hybrid_snapshot_test(
+        width: u16,
+        height: u16,
         test_name: &str,
+        reference_image: &[u8],
         f: impl FnOnce(&mut HybridRenderer),
     ) {
         let mut ctx = get_ctx::<HybridRenderer>(
-            WIDTH,
-            HEIGHT,
+            width,
+            height,
             false,
             0,
             "fallback",
             RenderMode::OptimizeQuality,
         );
         f(&mut ctx);
-        let specific_name = format!("{test_name}_hybrid");
+        // Only the wgpu backend generates the snapshots; WebGL is checked against them.
+        let (specific_name, is_reference) = if cfg!(target_arch = "wasm32") {
+            (format!("{test_name}_hybrid_webgl"), false)
+        } else {
+            (format!("{test_name}_hybrid"), true)
+        };
         // Set `diff_pixels` to `3`: we can't generate a "golden standard" using `f32` on `vello_cpu` as
         // it doesn't implement the tested functionality yet.
-        check_ref(&mut ctx, test_name, &specific_name, 3, 0, true, &[]);
+        check_ref(
+            &mut ctx,
+            test_name,
+            &specific_name,
+            3,
+            0,
+            is_reference,
+            reference_image,
+        );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn external_texture_composite() {
-        hybrid_snapshot_test::<96, 96>("external_texture_composite", |ctx| {
+        hybrid_snapshot_test!(96, 96, "external_texture_composite", |ctx| {
             let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
             ctx.draw_texture_rects(
                 texture_id,
@@ -138,9 +173,10 @@ mod tests {
         });
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn external_texture_atlas_interleaving() {
-        hybrid_snapshot_test::<100, 100>("external_texture_atlas_interleaving", |ctx| {
+        hybrid_snapshot_test!(100, 100, "external_texture_atlas_interleaving", |ctx| {
             let atlas_red = ctx.get_image_source(solid_pixmap(254, 0, 0, 254));
             let external_green = ctx.register_external_texture(solid_pixmap(0, 254, 0, 254));
             let atlas_blue = ctx.get_image_source(solid_pixmap(0, 0, 254, 254));
@@ -169,9 +205,10 @@ mod tests {
         });
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn external_texture_layer_before_external() {
-        hybrid_snapshot_test::<100, 100>("external_texture_layer_before_external", |ctx| {
+        hybrid_snapshot_test!(100, 100, "external_texture_layer_before_external", |ctx| {
             let texture_id = ctx.register_external_texture(solid_pixmap(128, 0, 0, 128));
 
             ctx.push_layer(None, None, None, None, None);
@@ -185,9 +222,10 @@ mod tests {
         });
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn external_texture_external_before_layer() {
-        hybrid_snapshot_test::<100, 100>("external_texture_external_before_layer", |ctx| {
+        hybrid_snapshot_test!(100, 100, "external_texture_external_before_layer", |ctx| {
             let texture_id = ctx.register_external_texture(solid_pixmap(0, 255, 0, 255));
 
             ctx.push_layer(None, None, None, None, None);
@@ -201,9 +239,10 @@ mod tests {
         });
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn external_texture_layer_circle_orders() {
-        hybrid_snapshot_test::<100, 100>("external_texture_layer_circle_orders", |ctx| {
+        hybrid_snapshot_test!(100, 100, "external_texture_layer_circle_orders", |ctx| {
             let blue_texture = ctx.register_external_texture(solid_pixmap(0, 0, 255, 255));
             let red_texture = ctx.register_external_texture(solid_pixmap(255, 0, 0, 255));
             let green_texture = ctx.register_external_texture(solid_pixmap(0, 255, 0, 255));
@@ -280,9 +319,10 @@ mod tests {
         });
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn external_texture_skewed() {
-        hybrid_snapshot_test::<96, 96>("external_texture_skewed", |ctx| {
+        hybrid_snapshot_test!(96, 96, "external_texture_skewed", |ctx| {
             let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
             ctx.draw_texture_rects(
                 texture_id,
@@ -295,9 +335,10 @@ mod tests {
         });
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn external_texture_clipped() {
-        hybrid_snapshot_test::<96, 96>("external_texture_clipped", |ctx| {
+        hybrid_snapshot_test!(96, 96, "external_texture_clipped", |ctx| {
             let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
             let clip = Circle::new((48., 48.), 24.).to_path(0.1);
 
@@ -320,9 +361,10 @@ mod tests {
         });
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn external_texture_blurred() {
-        hybrid_snapshot_test::<96, 96>("external_texture_blurred", |ctx| {
+        hybrid_snapshot_test!(96, 96, "external_texture_blurred", |ctx| {
             let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
             let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
                 std_deviation: 4.0,
@@ -342,9 +384,10 @@ mod tests {
         });
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn external_texture_many_sprites() {
-        hybrid_snapshot_test::<192, 132>("external_texture_many_sprites", |ctx| {
+        hybrid_snapshot_test!(192, 132, "external_texture_many_sprites", |ctx| {
             let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
             let placements = [
                 (SPRITES[0], 8., 10.),
@@ -372,9 +415,10 @@ mod tests {
         });
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn external_texture_with_scene_transform() {
-        hybrid_snapshot_test::<96, 96>("external_texture_with_scene_transform", |ctx| {
+        hybrid_snapshot_test!(96, 96, "external_texture_with_scene_transform", |ctx| {
             let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
 
             ctx.set_transform(
