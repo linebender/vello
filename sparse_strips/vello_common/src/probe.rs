@@ -94,7 +94,7 @@ pub enum ProbeFeature {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProbeStatistics {
     /// Number of active features exercised by the probe.
-    pub element_count: usize,
+    pub element_count: u8,
     /// Width and height of the actual probe image.
     pub actual_size: (u16, u16),
     /// Number of pixels whose channels differ by more than the probe tolerance.
@@ -119,7 +119,7 @@ impl ProbeResult {
     pub fn statistics(&self) -> ProbeStatistics {
         let layout = GridLayout::from_elements(&ELEMENTS);
         let mut statistics = ProbeStatistics {
-            element_count: ELEMENTS.len(),
+            element_count: ELEMENTS.len() as u8,
             actual_size: (self.actual.width, self.actual.height),
             ..Default::default()
         };
@@ -555,7 +555,7 @@ mod tests {
         assert_eq!(
             statistics,
             ProbeStatistics {
-                element_count: ELEMENTS.len(),
+                element_count: ELEMENTS.len() as u8,
                 actual_size: (width, height),
                 different_pixel_count: 2,
                 max_channel_discrepancy: [6, 255, 0, 155],
