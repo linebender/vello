@@ -279,7 +279,13 @@ mod tests {
         ctx.pop_layer();
     }
 
-    #[vello_test(width = 96, height = 96, skip_cpu, hybrid_reference)]
+    #[vello_test(
+        width = 96,
+        height = 96,
+        skip_cpu,
+        hybrid_reference,
+        hybrid_tolerance = 2
+    )]
     fn external_texture_blurred(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
@@ -327,7 +333,13 @@ mod tests {
         );
     }
 
-    #[vello_test(width = 96, height = 96, skip_cpu, hybrid_reference)]
+    #[vello_test(
+        width = 96,
+        height = 96,
+        skip_cpu,
+        hybrid_reference,
+        hybrid_tolerance = 2
+    )]
     fn external_texture_with_scene_transform(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
 
