@@ -83,6 +83,7 @@ impl RendererWrapper {
             width,
             height,
             present_mode: wgpu::PresentMode::Fifo,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             alpha_mode: wgpu::CompositeAlphaMode::Opaque,
             desired_maximum_frame_latency: 2,
             view_formats: vec![],
@@ -121,6 +122,7 @@ impl RendererWrapper {
             width,
             height,
             present_mode: wgpu::PresentMode::Fifo,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             alpha_mode: wgpu::CompositeAlphaMode::Opaque,
             desired_maximum_frame_latency: 2,
             view_formats: vec![],
@@ -230,7 +232,7 @@ impl AppState {
             .unwrap();
 
         self.renderer_wrapper.queue.submit([encoder.finish()]);
-        surface_texture.present();
+        self.renderer_wrapper.queue.present(surface_texture);
 
         self.need_render = false;
     }
@@ -661,7 +663,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         .unwrap();
 
     queue.submit([encoder.finish()]);
-    surface_texture.present();
+    queue.present(surface_texture);
 }
 
 fn initial_scene_index(scene_count: usize) -> usize {
