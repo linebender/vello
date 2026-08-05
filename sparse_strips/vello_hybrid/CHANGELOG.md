@@ -18,6 +18,8 @@ This release has an [MSRV][] of 1.88.
 
 ### Changed
 
+- Breaking change: `Renderer::new`, `Renderer::new_with`, `WebGlRenderer::new`, and `WebGlRenderer::new_with` now return the renderer and its associated `Resources` as a tuple. The given `Resources` should only be used in conjunction with the renderer instance that generated it. 
+- Breaking change: `Scene::new_with` now takes a `Level` instead of `RenderSettings`.
 - Breaking change: `WebGlRenderer::render` and `WebGlRenderer::render_to_atlas` now take a `WebGlTextureBindings`, providing the external textures referenced by the scene. Pass `&WebGlTextureBindings::new()` if the scene does not use any.
 
 ## [0.1.0][] - 2026-07-29
