@@ -1,8 +1,8 @@
 use core::ops::Deref;
 
 use super::{
-    WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader,
-    WebGlTexture, WebGlVertexArrayObject,
+    WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader, WebGlTexture,
+    WebGlVertexArrayObject,
 };
 
 pub(crate) trait GlResource {
@@ -27,8 +27,7 @@ pub(crate) struct Resource<T: GlResource> {
 // twice.
 impl<T: GlResource> Resource<T> {
     pub(super) fn new(gl: &WebGl2RenderingContext) -> Self {
-        let raw =
-            T::create(gl).unwrap_or_else(|| panic!("failed to create WebGL {}", T::LABEL));
+        let raw = T::create(gl).unwrap_or_else(|| panic!("failed to create WebGL {}", T::LABEL));
         Self {
             gl: gl.clone(),
             raw,
