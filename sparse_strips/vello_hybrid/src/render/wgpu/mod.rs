@@ -167,17 +167,17 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Creates a new renderer.
-    pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
+    /// Creates a new renderer and its persistent resources.
+    pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> (Self, Resources) {
         Self::new_with(device, render_target_config, RenderSettings::default())
     }
 
-    /// Creates a new renderer with specific settings.
+    /// Creates a new renderer and its persistent resources with specific settings.
     pub fn new_with(
         device: &Device,
         render_target_config: &RenderTargetConfig,
         settings: RenderSettings,
-    ) -> Self {
+    ) -> (Self, Resources) {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         let mut settings = settings;
@@ -187,7 +187,7 @@ impl Renderer {
             max_texture_array_layers: limits.max_texture_array_layers,
         };
         settings.memory_settings.normalize(&device_limits);
-        let image_cache = ImageCache::new_with_config(settings.memory_settings.image_atlas_config);
+        let resources = Resources::new(settings.memory_settings.image_atlas_config);
         let max_texture_dimension_2d = device_limits.max_texture_dimension_2d;
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
@@ -196,8 +196,13 @@ impl Renderer {
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
         let layer_config = settings.memory_settings.layers_config;
 
-        Self {
-            programs: Programs::new(device, &image_cache, render_target_config, layer_config),
+        let renderer = Self {
+            programs: Programs::new(
+                device,
+                &resources.image_cache,
+                render_target_config,
+                layer_config,
+            ),
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
@@ -207,7 +212,9 @@ impl Renderer {
             layers_config: layer_config,
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
-        }
+        };
+
+        (renderer, resources)
     }
 
     /// Render `scene`.

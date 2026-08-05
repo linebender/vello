@@ -10,7 +10,7 @@ use std::io::BufWriter;
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{DimensionConstraints, Resources, Scene};
+use vello_hybrid::{DimensionConstraints, Scene};
 
 /// Main entry point for the headless rendering example.
 /// Takes two command line arguments:
@@ -74,7 +74,7 @@ async fn run() {
     let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
     // Create renderer and render the scene to the texture
-    let mut renderer = vello_hybrid::Renderer::new(
+    let (mut renderer, mut resources) = vello_hybrid::Renderer::new(
         &device,
         &vello_hybrid::RenderTargetConfig {
             format: texture.format(),
@@ -82,7 +82,6 @@ async fn run() {
             height: height.into(),
         },
     );
-    let mut resources = Resources::new();
     let render_size = vello_hybrid::RenderSize {
         width: width.into(),
         height: height.into(),

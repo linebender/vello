@@ -12,7 +12,7 @@ use vello_common::multi_atlas::AtlasConfig;
 
 /// Persistent resources required by Vello Hybrid for rendering.
 ///
-/// You should create one such instance per renderer.
+/// A set of resources must only be used with the renderer instance associated with it.
 #[derive(Debug)]
 pub struct Resources {
     pub(crate) image_cache: ImageCache,
@@ -23,21 +23,7 @@ pub struct Resources {
 }
 
 impl Resources {
-    /// Create a new set of renderer resources.
-    pub fn new() -> Self {
-        Self::new_with_config(AtlasConfig::default())
-    }
-
-    /// Create a new set of renderer resources with a custom image/glyph atlas configuration.
-    ///
-    /// This should match the
-    /// [`image_atlas_config`](crate::MemorySettings::image_atlas_config) passed to the renderer so
-    /// that allocations and the GPU atlas texture agree on the atlas size.
-    // TODO: Requiring callers to keep this config in sync with the renderer's
-    // `memory_settings.image_atlas_config` by hand is a footgun; tie them together so they can't
-    // diverge. Note the renderer also normalizes the config against the device limits, so even
-    // matching configs here can still end up disagreeing.
-    pub fn new_with_config(image_atlas_config: AtlasConfig) -> Self {
+    pub(crate) fn new(image_atlas_config: AtlasConfig) -> Self {
         Self {
             image_cache: ImageCache::new_with_config(image_atlas_config),
             #[cfg(feature = "text")]
@@ -46,11 +32,5 @@ impl Resources {
             #[cfg(feature = "text")]
             glyph_resources: None,
         }
-    }
-}
-
-impl Default for Resources {
-    fn default() -> Self {
-        Self::new()
     }
 }

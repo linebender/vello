@@ -290,7 +290,7 @@ pub(crate) struct HybridRenderer {
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl HybridRenderer {
     fn new_with_settings(width: u16, height: u16, settings: HybridRenderSettings) -> Self {
-        let scene = Scene::new_with(width, height, settings);
+        let scene = Scene::new_with(width, height, settings.level);
         // Initialize wgpu device and queue for GPU rendering
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -325,7 +325,7 @@ impl HybridRenderer {
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create renderer and render the scene to the texture
-        let renderer = vello_hybrid::Renderer::new_with(
+        let (renderer, resources) = vello_hybrid::Renderer::new_with(
             &device,
             &vello_hybrid::RenderTargetConfig {
                 format: texture.format(),
@@ -337,7 +337,7 @@ impl HybridRenderer {
 
         Self {
             scene,
-            resources: HybridResources::new(),
+            resources,
             device,
             queue,
             texture,
@@ -729,7 +729,7 @@ impl Renderer for HybridRenderer {
         let mut settings = HybridRenderSettings::default();
         // See the comment above for why we change the `min_texture_size`.
         settings.memory_settings.layers_config.min_texture_size = vello_hybrid::SizeU16::new(100);
-        let scene = Scene::new_with(width, height, settings);
+        let scene = Scene::new_with(width, height, settings.level);
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
         let document = web_sys::window().unwrap().document().unwrap();
@@ -740,7 +740,7 @@ impl Renderer for HybridRenderer {
             .unwrap();
         canvas.set_width(width.into());
         canvas.set_height(height.into());
-        let renderer = vello_hybrid::WebGlRenderer::new_with(&canvas, settings);
+        let (renderer, resources) = vello_hybrid::WebGlRenderer::new_with(&canvas, settings);
         let gl = canvas
             .get_context("webgl2")
             .unwrap()
@@ -749,7 +749,7 @@ impl Renderer for HybridRenderer {
             .unwrap();
         Self {
             scene,
-            resources: HybridResources::new(),
+            resources,
             renderer,
             gl,
             external_textures: vello_hybrid::WebGlTextureBindings::new(),
