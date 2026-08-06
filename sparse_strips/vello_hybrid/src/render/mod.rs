@@ -17,7 +17,7 @@ mod wgpu;
 pub use common::{Config, GpuStrip, RenderSize};
 
 #[cfg(all(feature = "webgl", feature = "probe"))]
-pub use vello_common::probe::{Probe, ProbeFeature, ProbeResult, ProbeStatistics};
+pub use vello_common::probe::{Probe, ProbeFeature, ProbeResult, ProbeStatistics, PROBE_ELEMENTS};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use webgl::probe::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 #[cfg(feature = "webgl")]
