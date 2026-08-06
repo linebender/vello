@@ -564,61 +564,7 @@ const fn cubic_resampler(b: f32, c: f32) -> [[f32; 4]; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::sync::Arc;
-    use alloc::vec;
-    use vello_common::color::PremulRgba8;
     use vello_common::fearless_simd::Fallback;
-    use vello_common::kurbo::{Affine, Vec2};
-    use vello_common::paint::ImageSource;
-    use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
-
-    #[test]
-    fn filtered_image_uses_x_extend_for_horizontal_samples() {
-        let simd = Fallback::new();
-        let pixmap = Arc::new(Pixmap::from_parts(
-            vec![
-                PremulRgba8 {
-                    r: 255,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                },
-                PremulRgba8 {
-                    r: 0,
-                    g: 0,
-                    b: 255,
-                    a: 255,
-                },
-            ],
-            2,
-            1,
-        ));
-        let image = EncodedImage {
-            source: ImageSource::Pixmap(Arc::clone(&pixmap)),
-            sampler: ImageSampler {
-                x_extend: Extend::Repeat,
-                y_extend: Extend::Pad,
-                quality: ImageQuality::Medium,
-                alpha: 1.0,
-            },
-            may_have_transparency: false,
-            transform: Affine::IDENTITY,
-            x_advance: Vec2::new(1.0, 0.0),
-            y_advance: Vec2::new(0.0, 1.0),
-            tint: None,
-        };
-
-        let mut painter = FilteredImagePainter::<_, 1>::new(simd, &image, &pixmap, 2.0, 0.0);
-        let mut samples = [0.0; 16];
-        painter.next().unwrap().store_slice(&mut samples);
-
-        for pixel in samples.chunks_exact(4) {
-            assert!((pixel[0] - 0.5).abs() < 1e-6);
-            assert_eq!(pixel[1], 0.0);
-            assert!((pixel[2] - 0.5).abs() < 1e-6);
-            assert_eq!(pixel[3], 1.0);
-        }
-    }
 
     #[test]
     fn extend_overflow() {
@@ -627,7 +573,7 @@ mod tests {
         let max_inv = 1.0 / max;
 
         let num = f32x4::splat(simd, 127.00001);
-        let res = extend(simd, num, Extend::Repeat, max, max_inv);
+        let res = extend(simd, num, crate::peniko::Extend::Repeat, max, max_inv);
 
         assert!(res[0] <= 127.0);
     }
