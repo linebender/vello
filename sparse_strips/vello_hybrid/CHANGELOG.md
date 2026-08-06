@@ -22,6 +22,11 @@ This release has an [MSRV][] of 1.88.
 - Breaking change: `Scene::new_with` now takes a `Level` instead of `RenderSettings`.
 - Breaking change: `WebGlRenderer::render` and `WebGlRenderer::render_to_atlas` now take a `WebGlTextureBindings`, providing the external textures referenced by the scene. Pass `&WebGlTextureBindings::new()` if the scene does not use any.
 
+### Fixed
+
+- The alphas, encoded paints, gradient and filter data textures of the `webgl` backend are now allocated at creation. Previously a scene without alphas, encoded paints, gradients or filters left the corresponding texture incomplete, which made every draw call that bound it non-renderable and emitted a render warning per draw. (by [@grebmeg][])
+- The `webgl` image atlas now grows without hanging the Android WebView (Mali-G52) GL compositor. Growing from the lazily-allocated 1x1 placeholder (`initial_atlas_count == 0`) now re-specifies the backing store in place on the existing `TEXTURE_2D_ARRAY` instead of allocating a replacement texture and deleting the placeholder, and growing an atlas that already holds data unbinds the atlas and `glFlush`es around the reallocation. Previously, either could hang the compositor mid-session, causing an ANR. (by [@grebmeg][])
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.

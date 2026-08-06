@@ -1272,20 +1272,60 @@ impl WebGlPrograms {
         required_atlas_count: u32,
     ) {
         let current_atlas_count = self.resources.atlas_layer_count;
-        if required_atlas_count > current_atlas_count {
-            let (width, height) = self.resources.atlas_size;
-            // Create new texture array with more layers
+        if required_atlas_count <= current_atlas_count {
+            return;
+        }
+        let (width, height) = self.resources.atlas_size;
+
+        if current_atlas_count == 0 {
+            // Growing from the 1x1 placeholder allocated for `initial_atlas_count == 0`: there is no
+            // atlas data to preserve, so re-specify the backing store in place on the existing
+            // texture object rather than creating a new one and deleting the stub. Preserving the GL
+            // texture name is required on Mali-G52 under the Android WebView GL compositor: replacing
+            // the stub object mid-session hangs the native compositor, causing an ANR, and flushing
+            // around the swap does not help.
+            gl.bind_texture(
+                WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+                Some(&self.resources.atlas_texture_array.texture),
+            );
+            gl.tex_image_3d_with_opt_u8_array(
+                WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+                0,
+                WebGl2RenderingContext::RGBA8 as i32,
+                width as i32,
+                height as i32,
+                required_atlas_count as i32,
+                0,
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                None,
+            )
+            .unwrap();
+            self.resources.atlas_texture_array.size = WebGlTextureSize { width, height };
+            self.resources.atlas_layer_count = required_atlas_count;
+            // Cached FBOs were attached to the 1x1 stub store; drop them so we recreate on next use.
+            self.resources.atlas_render_framebuffer = None;
+        } else {
+            // Growing an atlas that already holds data: allocate a new, larger `TEXTURE_2D_ARRAY`,
+            // copy the existing layers across, then swap. On Mali-G52 under the Android WebView GL
+            // compositor, `glFlush`ing after the copy is required before the next composite;
+            // otherwise, the compositor hangs and causes an ANR. Unbinding the atlas and flushing
+            // before allocation are precautionary.
+            gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D_ARRAY, None);
+            gl.flush();
+
             let new_atlas_texture_array =
                 create_atlas_texture_array(gl, width, height, required_atlas_count);
-
-            // Copy existing atlas data from old texture array to new one
             self.copy_atlas_texture_data(gl, &new_atlas_texture_array, current_atlas_count);
 
-            // Replace the old resources
+            // Replace the old resources (dropping the old array frees its GL texture).
             self.resources.atlas_texture_array = new_atlas_texture_array;
             self.resources.atlas_layer_count = required_atlas_count;
             // Cached FBOs were attached to the old texture; drop them so we recreate on next use.
             self.resources.atlas_render_framebuffer = None;
+
+            // This is the critical flush that prevents the Mali-G52 compositor hang.
+            gl.flush();
         }
     }
 
@@ -2231,8 +2271,27 @@ fn create_texture_inner(
     texture
 }
 
+/// Create a 1x1 RGBA32UI placeholder texture.
+///
+/// See [`create_placeholder_rgba8_texture`] for why the initial allocation matters.
+fn create_placeholder_rgba32ui_texture(gl: &WebGl2RenderingContext) -> Texture {
+    let texture = create_texture(
+        gl,
+        WebGl2RenderingContext::NEAREST,
+        WebGl2RenderingContext::NEAREST,
+    );
+    upload_data_to_rgba32_texture(gl, &texture, &[0; 4], 1, 1);
+    texture
+}
+
 /// Create a 1x1 RGBA8 placeholder texture.
-fn create_placeholder_texture(gl: &WebGl2RenderingContext) -> Texture {
+///
+/// A texture with no allocated level is incomplete, and binding an incomplete texture to a sampler
+/// makes the draw call non-renderable: the driver substitutes a black texture for every draw and
+/// browsers log a render warning for each one. Data textures are only uploaded when a scene has
+/// data for them, so allocate a minimal level 0 up front to keep them complete for scenes that
+/// don't.
+fn create_placeholder_rgba8_texture(gl: &WebGl2RenderingContext) -> Texture {
     let texture = create_texture(
         gl,
         WebGl2RenderingContext::NEAREST,
@@ -2305,25 +2364,21 @@ fn create_webgl_resources(
     );
 
     // Create and configure alpha texture.
-    let alphas_texture = create_texture(
-        gl,
-        WebGl2RenderingContext::NEAREST,
-        WebGl2RenderingContext::NEAREST,
-    );
+    let alphas_texture = create_placeholder_rgba32ui_texture(gl);
 
     let AtlasConfig {
         atlas_size: (atlas_width, atlas_height),
         initial_atlas_count,
         ..
-    } = image_cache.atlas_manager().config();
-    let atlas_size = (*atlas_width, *atlas_height);
-    let atlas_layer_count = *initial_atlas_count as u32;
+    } = *image_cache.atlas_manager().config();
+    let atlas_size = (atlas_width, atlas_height);
+    let atlas_layer_count = initial_atlas_count as u32;
     let atlas_texture_array = if atlas_layer_count == 0 {
         // Texture arrays cannot have zero layers. Keep a tiny bindable placeholder until the image
         // cache makes its first real allocation.
         create_atlas_texture_array(gl, 1, 1, 1)
     } else {
-        create_atlas_texture_array(gl, *atlas_width, *atlas_height, atlas_layer_count)
+        create_atlas_texture_array(gl, atlas_width, atlas_height, atlas_layer_count)
     };
 
     // Create a 1x1 stub atlas texture array for use during render_to_atlas.
@@ -2331,27 +2386,15 @@ fn create_webgl_resources(
     let stub_atlas_texture_array = create_atlas_texture_array(gl, 1, 1, 1);
 
     // Create and configure encoded paints texture.
-    let encoded_paints_texture = create_texture(
-        gl,
-        WebGl2RenderingContext::NEAREST,
-        WebGl2RenderingContext::NEAREST,
-    );
+    let encoded_paints_texture = create_placeholder_rgba32ui_texture(gl);
 
     // Create and configure gradient texture.
-    let gradient_texture = create_texture(
-        gl,
-        WebGl2RenderingContext::NEAREST,
-        WebGl2RenderingContext::NEAREST,
-    );
-    let placeholder_external_texture = create_placeholder_texture(gl);
+    let gradient_texture = create_placeholder_rgba8_texture(gl);
+    let placeholder_external_texture = create_placeholder_rgba8_texture(gl);
 
     let layer_textures: [Vec<WebGlIntermediateTexture>; 2] = core::array::from_fn(|_| Vec::new());
     let scratch_texture = None;
-    let filter_data_texture = create_texture(
-        gl,
-        WebGl2RenderingContext::NEAREST,
-        WebGl2RenderingContext::NEAREST,
-    );
+    let filter_data_texture = create_placeholder_rgba32ui_texture(gl);
 
     WebGlResources {
         strip_vao,
