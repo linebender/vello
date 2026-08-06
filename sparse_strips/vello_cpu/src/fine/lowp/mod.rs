@@ -31,7 +31,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{PremulColor, Tint, TintMode};
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
-use vello_common::util::Div255Ext;
+use vello_common::util::normalized_mul_u8;
 
 /// The kernel for doing rendering using u8/u16.
 #[derive(Clone, Copy, Debug)]
@@ -138,10 +138,8 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
             || {
                 for el in dest.chunks_exact_mut(16) {
                     let loaded = u8x16::from_slice(simd, el);
-                    let mulled = simd.narrow_u16x16(
-                        (simd.widen_u8x16(loaded) * simd.widen_u8x16(src.next().unwrap()))
-                            .div_255(),
-                    );
+                    let (low, high) = normalized_mul_u8(loaded, src.next().unwrap()).split();
+                    let mulled = low.narrow(high);
                     mulled.store_slice(el);
                 }
             },
@@ -470,7 +468,7 @@ mod fill {
     use crate::fine::lowp::compose::ComposeExt;
     use crate::peniko::{BlendMode, Mix};
     use vello_common::fearless_simd::*;
-    use vello_common::util::normalized_mul_u8x32;
+    use vello_common::util::normalized_mul_u8;
 
     /// Applies blend mode compositing to a buffer without per-pixel masks.
     pub(super) fn blend<S: Simd, T: Iterator<Item = u8x32<S>>>(
@@ -548,12 +546,13 @@ mod fill {
     /// This implements the Porter-Duff "source over" operator.
     #[inline(always)]
     fn alpha_composite_inner<S: Simd>(
-        s: S,
+        _s: S,
         bg: u8x32<S>,
         src: u8x32<S>,
         one_minus_alpha: u8x32<S>,
     ) -> u8x32<S> {
-        s.narrow_u16x32(normalized_mul_u8x32(bg, one_minus_alpha)) + src
+        let (low, high) = normalized_mul_u8(bg, one_minus_alpha).split();
+        low.narrow(high) + src
     }
 }
 
@@ -568,7 +567,7 @@ mod alpha_fill {
     use crate::fine::lowp::{blend, extract_masks};
     use crate::peniko::{BlendMode, Mix};
     use vello_common::fearless_simd::*;
-    use vello_common::util::{Div255Ext, normalized_mul_u8x32};
+    use vello_common::util::{Div255Ext, normalized_mul_u8};
 
     /// Applies blend mode compositing with per-pixel alpha masks.
     pub(super) fn blend<S: Simd, T: Iterator<Item = u8x32<S>>>(
@@ -669,11 +668,20 @@ mod alpha_fill {
                 let bg_v = u8x32::from_slice(s, dest);
 
                 let mask_v = extract_masks(s, masks);
-                let inv_src_a_mask_a = one - s.narrow_u16x32(normalized_mul_u8x32(src_a, mask_v));
+                let (low, high) = normalized_mul_u8(src_a, mask_v).split();
+                let inv_src_a_mask_a = one - low.narrow(high);
 
-                let p1 = s.widen_u8x32(bg_v) * s.widen_u8x32(inv_src_a_mask_a);
-                let p2 = s.widen_u8x32(src_c) * s.widen_u8x32(mask_v);
-                let res = s.narrow_u16x32((p1 + p2).div_255());
+                let (bg_low, bg_high) = bg_v.widen();
+                let (inv_low, inv_high) = inv_src_a_mask_a.widen();
+                let (src_low, src_high) = src_c.widen();
+                let (mask_low, mask_high) = mask_v.widen();
+                let bg = bg_low.combine(bg_high);
+                let inv = inv_low.combine(inv_high);
+                let src = src_low.combine(src_high);
+                let mask = mask_low.combine(mask_high);
+                let result = (bg * inv + src * mask).div_255();
+                let (low, high) = result.split();
+                let res = low.narrow(high);
 
                 res.store_slice(dest);
             },

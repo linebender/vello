@@ -3,7 +3,7 @@
 
 use crate::peniko::ImageQuality;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
+use vello_common::fearless_simd::{f32x4, prelude::*, u8x32};
 use vello_common::math::FloatExt;
 use vello_common::tile::Tile;
 use vello_common::util::Div255Ext;
@@ -71,8 +71,13 @@ pub(crate) trait NormalizedMulExt {
 impl<S: Simd> NormalizedMulExt for u8x32<S> {
     #[inline(always)]
     fn normalized_mul(self, other: Self) -> Self {
-        let divided = (self.simd.widen_u8x32(self) * other.simd.widen_u8x32(other)).div_255();
-        self.simd.narrow_u16x32(divided)
+        let (self_low, self_high) = self.widen();
+        let (other_low, other_high) = other.widen();
+        let self_wide = self_low.combine(self_high);
+        let other_wide = other_low.combine(other_high);
+        let result = (self_wide * other_wide).div_255();
+        let (low, high) = result.split();
+        low.narrow(high)
     }
 }
 
