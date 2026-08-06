@@ -12,6 +12,18 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.2.0][] - 2026-08-07
+
+This release has an [MSRV][] of 1.88.
+
+### Added
+
+- `ProbeResult::statistics`, `ProbeStatistics`, and `ProbeFeature` for diagnosing which renderer-probe features and pixels differ from the reference output. ([#1779][] by [@LaurenzV][])
+
+### Changed
+
+- Breaking change: `AtlasError` variants now report configured limits and allocation sizes, with the new `AtlasSpaceDiagnostics` and `AtlasLayerDiagnostics` types providing per-layer free-space, utilization, and fragmentation details. ([#1778][] by [@grebmeg][])
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -295,8 +307,11 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1762]: https://github.com/linebender/vello/pull/1762
 [#1763]: https://github.com/linebender/vello/pull/1763
 [#1768]: https://github.com/linebender/vello/pull/1768
+[#1778]: https://github.com/linebender/vello/pull/1778
+[#1779]: https://github.com/linebender/vello/pull/1779
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
+[0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
 [0.0.8]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...sparse-strips-v0.0.8
