@@ -28,7 +28,8 @@ const CIRCLE_CENTER_OFFSET_X: f64 = 1.5;
 const IMAGE_SOURCE_SIZE: f64 = 5.0;
 const PATH_TOLERANCE: f64 = 0.1;
 
-const ELEMENTS: [ProbeFeature; 8] = [
+/// The active elements used in the probe.
+pub const ELEMENTS: [ProbeFeature; 8] = [
     ProbeFeature::SolidRect,
     ProbeFeature::AlphaBlending,
     ProbeFeature::Gradient,
