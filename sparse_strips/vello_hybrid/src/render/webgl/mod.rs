@@ -1284,6 +1284,7 @@ impl WebGlPrograms {
             // texture name is required on Mali-G52 under the Android WebView GL compositor: replacing
             // the stub object mid-session hangs the native compositor, causing an ANR, and flushing
             // around the swap does not help.
+            gl.active_texture(WebGl2RenderingContext::TEXTURE0);
             gl.bind_texture(
                 WebGl2RenderingContext::TEXTURE_2D_ARRAY,
                 Some(&self.resources.atlas_texture_array.texture),
@@ -1302,15 +1303,15 @@ impl WebGlPrograms {
             )
             .unwrap();
             self.resources.atlas_texture_array.size = WebGlTextureSize { width, height };
-            self.resources.atlas_layer_count = required_atlas_count;
-            // Cached FBOs were attached to the 1x1 stub store; drop them so we recreate on next use.
-            self.resources.atlas_render_framebuffer = None;
         } else {
             // Growing an atlas that already holds data: allocate a new, larger `TEXTURE_2D_ARRAY`,
             // copy the existing layers across, then swap. On Mali-G52 under the Android WebView GL
             // compositor, `glFlush`ing after the copy is required before the next composite;
             // otherwise, the compositor hangs and causes an ANR. Unbinding the atlas and flushing
             // before allocation are precautionary.
+            gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+            gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D_ARRAY, None);
+            gl.active_texture(WebGl2RenderingContext::TEXTURE2);
             gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D_ARRAY, None);
             gl.flush();
 
@@ -1320,13 +1321,14 @@ impl WebGlPrograms {
 
             // Replace the old resources (dropping the old array frees its GL texture).
             self.resources.atlas_texture_array = new_atlas_texture_array;
-            self.resources.atlas_layer_count = required_atlas_count;
-            // Cached FBOs were attached to the old texture; drop them so we recreate on next use.
-            self.resources.atlas_render_framebuffer = None;
 
             // This is the critical flush that prevents the Mali-G52 compositor hang.
             gl.flush();
         }
+
+        self.resources.atlas_layer_count = required_atlas_count;
+        // Cached FBOs were attached to the previous store; drop them so we recreate on next use.
+        self.resources.atlas_render_framebuffer = None;
     }
 
     /// Copy texture data from the old atlas texture array to a new one.
@@ -2272,14 +2274,13 @@ fn create_texture_inner(
 }
 
 /// Create a 1x1 RGBA32UI placeholder texture.
-///
-/// See [`create_placeholder_rgba8_texture`] for why the initial allocation matters.
 fn create_placeholder_rgba32ui_texture(gl: &WebGl2RenderingContext) -> Texture {
     let texture = create_texture(
         gl,
         WebGl2RenderingContext::NEAREST,
         WebGl2RenderingContext::NEAREST,
     );
+    // See `create_placeholder_rgba8_texture` for why the initial allocation matters.
     upload_data_to_rgba32_texture(gl, &texture, &[0; 4], 1, 1);
     texture
 }
