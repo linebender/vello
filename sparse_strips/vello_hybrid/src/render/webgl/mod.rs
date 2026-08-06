@@ -1228,27 +1228,34 @@ impl WebGlPrograms {
         for (index, textures) in self.resources.layer_textures.iter_mut().enumerate() {
             let required_page_count = layer_pages[index];
 
+            // When resizing textures, we explicitly first destroy the old textures before creating
+            // the new ones. The hope is that this will allow the WebGL driver to recognize
+            // that the memory of the old texture can be deallocated before allocating the
+            // new one, reducing peak memory consumption. It has not been validated whether
+            // this actually makes any difference in practice, but it shouldn't hurt either.
+
             // Note: Currently, `texture_size` only grows across frames, so if this condition
             // is true it means that the new required size is larger than what we currently have.
             if size_changed {
-                // TODO: Drop old layer explicitly before creating new one to ensure WebGL
-                // driver has the chance to reduce peak memory usage instead of having to keep both
-                // textures alive at the same time?
-                for texture in textures.iter_mut() {
-                    *texture = create_intermediate_texture(gl, texture_size);
-                }
+                let page_count = textures.len().max(required_page_count);
+                textures.clear();
+                textures
+                    .extend((0..page_count).map(|_| create_intermediate_texture(gl, texture_size)));
+            } else {
+                textures.extend(
+                    (textures.len()..required_page_count)
+                        .map(|_| create_intermediate_texture(gl, texture_size)),
+                );
             }
-
-            textures.extend(
-                (textures.len()..required_page_count)
-                    .map(|_| create_intermediate_texture(gl, texture_size)),
-            );
         }
 
         let recreate_scratch = (self.resources.scratch_texture.is_some() && size_changed)
             || (self.resources.scratch_texture.is_none() && scratch_required);
 
         if recreate_scratch {
+            // Make sure the old texture is destroyed first.
+            let _ = self.resources.scratch_texture.take();
+
             self.resources.scratch_texture = Some(ScratchTexture::new(
                 create_intermediate_texture(gl, texture_size),
             ));
