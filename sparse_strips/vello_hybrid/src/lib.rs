@@ -97,7 +97,7 @@ pub use render::{
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
 pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(feature = "webgl", feature = "probe"))]
-pub use render::{Probe, ProbeFeature, ProbeResult, ProbeStatistics};
+pub use render::{PROBE_ELEMENTS, Probe, ProbeFeature, ProbeResult, ProbeStatistics};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 pub use resources::Resources;
