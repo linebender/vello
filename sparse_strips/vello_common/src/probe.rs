@@ -28,7 +28,8 @@ const CIRCLE_CENTER_OFFSET_X: f64 = 1.5;
 const IMAGE_SOURCE_SIZE: f64 = 5.0;
 const PATH_TOLERANCE: f64 = 0.1;
 
-const ELEMENTS: [ProbeFeature; 8] = [
+/// The active elements used in the probe.
+pub const PROBE_ELEMENTS: [ProbeFeature; 8] = [
     ProbeFeature::SolidRect,
     ProbeFeature::AlphaBlending,
     ProbeFeature::Gradient,
@@ -117,9 +118,9 @@ impl ProbeStatistics {
 impl ProbeResult {
     /// Return the statistics of the probe.
     pub fn statistics(&self) -> ProbeStatistics {
-        let layout = GridLayout::from_elements(&ELEMENTS);
+        let layout = GridLayout::from_elements(&PROBE_ELEMENTS);
         let mut statistics = ProbeStatistics {
-            element_count: ELEMENTS.len() as u8,
+            element_count: PROBE_ELEMENTS.len() as u8,
             actual_size: (self.actual.width, self.actual.height),
             ..Default::default()
         };
@@ -145,7 +146,7 @@ impl ProbeResult {
                 statistics.different_pixel_count += 1;
 
                 let cell_index = layout.cell_index_for_pixel(pixel_index);
-                if let Some(feature) = ELEMENTS.get(cell_index) {
+                if let Some(feature) = PROBE_ELEMENTS.get(cell_index) {
                     statistics.difference_mask |= 1_u32 << *feature as u8;
                 }
             }
@@ -316,7 +317,7 @@ impl ProbeFeature {
 
 /// Return the canvas size of the shared probe scene.
 pub fn canvas_size() -> (u16, u16) {
-    GridLayout::from_elements(&ELEMENTS).canvas_size()
+    GridLayout::from_elements(&PROBE_ELEMENTS).canvas_size()
 }
 
 /// Return the pixmap that is referenced when drawing images in the scene.
@@ -352,14 +353,14 @@ fn image_paint(image: ImageSource, quality: ImageQuality) -> PaintType {
 
 /// Draw the full shared probe scene into a rendering context.
 pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource) {
-    let layout = GridLayout::from_elements(&ELEMENTS);
+    let layout = GridLayout::from_elements(&PROBE_ELEMENTS);
     let image_nearest = image_paint(image.clone(), ImageQuality::Low);
     let image_bilinear = image_paint(image, ImageQuality::Medium);
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(css::WHITE.into());
     ctx.fill_rect(&layout.canvas_rect());
 
-    for (index, element) in ELEMENTS.iter().copied().enumerate() {
+    for (index, element) in PROBE_ELEMENTS.iter().copied().enumerate() {
         draw_probe_element(
             ctx,
             layout.cell_rect(index),
@@ -534,7 +535,7 @@ mod tests {
             data: vec![255; pixel_count * 4],
         };
         let mut actual = expected.clone();
-        let layout = GridLayout::from_elements(&ELEMENTS);
+        let layout = GridLayout::from_elements(&PROBE_ELEMENTS);
 
         let set_channel = |actual: &mut ProbeImage, cell_index: usize, channel: usize, value| {
             let center = layout.cell_rect(cell_index).center();
@@ -555,7 +556,7 @@ mod tests {
         assert_eq!(
             statistics,
             ProbeStatistics {
-                element_count: ELEMENTS.len() as u8,
+                element_count: PROBE_ELEMENTS.len() as u8,
                 actual_size: (width, height),
                 different_pixel_count: 2,
                 max_channel_discrepancy: [6, 255, 0, 155],
