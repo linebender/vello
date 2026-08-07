@@ -397,7 +397,8 @@ impl MultiThreadedDispatcher {
     ) {
         let mut bucketer = self.bucketer.lock().unwrap();
         let filters = FilterContext::new(0);
-        bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
+        let viewport = settings.scene_viewport(scene_width, scene_height);
+        bucketer.reset(viewport);
         bucketer.bucket_commands(
             &self.recorder.nodes,
             &self.recorder.draws,
@@ -418,7 +419,7 @@ impl MultiThreadedDispatcher {
                 image_resolver,
             };
             let params = FineRenderParams {
-                scene_size: (scene_width, scene_height),
+                scene_size: (scene_width, viewport.height()),
                 target_offset: settings.offset,
             };
 

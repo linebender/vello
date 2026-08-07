@@ -24,6 +24,7 @@ use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
@@ -114,6 +115,9 @@ pub enum PixelFormat {
     Rgba8,
 }
 
+/// Required alignment for the start of [`RasterizerSettings::scene_rows`].
+pub const SCENE_ROW_ALIGNMENT: u16 = vello_common::tile::Tile::HEIGHT;
+
 /// Settings used when rasterizing a scene into a pixmap.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct RasterizerSettings {
@@ -135,6 +139,35 @@ pub struct RasterizerSettings {
     ///
     /// See [`RenderContext::render_with`] for more information.
     pub offset: (u16, u16),
+    /// Half-open range of scene rows to rasterize, or `None` for the whole scene.
+    ///
+    /// Rasterizing `y0..y1` writes those scene rows starting at
+    /// [`RasterizerSettings::offset`] in the destination, letting a tall scene
+    /// be rasterized one horizontal band at a time into a band-sized pixmap
+    /// without re-recording it.
+    ///
+    /// The start must be a multiple of [`SCENE_ROW_ALIGNMENT`], since
+    /// rasterization works in strips of that height and an unaligned start
+    /// would silently shift the output; rasterizing panics if it is not. The
+    /// end is snapped outwards and clamped to the scene height for you.
+    pub scene_rows: Option<(u16, u16)>,
+}
+
+impl RasterizerSettings {
+    /// The scene-space viewport to rasterize: the rows selected by
+    /// [`Self::scene_rows`] snapped outwards to the tile grid and clamped to
+    /// the scene, or the whole scene.
+    pub(crate) fn scene_viewport(self, scene_width: u16, scene_height: u16) -> RectU16 {
+        let Some((y0, y1)) = self.scene_rows else {
+            return RectU16::new(0, 0, scene_width, scene_height);
+        };
+        assert!(
+            y0.is_multiple_of(SCENE_ROW_ALIGNMENT),
+            "`scene_rows` must start on a multiple of {SCENE_ROW_ALIGNMENT}"
+        );
+        let y1 = y1.next_multiple_of(SCENE_ROW_ALIGNMENT).min(scene_height);
+        RectU16::new(0, y0.min(y1), scene_width, y1)
+    }
 }
 
 impl Default for RasterizerSettings {
@@ -144,6 +177,7 @@ impl Default for RasterizerSettings {
             composite_mode: CompositeMode::Replace,
             pixel_format: PixelFormat::Rgba8,
             offset: (0, 0),
+            scene_rows: None,
         }
     }
 }
@@ -806,7 +840,7 @@ impl RenderContext {
         let mut target = target.into();
         let target_fully_covered = settings.offset == (0, 0)
             && self.width >= target.width()
-            && self.height >= target.height();
+            && settings.scene_viewport(self.width, self.height).height() >= target.height();
         // If the scene covers the whole pixmap than packing will take care
         // of clearing everything anyway, so no reason to clear it explicitly
         // here.
@@ -962,7 +996,7 @@ impl ImageResolver for ImageRegistry {
 mod tests {
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
-    use crate::{CompositeMode, RasterizerSettings, RenderContext, Resources};
+    use crate::{CompositeMode, RasterizerSettings, RenderContext, RenderSettings, Resources};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     use alloc::vec;
@@ -970,7 +1004,7 @@ mod tests {
     use glifo::Glyph;
     use vello_common::color::PremulRgba8;
     use vello_common::color::palette::css::{BLUE, RED};
-    use vello_common::kurbo::{Rect, Shape};
+    use vello_common::kurbo::{Affine, Rect, Shape};
     use vello_common::pixmap::{Pixmap, PixmapMut};
     use vello_common::tile::Tile;
 
@@ -1359,5 +1393,80 @@ mod tests {
             .fill_glyphs(glyphs.into_iter());
 
         assert!(resources.glyph_resources.is_some());
+    }
+
+    #[test]
+    #[should_panic(expected = "must start on a multiple")]
+    fn scene_rows_unaligned_start_panics() {
+        let ctx = RenderContext::new(16, 16);
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(16, 16);
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                scene_rows: Some((2, 8)),
+                ..Default::default()
+            },
+        );
+    }
+
+    #[test]
+    fn scene_rows_bands_match_a_full_rasterization() {
+        scene_rows_bands_match(RenderSettings::default());
+    }
+
+    #[cfg(feature = "multithreading")]
+    #[test]
+    fn scene_rows_bands_match_a_full_rasterization_multithreaded() {
+        scene_rows_bands_match(RenderSettings {
+            num_threads: 4,
+            ..Default::default()
+        });
+    }
+
+    fn scene_rows_bands_match(render_settings: RenderSettings) {
+        const W: u16 = 64;
+        const H: u16 = 64;
+
+        let mut ctx = RenderContext::new_with(W, H, render_settings);
+        // Content that straddles band boundaries in both directions.
+        ctx.set_paint(RED);
+        ctx.fill_path(&Rect::new(4.0, 2.0, 60.0, 33.0).to_path(0.1));
+        ctx.set_transform(Affine::rotate(0.4));
+        ctx.set_paint(BLUE);
+        ctx.fill_path(&Rect::new(10.0, 10.0, 50.0, 55.0).to_path(0.1));
+        ctx.reset_transform();
+        ctx.flush();
+
+        let mut resources = Resources::new();
+        let mut full = Pixmap::new(W, H);
+        ctx.render(&mut full, &mut resources);
+
+        // The smallest legal band, and one that doesn't divide the scene
+        // height so the last band is truncated.
+        for band in [4_u16, 20] {
+            let mut y = 0;
+            while y < H {
+                let rows = band.min(H - y);
+                let mut strip = Pixmap::new(W, rows);
+                ctx.render_with(
+                    &mut strip,
+                    &mut resources,
+                    RasterizerSettings {
+                        scene_rows: Some((y, y + rows)),
+                        ..Default::default()
+                    },
+                );
+                let start = usize::from(y) * usize::from(W);
+                assert_eq!(
+                    strip.data(),
+                    &full.data()[start..start + strip.data().len()],
+                    "band height {band}: scene rows {y}..{} differ from a full render",
+                    y + rows
+                );
+                y += rows;
+            }
+        }
     }
 }

@@ -110,15 +110,16 @@ impl SingleThreadedDispatcher {
     ) {
         let filters = self.rasterize_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let use_src_over = settings.composite_mode == CompositeMode::SrcOver;
+        let viewport = settings.scene_viewport(scene_width, scene_height);
         let params = FineRenderParams {
-            scene_size: (scene_width, scene_height),
+            scene_size: (scene_width, viewport.height()),
             target_offset: settings.offset,
         };
 
         self.bucket_and_rasterize::<S, F>(
             simd,
             &self.recorder.nodes,
-            RectU16::new(0, 0, scene_width, scene_height),
+            viewport,
             &filters,
             target,
             params,

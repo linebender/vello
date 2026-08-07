@@ -662,7 +662,9 @@ impl CommandBucketer {
         // layer bbox could unnecessarily balloon the size of the pixmap we allocate if it is
         // very large, since those don't actually contribute any visible output. However, this does
         // mean that this method might be called with strips that do not lie within the viewport.
-        // Therefore, we need to make sure to clip those appropriately.
+        // Therefore, we need to make sure to clip those appropriately. The same holds when the
+        // viewport is a band of the scene (`RasterizerSettings::scene_rows`), where most strips
+        // routinely lie outside it.
 
         let origin_tile_x = origin.0 / Tile::WIDTH;
         let origin_tile_y = origin.1 / Tile::HEIGHT;
