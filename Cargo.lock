@@ -1353,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "glifo"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "core_maths",
