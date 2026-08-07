@@ -12,6 +12,18 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.2.0][] - 2026-08-07
+
+This release has an [MSRV][] of 1.88.
+
+### Fixed
+
+- Wrong application of extend mode in the y-direction. ([#1803][] by [@LaurenzV][], [@ShiroKSH][])
+
+### Optimized
+
+- Multi-threaded render contexts now initialize task dispatch lazily on the first drawing operation, avoiding unnecessary setup for empty frames and after resets. ([#1787][] by [@LaurenzV][], [@yezhizhen][])
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -203,6 +215,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
 [@oscargus]: https://github.com/oscargus
+[@ShiroKSH]: https://github.com/ShiroKSH
 [@taj-p]: https://github.com/taj-p
 [@tomcur]: https://github.com/tomcur
 [@tronical]: https://github.com/tronical
@@ -261,8 +274,11 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1756]: https://github.com/linebender/vello/pull/1756
 [#1760]: https://github.com/linebender/vello/pull/1760
 [#1763]: https://github.com/linebender/vello/pull/1763
+[#1787]: https://github.com/linebender/vello/pull/1787
+[#1803]: https://github.com/linebender/vello/pull/1803
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
+[0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
 [0.0.8]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...sparse-strips-v0.0.8

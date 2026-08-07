@@ -12,19 +12,31 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.2.0][] - 2026-08-07
+
+This release has an [MSRV][] of 1.88.
+
 ### Added
 
-- Support for sampling from external textures through `Scene::draw_texture_rects` in the `webgl` backend, bringing it to parity with the `wgpu` backend. Textures are bound at render time through the new `WebGlTextureBindings`.
+- Support for sampling from external textures through `Scene::draw_texture_rects` in the `webgl` backend, bringing it to parity with the `wgpu` backend. Textures are bound at render time through the new `WebGlTextureBindings`. ([#1792][] by [@grebmeg][])
+- `ProbeResult::statistics`, `ProbeStatistics`, and `ProbeFeature` for diagnosing which renderer-probe features and pixels differ from the reference output. ([#1779][] by [@LaurenzV][])
+- `PROBE_ELEMENTS` for inspecting the active features used by the WebGL compatibility probe. ([#1801][] by [@LaurenzV][])
 
 ### Changed
 
-- Breaking change: `Renderer::new`, `Renderer::new_with`, `WebGlRenderer::new`, and `WebGlRenderer::new_with` now return the renderer and its associated `Resources` as a tuple. The given `Resources` should only be used in conjunction with the renderer instance that generated it. 
-- Breaking change: `Scene::new_with` now takes a `Level` instead of `RenderSettings`.
-- Breaking change: `WebGlRenderer::render` and `WebGlRenderer::render_to_atlas` now take a `WebGlTextureBindings`, providing the external textures referenced by the scene. Pass `&WebGlTextureBindings::new()` if the scene does not use any.
+- Breaking change: `Renderer::new`, `Renderer::new_with`, `WebGlRenderer::new`, and `WebGlRenderer::new_with` now return the renderer and its associated `Resources` as a tuple. `Resources` can no longer be constructed directly and must only be used with the renderer instance that generated it. ([#1794][] by [@LaurenzV][])
+- Breaking change: `Scene::new_with` now takes a `Level` instead of `RenderSettings`. ([#1794][] by [@LaurenzV][])
+- Breaking change: `WebGlRenderer::render` and `WebGlRenderer::render_to_atlas` now take `WebGlTextureBindings`, providing the external textures referenced by the scene. Pass `&WebGlTextureBindings::new()` if the scene does not use any. ([#1792][] by [@grebmeg][])
+- Breaking change: Image-atlas allocation errors now include allocation and free-space diagnostics, while intermediate-texture failures use the new `IntermediateTextureError` variants for oversized allocations and texture-count limits. ([#1778][] by [@grebmeg][])
 
 ### Fixed
 
-- Fixed a bug in the `webgl` backend that could cause an ANR on Mali-G52 GPUs. (by [@grebmeg][])
+- Image tints with zero opacity now make the image fully transparent. ([#1791][] by [@LaurenzV][])
+- WebGL image-atlas allocation and growth on Mali-G52 GPUs, avoiding application-not-responding errors. ([#1800][] by [@grebmeg][])
+
+### Optimized
+
+- WebGL intermediate textures are destroyed before resized replacements are allocated, reducing peak texture memory while render targets grow. ([#1781][] by [@LaurenzV][])
 
 ## [0.1.0][] - 2026-07-29
 
@@ -282,8 +294,17 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1760]: https://github.com/linebender/vello/pull/1760
 [#1763]: https://github.com/linebender/vello/pull/1763
 [#1769]: https://github.com/linebender/vello/pull/1769
+[#1778]: https://github.com/linebender/vello/pull/1778
+[#1779]: https://github.com/linebender/vello/pull/1779
+[#1781]: https://github.com/linebender/vello/pull/1781
+[#1791]: https://github.com/linebender/vello/pull/1791
+[#1792]: https://github.com/linebender/vello/pull/1792
+[#1794]: https://github.com/linebender/vello/pull/1794
+[#1800]: https://github.com/linebender/vello/pull/1800
+[#1801]: https://github.com/linebender/vello/pull/1801
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
+[0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
 [0.0.8]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...sparse-strips-v0.0.8

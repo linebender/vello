@@ -12,6 +12,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.3.0][] - 2026-08-07
+
+This release has an [MSRV][] of 1.88.
+
+### Changed
+
+- Breaking change: Updated `vello_common` to v0.2.0.
+
 ## [0.2.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
@@ -55,7 +63,8 @@ Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@con
 [#1672]: https://github.com/linebender/vello/pull/1672
 [#1774]: https://github.com/linebender/vello/pull/1774
 
-[Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.2.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.3.0...HEAD
+[0.3.0]: https://github.com/linebender/vello/compare/glifo-v0.2.0...glifo-v0.3.0
 [0.2.0]: https://github.com/linebender/vello/compare/glifo-v0.1.1...glifo-v0.2.0
 [0.1.1]: https://github.com/linebender/vello/compare/glifo-v0.1.0...glifo-v0.1.1
 [0.1.0]: https://github.com/linebender/vello/compare/246912ae692cff7719cd95026107cc1aa077f205...glifo-v0.1.0
