@@ -22,6 +22,10 @@ This release has an [MSRV][] of 1.88.
 - Breaking change: `Scene::new_with` now takes a `Level` instead of `RenderSettings`.
 - Breaking change: `WebGlRenderer::render` and `WebGlRenderer::render_to_atlas` now take a `WebGlTextureBindings`, providing the external textures referenced by the scene. Pass `&WebGlTextureBindings::new()` if the scene does not use any.
 
+### Fixed
+
+- Fixed a bug in the `webgl` backend that could cause an ANR on Mali-G52 GPUs. (by [@grebmeg][])
+
 ## [0.1.0][] - 2026-07-29
 
 This release has an [MSRV][] of 1.88.
