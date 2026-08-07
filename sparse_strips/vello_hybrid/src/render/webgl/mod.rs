@@ -208,8 +208,7 @@ impl WebGlRenderer {
         // context.
         let context_options = js_sys::Object::new();
         js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
-        // Reject contexts that would be dramatically slower than native rendering, such as a
-        // software-rasterized fallback.
+        // Avoid running Vello Hybrid if it's gonna be super slow.
         js_sys::Reflect::set(
             &context_options,
             &"failIfMajorPerformanceCaveat".into(),
