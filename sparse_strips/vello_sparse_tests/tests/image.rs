@@ -89,6 +89,25 @@ fn image_pad_x_pad_y(ctx: &mut impl Renderer) {
     repeat(ctx, Extend::Pad, Extend::Pad);
 }
 
+// TODO: Doesn't work correctly in Hybrid due to a difference in sampling behavior.
+#[vello_test(skip_hybrid)]
+fn image_bilinear_repeat_x_pad_y(ctx: &mut impl Renderer) {
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    let image_source = rgb_img_2x2(ctx);
+
+    ctx.set_paint_transform(Affine::scale(10.0));
+    ctx.set_paint(Image {
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Pad,
+            quality: ImageQuality::Medium,
+            alpha: 1.0,
+        },
+    });
+    ctx.fill_rect(&rect);
+}
+
 fn transform(ctx: &mut impl Renderer, transform: Affine, l: f64, t: f64, r: f64, b: f64) {
     let rect = Rect::new(l, t, r, b);
     let image_source = rgb_img_10x10(ctx);

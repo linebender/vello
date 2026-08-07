@@ -221,7 +221,7 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
                 extend(
                     self.simd,
                     x_positions + $offsets[$idx],
-                    self.data.image.sampler.y_extend,
+                    self.data.image.sampler.x_extend,
                     self.data.width,
                     self.data.width_inv,
                 )
