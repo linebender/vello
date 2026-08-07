@@ -20,6 +20,7 @@ This release has an [MSRV][] of 1.88.
 
 - Support for sampling from external textures through `Scene::draw_texture_rects` in the `webgl` backend, bringing it to parity with the `wgpu` backend. Textures are bound at render time through the new `WebGlTextureBindings`. ([#1792][] by [@grebmeg][])
 - `ProbeResult::statistics`, `ProbeStatistics`, and `ProbeFeature` for diagnosing which renderer-probe features and pixels differ from the reference output. ([#1779][] by [@LaurenzV][])
+- `PROBE_ELEMENTS` for inspecting the active features used by the WebGL compatibility probe. ([#1801][] by [@LaurenzV][])
 
 ### Changed
 
@@ -31,14 +32,11 @@ This release has an [MSRV][] of 1.88.
 ### Fixed
 
 - Image tints with zero opacity now make the image fully transparent. ([#1791][] by [@LaurenzV][])
+- WebGL image-atlas allocation and growth on Mali-G52 GPUs, avoiding application-not-responding errors. ([#1800][] by [@grebmeg][])
 
 ### Optimized
 
 - WebGL intermediate textures are destroyed before resized replacements are allocated, reducing peak texture memory while render targets grow. ([#1781][] by [@LaurenzV][])
-
-### Fixed
-
-- Fixed a bug in the `webgl` backend that could cause an ANR on Mali-G52 GPUs. (by [@grebmeg][])
 
 ## [0.1.0][] - 2026-07-29
 
@@ -302,6 +300,8 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1791]: https://github.com/linebender/vello/pull/1791
 [#1792]: https://github.com/linebender/vello/pull/1792
 [#1794]: https://github.com/linebender/vello/pull/1794
+[#1800]: https://github.com/linebender/vello/pull/1800
+[#1801]: https://github.com/linebender/vello/pull/1801
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0

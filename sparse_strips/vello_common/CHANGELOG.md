@@ -19,6 +19,7 @@ This release has an [MSRV][] of 1.88.
 ### Added
 
 - `ProbeResult::statistics`, `ProbeStatistics`, and `ProbeFeature` for diagnosing which renderer-probe features and pixels differ from the reference output. ([#1779][] by [@LaurenzV][])
+- `PROBE_ELEMENTS` for inspecting the active features used by the shared probe scene. ([#1801][] by [@LaurenzV][])
 
 ### Changed
 
@@ -309,6 +310,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1768]: https://github.com/linebender/vello/pull/1768
 [#1778]: https://github.com/linebender/vello/pull/1778
 [#1779]: https://github.com/linebender/vello/pull/1779
+[#1801]: https://github.com/linebender/vello/pull/1801
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
