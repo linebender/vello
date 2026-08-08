@@ -468,6 +468,12 @@ impl Renderer {
     ///    You would then use [`TextureBlitter`][wgpu::util::TextureBlitter] to blit the rendered result from
     ///    that texture to the surface.
     ///    This pattern is supported by the [`util`] module.
+    ///
+    ///    Note that the preferred texture format of a surface commonly has an `Srgb` conversion
+    ///    suffix. Naively blitting the intermediate texture to an `Srgb` texture will cause an
+    ///    extra sRGB transfer function to apply, resulting in washed-out colors on the display.
+    ///    To avoid this, provide the surface texture's format to the [`wgpu::TextureViewDescriptor`]
+    ///    when creating the source view for the blit from the intermediate texture.
     /// 2) Call `render_to_texture` directly on the [`SurfaceTexture`][wgpu::SurfaceTexture]'s texture, if
     ///    it has the right usages. This should generally be avoided, as some GPUs assume that you will not
     ///    be rendering to the surface using a compute pipeline, and optimise accordingly.
