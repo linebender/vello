@@ -32,9 +32,9 @@ It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
 
 The `vello` crate provides the following Cargo features:
 
-- `wgpu` (enabled by default) enables the GPU renderer and shader pipeline.
-- `wgpu_default` (enabled by default) enables the default feature set of
-  `wgpu`. Disable this feature when supplying a custom `wgpu` dependency.
+- `wgpu` (enabled by default) enables the GPU renderer and shader pipeline;
+  `wgpu_default` (also enabled by default) enables the dependency's default
+  features. Disable the latter when supplying a custom `wgpu` dependency.
 - `bump_estimate` enables the GPU memory usage estimation instrumentation.
 - `debug_layers` enables development-only debug layers for the async pipeline.
 - `wgpu-profiler` enables the embedded `wgpu-profiler` integration.
