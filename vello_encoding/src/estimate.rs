@@ -74,14 +74,16 @@ impl BumpEstimator {
         for el in path {
             match el {
                 PathEl::MoveTo(p0) => {
-                    first_pt = Some(p0);
+                    let prev_first_pt = first_pt;
                     let Some(point) = last_pt else {
+                        first_pt = Some(p0);
                         continue;
                     };
                     caps += 1;
                     joins = joins.saturating_sub(1);
                     fill_close_lines += 1;
-                    segments += count_segments_for_line(first_pt.unwrap(), point, t);
+                    segments += count_segments_for_line(prev_first_pt.unwrap(), point, t);
+                    first_pt = Some(p0);
                     last_pt = None;
                 }
                 PathEl::ClosePath => {
@@ -93,10 +95,13 @@ impl BumpEstimator {
                     last_pt = first_pt;
                 }
                 PathEl::LineTo(p0) => {
+                    let Some(prev) = last_pt.or(first_pt) else {
+                        continue;
+                    };
                     last_pt = Some(p0);
                     joins += 1;
                     lineto_lines += 1;
-                    segments += count_segments_for_line(first_pt.unwrap(), last_pt.unwrap(), t);
+                    segments += count_segments_for_line(prev, p0, t);
                 }
                 PathEl::QuadTo(p1, p2) => {
                     let Some(p0) = last_pt.or(first_pt) else {
@@ -131,7 +136,7 @@ impl BumpEstimator {
                     curve_lines += lines.ceil() as u32;
                     curve_count += 1;
                     joins += 1;
-                    let segs = count_segments_for_cubic(p0, p1, p2, p3, t);
+                    let segs = offset_fudge * count_segments_for_cubic(p0, p1, p2, p3, t);
                     segments += segs.ceil().max(lines.ceil()) as u32;
                 }
             }
@@ -159,6 +164,19 @@ impl BumpEstimator {
         self.count_stroke_caps(style.start_cap, scaled_width, caps);
         self.count_stroke_caps(style.end_cap, scaled_width, caps);
         self.count_stroke_joins(style.join, scaled_width, style.miter_limit, joins);
+    }
+
+    /// Estimate bump usage for a blurred rounded rectangle draw object.
+    ///
+    /// The blur rect itself is encoded as a dedicated draw tag, but it is always paired with
+    /// a containing shape that bounds the work. For now we conservatively estimate based on
+    /// that shape path.
+    pub fn count_blurred_rounded_rect(
+        &mut self,
+        shape: impl Iterator<Item = PathEl>,
+        t: &Transform,
+    ) {
+        self.count_path(shape, t, None);
     }
 
     /// Produce the final total, applying an optional transform to all content.
@@ -201,7 +219,7 @@ impl BumpEstimator {
             Cap::Round => {
                 let (arc_lines, line_len) = estimate_arc_lines(scaled_width);
                 self.lines.curves += count * arc_lines;
-                self.lines.curve_count += 1;
+                self.lines.curve_count += count;
                 self.segments += count * arc_lines * count_segments_for_line_length(line_len);
             }
         }
@@ -221,7 +239,7 @@ impl BumpEstimator {
             Join::Round => {
                 let (arc_lines, line_len) = estimate_arc_lines(scaled_width);
                 self.lines.curves += count * arc_lines;
-                self.lines.curve_count += 1;
+                self.lines.curve_count += count;
                 self.segments += count * arc_lines * count_segments_for_line_length(line_len);
             }
         }
@@ -295,7 +313,7 @@ fn transform_scale(t: Option<&Transform>) -> f64 {
             let v2x = m[0] as f64 - m[3] as f64;
             let v1y = m[1] as f64 - m[2] as f64;
             let v2y = m[1] as f64 + m[2] as f64;
-            (v1x * v1x + v1y * v1y).sqrt() + (v2x * v2x + v2y * v2y).sqrt()
+            ((v1x * v1x + v1y * v1y).sqrt() + (v2x * v2x + v2y * v2y).sqrt()) * 0.5
         }
         None => 1.,
     }
@@ -398,5 +416,134 @@ mod wang {
         let v2 = transform(t, v2);
         let m = v1.length().max(v2.length());
         (SQRT_OF_DEGREE_TERM_CUBIC * m.sqrt() * rsqrt_of_tol).ceil()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use peniko::kurbo::Shape;
+
+    fn identity() -> Transform {
+        Transform::IDENTITY
+    }
+
+    #[test]
+    fn move_to_closes_previous_subpath_to_its_own_start() {
+        let path = [
+            PathEl::MoveTo(Point::new(0.0, 0.0)),
+            PathEl::LineTo(Point::new(8.0, 0.0)),
+            PathEl::MoveTo(Point::new(100.0, 0.0)),
+            PathEl::LineTo(Point::new(108.0, 0.0)),
+        ];
+
+        let mut estimator = BumpEstimator::new();
+        estimator.count_path(path.into_iter(), &identity(), None);
+
+        assert_eq!(estimator.lines.linetos, 4);
+        assert_eq!(estimator.segments, 4);
+    }
+
+    #[test]
+    fn round_caps_scale_curve_floor_with_cap_count() {
+        let mut estimator = BumpEstimator::new();
+        estimator.count_stroke_caps(Cap::Round, 32.0, 3);
+        assert_eq!(estimator.lines.curve_count, 3);
+    }
+
+    #[test]
+    fn round_joins_scale_curve_floor_with_join_count() {
+        let mut estimator = BumpEstimator::new();
+        estimator.count_stroke_joins(Join::Round, 32.0, 4.0, 5);
+        assert_eq!(estimator.lines.curve_count, 5);
+    }
+
+    #[test]
+    fn cubic_strokes_apply_width_fudge_to_segment_estimate() {
+        let transform = identity();
+        let style = Stroke {
+            width: 64.0,
+            join: Join::Bevel,
+            start_cap: Cap::Butt,
+            end_cap: Cap::Butt,
+            ..Stroke::default()
+        };
+        let path = [
+            PathEl::MoveTo(Point::new(0.0, 0.0)),
+            PathEl::CurveTo(
+                Point::new(40.0, 0.0),
+                Point::new(80.0, 0.0),
+                Point::new(120.0, 0.0),
+            ),
+        ];
+
+        let mut estimator = BumpEstimator::new();
+        estimator.count_path(path.into_iter(), &transform, Some(&style));
+
+        let scale = transform_scale(Some(&transform));
+        let scaled_width = style.width * scale;
+        let offset_fudge = scaled_width.sqrt().max(1.0);
+        let p0 = Vec2::new(0.0, 0.0);
+        let p1 = Vec2::new(40.0, 0.0);
+        let p2 = Vec2::new(80.0, 0.0);
+        let p3 = Vec2::new(120.0, 0.0);
+        let lines = offset_fudge * wang::cubic(RSQRT_OF_TOL, p0, p1, p2, p3, &transform);
+        let curve_segments = (offset_fudge * count_segments_for_cubic(p0, p1, p2, p3, &transform))
+            .ceil()
+            .max(lines.ceil()) as u32;
+        let line_segments = count_segments_for_line_length(scaled_width);
+        let expected_segments = 2 * curve_segments + 4 * line_segments;
+
+        assert_eq!(estimator.segments, expected_segments);
+    }
+
+    #[test]
+    fn identity_transform_scale_is_one() {
+        assert_eq!(transform_scale(Some(&identity())), 1.0);
+    }
+
+    #[test]
+    fn explicit_identity_append_preserves_estimate() {
+        let path = [
+            PathEl::MoveTo(Point::new(0.0, 0.0)),
+            PathEl::LineTo(Point::new(16.0, 0.0)),
+            PathEl::LineTo(Point::new(16.0, 16.0)),
+        ];
+
+        let mut estimator = BumpEstimator::new();
+        estimator.count_path(path.into_iter(), &identity(), None);
+
+        let mut appended = BumpEstimator::new();
+        appended.append(&estimator, Some(&identity()));
+
+        assert_eq!(
+            estimator.tally(None).total,
+            estimator.tally(Some(&identity())).total
+        );
+        assert_eq!(estimator.tally(None).total, appended.tally(None).total);
+    }
+
+    #[test]
+    fn lineto_segments_follow_previous_point() {
+        let path = [
+            PathEl::MoveTo(Point::new(0.0, 0.0)),
+            PathEl::LineTo(Point::new(128.0, 0.0)),
+            PathEl::LineTo(Point::new(0.0, 1.0)),
+        ];
+
+        let mut estimator = BumpEstimator::new();
+        estimator.count_path(path.into_iter(), &identity(), None);
+
+        assert_eq!(estimator.segments, 18);
+    }
+
+    #[test]
+    fn blurred_rounded_rect_estimate_is_nonzero() {
+        let shape = peniko::kurbo::Rect::new(8.0, 8.0, 32.0, 24.0);
+        let mut estimator = BumpEstimator::new();
+
+        estimator.count_blurred_rounded_rect(shape.path_elements(0.1), &identity());
+
+        assert!(estimator.tally(None).total > 0);
     }
 }
