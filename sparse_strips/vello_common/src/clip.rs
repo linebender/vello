@@ -8,11 +8,11 @@ use crate::kurbo::{Affine, BezPath, PathEl};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use crate::tile::Tile;
-use crate::util::{Clear, Pool, normalized_mul_u8x16, strip_bbox};
+use crate::util::{Clear, Pool, normalized_mul_u8, strip_bbox};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
-use fearless_simd::{Level, Simd, SimdBase, dispatch, u8x16};
+use fearless_simd::{Level, dispatch, prelude::*, u8x16};
 use peniko::Fill;
 
 #[derive(Debug)]
@@ -461,7 +461,8 @@ fn intersect_impl<S: Simd>(
                                 let s2 = u8x16::from_slice(simd, s2_alpha);
 
                                 // Combine them.
-                                let res = simd.narrow_u16x16(normalized_mul_u8x16(s1, s2));
+                                let (res_lo, res_hi) = normalized_mul_u8(s1, s2).split();
+                                let res = res_lo.narrow(res_hi);
                                 target.alphas.extend(res.as_slice());
                             }
                         }
