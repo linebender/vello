@@ -495,8 +495,6 @@ fn insert_and_render_colr(
         bearing_y: 0,
     };
 
-    let area = glyph.area;
-
     let context_color = cache_key.context_color;
     let Some((atlas_slot, recorder)) = glyph_atlas.insert(image_cache, cache_key, raster_metrics)
     else {
@@ -509,7 +507,7 @@ fn insert_and_render_colr(
         renderer,
         atlas_slot,
         outline_transform,
-        area,
+        glyph.area,
         quality_for_skew(&outline_transform),
         None,
     );
