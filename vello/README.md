@@ -28,6 +28,22 @@ cargo run -p with_winit
 
 It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
 
+## Features
+
+The `vello` crate provides the following Cargo features:
+
+- `wgpu` (enabled by default) enables the GPU renderer and shader pipeline;
+  `wgpu_default` (also enabled by default) enables the dependency's default
+  features. Disable the latter when supplying a custom `wgpu` dependency.
+- `bump_estimate` enables the GPU memory usage estimation instrumentation.
+- `debug_layers` enables development-only debug layers for the async pipeline.
+- `wgpu-profiler` enables the embedded `wgpu-profiler` integration.
+- `hot_reload` enables development-only shader hot reloading inside the Vello
+  repository.
+
+See the [Cargo feature documentation](https://doc.rust-lang.org/cargo/reference/features.html)
+for details on enabling and combining features.
+
 > ⚠️ WARNING
 >
 > Vello can currently be considered in an alpha state. In particular, we're still working on the following:
