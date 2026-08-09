@@ -208,6 +208,13 @@ impl WebGlRenderer {
         // context.
         let context_options = js_sys::Object::new();
         js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
+        // Avoid running Vello Hybrid if it's gonna be super slow.
+        js_sys::Reflect::set(
+            &context_options,
+            &"failIfMajorPerformanceCaveat".into(),
+            &JsValue::TRUE,
+        )
+        .unwrap();
         // Vello only supports 24+ bit depth buffers. If the hardware falls back to a 16 bit depth buffer,
         // correctness issues will arise. For all intents and purposes, a device manufactured in the past 10 years
         // should support 24+ bit depth buffers (certainly those within the realm of what we consider "supported" devices)
