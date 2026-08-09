@@ -229,6 +229,28 @@ impl WebGlRenderer {
             .dyn_into::<WebGl2RenderingContext>()
             .expect("Context to be a WebGL2 context");
 
+        // See https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_webgl_provoking_vertex_when_its_available
+        // for why we need to set this. This has been confirmed by benchmarks, where doing just a
+        // couple of draw calls with external textures tanks performance on any
+        // Apple device, especially low-tier iOS devices.
+        // IMPORTANT: This assumes that any use of flat parameters in shaders is the same across
+        // each vertex! In case this ever changes, we need to revisit this.
+        // https://web3dsurvey.com/webgl2/extensions/WEBGL_provoking_vertex
+        if let Some(ext) = gl.get_extension("WEBGL_provoking_vertex").unwrap() {
+            // See https://registry.khronos.org/webgl/extensions/WEBGL_provoking_vertex
+            const FIRST_VERTEX_CONVENTION_WEBGL: u32 = 0x8E4D;
+
+            // In WebGL, the _last_ vertex supplies the value for flat shader varyings by default.
+            // According to the spec, implementations should only expose this flag if the _first_
+            // convention is faster by default. Therefore, if the extension is available, we always
+            // set it to _first_.
+            js_sys::Reflect::get(ext.as_ref(), &"provokingVertexWEBGL".into())
+                .unwrap()
+                .unchecked_into::<js_sys::Function>()
+                .call1(ext.as_ref(), &JsValue::from(FIRST_VERTEX_CONVENTION_WEBGL))
+                .unwrap();
+        }
+
         let cloned_gl = gl.clone();
         let _state_guard = WebGlStateGuard::with_config(
             &cloned_gl,
