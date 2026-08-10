@@ -222,6 +222,30 @@ fn opaque_root() {
         .unwrap();
     assert!(atlas.opaque_x().is_empty());
     assert_eq!(atlas.views()[0].root.x, [0, 8, 16, 24]);
+
+    let without_depth = case
+        .schedule_with_depth(RootTarget::UserSurface, SizeU16::new(64), 8, false)
+        .unwrap();
+    assert!(without_depth.opaque_x().is_empty());
+    assert_eq!(without_depth.views()[0].root.x, [0, 8, 16, 24]);
+}
+
+#[test]
+fn root_without_depth_preserves_interleaved_painter_order() {
+    let mut case = SceneCase::new(32, 8);
+    for (x, opacity) in [(0.0, 1.0), (8.0, 0.5), (16.0, 1.0), (24.0, 0.5)] {
+        case.draw_at(x, opacity);
+    }
+
+    let with_depth = case.schedule_root();
+    assert_eq!(with_depth.opaque_x(), [16, 0]);
+    assert_eq!(with_depth.views()[0].root.x, [8, 24]);
+
+    let without_depth = case
+        .schedule_with_depth(RootTarget::UserSurface, SizeU16::new(64), 8, false)
+        .unwrap();
+    assert!(without_depth.opaque_x().is_empty());
+    assert_eq!(without_depth.views()[0].root.x, [0, 8, 16, 24]);
 }
 
 #[test]

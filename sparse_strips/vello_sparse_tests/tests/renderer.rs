@@ -32,6 +32,20 @@ pub(crate) trait Renderer: Sized {
         level: Level,
         render_mode: RenderMode,
     ) -> Self;
+    fn new_with_depth_buffer(
+        width: u16,
+        height: u16,
+        num_threads: u16,
+        level: Level,
+        render_mode: RenderMode,
+        use_depth_buffer: bool,
+    ) -> Self {
+        assert!(
+            use_depth_buffer,
+            "this test renderer does not support disabling the depth buffer"
+        );
+        Self::new(width, height, num_threads, level, render_mode)
+    }
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
@@ -373,6 +387,24 @@ impl Renderer for HybridRenderer {
     type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
 
     fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
+        Self::new_with_depth_buffer(
+            width,
+            height,
+            num_threads,
+            level,
+            RenderMode::OptimizeSpeed,
+            true,
+        )
+    }
+
+    fn new_with_depth_buffer(
+        width: u16,
+        height: u16,
+        num_threads: u16,
+        level: Level,
+        _: RenderMode,
+        use_depth_buffer: bool,
+    ) -> Self {
         if num_threads != 0 {
             panic!("hybrid renderer doesn't support multi-threading");
         }
@@ -385,6 +417,7 @@ impl Renderer for HybridRenderer {
         // (for example situations where we need to spill to a new page, etc.). Therefore,
         // we make the minimum size smaller than the default.
         settings.memory_settings.layers_config.min_texture_size = vello_hybrid::SizeU16::new(100);
+        settings.use_depth_buffer = use_depth_buffer;
         Self::new_with_settings(width, height, settings)
     }
 
@@ -715,6 +748,24 @@ impl Renderer for HybridRenderer {
     type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
 
     fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
+        Self::new_with_depth_buffer(
+            width,
+            height,
+            num_threads,
+            level,
+            RenderMode::OptimizeSpeed,
+            true,
+        )
+    }
+
+    fn new_with_depth_buffer(
+        width: u16,
+        height: u16,
+        num_threads: u16,
+        level: Level,
+        _: RenderMode,
+        use_depth_buffer: bool,
+    ) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
 
@@ -729,6 +780,7 @@ impl Renderer for HybridRenderer {
         let mut settings = HybridRenderSettings::default();
         // See the comment above for why we change the `min_texture_size`.
         settings.memory_settings.layers_config.min_texture_size = vello_hybrid::SizeU16::new(100);
+        settings.use_depth_buffer = use_depth_buffer;
         let scene = Scene::new_with(width, height, settings.level);
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.

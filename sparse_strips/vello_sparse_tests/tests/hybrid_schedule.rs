@@ -21,7 +21,7 @@ use vello_dev_macros::vello_test;
 // scheduler documentation for more information.
 
 /// Test blending a child whose bounds extend beyond its clipped parent's allocation.
-#[vello_test(hybrid_tolerance = 1)]
+#[vello_test(hybrid_tolerance = 1, hybrid_no_depth)]
 fn hybrid_schedule_blended_child_outside_clipped_parent(ctx: &mut impl Renderer) {
     let parent_clip = Rect::new(40.0, 12.0, 92.0, 88.0).to_path(0.1);
 

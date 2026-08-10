@@ -34,6 +34,7 @@ mod basic;
 mod blurred_rounded_rect;
 mod clip;
 mod compose;
+mod depth;
 mod external_texture;
 mod filter;
 mod glyph;

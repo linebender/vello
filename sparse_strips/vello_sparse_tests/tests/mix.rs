@@ -162,7 +162,7 @@ fn mix_luminosity(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Luminosity, Compose::SrcOver));
 }
 
-#[vello_test(transparent)]
+#[vello_test(transparent, hybrid_no_depth)]
 fn mix_with_transparent_bg(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     ctx.set_paint(AlphaColor::<Srgb>::from_rgba8(0, 0, 128, 128));
