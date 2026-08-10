@@ -83,6 +83,7 @@ impl SceneCase {
             storage,
             &self.scene,
             root_target,
+            true,
             PaintResolver::new(encoded, &offsets),
             texture_size,
             IntermediateTextureAllocations::default(),

@@ -167,6 +167,7 @@ impl Schedule {
         storage: &mut ScheduleStorage,
         scene: &Scene,
         root_output_target: RootTarget,
+        use_depth_buffer: bool,
         paint_resolver: PaintResolver<'_>,
         texture_size: SizeU16,
         backend_allocations: IntermediateTextureAllocations,
@@ -188,6 +189,7 @@ impl Schedule {
             scene_bbox,
             &strip_storage,
             root_output_target,
+            use_depth_buffer,
             paint_resolver,
             texture_size,
             storage,
@@ -277,6 +279,8 @@ struct Scheduler<'a, 'p> {
     strip_storage: &'a StripStorage,
     /// Destination used for root-level draws.
     root_render_target: RootTarget,
+    /// Whether root-level opaque strips may use depth-buffer occlusion.
+    use_depth_buffer: bool,
     /// Resolves recorded paints to their GPU representation.
     paint_resolver: PaintResolver<'a>,
     /// Allocation cursor defining the earliest round new work can use.
@@ -294,6 +298,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         scene_bbox: RectU16,
         strip_storage: &'a StripStorage,
         root_render_target: RootTarget,
+        use_depth_buffer: bool,
         paint_resolver: PaintResolver<'a>,
         texture_size: SizeU16,
         storage: &'p mut ScheduleStorage,
@@ -303,6 +308,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             scene_bbox,
             strip_storage,
             root_render_target,
+            use_depth_buffer,
             paint_resolver,
             cursor: Cursor::new(Atlases::new(texture_size)),
             texture_size,
@@ -338,8 +344,12 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
         let target = self.root_render_target;
 
-        let mut state =
-            TargetScheduleState::new(target, self.cursor.current_round(), self.scene_bbox);
+        let mut state = TargetScheduleState::new(
+            target,
+            self.cursor.current_round(),
+            self.scene_bbox,
+            self.use_depth_buffer,
+        );
 
         if self.recorder.root_is_blend_target {
             // If the layer is a target of a non-default blending operation, we need to be able to
@@ -1004,9 +1014,9 @@ struct TargetScheduleState<T: ScheduleTarget> {
 }
 
 impl<T: ScheduleTarget> TargetScheduleState<T> {
-    fn new(target: T, start_round: usize, target_bbox: RectU16) -> Self {
+    fn new(target: T, start_round: usize, target_bbox: RectU16, use_depth_buffer: bool) -> Self {
         Self {
-            draw_state: DrawState::new(target, target_bbox),
+            draw_state: DrawState::new(target, target_bbox, use_depth_buffer),
             ready: SchedulePoint::start(start_round),
         }
     }
@@ -1041,7 +1051,7 @@ impl<T: ScheduleTarget> TargetScheduleState<T> {
 
 impl TargetScheduleState<LayerTextureRegion> {
     fn new_layer(target: LayerTextureRegion, base_round: usize) -> Self {
-        Self::new(target, base_round, target.layer_bbox)
+        Self::new(target, base_round, target.layer_bbox, false)
     }
 }
 

@@ -111,6 +111,10 @@ impl Drawable for RecordedDraw {
 pub struct RenderSettings {
     /// The SIMD level that should be used for rendering operations.
     pub level: Level,
+    /// Whether to allocate and use a depth buffer for opaque-strip occlusion.
+    ///
+    /// Disabling this reduces GPU memory usage, but can increase overdraw.
+    pub use_depth_buffer: bool,
     /// Configuration for GPU memory used while rendering.
     pub memory_settings: MemorySettings,
 }
@@ -194,6 +198,7 @@ impl Default for RenderSettings {
     fn default() -> Self {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
+            use_depth_buffer: true,
             memory_settings: MemorySettings::default(),
         }
     }
