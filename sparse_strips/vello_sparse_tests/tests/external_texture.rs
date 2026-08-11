@@ -1,8 +1,6 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// TODO: Increase test coverage to cover things like tinted external textures, etc.
-
 mod tests {
     use std::sync::Arc;
 
@@ -11,8 +9,8 @@ mod tests {
     use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{Affine, Circle, Rect, Shape};
-    use vello_common::paint::{Image, ImageSource};
-    use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
+    use vello_common::paint::{Image, ImageSource, Tint, TintMode};
+    use vello_common::peniko::{Color, Extend, ImageQuality, ImageSampler};
     use vello_common::pixmap::Pixmap;
     use vello_dev_macros::vello_test;
     use vello_hybrid::SampleRect;
@@ -39,12 +37,22 @@ mod tests {
         ))
     }
 
-    fn texture_rect_at(x: f64, y: f64) -> [SampleRect; 1] {
-        [SampleRect {
+    fn texture_rect(
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        may_have_transparency: bool,
+    ) -> SampleRect {
+        SampleRect {
             source_region: RectU16::new(0, 0, 1, 1),
-            may_have_transparency: true,
-            transform: Affine::translate((x, y)) * Affine::scale(40.),
-        }]
+            may_have_transparency,
+            transform: Affine::translate((x, y)) * Affine::scale_non_uniform(width, height),
+        }
+    }
+
+    fn texture_rect_at(x: f64, y: f64) -> [SampleRect; 1] {
+        [texture_rect(x, y, 40., 40., true)]
     }
 
     fn draw_atlas_rect(ctx: &mut impl Renderer, image: ImageSource, rect: Rect) {
@@ -141,6 +149,65 @@ mod tests {
 
         ctx.draw_texture_rects(green_texture, ImageQuality::Low, texture_rect_at(28., 28.));
         ctx.draw_texture_rects(red_texture, ImageQuality::Low, texture_rect_at(48., 48.));
+    }
+
+    #[vello_test(hybrid_only, hybrid_no_depth)]
+    fn external_texture_root_painter_order(ctx: &mut impl Renderer) {
+        let coral = ctx.register_external_texture(solid_pixmap(225, 87, 89, 255));
+        let teal = ctx.register_external_texture(solid_pixmap(42, 157, 143, 255));
+        let navy = ctx.register_external_texture(solid_pixmap(38, 70, 83, 255));
+        let gold = ctx.register_external_texture(solid_pixmap(153, 102, 61, 160));
+        let tint_source = ctx.register_external_texture(solid_pixmap(255, 255, 255, 255));
+
+        ctx.draw_texture_rects(
+            coral,
+            ImageQuality::Low,
+            [texture_rect(6., 6., 88., 88., false)],
+        );
+        ctx.draw_texture_rects(
+            gold,
+            ImageQuality::Low,
+            [
+                texture_rect(11.5, 33.5, 77., 33., true),
+                texture_rect(33.5, 11.5, 33., 77., true),
+            ],
+        );
+        ctx.draw_texture_rects(
+            teal,
+            ImageQuality::Low,
+            [texture_rect(21.5, 21.5, 57., 57., false)],
+        );
+        ctx.set_tint(Some(Tint {
+            color: Color::from_rgba8(128, 102, 204, 160),
+            mode: TintMode::Multiply,
+        }));
+        ctx.draw_texture_rects(
+            tint_source,
+            ImageQuality::Low,
+            [
+                texture_rect(16., 38., 68., 24., false),
+                texture_rect(38., 16., 24., 68., false),
+            ],
+        );
+        ctx.set_tint(None);
+        ctx.draw_texture_rects(
+            navy,
+            ImageQuality::Low,
+            [texture_rect(33.5, 33.5, 33., 33., false)],
+        );
+        ctx.draw_texture_rects(
+            gold,
+            ImageQuality::Low,
+            [
+                texture_rect(28., 44., 44., 12., true),
+                texture_rect(44., 28., 12., 44., true),
+            ],
+        );
+        ctx.draw_texture_rects(
+            coral,
+            ImageQuality::Low,
+            [texture_rect(44., 44., 12., 12., false)],
+        );
     }
 
     #[vello_test(hybrid_only)]
