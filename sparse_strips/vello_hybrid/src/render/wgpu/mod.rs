@@ -221,7 +221,7 @@ impl Renderer {
     ///
     /// The returned view has the same dimensions as `render_size`, uses
     /// [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), and can be used as a
-    /// render attachment. Callers choose when to create, cache, or replace the view.
+    /// render attachment.
     pub fn create_depth_texture_view(device: &Device, render_size: &RenderSize) -> TextureView {
         device
             .create_texture(&wgpu::TextureDescriptor {
@@ -249,9 +249,9 @@ impl Renderer {
     ///
     /// To render without any texture bindings, you can pass an empty [`TextureBindings`].
     ///
-    /// Passing `Some(depth_view)` enables opaque-strip occlusion. The depth view must use
-    /// [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), have the same dimensions
-    /// as `render_size`, have a sample count of one, and support
+    /// Passing `Some(depth_view)` enables depth buffering to reduce overdraw. The depth view must
+    /// use [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), have the same
+    /// dimensions as `render_size`, have a sample count of one, and support
     /// [`TextureUsages::RENDER_ATTACHMENT`](wgpu::TextureUsages::RENDER_ATTACHMENT). Pass `None`
     /// to render without a depth buffer.
     ///
