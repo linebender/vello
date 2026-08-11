@@ -614,7 +614,7 @@ pub struct EncodedExternalTexture {
     pub sampler: ImageSampler,
     /// Whether the sampled content may contain non-opaque pixels.
     pub may_have_transparency: bool,
-    /// Inverse destination transform, mapping scene coordinates to local source-rect space.
+    /// Inverse paint transform, mapping scene coordinates to local source-region space.
     pub transform: Affine,
     /// Optional tint applied to the sampled color.
     pub tint: Option<Tint>,

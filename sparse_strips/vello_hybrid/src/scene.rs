@@ -5,7 +5,7 @@
 
 #[cfg(feature = "text")]
 use crate::Resources;
-use crate::sampling::SampleRect;
+use crate::sampling::ExternalTextureRect;
 #[cfg(feature = "text")]
 use crate::text::GlyphRunBuilder;
 use alloc::vec;
@@ -27,7 +27,7 @@ use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Extend, Fill, ImageQuality, ImageSampler};
+use vello_common::peniko::{BlendMode, Fill, ImageSampler};
 use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps, PoppedLayer};
 use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
@@ -307,19 +307,16 @@ impl Scene {
         &mut self,
         texture_id: TextureId,
         source_region: RectU16,
-        quality: ImageQuality,
-        x_extend: Extend,
-        y_extend: Extend,
+        sampler: ImageSampler,
         transform: Affine,
         may_have_transparency: bool,
     ) -> Paint {
+        assert_eq!(
+            sampler.alpha, 1.0,
+            "external textures currently only support alpha of 1"
+        );
+
         let idx = self.encoded_paints.len();
-        let sampler = ImageSampler {
-            x_extend,
-            y_extend,
-            quality,
-            alpha: 1.0,
-        };
         let has_opacity = self
             .render_state
             .tint
@@ -493,92 +490,36 @@ impl Scene {
         });
     }
 
-    /// Sample rectangular regions from an externally bound texture and draw them with the
-    /// corresponding transforms.
+    /// Draw a region from an externally bound texture.
     ///
-    /// The per-rect transforms are composed with the current
-    /// [scene transform][`Self::set_transform`]. This transform is relative to the local region
-    /// defined by each [`SampleRect`]: i.e., the origin of each [`SampleRect`] is used only to
-    /// determine the region to sample in the source [`TextureId`], and is ignored for determining
-    /// the destination. Note that the [`paint transform`](Self::set_paint_transform) has no impact
-    /// on this method.
-    ///
-    /// A texture with the given [`TextureId`] must be supplied at render time. The given
-    /// [source regions][`SampleRect::source_region`] must be within bounds of that texture. The
-    /// texture is treated as premultiplied alpha in the render target's color space. See the
-    /// backend's binding type for more information on texture requirements.
-    pub fn draw_texture_rects(
-        &mut self,
-        texture_id: TextureId,
-        quality: ImageQuality,
-        rects: impl IntoIterator<Item = SampleRect>,
-    ) {
-        // This API currently doesn't take extend mode parameters: as of writing, the
-        // `render.wesl` shader does not use extend modes to sample across boundaries, i.e.,
-        // sampling near a boundary doesn't take extend modes into account when determining where
-        // the sample should be taken.
-        //
-        // Because in this API the destination drawn is always the transformed input rect, this
-        // means extend modes don't currently materially impact rendering. In general drawing with
-        // an external texture brush, extend modes would matter, so we still encode them.
-        let x_extend = Extend::Pad;
-        let y_extend = Extend::Pad;
+    /// See the documentation of [`ExternalTextureRect`] for more information.
+    pub fn draw_texture_rect(&mut self, rect: ExternalTextureRect) {
+        if rect.source_region.is_empty() || rect.destination_rect.is_zero_area() {
+            return;
+        }
 
         self.with_optional_filter_or_blend_layer(|ctx| {
-            let use_fast_rect = ctx.can_emit_fast_strips();
+            let paint = ctx.encode_external_texture_paint(
+                rect.texture_id,
+                rect.source_region,
+                rect.sampler,
+                ctx.effective_paint_transform(),
+                rect.may_have_transparency,
+            );
 
-            for rect in rects {
-                if rect.source_region.is_empty() {
-                    continue;
-                }
-
-                let w = f64::from(rect.source_region.width());
-                let h = f64::from(rect.source_region.height());
-                let transform = ctx.effective_path_transform() * rect.transform;
-
-                if use_fast_rect && is_axis_aligned(&transform) {
-                    let dst_rect = Rect::new(0., 0., w, h);
-                    let transformed_rect = transform
-                        .transform_rect_bbox(dst_rect)
-                        .intersect(ctx.active_rect());
-
-                    // Skip mirrored or zero-sized rectangles.
-                    if transformed_rect.is_zero_area() {
-                        continue;
-                    }
-
-                    let paint = ctx.encode_external_texture_paint(
-                        texture_id,
-                        rect.source_region,
-                        quality,
-                        x_extend,
-                        y_extend,
-                        transform,
-                        rect.may_have_transparency,
-                    );
-
-                    ctx.recorder
-                        .push_draw(RecordedDraw::new_rect(transformed_rect, paint), &[]);
-                } else {
-                    let paint = ctx.encode_external_texture_paint(
-                        texture_id,
-                        rect.source_region,
-                        quality,
-                        x_extend,
-                        y_extend,
-                        transform,
-                        rect.may_have_transparency,
-                    );
-                    let dst_rect = Rect::new(0., 0., w, h);
-                    ctx.fill_path_with(
-                        &dst_rect.to_path(DEFAULT_TOLERANCE),
-                        transform,
-                        ctx.render_state.fill_rule,
-                        paint,
-                        ctx.aliasing_threshold,
-                    );
-                }
+            if let Some(bounds) = ctx.fast_rect_bounds(&rect.destination_rect) {
+                ctx.recorder
+                    .push_draw(RecordedDraw::new_rect(bounds, paint), &[]);
+                return;
             }
+
+            ctx.fill_path_with(
+                &rect.destination_rect.to_path(DEFAULT_TOLERANCE),
+                ctx.effective_path_transform(),
+                ctx.render_state.fill_rule,
+                paint,
+                ctx.aliasing_threshold,
+            );
         });
     }
 
@@ -1015,8 +956,8 @@ mod tests {
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
     use glifo::Glyph;
-    use vello_common::kurbo::BezPath;
-    use vello_common::kurbo::Rect;
+    use vello_common::geometry::RectU16;
+    use vello_common::kurbo::{BezPath, Rect};
     use vello_common::paint::{Paint, PremulColor};
     use vello_common::peniko::color::palette::css::{BLUE, TRANSPARENT};
     #[cfg(feature = "text")]
@@ -1030,10 +971,7 @@ mod tests {
             Paint::Solid(PremulColor::from_alpha_color(BLUE)),
         );
 
-        assert_eq!(
-            draw.bbox(&[]),
-            Some(vello_common::geometry::RectU16::new(0, 0, 8, 8))
-        );
+        assert_eq!(draw.bbox(&[]), Some(RectU16::new(0, 0, 8, 8)));
     }
 
     #[test]
