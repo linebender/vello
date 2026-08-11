@@ -79,6 +79,7 @@ impl OpaqueDraw {
     pub(crate) fn reverse(&mut self) {
         self.strips.reverse();
 
+        // We also need to reassign the indices for external textures.
         let mut original_end = self.strips.len();
         for run in self.external_texture_runs.iter_mut().rev() {
             let original_start = run.strips_start;
