@@ -296,6 +296,7 @@ pub(crate) struct HybridRenderer {
     queue: wgpu::Queue,
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
+    depth_texture_view: Option<wgpu::TextureView>,
     renderer: vello_hybrid::Renderer,
     external_textures: HashMap<TextureId, wgpu::TextureView>,
     next_external_texture_id: u64,
@@ -303,7 +304,12 @@ pub(crate) struct HybridRenderer {
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl HybridRenderer {
-    fn new_with_settings(width: u16, height: u16, settings: HybridRenderSettings) -> Self {
+    fn new_with_settings(
+        width: u16,
+        height: u16,
+        settings: HybridRenderSettings,
+        use_depth_buffer: bool,
+    ) -> Self {
         let scene = Scene::new_with(width, height, settings.level);
         // Initialize wgpu device and queue for GPU rendering
         let instance = wgpu::Instance::default();
@@ -348,6 +354,12 @@ impl HybridRenderer {
             },
             settings,
         );
+        let render_size = vello_hybrid::RenderSize {
+            width: width.into(),
+            height: height.into(),
+        };
+        let depth_texture_view = use_depth_buffer
+            .then(|| vello_hybrid::Renderer::create_depth_texture_view(&device, &render_size));
 
         Self {
             scene,
@@ -356,6 +368,7 @@ impl HybridRenderer {
             queue,
             texture,
             texture_view,
+            depth_texture_view,
             renderer,
             external_textures: HashMap::new(),
             next_external_texture_id: 1,
@@ -417,8 +430,7 @@ impl Renderer for HybridRenderer {
         // (for example situations where we need to spill to a new page, etc.). Therefore,
         // we make the minimum size smaller than the default.
         settings.memory_settings.layers_config.min_texture_size = vello_hybrid::SizeU16::new(100);
-        settings.use_depth_buffer = use_depth_buffer;
-        Self::new_with_settings(width, height, settings)
+        Self::new_with_settings(width, height, settings, use_depth_buffer)
     }
 
     fn fill_path(&mut self, path: &BezPath) {
@@ -590,6 +602,7 @@ impl Renderer for HybridRenderer {
                 &mut encoder,
                 &render_size,
                 &self.texture_view,
+                self.depth_texture_view.as_ref(),
                 &texture_bindings,
             )
             .unwrap();
@@ -780,7 +793,6 @@ impl Renderer for HybridRenderer {
         let mut settings = HybridRenderSettings::default();
         // See the comment above for why we change the `min_texture_size`.
         settings.memory_settings.layers_config.min_texture_size = vello_hybrid::SizeU16::new(100);
-        settings.use_depth_buffer = use_depth_buffer;
         let scene = Scene::new_with(width, height, settings.level);
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
@@ -792,7 +804,8 @@ impl Renderer for HybridRenderer {
             .unwrap();
         canvas.set_width(width.into());
         canvas.set_height(height.into());
-        let (renderer, resources) = vello_hybrid::WebGlRenderer::new_with(&canvas, settings);
+        let (renderer, resources) =
+            vello_hybrid::WebGlRenderer::new_with(&canvas, settings, use_depth_buffer);
         let gl = canvas
             .get_context("webgl2")
             .unwrap()

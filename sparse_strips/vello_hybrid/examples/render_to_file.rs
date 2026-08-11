@@ -86,6 +86,8 @@ async fn run() {
         width: width.into(),
         height: height.into(),
     };
+    let depth_texture_view =
+        vello_hybrid::Renderer::create_depth_texture_view(&device, &render_size);
     // Copy texture to buffer
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
@@ -99,6 +101,7 @@ async fn run() {
             &mut encoder,
             &render_size,
             &texture_view,
+            Some(&depth_texture_view),
             &vello_hybrid::TextureBindings::new(),
         )
         .unwrap();

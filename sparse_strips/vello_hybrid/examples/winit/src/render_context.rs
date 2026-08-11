@@ -8,10 +8,10 @@
 
 use std::sync::Arc;
 
-use vello_hybrid::{RenderTargetConfig, Renderer, Resources};
+use vello_hybrid::{RenderSize, RenderTargetConfig, Renderer, Resources};
 use wgpu::{
     Adapter, Device, Features, Instance, Limits, Queue, Surface, SurfaceConfiguration,
-    SurfaceTarget, TextureFormat,
+    SurfaceTarget, TextureFormat, TextureView,
 };
 use winit::{event_loop::ActiveEventLoop, window::Window};
 
@@ -35,15 +35,22 @@ pub(crate) fn create_winit_window(
 pub(crate) fn create_vello_renderer(
     render_cx: &RenderContext,
     surface: &RenderSurface<'_>,
-) -> (Renderer, Resources) {
-    Renderer::new(
-        &render_cx.devices[surface.dev_id].device,
+) -> (Renderer, Resources, RenderSize, TextureView) {
+    let device = &render_cx.devices[surface.dev_id].device;
+    let render_size = RenderSize {
+        width: surface.config.width,
+        height: surface.config.height,
+    };
+    let (renderer, resources) = Renderer::new(
+        device,
         &RenderTargetConfig {
             format: surface.config.format,
-            width: surface.config.width,
-            height: surface.config.height,
+            width: render_size.width,
+            height: render_size.height,
         },
-    )
+    );
+    let depth_texture_view = Renderer::create_depth_texture_view(device, &render_size);
+    (renderer, resources, render_size, depth_texture_view)
 }
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.

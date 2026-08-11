@@ -162,7 +162,6 @@ pub struct Renderer {
     schedule_storage: ScheduleStorage,
     scratch_buffers: ScratchBuffers,
     layers_config: LayersConfig,
-    use_depth_buffer: bool,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
 }
@@ -203,7 +202,6 @@ impl Renderer {
                 &resources.image_cache,
                 render_target_config,
                 layer_config,
-                settings.use_depth_buffer,
             ),
             gradient_cache,
             encoded_paints: Vec::new(),
@@ -212,12 +210,35 @@ impl Renderer {
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
-            use_depth_buffer: settings.use_depth_buffer,
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
         };
 
         (renderer, resources)
+    }
+
+    /// Creates a depth texture view compatible with [`render`](Self::render).
+    ///
+    /// The returned view has the same dimensions as `render_size`, uses
+    /// [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), and can be used as a
+    /// render attachment. Callers choose when to create, cache, or replace the view.
+    pub fn create_depth_texture_view(device: &Device, render_size: &RenderSize) -> TextureView {
+        device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("Vello Hybrid Depth Texture"),
+                size: Extent3d {
+                    width: render_size.width.max(1),
+                    height: render_size.height.max(1),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth24Plus,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+            .create_view(&TextureViewDescriptor::default())
     }
 
     /// Render `scene`.
@@ -227,6 +248,17 @@ impl Renderer {
     /// requirements on the bound texture views.
     ///
     /// To render without any texture bindings, you can pass an empty [`TextureBindings`].
+    ///
+    /// Passing `Some(depth_view)` enables opaque-strip occlusion. The depth view must use
+    /// [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), have the same dimensions
+    /// as `render_size`, have a sample count of one, and support
+    /// [`TextureUsages::RENDER_ATTACHMENT`](wgpu::TextureUsages::RENDER_ATTACHMENT). Pass `None`
+    /// to render without a depth buffer.
+    ///
+    /// The [WebGPU render pass validation rules] require every color and depth attachment view in
+    /// a render pass to have matching render extents.
+    ///
+    /// [WebGPU render pass validation rules]: https://gpuweb.github.io/gpuweb/#abstract-opdef-gpurenderpassdescriptor-valid-usage
     pub fn render(
         &mut self,
         scene: &Scene,
@@ -236,6 +268,7 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
+        depth_view: Option<&TextureView>,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         #[cfg(feature = "text")]
@@ -276,6 +309,7 @@ impl Renderer {
             encoder,
             render_size,
             view,
+            depth_view,
             &resources.image_cache,
             &scene.encoded_paints,
             true,
@@ -373,6 +407,7 @@ impl Renderer {
             &mut encoder,
             &atlas_render_size,
             &layer_view,
+            None,
             &dummy_image_cache,
             encoded_paints,
             false,
@@ -419,6 +454,7 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
+        depth_view: Option<&TextureView>,
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
         clear: bool,
@@ -444,7 +480,7 @@ impl Renderer {
             &mut self.schedule_storage,
             scene,
             root_output_target,
-            self.use_depth_buffer,
+            depth_view.is_some(),
             paint_resolver,
             texture_size,
             current_allocations,
@@ -475,10 +511,10 @@ impl Renderer {
             queue,
             encoder,
             view,
+            depth_view,
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
             scratch_buffers: &mut self.scratch_buffers,
-            use_depth_buffer: self.use_depth_buffer,
         };
 
         crate::schedule::execute(
@@ -921,10 +957,10 @@ struct Programs {
     intermediate_strip_pipeline: RenderPipeline,
     /// Root alpha-strip pipeline.
     alpha_strip_pipeline: RenderPipeline,
+    /// Root alpha-strip pipeline with depth testing.
+    depth_alpha_strip_pipeline: RenderPipeline,
     /// Root opaque-strip pipeline.
     opaque_strip_pipeline: RenderPipeline,
-    /// View of the depth texture used for early-z rejection on the Output target.
-    depth_texture_view: Option<TextureView>,
     /// Whether the depth buffer has been cleared this frame.
     depth_cleared_this_frame: bool,
     /// Bind group layout for strip draws
@@ -1073,7 +1109,6 @@ impl Programs {
         image_cache: &ImageCache,
         render_target_config: &RenderTargetConfig,
         layer_config: LayersConfig,
-        use_depth_buffer: bool,
     ) -> Self {
         let strip_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1257,7 +1292,14 @@ impl Programs {
             "Strip Alpha Pipeline",
             render_target_config.format,
             Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-            use_depth_buffer.then(|| depth_stencil(false)),
+            None,
+        );
+
+        let depth_alpha_strip_pipeline = create_strip_pipeline(
+            "Strip Depth Alpha Pipeline",
+            render_target_config.format,
+            Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            Some(depth_stencil(false)),
         );
 
         let opaque_strip_pipeline = create_strip_pipeline(
@@ -1729,20 +1771,11 @@ impl Programs {
             view_config_buffer,
         };
 
-        let depth_texture_view = use_depth_buffer.then(|| {
-            Self::create_depth_texture(
-                device,
-                render_target_config.width,
-                render_target_config.height,
-            )
-            .create_view(&TextureViewDescriptor::default())
-        });
-
         Self {
             intermediate_strip_pipeline,
             alpha_strip_pipeline,
+            depth_alpha_strip_pipeline,
             opaque_strip_pipeline,
-            depth_texture_view,
             depth_cleared_this_frame: false,
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
@@ -1769,24 +1802,6 @@ impl Programs {
             blend_layer_bind_groups: HashMap::new(),
             filter_pair_bind_groups: HashMap::new(),
         }
-    }
-
-    #[inline]
-    fn create_depth_texture(device: &Device, width: u32, height: u32) -> Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Depth Texture"),
-            size: Extent3d {
-                width: width.max(1),
-                height: height.max(1),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth24Plus,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        })
     }
 
     fn create_strips_buffer(device: &Device, required_strips_size: u64) -> Buffer {
@@ -2223,7 +2238,7 @@ impl Programs {
         self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(device, queue, max_texture_dimension_2d, new_render_size);
+        self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints);
@@ -2391,7 +2406,6 @@ impl Programs {
     /// Update config buffer if dimensions changed.
     fn maybe_update_config_buffer(
         &mut self,
-        device: &Device,
         queue: &Queue,
         max_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
@@ -2411,17 +2425,6 @@ impl Programs {
                 .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
                 .expect("Buffer only ever holds `Config`");
             buffer.copy_from_slice(bytemuck::bytes_of(&config));
-
-            if self.depth_texture_view.is_some() {
-                self.depth_texture_view = Some(
-                    Self::create_depth_texture(
-                        device,
-                        new_render_size.width,
-                        new_render_size.height,
-                    )
-                    .create_view(&TextureViewDescriptor::default()),
-                );
-            }
 
             self.render_size = new_render_size.clone();
         }
@@ -2724,10 +2727,10 @@ struct RendererContext<'a> {
     queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
+    depth_view: Option<&'a TextureView>,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
     scratch_buffers: &'a mut ScratchBuffers,
-    use_depth_buffer: bool,
 }
 
 impl RendererContext<'_> {
@@ -2819,7 +2822,7 @@ impl RendererContext<'_> {
 
         let bind_group = &self.programs.strip_layer_bind_groups[&bind_group_key];
 
-        let enable_opaque = self.use_depth_buffer && target.enable_opaque();
+        let enable_opaque = self.depth_view.is_some() && target.enable_opaque();
 
         let depth_stencil_attachment = if enable_opaque {
             let depth_load = if self.programs.depth_cleared_this_frame {
@@ -2830,10 +2833,8 @@ impl RendererContext<'_> {
             };
             Some(wgpu::RenderPassDepthStencilAttachment {
                 view: self
-                    .programs
-                    .depth_texture_view
-                    .as_ref()
-                    .expect("enabled depth buffering requires a depth texture"),
+                    .depth_view
+                    .expect("enabled depth buffering requires a depth texture view"),
                 depth_ops: Some(wgpu::Operations {
                     load: depth_load,
                     store: wgpu::StoreOp::Store,
@@ -2879,7 +2880,12 @@ impl RendererContext<'_> {
         if alpha_count > 0 {
             // Alpha pass
             if matches!(target, DrawPassTarget::Root(RootTarget::UserSurface)) {
-                render_pass.set_pipeline(&self.programs.alpha_strip_pipeline);
+                let pipeline = if enable_opaque {
+                    &self.programs.depth_alpha_strip_pipeline
+                } else {
+                    &self.programs.alpha_strip_pipeline
+                };
+                render_pass.set_pipeline(pipeline);
             } else {
                 render_pass.set_pipeline(&self.programs.intermediate_strip_pipeline);
             }
