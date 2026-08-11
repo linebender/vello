@@ -106,6 +106,7 @@ impl ExampleScene for SpritesheetScene {
 
                 rects.push(SampleRect {
                     source_region: sprite,
+                    may_have_transparency: true,
                     transform,
                 });
             }

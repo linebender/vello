@@ -2865,6 +2865,31 @@ impl RendererContext<'_> {
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
 
+        let draw_strip_runs = |render_pass: &mut wgpu::RenderPass<'_>, first_instance, count| {
+            if external_texture_runs.is_empty() {
+                render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
+                render_pass.draw(0..4, first_instance..first_instance + count);
+
+                return;
+            }
+
+            // Each run is drawn with a different external texture binding. Runs go from
+            // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
+            // the strips buffer.
+            for (i, run) in external_texture_runs.iter().enumerate() {
+                let paint_source_bind_group = self
+                    .external_paint_source_bind_groups
+                    .get(&run.texture_id)
+                    .unwrap();
+                render_pass.set_bind_group(1, paint_source_bind_group, &[]);
+                let start = u32::try_from(run.strips_start).unwrap();
+                let end = external_texture_runs
+                    .get(i + 1)
+                    .map_or(count, |next| u32::try_from(next.strips_start).unwrap());
+                render_pass.draw(0..4, first_instance + start..first_instance + end);
+            }
+        };
+
         if opaque_count > 0 {
             // Opaque pass
             debug_assert!(
@@ -2872,8 +2897,7 @@ impl RendererContext<'_> {
                 "opaque strips require the final view depth attachment"
             );
             render_pass.set_pipeline(&self.programs.opaque_strip_pipeline);
-            render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
-            render_pass.draw(0..4, 0..opaque_count);
+            draw_strip_runs(&mut render_pass, 0, opaque_count);
         }
 
         if alpha_count > 0 {
@@ -2884,29 +2908,7 @@ impl RendererContext<'_> {
                 render_pass.set_pipeline(&self.programs.intermediate_strip_pipeline);
             }
 
-            let alpha_start = opaque_count;
-            if external_texture_runs.is_empty() {
-                render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
-                render_pass.draw(0..4, alpha_start..alpha_start + alpha_count);
-            } else {
-                // Each run is drawn with a different external texture binding. Runs go from
-                // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
-                // the strips buffer.
-                for (i, run) in external_texture_runs.iter().enumerate() {
-                    let paint_source_bind_group = self
-                        .external_paint_source_bind_groups
-                        .get(&run.texture_id)
-                        .unwrap();
-                    render_pass.set_bind_group(1, paint_source_bind_group, &[]);
-                    let start = u32::try_from(run.strips_start).unwrap();
-                    let end = external_texture_runs
-                        .get(i + 1)
-                        .map_or(alpha_count, |next| {
-                            u32::try_from(next.strips_start).unwrap()
-                        });
-                    render_pass.draw(0..4, alpha_start + start..alpha_start + end);
-                }
-            }
+            draw_strip_runs(&mut render_pass, opaque_count, alpha_count);
         }
     }
 
@@ -3123,11 +3125,15 @@ impl RendererContext<'_> {
 }
 
 impl Backend for RendererContext<'_> {
-    fn opaque_draw_pass(&mut self, strips: &[GpuStrip]) {
+    fn opaque_draw_pass(
+        &mut self,
+        strips: &[GpuStrip],
+        external_texture_runs: &[ExternalTextureRun],
+    ) {
         self.strip_pass_inner(
             strips,
             RangedSlice::empty(),
-            &[],
+            external_texture_runs,
             DrawPassTarget::Root(RootTarget::UserSurface),
             None,
         );

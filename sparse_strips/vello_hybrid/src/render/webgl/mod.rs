@@ -2833,12 +2833,7 @@ impl WebGlRendererContext<'_> {
             if opaque_count > 0 {
                 self.gl.depth_mask(true);
                 self.gl.disable(WebGl2RenderingContext::BLEND);
-                self.gl.draw_arrays_instanced(
-                    WebGl2RenderingContext::TRIANGLE_STRIP,
-                    0,
-                    4,
-                    opaque_count,
-                );
+                self.draw_strips(external_texture_runs, 0, opaque_count);
             }
 
             // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
@@ -3127,11 +3122,15 @@ impl WebGlRendererContext<'_> {
 }
 
 impl Backend for WebGlRendererContext<'_> {
-    fn opaque_draw_pass(&mut self, strips: &[GpuStrip]) {
+    fn opaque_draw_pass(
+        &mut self,
+        strips: &[GpuStrip],
+        external_texture_runs: &[ExternalTextureRun],
+    ) {
         self.strip_pass_inner(
             strips,
             RangedSlice::empty(),
-            &[],
+            external_texture_runs,
             DrawPassTarget::Root(RootTarget::UserSurface),
             None,
         );

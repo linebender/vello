@@ -316,22 +316,27 @@ impl Scene {
         x_extend: Extend,
         y_extend: Extend,
         transform: Affine,
+        may_have_transparency: bool,
     ) -> Paint {
         let idx = self.encoded_paints.len();
+        let sampler = ImageSampler {
+            x_extend,
+            y_extend,
+            quality,
+            alpha: 1.0,
+        };
+        let has_opacity = self
+            .render_state
+            .tint
+            .is_some_and(|tint| tint.color.components[3] < 1.0)
+            // Not supported yet, but just to future-proof.
+            || sampler.alpha != 1.0;
+
         let encoded = EncodedExternalTexture {
             texture_id,
             source_region,
-            sampler: ImageSampler {
-                x_extend,
-                y_extend,
-                quality,
-                alpha: 1.0,
-            },
-            // TODO: Make this configurable by the user, and also take `ImageSampler` alpha into
-            // account.
-            // **IMPORTANT**: If this ever can become false, we need to make sure to update
-            // Vello Hybrid so the opaque pass supports external textures as well!
-            may_have_transparency: true,
+            sampler,
+            may_have_transparency: may_have_transparency || has_opacity,
             transform: transform.inverse(),
             tint: self.render_state.tint,
         };
@@ -554,6 +559,7 @@ impl Scene {
                         x_extend,
                         y_extend,
                         transform,
+                        rect.may_have_transparency,
                     );
 
                     ctx.recorder
@@ -566,6 +572,7 @@ impl Scene {
                         x_extend,
                         y_extend,
                         transform,
+                        rect.may_have_transparency,
                     );
                     let dst_rect = Rect::new(0., 0., w, h);
                     ctx.fill_path_with(

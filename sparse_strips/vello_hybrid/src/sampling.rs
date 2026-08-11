@@ -13,6 +13,15 @@ pub struct SampleRect {
     /// Source region in texel coordinates.
     pub source_region: RectU16,
 
+    /// Whether the sampled source region may contain non-opaque pixels.
+    ///
+    /// Only set this to `false` if every pixel is guaranteed to be opaque (e.g. in a texture
+    /// generated from a JPEG image). If you set this to `false` even though there are non-opaque
+    /// pixels, you will get wrong rendering.
+    ///
+    /// If unsure, always set this to `true`.
+    pub may_have_transparency: bool,
+
     /// Transform mapping the local source region to the destination.
     ///
     /// This maps from the *local* rectangle into the destination, ignoring the origin of

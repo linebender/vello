@@ -42,6 +42,7 @@ mod tests {
     fn texture_rect_at(x: f64, y: f64) -> [SampleRect; 1] {
         [SampleRect {
             source_region: RectU16::new(0, 0, 1, 1),
+            may_have_transparency: true,
             transform: Affine::translate((x, y)) * Affine::scale(40.),
         }]
     }
@@ -74,6 +75,7 @@ mod tests {
             ImageQuality::Medium,
             [SampleRect {
                 source_region: RectU16::new(0, 0, 1, 1),
+                may_have_transparency: true,
                 transform: Affine::translate((rect.x0, rect.y0))
                     * Affine::scale_non_uniform(rect.width(), rect.height()),
             }],
@@ -94,6 +96,7 @@ mod tests {
             ImageQuality::Low,
             [SampleRect {
                 source_region: SPRITES[0],
+                may_have_transparency: true,
                 transform: Affine::translate((12., 15.)),
             }],
         );
@@ -104,6 +107,7 @@ mod tests {
             ImageQuality::Low,
             [SampleRect {
                 source_region: SPRITES[3],
+                may_have_transparency: true,
                 transform: Affine::translate((25., 25.)),
             }],
         );
@@ -153,6 +157,7 @@ mod tests {
             ImageQuality::Low,
             [SampleRect {
                 source_region: RectU16::new(0, 0, 1, 1),
+                may_have_transparency: true,
                 transform: Affine::translate((66., 10.)) * Affine::scale(24.),
             }],
         );
@@ -162,6 +167,7 @@ mod tests {
             ImageQuality::Low,
             [SampleRect {
                 source_region: RectU16::new(0, 0, 1, 1),
+                may_have_transparency: true,
                 transform: Affine::translate((10., 66.)) * Affine::scale(24.),
             }],
         );
@@ -281,6 +287,7 @@ mod tests {
             ImageQuality::High,
             [SampleRect {
                 source_region: SPRITES[0],
+                may_have_transparency: true,
                 transform: Affine::translate((15., 15.)) * Affine::skew(0.2, 0.1),
             }],
         );
@@ -298,10 +305,12 @@ mod tests {
             [
                 SampleRect {
                     source_region: SPRITES[1],
+                    may_have_transparency: true,
                     transform: Affine::translate((18., 18.)),
                 },
                 SampleRect {
                     source_region: SPRITES[3],
+                    may_have_transparency: true,
                     transform: Affine::translate((34., 34.)),
                 },
             ],
@@ -323,6 +332,7 @@ mod tests {
             ImageQuality::Low,
             [SampleRect {
                 source_region: SPRITES[2],
+                may_have_transparency: true,
                 transform: Affine::translate((20., 20.)),
             }],
         );
@@ -352,6 +362,7 @@ mod tests {
             ImageQuality::Low,
             placements.map(|(source_region, x, y)| SampleRect {
                 source_region,
+                may_have_transparency: true,
                 transform: Affine::translate((x, y)),
             }),
         );
@@ -372,14 +383,17 @@ mod tests {
             [
                 SampleRect {
                     source_region: SPRITES[0],
+                    may_have_transparency: true,
                     transform: Affine::translate((6., 8.)),
                 },
                 SampleRect {
                     source_region: SPRITES[3],
+                    may_have_transparency: true,
                     transform: Affine::translate((28., 5.)) * Affine::skew(0.18, -0.08),
                 },
                 SampleRect {
                     source_region: SPRITES[2],
+                    may_have_transparency: true,
                     transform: Affine::translate((48., 6.)),
                 },
             ],
