@@ -59,9 +59,21 @@ impl SceneCase {
         root_target: RootTarget,
         texture_size: SizeU16,
         max_textures: usize,
+        use_depth_buffer: bool,
     ) -> Result<ScheduledCase, RenderError> {
         let mut storage = ScheduleStorage::default();
-        let schedule = self.schedule_into(&mut storage, root_target, texture_size, max_textures)?;
+        let encoded = &self.scene.encoded_paints;
+        let offsets = vec![0; encoded.len()];
+        let schedule = Schedule::try_new(
+            &mut storage,
+            &self.scene,
+            root_target,
+            use_depth_buffer,
+            PaintResolver::new(encoded, &offsets),
+            texture_size,
+            IntermediateTextureAllocations::default(),
+            Some(max_textures),
+        )?;
 
         Ok(ScheduledCase {
             schedule,
@@ -76,6 +88,7 @@ impl SceneCase {
         root_target: RootTarget,
         texture_size: SizeU16,
         max_textures: usize,
+        use_depth_buffer: bool,
     ) -> Result<Schedule, RenderError> {
         let encoded = &self.scene.encoded_paints;
         let offsets = vec![0; encoded.len()];
@@ -83,6 +96,7 @@ impl SceneCase {
             storage,
             &self.scene,
             root_target,
+            use_depth_buffer,
             PaintResolver::new(encoded, &offsets),
             texture_size,
             IntermediateTextureAllocations::default(),
@@ -90,9 +104,14 @@ impl SceneCase {
         )
     }
 
-    pub(super) fn schedule_root(&self) -> ScheduledCase {
-        self.schedule(RootTarget::UserSurface, SizeU16::new(64), 8)
-            .unwrap()
+    pub(super) fn schedule_root(&self, use_depth_buffer: bool) -> ScheduledCase {
+        self.schedule(
+            RootTarget::UserSurface,
+            SizeU16::new(64),
+            8,
+            use_depth_buffer,
+        )
+        .unwrap()
     }
 }
 

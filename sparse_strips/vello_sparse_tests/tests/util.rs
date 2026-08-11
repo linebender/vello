@@ -108,6 +108,26 @@ pub(crate) fn get_ctx<T: Renderer>(
     level: &str,
     render_mode: RenderMode,
 ) -> T {
+    get_ctx_with_depth_buffer(
+        width,
+        height,
+        transparent,
+        num_threads,
+        level,
+        render_mode,
+        true,
+    )
+}
+
+pub(crate) fn get_ctx_with_depth_buffer<T: Renderer>(
+    width: u16,
+    height: u16,
+    transparent: bool,
+    num_threads: u16,
+    level: &str,
+    render_mode: RenderMode,
+    use_depth_buffer: bool,
+) -> T {
     let level = match level {
         #[cfg(target_arch = "aarch64")]
         "neon" => Level::Neon(
@@ -145,7 +165,14 @@ pub(crate) fn get_ctx<T: Renderer>(
         _ => panic!("unknown level: {level}"),
     };
 
-    let mut ctx = T::new(width, height, num_threads, level, render_mode);
+    let mut ctx = T::new_with_depth_buffer(
+        width,
+        height,
+        num_threads,
+        level,
+        render_mode,
+        use_depth_buffer,
+    );
 
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);

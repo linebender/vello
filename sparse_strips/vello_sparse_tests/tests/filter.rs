@@ -1534,7 +1534,7 @@ fn filter_blending_in_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_no_depth)]
 fn filter_layer_with_blending(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 

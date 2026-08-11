@@ -642,7 +642,7 @@ fn issue_1477(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[vello_test(width = 512, height = 16)]
+#[vello_test(width = 512, height = 16, hybrid_no_depth)]
 fn opaque_rect_partially_occluding_aa_edge(ctx: &mut impl Renderer) {
     // Hypotenuse crosses strip row y in 8..12 over the full width, producing one
     // long AA strip. The rect's interior covers depth buckets [128, 384), splitting
@@ -778,7 +778,7 @@ fn issue_bicubic_filtering_clamping(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_no_depth)]
 fn issue_filter_preserves_painter_order_for_opaque_and_alpha(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 

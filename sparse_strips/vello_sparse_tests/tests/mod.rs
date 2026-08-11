@@ -38,6 +38,7 @@ mod external_texture;
 mod filter;
 mod glyph;
 mod gradient;
+mod hybrid_depth;
 mod hybrid_schedule;
 mod image;
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]

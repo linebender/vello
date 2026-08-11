@@ -113,7 +113,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
     }
 
     fn push_opaque(&mut self, strip: GpuStrip) -> bool {
-        if !self.state.target.enable_depth() {
+        if !self.state.use_depth_buffer || !self.state.target.enable_depth() {
             return false;
         }
 
@@ -327,6 +327,8 @@ impl DrawBuffers {
 pub(crate) struct DrawState<T: DrawTarget> {
     /// Destination into which strips will be rendered.
     pub(crate) target: T,
+    /// Whether opaque strips may use the target's depth buffer.
+    use_depth_buffer: bool,
     /// Assigns depth values to opaque strips.
     depth_counter: DepthCounter,
     /// Scene-space bounds visible in the target.
@@ -334,9 +336,10 @@ pub(crate) struct DrawState<T: DrawTarget> {
 }
 
 impl<T: DrawTarget> DrawState<T> {
-    pub(crate) fn new(target: T, target_bbox: RectU16) -> Self {
+    pub(crate) fn new(target: T, target_bbox: RectU16, use_depth_buffer: bool) -> Self {
         Self {
             target,
+            use_depth_buffer,
             depth_counter: DepthCounter::default(),
             target_bbox,
         }
@@ -491,7 +494,7 @@ mod tests {
         fn new(target: T, bbox: RectU16) -> Self {
             Self {
                 buffers: DrawBuffers::default(),
-                state: DrawState::new(target, bbox),
+                state: DrawState::new(target, bbox, true),
                 strip_storage: StripStorage::default(),
             }
         }

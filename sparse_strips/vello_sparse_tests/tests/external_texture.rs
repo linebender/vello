@@ -109,7 +109,7 @@ mod tests {
         );
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only)]
+    #[vello_test(width = 96, height = 96, hybrid_only, hybrid_no_depth)]
     fn external_texture_opaque_interleaving(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(solid_pixmap(192, 0, 0, 192));
 
@@ -122,7 +122,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(48., 16., 88., 56.));
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only)]
+    #[vello_test(width = 96, height = 96, hybrid_only, hybrid_no_depth)]
     fn external_texture_runs_with_opaque_prefix(ctx: &mut impl Renderer) {
         let red_texture = ctx.register_external_texture(solid_pixmap(255, 0, 0, 255));
         let green_texture = ctx.register_external_texture(solid_pixmap(0, 255, 0, 255));

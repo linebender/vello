@@ -33,6 +33,8 @@ struct Arguments {
     skip_hybrid: bool,
     /// Whether only `vello_hybrid` should run and generate the reference image.
     hybrid_only: bool,
+    /// Whether to additionally run `vello_hybrid` with depth buffering disabled.
+    hybrid_no_depth: bool,
     /// The maximum number of pixels that are allowed to completely deviate from the reference
     /// images. This attribute mainly exists because there are some test cases (like gradients),
     /// where, due to floating point inaccuracies, some pixels might land on a different color
@@ -59,6 +61,7 @@ impl Default for Arguments {
             skip_multithreaded: false,
             skip_hybrid: false,
             hybrid_only: false,
+            hybrid_no_depth: false,
             no_ref: false,
             glyph: false,
             diff_pixels: 0,
@@ -125,6 +128,14 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         &format!("{input_fn_name}_hybrid_webgl"),
         input_fn_name.span(),
     );
+    let hybrid_no_depth_fn_name = Ident::new(
+        &format!("{input_fn_name}_hybrid_no_depth"),
+        input_fn_name.span(),
+    );
+    let webgl_no_depth_fn_name = Ident::new(
+        &format!("{input_fn_name}_hybrid_webgl_no_depth"),
+        input_fn_name.span(),
+    );
 
     // TODO: Tests with the same names in different modules can clash, see
     // https://github.com/linebender/vello/pull/925#discussion_r2070710362.
@@ -144,6 +155,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
     let webgl_fn_name_str = webgl_fn_name.to_string();
+    let hybrid_no_depth_fn_name_str = hybrid_no_depth_fn_name.to_string();
+    let webgl_no_depth_fn_name_str = webgl_no_depth_fn_name.to_string();
 
     let Arguments {
         width,
@@ -155,6 +168,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         skip_multithreaded,
         mut skip_hybrid,
         hybrid_only,
+        hybrid_no_depth,
         ignore_reason,
         no_ref,
         glyph,
@@ -502,6 +516,75 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         quote! {}
     };
 
+    let hybrid_no_depth_snippet = if hybrid_no_depth {
+        quote! {
+            #ignore_hybrid
+            #[test]
+            fn #hybrid_no_depth_fn_name() {
+                use crate::util::{check_ref, get_ctx_with_depth_buffer};
+                use crate::renderer::HybridRenderer;
+                use vello_cpu::RenderMode;
+
+                let mut ctx = get_ctx_with_depth_buffer::<HybridRenderer>(
+                    #width,
+                    #height,
+                    #transparent,
+                    0,
+                    "fallback",
+                    RenderMode::OptimizeSpeed,
+                    false,
+                );
+                #invoke_test
+                ctx.flush();
+                if !#no_ref {
+                    check_ref(
+                        &mut ctx,
+                        #input_fn_name_str,
+                        #hybrid_no_depth_fn_name_str,
+                        #hybrid_tolerance,
+                        #diff_pixels,
+                        false,
+                        #reference_image_name,
+                    );
+                }
+            }
+
+            #ignore_hybrid_webgl
+            #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+            #[wasm_bindgen_test::wasm_bindgen_test]
+            async fn #webgl_no_depth_fn_name() {
+                use crate::util::{check_ref, get_ctx_with_depth_buffer};
+                use crate::renderer::HybridRenderer;
+                use vello_cpu::RenderMode;
+
+                let mut ctx = get_ctx_with_depth_buffer::<HybridRenderer>(
+                    #width,
+                    #height,
+                    #transparent,
+                    0,
+                    "fallback",
+                    RenderMode::OptimizeSpeed,
+                    false,
+                );
+                #invoke_test
+                ctx.flush();
+                if !#no_ref {
+                    check_ref(
+                        &mut ctx,
+                        #input_fn_name_str,
+                        #webgl_no_depth_fn_name_str,
+                        #hybrid_tolerance,
+                        #diff_pixels,
+                        false,
+                        #reference_image_name,
+                    );
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
         #input_fn
 
@@ -549,6 +632,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         }
 
         #cached_hybrid_snippet
+
+        #hybrid_no_depth_snippet
 
         #ignore_hybrid_webgl
         #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -609,6 +694,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                         args.skip_cpu = true;
                         args.hybrid_only = true;
                     }
+                    "hybrid_no_depth" => args.hybrid_no_depth = true,
                     "no_ref" => args.no_ref = true,
                     "glyph" => args.glyph = true,
                     "ignore" => {

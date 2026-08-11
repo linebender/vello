@@ -125,6 +125,7 @@ pub struct WebGlRenderer {
     schedule_storage: ScheduleStorage,
     scratch_buffers: ScratchBuffers,
     layers_config: LayersConfig,
+    use_depth_buffer: bool,
 }
 
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by texture-rect draws.
@@ -215,10 +216,10 @@ impl WebGlRenderer {
             &JsValue::TRUE,
         )
         .unwrap();
-        // Vello only supports 24+ bit depth buffers. If the hardware falls back to a 16 bit depth buffer,
-        // correctness issues will arise. For all intents and purposes, a device manufactured in the past 10 years
-        // should support 24+ bit depth buffers (certainly those within the realm of what we consider "supported" devices)
-        // but:
+        // The opaque-strip optimization requires a 24+ bit depth buffer. If the hardware falls
+        // back to a 16 bit depth buffer, correctness issues will arise. For all intents and
+        // purposes, a device manufactured in the past 10 years should support 24+ bit depth
+        // buffers (certainly those within the realm of what we consider "supported" devices) but:
         //
         // Relevant code for default depth buffer behaviour can be found here:
         // - Chromium defaults to 24 bit with no fallback: https://github.com/chromium/chromium/blob/86bafb3aab8e999690d310b201d0b5489f512b08/third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.cc#L1376-L1400
@@ -227,7 +228,12 @@ impl WebGlRenderer {
         //
         // TODO: The above understanding is encoded in a below assertion, but this should be encapsulated within a
         // "this device can run Vello correctly" check function.
-        js_sys::Reflect::set(&context_options, &"depth".into(), &JsValue::TRUE).unwrap();
+        let depth = if settings.use_depth_buffer {
+            &JsValue::TRUE
+        } else {
+            &JsValue::FALSE
+        };
+        js_sys::Reflect::set(&context_options, &"depth".into(), depth).unwrap();
 
         let gl = canvas
             .get_context_with_context_options("webgl2", &context_options)
@@ -298,14 +304,16 @@ impl WebGlRenderer {
             max_texture_array_layers: get_max_texture_array_layers(&gl),
         };
         settings.memory_settings.normalize(&device_limits);
-        assert!(
-            gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
-                .unwrap()
-                .as_f64()
-                .unwrap()
-                >= 24.0,
-            "Depth buffer must be at least 24 bits"
-        );
+        if settings.use_depth_buffer {
+            assert!(
+                gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
+                    .unwrap()
+                    .as_f64()
+                    .unwrap()
+                    >= 24.0,
+                "Depth buffer must be at least 24 bits"
+            );
+        }
         let resources = Resources::new(settings.memory_settings.image_atlas_config);
         let max_texture_dimension_2d = device_limits.max_texture_dimension_2d;
 
@@ -325,6 +333,7 @@ impl WebGlRenderer {
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
+            use_depth_buffer: settings.use_depth_buffer,
         };
 
         (renderer, resources)
@@ -546,6 +555,7 @@ impl WebGlRenderer {
             &mut self.schedule_storage,
             scene,
             root_output_target,
+            self.use_depth_buffer,
             paint_resolver,
             required_texture_size,
             current_allocations,
@@ -575,6 +585,7 @@ impl WebGlRenderer {
             gl: &self.gl,
             texture_bindings,
             scratch_buffers: &mut self.scratch_buffers,
+            use_depth_buffer: self.use_depth_buffer,
         };
         crate::schedule::execute(
             &mut ctx,
@@ -583,14 +594,14 @@ impl WebGlRenderer {
             root_output_target,
         );
 
-        // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
-        // We want to indicate to the GPU driver that we won't read the depth buffer again
-        // until the next clear. This enables the GPU to avoid storing depth tiles back to VRAM.
+        self.gl.bind_framebuffer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            self.programs.resources.view_framebuffer_override.as_deref(),
+        );
         if self.programs.resources.depth_cleared_this_frame {
-            self.gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                self.programs.resources.view_framebuffer_override.as_deref(),
-            );
+            // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
+            // We want to indicate to the GPU driver that we won't read the depth buffer again
+            // until the next clear. This enables the GPU to avoid storing depth tiles back to VRAM.
             self.gl
                 .invalidate_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
@@ -2589,6 +2600,7 @@ struct WebGlRendererContext<'a> {
     gl: &'a WebGl2RenderingContext,
     texture_bindings: &'a WebGlTextureBindings,
     scratch_buffers: &'a mut ScratchBuffers,
+    use_depth_buffer: bool,
 }
 
 impl WebGlRendererContext<'_> {
@@ -2799,7 +2811,7 @@ impl WebGlRendererContext<'_> {
         // TODO: Today, we only support early-z rejection on the final view. If we wanted to support
         // intermediate layers, we would require separate depth buffers for each target. We can explore
         // that possibility in the future.
-        let enable_opaque = target.enable_opaque();
+        let enable_opaque = self.use_depth_buffer && target.enable_opaque();
 
         self.programs
             .upload_strip_pair(self.gl, opaque_strips, alpha_strips);
@@ -2846,6 +2858,7 @@ impl WebGlRendererContext<'_> {
                 opaque_count, 0,
                 "opaque strips require the final view's depth attachment"
             );
+            self.gl.enable(WebGl2RenderingContext::BLEND);
             self.draw_strips(external_texture_runs, 0, opaque_count + alpha_count);
         }
 
