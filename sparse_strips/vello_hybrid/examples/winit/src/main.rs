@@ -31,7 +31,7 @@ struct App<'s> {
     context: RenderContext,
     scenes: Box<[AnyScene<Scene>]>,
     current_scene: usize,
-    renderers: Vec<Option<(Renderer, Resources)>>,
+    renderers: Vec<Option<(Renderer, Resources, RenderSize, wgpu::TextureView)>>,
     uploaded_images: Vec<bool>,
     spritesheet_textures: Vec<Option<wgpu::Texture>>,
     render_state: RenderState<'s>,
@@ -341,7 +341,7 @@ impl ApplicationHandler for App<'_> {
                 let render_start = Instant::now();
 
                 self.scene.set_transform(self.transform);
-                let (_, resources) = self.renderers[surface.dev_id].as_mut().unwrap();
+                let (_, resources, ..) = self.renderers[surface.dev_id].as_mut().unwrap();
                 self.scenes[self.current_scene].render(&mut self.scene, resources, self.transform);
 
                 let device_handle = &self.context.devices[surface.dev_id];
@@ -383,7 +383,13 @@ impl ApplicationHandler for App<'_> {
                         texture.create_view(&wgpu::TextureViewDescriptor::default()),
                     );
                 }
-                let (renderer, resources) = self.renderers[surface.dev_id].as_mut().unwrap();
+                let (renderer, resources, depth_render_size, depth_texture_view) =
+                    self.renderers[surface.dev_id].as_mut().unwrap();
+                if *depth_render_size != render_size {
+                    *depth_render_size = render_size.clone();
+                    *depth_texture_view =
+                        Renderer::create_depth_texture_view(&device_handle.device, &render_size);
+                }
                 renderer
                     .render(
                         &self.scene,
@@ -393,6 +399,7 @@ impl ApplicationHandler for App<'_> {
                         &mut encoder,
                         &render_size,
                         &texture_view,
+                        Some(depth_texture_view),
                         &texture_bindings,
                     )
                     .unwrap();
@@ -428,7 +435,7 @@ impl App<'_> {
 
         // 1st example — uploading pixmap directly
         let pixmap1 = ImageScene::read_flower_image();
-        let (renderer, resources) = self.renderers[device_id].as_mut().unwrap();
+        let (renderer, resources, ..) = self.renderers[device_id].as_mut().unwrap();
         renderer.upload_image(
             resources,
             &device_handle.device,
@@ -441,7 +448,7 @@ impl App<'_> {
         let pixmap2 = ImageScene::read_cowboy_image();
         let texture2 =
             self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &pixmap2);
-        let (renderer, resources) = self.renderers[device_id].as_mut().unwrap();
+        let (renderer, resources, ..) = self.renderers[device_id].as_mut().unwrap();
         renderer.upload_image(
             resources,
             &device_handle.device,

@@ -32,7 +32,7 @@ fn image_atlas_placeholder_is_promoted_on_first_upload() {
         },
         ..RenderSettings::default()
     };
-    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings);
+    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings, true);
 
     assert_eq!(
         renderer.atlas_info(),
@@ -96,7 +96,7 @@ fn image_atlas_upload_larger_than_atlas_fails() {
         ..RenderSettings::default()
     };
 
-    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings);
+    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings, true);
 
     // The image is much larger than the 10x10 atlas, so the upload must fail.
     let image = Pixmap::new(64, 64);

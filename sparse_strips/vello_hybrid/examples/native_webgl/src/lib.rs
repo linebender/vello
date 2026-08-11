@@ -30,7 +30,7 @@ struct RendererWrapper {
 impl RendererWrapper {
     fn new(canvas: HtmlCanvasElement) -> Self {
         let settings = RenderSettings::default();
-        let (renderer, resources) = vello_hybrid::WebGlRenderer::new_with(&canvas, settings);
+        let (renderer, resources) = vello_hybrid::WebGlRenderer::new_with(&canvas, settings, true);
 
         Self {
             renderer,

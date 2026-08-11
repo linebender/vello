@@ -39,6 +39,7 @@ struct RendererWrapper {
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
+    depth_texture_view: wgpu::TextureView,
 }
 
 impl RendererWrapper {
@@ -102,6 +103,10 @@ impl RendererWrapper {
             },
             settings,
         );
+        let depth_texture_view = Renderer::create_depth_texture_view(
+            &device,
+            &vello_hybrid::RenderSize { width, height },
+        );
 
         Self {
             renderer,
@@ -109,6 +114,7 @@ impl RendererWrapper {
             device,
             queue,
             surface,
+            depth_texture_view,
         }
     }
 
@@ -124,6 +130,10 @@ impl RendererWrapper {
             view_formats: vec![],
         };
         self.surface.configure(&self.device, &surface_config);
+        self.depth_texture_view = Renderer::create_depth_texture_view(
+            &self.device,
+            &vello_hybrid::RenderSize { width, height },
+        );
     }
 }
 
@@ -223,6 +233,7 @@ impl AppState {
                 &mut encoder,
                 &render_size,
                 &surface_texture_view,
+                Some(&self.renderer_wrapper.depth_texture_view),
                 &vello_hybrid::TextureBindings::new(),
             )
             .unwrap();
@@ -628,6 +639,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         device,
         queue,
         surface,
+        depth_texture_view,
     } = RendererWrapper::new(canvas).await;
 
     let render_size = vello_hybrid::RenderSize {
@@ -654,6 +666,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             &mut encoder,
             &render_size,
             &surface_texture_view,
+            Some(&depth_texture_view),
             &vello_hybrid::TextureBindings::new(),
         )
         .unwrap();

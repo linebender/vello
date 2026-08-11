@@ -188,11 +188,19 @@ pub struct AtlasTextureInfo {
 impl WebGlRenderer {
     /// Creates a new WebGL2 renderer and its persistent resources.
     pub fn new(canvas: &HtmlCanvasElement) -> (Self, Resources) {
-        Self::new_with(canvas, RenderSettings::default())
+        Self::new_with(canvas, RenderSettings::default(), true)
     }
 
     /// Creates a new WebGL2 renderer and its persistent resources with specific settings.
-    pub fn new_with(canvas: &HtmlCanvasElement, mut settings: RenderSettings) -> (Self, Resources) {
+    ///
+    /// When `use_depth_buffer` is true, the WebGL context allocates a depth buffer and the renderer
+    /// uses it for opaque-strip occlusion. Disabling it reduces GPU memory usage, but can increase
+    /// overdraw.
+    pub fn new_with(
+        canvas: &HtmlCanvasElement,
+        mut settings: RenderSettings,
+        use_depth_buffer: bool,
+    ) -> (Self, Resources) {
         #[allow(
             clippy::assertions_on_constants,
             reason = "intentional guard against non-wasm32 use"
@@ -228,7 +236,7 @@ impl WebGlRenderer {
         //
         // TODO: The above understanding is encoded in a below assertion, but this should be encapsulated within a
         // "this device can run Vello correctly" check function.
-        let depth = if settings.use_depth_buffer {
+        let depth = if use_depth_buffer {
             &JsValue::TRUE
         } else {
             &JsValue::FALSE
@@ -304,7 +312,7 @@ impl WebGlRenderer {
             max_texture_array_layers: get_max_texture_array_layers(&gl),
         };
         settings.memory_settings.normalize(&device_limits);
-        if settings.use_depth_buffer {
+        if use_depth_buffer {
             assert!(
                 gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
                     .unwrap()
@@ -333,7 +341,7 @@ impl WebGlRenderer {
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
-            use_depth_buffer: settings.use_depth_buffer,
+            use_depth_buffer,
         };
 
         (renderer, resources)
