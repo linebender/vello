@@ -238,7 +238,7 @@ impl WebGlRenderer {
         let gl = canvas
             .get_context_with_context_options("webgl2", &context_options)
             .expect("WebGL2 context to be available")
-            .unwrap()
+            .expect("WebGL2 context creation failed: This is possibly due to `failIfMajorPerformanceCaveat` being triggered")
             .dyn_into::<WebGl2RenderingContext>()
             .expect("Context to be a WebGL2 context");
 
