@@ -594,14 +594,14 @@ impl WebGlRenderer {
             root_output_target,
         );
 
-        // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
-        // We want to indicate to the GPU driver that we won't read the depth buffer again
-        // until the next clear. This enables the GPU to avoid storing depth tiles back to VRAM.
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
             self.programs.resources.view_framebuffer_override.as_deref(),
         );
         if self.programs.resources.depth_cleared_this_frame {
+            // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
+            // We want to indicate to the GPU driver that we won't read the depth buffer again
+            // until the next clear. This enables the GPU to avoid storing depth tiles back to VRAM.
             self.gl
                 .invalidate_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,

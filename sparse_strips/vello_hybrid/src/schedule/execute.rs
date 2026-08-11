@@ -259,7 +259,8 @@ mod tests {
         let mut case = SceneCase::new(16, 8);
         case.draw_at(0.0, 1.0);
         chain(&mut case, depth);
-        case.schedule(root_target, SizeU16::new(64), 2).unwrap()
+        case.schedule(root_target, SizeU16::new(64), 2, true)
+            .unwrap()
     }
 
     fn round_order_case() -> ScheduledCase {
@@ -294,7 +295,7 @@ mod tests {
             });
         });
 
-        case.schedule(RootTarget::UserSurface, SizeU16::new(128), 6)
+        case.schedule(RootTarget::UserSurface, SizeU16::new(128), 6, true)
             .unwrap()
     }
 
@@ -371,7 +372,9 @@ mod tests {
     #[test]
     fn empty_passes_are_skipped() {
         let mut recorder = Recorder::default();
-        SceneCase::new(16, 8).schedule_root().execute(&mut recorder);
+        SceneCase::new(16, 8)
+            .schedule_root(true)
+            .execute(&mut recorder);
 
         assert!(recorder.calls.is_empty());
     }

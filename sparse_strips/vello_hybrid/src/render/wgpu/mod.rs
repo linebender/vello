@@ -923,9 +923,7 @@ struct Programs {
     alpha_strip_pipeline: RenderPipeline,
     /// Root opaque-strip pipeline.
     opaque_strip_pipeline: RenderPipeline,
-    /// Depth texture for early-z rejection on the Output target.
-    depth_texture: Option<Texture>,
-    /// View for the depth texture.
+    /// View of the depth texture used for early-z rejection on the Output target.
     depth_texture_view: Option<TextureView>,
     /// Whether the depth buffer has been cleared this frame.
     depth_cleared_this_frame: bool,
@@ -1731,22 +1729,19 @@ impl Programs {
             view_config_buffer,
         };
 
-        let depth_texture = use_depth_buffer.then(|| {
+        let depth_texture_view = use_depth_buffer.then(|| {
             Self::create_depth_texture(
                 device,
                 render_target_config.width,
                 render_target_config.height,
             )
+            .create_view(&TextureViewDescriptor::default())
         });
-        let depth_texture_view = depth_texture
-            .as_ref()
-            .map(|texture| texture.create_view(&TextureViewDescriptor::default()));
 
         Self {
             intermediate_strip_pipeline,
             alpha_strip_pipeline,
             opaque_strip_pipeline,
-            depth_texture,
             depth_texture_view,
             depth_cleared_this_frame: false,
             strip_bind_group_layout,
@@ -2417,15 +2412,15 @@ impl Programs {
                 .expect("Buffer only ever holds `Config`");
             buffer.copy_from_slice(bytemuck::bytes_of(&config));
 
-            if self.depth_texture.is_some() {
-                let depth_texture = Self::create_depth_texture(
-                    device,
-                    new_render_size.width,
-                    new_render_size.height,
+            if self.depth_texture_view.is_some() {
+                self.depth_texture_view = Some(
+                    Self::create_depth_texture(
+                        device,
+                        new_render_size.width,
+                        new_render_size.height,
+                    )
+                    .create_view(&TextureViewDescriptor::default()),
                 );
-                self.depth_texture_view =
-                    Some(depth_texture.create_view(&TextureViewDescriptor::default()));
-                self.depth_texture = Some(depth_texture);
             }
 
             self.render_size = new_render_size.clone();

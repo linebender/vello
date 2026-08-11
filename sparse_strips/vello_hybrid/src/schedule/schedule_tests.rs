@@ -75,7 +75,7 @@ fn blend_case() -> ScheduledCase {
             |case| case.draw(Rect::new(8.0, 0.0, 16.0, 8.0), 0.5),
         );
     });
-    case.schedule_root()
+    case.schedule_root(true)
 }
 
 fn root_blend_case() -> SceneCase {
@@ -130,7 +130,7 @@ fn chain_case(depth: usize) -> ScheduledCase {
     let mut case = SceneCase::new(8, 8);
 
     add_chain(&mut case, depth);
-    case.schedule_root()
+    case.schedule_root(true)
 }
 
 fn binding_case() -> ScheduledCase {
@@ -145,7 +145,7 @@ fn binding_case() -> ScheduledCase {
         })),
         |case| case.draw(Rect::new(0.0, 0.0, 60.0, 60.0), 0.5),
     );
-    case.schedule(RootTarget::UserSurface, SizeU16::new(80), 8)
+    case.schedule(RootTarget::UserSurface, SizeU16::new(80), 8, true)
         .unwrap()
 }
 
@@ -167,7 +167,7 @@ fn filter_page_size() -> SizeU16 {
 
 #[test]
 fn empty_scene() {
-    let scheduled = SceneCase::new(32, 32).schedule_root();
+    let scheduled = SceneCase::new(32, 32).schedule_root(true);
 
     assert!(scheduled.views().is_empty());
     assert_eq!(scheduled.page_counts(), [0, 0]);
@@ -181,7 +181,7 @@ fn root_draws() {
         case.draw_at(x, 0.5);
     }
 
-    let scheduled = case.schedule_root();
+    let scheduled = case.schedule_root(true);
     let rounds_view = scheduled.views();
 
     assert_eq!(rounds_view.len(), 1);
@@ -197,7 +197,7 @@ fn draw_order() {
     case.layer(|case| case.draw_at(8.0, 0.5));
     case.draw_at(16.0, 0.5);
 
-    let scheduled = case.schedule_root();
+    let scheduled = case.schedule_root(true);
     let rounds_view = scheduled.views();
 
     assert_eq!(rounds_view.len(), 1);
@@ -213,19 +213,17 @@ fn opaque_root() {
     }
     case.draw_at(24.0, 0.5);
 
-    let user = case.schedule_root();
+    let user = case.schedule_root(true);
     assert_eq!(user.opaque_x(), [16, 8, 0]);
     assert_eq!(user.views()[0].root.x, [24]);
 
     let atlas = case
-        .schedule(RootTarget::AtlasLayer, SizeU16::new(64), 8)
+        .schedule(RootTarget::AtlasLayer, SizeU16::new(64), 8, true)
         .unwrap();
     assert!(atlas.opaque_x().is_empty());
     assert_eq!(atlas.views()[0].root.x, [0, 8, 16, 24]);
 
-    let without_depth = case
-        .schedule_with_depth(RootTarget::UserSurface, SizeU16::new(64), 8, false)
-        .unwrap();
+    let without_depth = case.schedule_root(false);
     assert!(without_depth.opaque_x().is_empty());
     assert_eq!(without_depth.views()[0].root.x, [0, 8, 16, 24]);
 }
@@ -237,13 +235,11 @@ fn root_without_depth_preserves_interleaved_painter_order() {
         case.draw_at(x, opacity);
     }
 
-    let with_depth = case.schedule_root();
+    let with_depth = case.schedule_root(true);
     assert_eq!(with_depth.opaque_x(), [16, 0]);
     assert_eq!(with_depth.views()[0].root.x, [8, 24]);
 
-    let without_depth = case
-        .schedule_with_depth(RootTarget::UserSurface, SizeU16::new(64), 8, false)
-        .unwrap();
+    let without_depth = case.schedule_root(false);
     assert!(without_depth.opaque_x().is_empty());
     assert_eq!(without_depth.views()[0].root.x, [0, 8, 16, 24]);
 }
@@ -253,7 +249,7 @@ fn simple_layer() {
     let mut case = SceneCase::new(32, 8);
     case.layer(|case| case.draw_at(8.0, 0.5));
 
-    let scheduled = case.schedule_root();
+    let scheduled = case.schedule_root(true);
     let rounds_view = scheduled.views();
     let round = &rounds_view[0];
 
@@ -270,7 +266,7 @@ fn default_blend() {
     let mut case = SceneCase::new(16, 8);
     case.layer(|case| case.draw_at(4.0, 0.5));
 
-    let scheduled = case.schedule_root();
+    let scheduled = case.schedule_root(true);
 
     assert!(scheduled.views()[0].root.has_child_layer);
     assert!(scheduled.storage.buffers.blend_ops.is_empty());
@@ -301,7 +297,7 @@ fn clipped_away_blend() {
         );
     });
 
-    let scheduled = case.schedule_root();
+    let scheduled = case.schedule_root(true);
 
     assert_eq!(scheduled.storage.buffers.filter_ops.len(), 1);
     assert!(scheduled.storage.buffers.blend_ops.is_empty());
@@ -327,7 +323,7 @@ fn clipped_away_filtered_blend_under_atlas_pressure() {
     // There is room for exactly one padded filter region per page. Allocating the parent therefore
     // advances the cursor before the clipped-away child is released.
     let scheduled = case
-        .schedule(RootTarget::UserSurface, filter_page_size(), 2)
+        .schedule(RootTarget::UserSurface, filter_page_size(), 2, true)
         .unwrap();
 
     assert_eq!(scheduled.storage.buffers.filter_ops.len(), 1);
@@ -362,7 +358,7 @@ fn blend_release() {
 #[test]
 fn root_blend_resources() {
     let scheduled = root_blend_case()
-        .schedule(RootTarget::UserSurface, SizeU16::new(16), 3)
+        .schedule(RootTarget::UserSurface, SizeU16::new(16), 3, true)
         .unwrap();
 
     // Root lands in the first odd layer, its child in the even one.
@@ -373,7 +369,7 @@ fn root_blend_resources() {
 #[test]
 fn root_release() {
     let scheduled = root_blend_case()
-        .schedule(RootTarget::UserSurface, SizeU16::new(16), 3)
+        .schedule(RootTarget::UserSurface, SizeU16::new(16), 3, true)
         .unwrap();
     let rounds_view = scheduled.views();
     let root_round = rounds_view
@@ -389,11 +385,11 @@ fn root_blend_budget() {
     let case = root_blend_case();
 
     assert!(
-        case.schedule(RootTarget::UserSurface, SizeU16::new(16), 3,)
+        case.schedule(RootTarget::UserSurface, SizeU16::new(16), 3, true)
             .is_ok()
     );
     assert!(matches!(
-        case.schedule(RootTarget::UserSurface, SizeU16::new(16), 2,),
+        case.schedule(RootTarget::UserSurface, SizeU16::new(16), 2, true),
         Err(RenderError::IntermediateTexture(
             IntermediateTextureError::LimitReached {
                 required: 3,
@@ -410,7 +406,7 @@ fn nested_parity() {
         case.layer(|case| case.draw_at(4.0, 0.5));
     });
 
-    let scheduled = case.schedule_root();
+    let scheduled = case.schedule_root(true);
     let rounds_view = scheduled.views();
     let round = &rounds_view[0];
 
@@ -460,7 +456,7 @@ fn draw_after_blend() {
         case.draw_at(24.0, 0.5);
     });
 
-    let scheduled = case.schedule_root();
+    let scheduled = case.schedule_root(true);
     let rounds_view = scheduled.views();
 
     assert_eq!(rounds_view[0].odd.x.len(), 1);
@@ -479,7 +475,7 @@ fn sibling_batch() {
     }
 
     let scheduled = case
-        .schedule(RootTarget::UserSurface, SizeU16::from_wh(16, 8), 1)
+        .schedule(RootTarget::UserSurface, SizeU16::from_wh(16, 8), 1, true)
         .unwrap();
     let rounds_view = scheduled.views();
     let round = &rounds_view[0];
@@ -542,7 +538,7 @@ fn deep_reuse() {
     add_chain(&mut case, DEPTH);
 
     let scheduled = case
-        .schedule(RootTarget::UserSurface, SizeU16::new(8), 2)
+        .schedule(RootTarget::UserSurface, SizeU16::new(8), 2, true)
         .unwrap();
     let rounds_view = scheduled.views();
     let layer_draws = rounds_view
@@ -568,7 +564,7 @@ fn deeply_nested_layers() {
         add_chain(&mut case, depth);
 
         let scheduled = case
-            .schedule(RootTarget::UserSurface, SizeU16::new(8), 2)
+            .schedule(RootTarget::UserSurface, SizeU16::new(8), 2, true)
             .unwrap();
         let textures = scheduled.page_counts().into_iter().sum::<usize>();
 
@@ -583,7 +579,7 @@ fn deeply_nested_blend_layers() {
         add_blend_chain(&mut case, depth);
 
         let scheduled = case
-            .schedule(RootTarget::UserSurface, SizeU16::new(8), 3)
+            .schedule(RootTarget::UserSurface, SizeU16::new(8), 3, true)
             .unwrap();
 
         assert_eq!(
@@ -598,7 +594,7 @@ fn deeply_nested_blend_layers() {
 fn wide_layers() {
     for count in 1..=32 {
         let scheduled = sibling_case(count)
-            .schedule(RootTarget::UserSurface, SizeU16::from_wh(64, 8), 1)
+            .schedule(RootTarget::UserSurface, SizeU16::from_wh(64, 8), 1, true)
             .unwrap();
         let rounds_view = scheduled.views();
 
@@ -624,7 +620,7 @@ fn nested_children() {
         let mut case = SceneCase::new(8, 8);
         add_tree(&mut case, depth, CHILDREN);
         let scheduled = case
-            .schedule(RootTarget::UserSurface, SizeU16::new(256), 2)
+            .schedule(RootTarget::UserSurface, SizeU16::new(256), 2, true)
             .unwrap();
         let layers =
             (CHILDREN.pow(depth.try_into().expect("test depth fits in u32")) - 1) / (CHILDREN - 1);
@@ -650,7 +646,7 @@ fn nested_children_spilled() {
         let mut case = SceneCase::new(8, 8);
         add_tree(&mut case, depth, CHILDREN);
         let scheduled = case
-            .schedule(RootTarget::UserSurface, SizeU16::new(8), 16)
+            .schedule(RootTarget::UserSurface, SizeU16::new(8), 16, true)
             .unwrap();
         let layers =
             (CHILDREN.pow(depth.try_into().expect("test depth fits in u32")) - 1) / (CHILDREN - 1);
@@ -674,7 +670,7 @@ fn empty_layer() {
     let mut case = SceneCase::new(16, 8);
     case.layer(|_| {});
 
-    let scheduled = case.schedule_root();
+    let scheduled = case.schedule_root(true);
 
     assert!(scheduled.views().is_empty());
     assert_eq!(scheduled.page_counts(), [0, 0]);
@@ -693,7 +689,7 @@ fn destructive_empty() {
         );
     });
 
-    let scheduled = case.schedule_root();
+    let scheduled = case.schedule_root(true);
 
     assert_eq!(scheduled.page_counts(), [1, 1]);
     assert!(scheduled.scratch_texture());
@@ -707,7 +703,7 @@ fn layer_clip() {
     clipped.layer_with(Some(clip), None, None, |case| {
         case.draw(Rect::new(0.0, 0.0, 24.0, 8.0), 0.5);
     });
-    let scheduled = clipped.schedule_root();
+    let scheduled = clipped.schedule_root(true);
     let rounds_view = scheduled.views();
     assert_eq!(scheduled.page_counts(), [0, 1]);
     assert_eq!(rounds_view.len(), 1);
@@ -722,7 +718,7 @@ fn layer_clip() {
     disjoint.layer_with(Some(Rect::new(24.0, 0.0, 32.0, 8.0)), None, None, |case| {
         case.draw(Rect::new(0.0, 0.0, 8.0, 8.0), 0.5);
     });
-    let scheduled = disjoint.schedule_root();
+    let scheduled = disjoint.schedule_root(true);
     assert!(scheduled.views().is_empty());
     assert_eq!(scheduled.page_counts(), [0, 0]);
 }
@@ -737,7 +733,7 @@ fn filter_layer() {
     });
 
     let scheduled = case
-        .schedule(RootTarget::UserSurface, SizeU16::new(128), 2)
+        .schedule(RootTarget::UserSurface, SizeU16::new(128), 2, true)
         .unwrap();
     let rounds_view = scheduled.views();
 
@@ -764,7 +760,7 @@ fn drop_shadow_only_uses_two_layer_textures() {
     });
 
     let scheduled = case
-        .schedule(RootTarget::UserSurface, SizeU16::new(64), 2)
+        .schedule(RootTarget::UserSurface, SizeU16::new(64), 2, true)
         .unwrap();
 
     assert_eq!(scheduled.page_counts(), [1, 1]);
@@ -780,7 +776,7 @@ fn filter_round_resolving() {
     });
 
     let scheduled = case
-        .schedule(RootTarget::UserSurface, filter_page_size(), 2)
+        .schedule(RootTarget::UserSurface, filter_page_size(), 2, true)
         .unwrap();
     let rounds_view = scheduled.views();
     let filter = scheduled.storage.buffers.filter_ops[0];
@@ -824,7 +820,7 @@ fn filter_siblings() {
     }
 
     let scheduled = case
-        .schedule(RootTarget::UserSurface, filter_page_size(), 2)
+        .schedule(RootTarget::UserSurface, filter_page_size(), 2, true)
         .unwrap();
 
     // Sibling filter layers should also reuse pages.
@@ -859,7 +855,13 @@ fn storage_reuse() {
 
     let mut storage = ScheduleStorage::default();
     let first_schedule = first
-        .schedule_into(&mut storage, RootTarget::UserSurface, SizeU16::new(128), 4)
+        .schedule_into(
+            &mut storage,
+            RootTarget::UserSurface,
+            SizeU16::new(128),
+            4,
+            true,
+        )
         .unwrap();
 
     assert!(!storage.buffers.draw_buffers.strips.is_empty());
@@ -872,7 +874,13 @@ fn storage_reuse() {
     let mut second = SceneCase::new(64, 16);
     second.draw_at(48.0, 0.5);
     let second_schedule = second
-        .schedule_into(&mut storage, RootTarget::UserSurface, SizeU16::new(128), 4)
+        .schedule_into(
+            &mut storage,
+            RootTarget::UserSurface,
+            SizeU16::new(128),
+            4,
+            true,
+        )
         .unwrap();
 
     assert_eq!(storage.buffers.draw_buffers.strips.len(), 1);
@@ -902,7 +910,7 @@ fn blend_is_constrained_to_parent_clip_bbox() {
             |case| case.draw(Rect::new(4.0, 0.0, 16.0, 8.0), 0.5),
         );
     });
-    let scheduled = case.schedule_root();
+    let scheduled = case.schedule_root(true);
     let blend = scheduled.storage.buffers.blend_ops.first().unwrap();
     assert_eq!(blend.blend_bbox, blend.parent_region.layer_bbox);
     // This must not panic.
