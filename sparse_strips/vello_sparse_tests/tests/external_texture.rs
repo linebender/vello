@@ -44,10 +44,14 @@ mod tests {
         height: f64,
         may_have_transparency: bool,
     ) -> SampleRect {
-        SampleRect {
-            source_region: RectU16::new(0, 0, 1, 1),
-            may_have_transparency,
-            transform: Affine::translate((x, y)) * Affine::scale_non_uniform(width, height),
+        let rect = SampleRect::new(
+            RectU16::new(0, 0, 1, 1),
+            Affine::translate((x, y)) * Affine::scale_non_uniform(width, height),
+        );
+        if may_have_transparency {
+            rect
+        } else {
+            rect.with_opaque_hint()
         }
     }
 
@@ -81,12 +85,11 @@ mod tests {
         ctx.draw_texture_rects(
             texture_id,
             ImageQuality::Medium,
-            [SampleRect {
-                source_region: RectU16::new(0, 0, 1, 1),
-                may_have_transparency: true,
-                transform: Affine::translate((rect.x0, rect.y0))
+            [SampleRect::new(
+                RectU16::new(0, 0, 1, 1),
+                Affine::translate((rect.x0, rect.y0))
                     * Affine::scale_non_uniform(rect.width(), rect.height()),
-            }],
+            )],
         );
         ctx.pop_clip_path();
     }
@@ -102,22 +105,14 @@ mod tests {
         ctx.draw_texture_rects(
             texture_id,
             ImageQuality::Low,
-            [SampleRect {
-                source_region: SPRITES[0],
-                may_have_transparency: true,
-                transform: Affine::translate((12., 15.)),
-            }],
+            [SampleRect::new(SPRITES[0], Affine::translate((12., 15.)))],
         );
         ctx.set_paint(color::palette::css::PALE_GOLDENROD.with_alpha(0.7));
         ctx.fill_rect(&Rect::new(10., 7., 65., 55.));
         ctx.draw_texture_rects(
             texture_id,
             ImageQuality::Low,
-            [SampleRect {
-                source_region: SPRITES[3],
-                may_have_transparency: true,
-                transform: Affine::translate((25., 25.)),
-            }],
+            [SampleRect::new(SPRITES[3], Affine::translate((25., 25.)))],
         );
     }
 
@@ -222,21 +217,19 @@ mod tests {
         ctx.draw_texture_rects(
             external_green,
             ImageQuality::Low,
-            [SampleRect {
-                source_region: RectU16::new(0, 0, 1, 1),
-                may_have_transparency: true,
-                transform: Affine::translate((66., 10.)) * Affine::scale(24.),
-            }],
+            [SampleRect::new(
+                RectU16::new(0, 0, 1, 1),
+                Affine::translate((66., 10.)) * Affine::scale(24.),
+            )],
         );
         draw_atlas_rect(ctx, atlas_blue, Rect::new(38., 38., 62., 62.));
         ctx.draw_texture_rects(
             external_yellow,
             ImageQuality::Low,
-            [SampleRect {
-                source_region: RectU16::new(0, 0, 1, 1),
-                may_have_transparency: true,
-                transform: Affine::translate((10., 66.)) * Affine::scale(24.),
-            }],
+            [SampleRect::new(
+                RectU16::new(0, 0, 1, 1),
+                Affine::translate((10., 66.)) * Affine::scale(24.),
+            )],
         );
         draw_atlas_rect(ctx, atlas_magenta, Rect::new(66., 66., 90., 90.));
     }
@@ -352,11 +345,10 @@ mod tests {
         ctx.draw_texture_rects(
             texture_id,
             ImageQuality::High,
-            [SampleRect {
-                source_region: SPRITES[0],
-                may_have_transparency: true,
-                transform: Affine::translate((15., 15.)) * Affine::skew(0.2, 0.1),
-            }],
+            [SampleRect::new(
+                SPRITES[0],
+                Affine::translate((15., 15.)) * Affine::skew(0.2, 0.1),
+            )],
         );
     }
 
@@ -370,16 +362,8 @@ mod tests {
             texture_id,
             ImageQuality::Medium,
             [
-                SampleRect {
-                    source_region: SPRITES[1],
-                    may_have_transparency: true,
-                    transform: Affine::translate((18., 18.)),
-                },
-                SampleRect {
-                    source_region: SPRITES[3],
-                    may_have_transparency: true,
-                    transform: Affine::translate((34., 34.)),
-                },
+                SampleRect::new(SPRITES[1], Affine::translate((18., 18.))),
+                SampleRect::new(SPRITES[3], Affine::translate((34., 34.))),
             ],
         );
         ctx.pop_layer();
@@ -397,11 +381,7 @@ mod tests {
         ctx.draw_texture_rects(
             texture_id,
             ImageQuality::Low,
-            [SampleRect {
-                source_region: SPRITES[2],
-                may_have_transparency: true,
-                transform: Affine::translate((20., 20.)),
-            }],
+            [SampleRect::new(SPRITES[2], Affine::translate((20., 20.)))],
         );
         ctx.pop_layer();
     }
@@ -427,10 +407,8 @@ mod tests {
         ctx.draw_texture_rects(
             texture_id,
             ImageQuality::Low,
-            placements.map(|(source_region, x, y)| SampleRect {
-                source_region,
-                may_have_transparency: true,
-                transform: Affine::translate((x, y)),
+            placements.map(|(source_region, x, y)| {
+                SampleRect::new(source_region, Affine::translate((x, y)))
             }),
         );
     }
@@ -448,21 +426,12 @@ mod tests {
             texture_id,
             ImageQuality::Medium,
             [
-                SampleRect {
-                    source_region: SPRITES[0],
-                    may_have_transparency: true,
-                    transform: Affine::translate((6., 8.)),
-                },
-                SampleRect {
-                    source_region: SPRITES[3],
-                    may_have_transparency: true,
-                    transform: Affine::translate((28., 5.)) * Affine::skew(0.18, -0.08),
-                },
-                SampleRect {
-                    source_region: SPRITES[2],
-                    may_have_transparency: true,
-                    transform: Affine::translate((48., 6.)),
-                },
+                SampleRect::new(SPRITES[0], Affine::translate((6., 8.))),
+                SampleRect::new(
+                    SPRITES[3],
+                    Affine::translate((28., 5.)) * Affine::skew(0.18, -0.08),
+                ),
+                SampleRect::new(SPRITES[2], Affine::translate((48., 6.))),
             ],
         );
     }

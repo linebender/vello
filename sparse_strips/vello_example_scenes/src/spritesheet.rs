@@ -104,11 +104,7 @@ impl ExampleScene for SpritesheetScene {
                     * Affine::scale(scale)
                     * Affine::translate((-half_w, -half_h));
 
-                rects.push(SampleRect {
-                    source_region: sprite,
-                    may_have_transparency: true,
-                    transform,
-                });
+                rects.push(SampleRect::new(sprite, transform));
             }
         }
 

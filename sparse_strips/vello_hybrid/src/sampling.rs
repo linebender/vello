@@ -28,3 +28,21 @@ pub struct SampleRect {
     /// [`Self::source_region`].
     pub transform: Affine,
 }
+
+impl SampleRect {
+    /// Create a new [`SampleRect`].
+    pub fn new(source_region: RectU16, transform: Affine) -> Self {
+        Self {
+            source_region,
+            may_have_transparency: true,
+            transform,
+        }
+    }
+
+    /// Indicate that the sample rect only contains opaque pixels.
+    #[must_use]
+    pub fn with_opaque_hint(mut self) -> Self {
+        self.may_have_transparency = false;
+        self
+    }
+}
