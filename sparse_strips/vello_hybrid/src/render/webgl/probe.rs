@@ -241,11 +241,17 @@ impl WebGlPendingProbe {
             WebGl2RenderingContext::PIXEL_PACK_BUFFER,
             self.buffer.as_ref(),
         );
-        self.gl.get_buffer_sub_data_with_i32_and_u8_array(
+        // Safari 15 crashes the tab when attempting to read from a pixel pack buffer directly
+        // into WASM-allocated memory. Therefore, we first read it into a JS-allocated buffer and
+        // only then transfer it into the buffer backing the pixmap in WASM memory.
+        let readback =
+            js_sys::Uint8Array::new_with_length(u32::from(self.width) * u32::from(self.height) * 4);
+        self.gl.get_buffer_sub_data_with_i32_and_js_u8_array(
             WebGl2RenderingContext::PIXEL_PACK_BUFFER,
             0,
-            pixmap.data_as_u8_slice_mut(),
+            &readback,
         );
+        readback.copy_to(pixmap.data_as_u8_slice_mut());
 
         Probe::from_actual(pixmap)
     }
