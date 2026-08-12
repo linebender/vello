@@ -39,25 +39,11 @@ impl Draw {
         gpu_strip: GpuStrip,
         external_texture_id: Option<TextureId>,
     ) {
-        if let Some(texture_id) = external_texture_id {
-            let needs_new_run = self
-                .external_texture_runs
-                .last()
-                .is_none_or(|run| run.texture_id != texture_id);
-
-            if needs_new_run {
-                let strips_start = if self.external_texture_runs.is_empty() {
-                    0
-                } else {
-                    self.strip_ranges.len()
-                };
-
-                self.external_texture_runs.push(ExternalTextureRun {
-                    strips_start,
-                    texture_id,
-                });
-            }
-        }
+        push_external_texture_run(
+            &mut self.external_texture_runs,
+            self.strip_ranges.len(),
+            external_texture_id,
+        );
 
         strips.push_ranged(&mut self.strip_ranges, gpu_strip);
     }
@@ -71,6 +57,58 @@ impl Clear for Draw {
     }
 }
 
+/// Root-level opaque strips and the external texture bindings needed to render them.
+#[derive(Debug, Default)]
+pub(crate) struct OpaqueDraw {
+    strips: Vec<GpuStrip>,
+    external_texture_runs: Vec<ExternalTextureRun>,
+}
+
+impl OpaqueDraw {
+    fn push(&mut self, strip: GpuStrip, external_texture_id: Option<TextureId>) {
+        push_external_texture_run(
+            &mut self.external_texture_runs,
+            self.strips.len(),
+            external_texture_id,
+        );
+
+        self.strips.push(strip);
+    }
+
+    /// Reverse opaque strips for front-to-back rendering.
+    pub(crate) fn reverse(&mut self) {
+        self.strips.reverse();
+
+        // We also need to reassign the indices for external textures.
+        let mut original_end = self.strips.len();
+        for run in self.external_texture_runs.iter_mut().rev() {
+            let original_start = run.strips_start;
+            run.strips_start = self.strips.len() - original_end;
+            original_end = original_start;
+        }
+        self.external_texture_runs.reverse();
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.strips.is_empty()
+    }
+
+    pub(crate) fn strips(&self) -> &[GpuStrip] {
+        &self.strips
+    }
+
+    pub(crate) fn external_texture_runs(&self) -> &[ExternalTextureRun] {
+        &self.external_texture_runs
+    }
+}
+
+impl Clear for OpaqueDraw {
+    fn clear(&mut self) {
+        self.strips.clear();
+        self.external_texture_runs.clear();
+    }
+}
+
 /// Appends recorded draws to a scheduled [`Draw`] and its shared buffers.
 #[derive(Debug)]
 pub(crate) struct DrawBuilder<'a, T: DrawTarget> {
@@ -78,8 +116,8 @@ pub(crate) struct DrawBuilder<'a, T: DrawTarget> {
     draw: &'a mut Draw,
     /// Shared buffer receiving alpha-blended strips.
     strips: &'a mut Vec<GpuStrip>,
-    /// Shared buffer receiving root-level opaque strips.
-    opaque: &'a mut Vec<GpuStrip>,
+    /// Root-level opaque draw receiving fully covered strips.
+    opaque: &'a mut OpaqueDraw,
     /// Target and depth state used to encode strips.
     state: &'a mut DrawState<T>,
 }
@@ -93,7 +131,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         Self {
             draw,
             strips: &mut draw_buffers.strips,
-            opaque: &mut draw_buffers.opaque_strips,
+            opaque: &mut draw_buffers.opaque,
             state,
         }
     }
@@ -112,12 +150,12 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         }
     }
 
-    fn push_opaque(&mut self, strip: GpuStrip) -> bool {
+    fn push_opaque(&mut self, strip: GpuStrip, external_texture_id: Option<TextureId>) -> bool {
         if !self.state.use_depth_buffer || !self.state.target.enable_depth() {
             return false;
         }
 
-        self.opaque.push(strip);
+        self.opaque.push(strip, external_texture_id);
         true
     }
 
@@ -172,7 +210,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                     depth_index,
                 );
 
-                if !paint.opaque || !builder.push_opaque(strip) {
+                if !paint.opaque || !builder.push_opaque(strip, paint.external_texture_id) {
                     builder
                         .draw
                         .push(builder.strips, strip, paint.external_texture_id);
@@ -217,7 +255,10 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                 depth_index,
             );
 
-            if !(paint.opaque && part.frac == 0 && self.push_opaque(strip)) {
+            if !(paint.opaque
+                && part.frac == 0
+                && self.push_opaque(strip, paint.external_texture_id))
+            {
                 self.draw
                     .push(self.strips, strip, paint.external_texture_id);
             }
@@ -309,15 +350,15 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
 /// Reusable strip storage shared by all draws in a schedule.
 #[derive(Debug, Default)]
 pub(crate) struct DrawBuffers {
-    /// Opaque root strips rendered in the early depth-writing pass.
-    pub(crate) opaque_strips: Vec<GpuStrip>,
+    /// Root-level opaque draw rendered in the early depth-writing pass.
+    pub(crate) opaque: OpaqueDraw,
     /// Alpha-blended strips selected by each draw's ranges.
     pub(crate) strips: Vec<GpuStrip>,
 }
 
 impl DrawBuffers {
     pub(crate) fn clear(&mut self) {
-        self.opaque_strips.clear();
+        self.opaque.clear();
         self.strips.clear();
     }
 }
@@ -403,15 +444,32 @@ impl LayerTextureRegion {
     }
 }
 
-/// Specifies a run of strips inside a draw that can be drawn with the same external texture
-/// binding.
+/// Specifies a run of strips that can be drawn with the same external texture binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExternalTextureRun {
     /// External texture bound for the run.
     pub(crate) texture_id: TextureId,
     /// Start index of the strip range for this run. The end is implicitly the start of the next
-    /// run, or, for the last run, the total number of strips.
+    /// run, or, for the last run, the total number of strips in the pass.
     pub(crate) strips_start: usize,
+}
+
+fn push_external_texture_run(
+    runs: &mut Vec<ExternalTextureRun>,
+    strips_len: usize,
+    external_texture_id: Option<TextureId>,
+) {
+    let Some(texture_id) = external_texture_id else {
+        return;
+    };
+    if runs.last().is_some_and(|run| run.texture_id == texture_id) {
+        return;
+    }
+
+    runs.push(ExternalTextureRun {
+        texture_id,
+        strips_start: if runs.is_empty() { 0 } else { strips_len },
+    });
 }
 
 /// Assigns monotonically increasing depth values to opaque strips.
@@ -466,7 +524,8 @@ impl StripAlphaFillSegmentExt for StripAlphaFillSegment {
 
 #[cfg(test)]
 mod tests {
-    use super::{Draw, DrawBuffers, DrawBuilder, DrawState, ExternalTextureRun};
+    use super::{Draw, DrawBuffers, DrawBuilder, DrawState, ExternalTextureRun, OpaqueDraw};
+    use crate::GpuStrip;
     use crate::paint::PaintResolver;
     use crate::scene::{RecordedDraw, RecordedRect};
     use crate::target::{
@@ -540,6 +599,29 @@ mod tests {
         PaintResolver::new(&[], &[])
     }
 
+    fn gpu_strip(x: u16) -> GpuStrip {
+        GpuStrip {
+            x,
+            y: 0,
+            width: 1,
+            dense_width_or_rect_height: 0,
+            col_idx_or_rect_frac: 0,
+            payload: 0,
+            paint_and_rect_flag: 0,
+            depth_index: 0,
+        }
+    }
+
+    fn strip_xs(draw: &OpaqueDraw) -> Vec<u16> {
+        draw.strips().iter().map(|strip| strip.x).collect()
+    }
+
+    fn run_starts(runs: &[ExternalTextureRun]) -> Vec<(TextureId, usize)> {
+        runs.iter()
+            .map(|run| (run.texture_id, run.strips_start))
+            .collect()
+    }
+
     fn external(texture_id: TextureId) -> EncodedPaint {
         EncodedPaint::ExternalTexture(EncodedExternalTexture {
             texture_id,
@@ -603,21 +685,8 @@ mod tests {
         }
 
         assert_eq!(
-            draw.external_texture_runs,
-            [
-                ExternalTextureRun {
-                    texture_id: texture_a,
-                    strips_start: 0,
-                },
-                ExternalTextureRun {
-                    texture_id: texture_b,
-                    strips_start: 2,
-                },
-                ExternalTextureRun {
-                    texture_id: texture_a,
-                    strips_start: 4,
-                },
-            ]
+            run_starts(&draw.external_texture_runs),
+            [(texture_a, 0), (texture_b, 2), (texture_a, 4)]
         );
     }
 
@@ -636,13 +705,76 @@ mod tests {
         assert_eq!(draw.strip_ranges.len(), 3);
         // Images in the atlas are handled separately from external textures, so
         // it's fine to collapse them.
+        assert_eq!(run_starts(&draw.external_texture_runs), [(texture, 0)]);
+    }
+
+    #[test]
+    fn opaque_reverse_rebases_texture_runs() {
+        let texture_a = TextureId(10);
+        let texture_b = TextureId(20);
+        let texture_c = TextureId(30);
+        let mut draw = OpaqueDraw::default();
+
+        for (x, texture_id) in [
+            (0, None),
+            (1, Some(texture_a)),
+            (2, Some(texture_a)),
+            (3, None),
+            (4, None),
+            (5, None),
+            (6, Some(texture_b)),
+            (7, Some(texture_b)),
+            (8, Some(texture_c)),
+            (9, None),
+            (10, Some(texture_c)),
+            (11, None),
+            (12, None),
+            (13, Some(texture_a)),
+            (14, None),
+            (15, Some(texture_b)),
+        ] {
+            draw.push(gpu_strip(x), texture_id);
+        }
         assert_eq!(
-            draw.external_texture_runs,
-            [ExternalTextureRun {
-                texture_id: texture,
-                strips_start: 0,
-            }]
+            run_starts(draw.external_texture_runs()),
+            [
+                (texture_a, 0),
+                (texture_b, 6),
+                (texture_c, 8),
+                (texture_a, 13),
+                (texture_b, 15),
+            ]
         );
+
+        draw.reverse();
+
+        assert_eq!(
+            strip_xs(&draw),
+            [15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
+        );
+        assert_eq!(
+            run_starts(draw.external_texture_runs()),
+            [
+                (texture_b, 0),
+                (texture_a, 1),
+                (texture_c, 3),
+                (texture_b, 8),
+                (texture_a, 10),
+            ]
+        );
+    }
+
+    #[test]
+    fn opaque_reverse_without_texture_runs() {
+        let mut draw = OpaqueDraw::default();
+        for x in 0..3 {
+            draw.push(gpu_strip(x), None);
+        }
+
+        draw.reverse();
+
+        assert_eq!(strip_xs(&draw), [2, 1, 0]);
+        assert_eq!(run_starts(draw.external_texture_runs()), []);
     }
 
     #[test]
@@ -683,14 +815,14 @@ mod tests {
             no_paints(),
         );
 
-        assert_eq!(user_case.buffers.opaque_strips.len(), 1);
+        assert_eq!(user_case.buffers.opaque.strips().len(), 1);
         assert_eq!(user_draw.strip_ranges.len(), 1);
 
         let mut atlas_case = DrawCase::new(RootTarget::AtlasLayer, RectU16::new(0, 0, 8, 8));
         let mut atlas_draw = Draw::default();
         atlas_case.rect(&mut atlas_draw, rect(0.0), solid(1.0), no_paints());
 
-        assert!(atlas_case.buffers.opaque_strips.is_empty());
+        assert!(atlas_case.buffers.opaque.is_empty());
         assert_eq!(atlas_draw.strip_ranges.len(), 1);
     }
 
@@ -726,7 +858,8 @@ mod tests {
         );
         assert_eq!(
             case.buffers
-                .opaque_strips
+                .opaque
+                .strips()
                 .iter()
                 .map(|strip| strip.depth_index)
                 .collect::<Vec<_>>(),

@@ -204,7 +204,8 @@ impl ScheduledCase {
         self.storage
             .buffers
             .draw_buffers
-            .opaque_strips
+            .opaque
+            .strips()
             .iter()
             .map(|strip| strip.x)
             .collect()

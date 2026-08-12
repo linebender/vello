@@ -884,7 +884,7 @@ fn storage_reuse() {
         .unwrap();
 
     assert_eq!(storage.buffers.draw_buffers.strips.len(), 1);
-    assert!(storage.buffers.draw_buffers.opaque_strips.is_empty());
+    assert!(storage.buffers.draw_buffers.opaque.is_empty());
     assert!(storage.buffers.blend_ops.is_empty());
     assert!(storage.buffers.blend_strips.is_empty());
     assert!(storage.buffers.filter_ops.is_empty());

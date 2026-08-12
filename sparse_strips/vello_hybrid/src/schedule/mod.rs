@@ -322,7 +322,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         self.schedule_root(&mut rounds)?;
 
         // Since the strips should be rendered front-to-back.
-        self.storage.buffers.draw_buffers.opaque_strips.reverse();
+        self.storage.buffers.draw_buffers.opaque.reverse();
 
         #[cfg(any(test, debug_assertions))]
         rounds.validate(&self.storage.buffers);

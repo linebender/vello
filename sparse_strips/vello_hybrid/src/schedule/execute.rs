@@ -21,7 +21,11 @@ pub(crate) trait Backend {
     /// ever called, it's called before any of the other ones and only once.
     ///
     /// The strips are guaranteed to be non-empty.
-    fn opaque_draw_pass(&mut self, strips: &[GpuStrip]);
+    fn opaque_draw_pass(
+        &mut self,
+        strips: &[GpuStrip],
+        external_texture_runs: &[ExternalTextureRun],
+    );
 
     /// Execute a draw pass against the given target.
     ///
@@ -78,9 +82,12 @@ impl Schedule {
         filter_plan: &mut FilterPassPlan,
     ) {
         if DrawPassTarget::Root(root_output_target).enable_opaque()
-            && !buffers.draw_buffers.opaque_strips.is_empty()
+            && !buffers.draw_buffers.opaque.is_empty()
         {
-            renderer.opaque_draw_pass(&buffers.draw_buffers.opaque_strips);
+            renderer.opaque_draw_pass(
+                buffers.draw_buffers.opaque.strips(),
+                buffers.draw_buffers.opaque.external_texture_runs(),
+            );
         }
 
         self.rounds.execute(
@@ -209,7 +216,11 @@ mod tests {
     }
 
     impl Backend for Recorder {
-        fn opaque_draw_pass(&mut self, _strips: &[GpuStrip]) {
+        fn opaque_draw_pass(
+            &mut self,
+            _strips: &[GpuStrip],
+            _external_texture_runs: &[ExternalTextureRun],
+        ) {
             self.calls.push(Call::Opaque);
         }
 
