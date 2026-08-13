@@ -15,8 +15,8 @@ pub struct ExternalTextureRect {
     /// The external texture to sample.
     pub texture_id: TextureId,
 
-    /// Source region in texel coordinates.
-    pub source_region: RectU16,
+    /// Source rectangle in texel coordinates.
+    pub source_rect: RectU16,
 
     /// Destination rectangle in local scene coordinates.
     pub destination_rect: Rect,

@@ -494,14 +494,14 @@ impl Scene {
     ///
     /// See the documentation of [`ExternalTextureRect`] for more information.
     pub fn draw_texture_rect(&mut self, rect: ExternalTextureRect) {
-        if rect.source_region.is_empty() || rect.destination_rect.is_zero_area() {
+        if rect.source_rect.is_empty() || rect.destination_rect.is_zero_area() {
             return;
         }
 
         self.with_optional_filter_or_blend_layer(|ctx| {
             let paint = ctx.encode_external_texture_paint(
                 rect.texture_id,
-                rect.source_region,
+                rect.source_rect,
                 rect.sampler,
                 ctx.effective_paint_transform(),
                 rect.may_have_transparency,

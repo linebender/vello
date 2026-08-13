@@ -56,7 +56,7 @@ mod tests {
     ) -> ExternalTextureRect {
         ExternalTextureRect {
             texture_id,
-            source_region: RectU16::new(0, 0, 1, 1),
+            source_rect: RectU16::new(0, 0, 1, 1),
             destination_rect: Rect::new(x, y, x + width, y + height),
             sampler: pad_sampler(ImageQuality::Low),
             may_have_transparency,
@@ -76,7 +76,7 @@ mod tests {
     ) -> ExternalTextureRect {
         ExternalTextureRect {
             texture_id,
-            source_region,
+            source_rect: source_region,
             destination_rect: Rect::new(
                 x,
                 y,
@@ -109,7 +109,7 @@ mod tests {
         ctx.push_clip_path(&clip);
         ctx.draw_texture_rect(ExternalTextureRect {
             texture_id,
-            source_region: RectU16::new(0, 0, 1, 1),
+            source_rect: RectU16::new(0, 0, 1, 1),
             destination_rect: rect,
             sampler: pad_sampler(ImageQuality::Medium),
             may_have_transparency: true,
@@ -151,7 +151,7 @@ mod tests {
 
         ctx.draw_texture_rect(ExternalTextureRect {
             texture_id,
-            source_region: RectU16::new(0, 0, 16, 16),
+            source_rect: RectU16::new(0, 0, 16, 16),
             destination_rect: Rect::new(5., 5., 95., 95.),
             sampler: ImageSampler {
                 x_extend: Extend::Repeat,
@@ -170,7 +170,7 @@ mod tests {
         ctx.set_paint_transform(Affine::rotate(0.35) * Affine::scale(2.));
         ctx.draw_texture_rect(ExternalTextureRect {
             texture_id,
-            source_region: RectU16::new(2, 2, 14, 14),
+            source_rect: RectU16::new(2, 2, 14, 14),
             destination_rect: Rect::new(5., 5., 95., 95.),
             sampler: ImageSampler {
                 x_extend: Extend::Reflect,
@@ -189,7 +189,7 @@ mod tests {
         ctx.set_transform(Affine::translate((5., 5.)) * Affine::scale(5.625));
         ctx.draw_texture_rect(ExternalTextureRect {
             texture_id,
-            source_region: RectU16::new(0, 0, 16, 16),
+            source_rect: RectU16::new(0, 0, 16, 16),
             destination_rect: Rect::new(0., 0., 16., 16.),
             sampler: ImageSampler {
                 x_extend: Extend::Repeat,
@@ -208,7 +208,7 @@ mod tests {
         ctx.set_paint_transform(Affine::translate((14.0, 14.0)) * Affine::scale(6.0));
         ctx.draw_texture_rect(ExternalTextureRect {
             texture_id,
-            source_region: RectU16::new(2, 2, 14, 14),
+            source_rect: RectU16::new(2, 2, 14, 14),
             destination_rect: Rect::new(5., 5., 95., 95.),
             sampler: ImageSampler {
                 x_extend: Extend::Reflect,
@@ -403,7 +403,7 @@ mod tests {
         ctx.set_paint_transform(Affine::IDENTITY);
         ctx.draw_texture_rect(ExternalTextureRect {
             texture_id,
-            source_region,
+            source_rect: source_region,
             destination_rect: Rect::new(
                 0.,
                 0.,
@@ -510,7 +510,7 @@ mod tests {
             ctx.set_paint_transform(Affine::IDENTITY);
             ctx.draw_texture_rect(ExternalTextureRect {
                 texture_id,
-                source_region,
+                source_rect: source_region,
                 destination_rect: Rect::new(
                     0.,
                     0.,
