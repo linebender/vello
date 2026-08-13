@@ -394,3 +394,24 @@ fn u8_path_tracks_the_f32_path() {
         }
     }
 }
+
+/// `apply_to_coverage` is `apply_u8` applied element-wise — the form strip
+/// generation uses for glyphs drawn directly from their outlines — and the
+/// `NONE` transfer leaves the buffer untouched.
+#[test]
+fn buffer_transfer_matches_apply_u8() {
+    let all: Vec<u8> = (0..=u8::MAX).collect();
+
+    let mut untouched = all.clone();
+    CoverageContrast::NONE.apply_to_coverage(&mut untouched);
+    assert_eq!(untouched, all, "NONE must be an in-place identity");
+
+    for (contrast, weight) in [(153_u8, 51_u8), (255, 0), (0, 128)] {
+        let c = CoverageContrast::from_bits(contrast, weight);
+        let mut mapped = all.clone();
+        c.apply_to_coverage(&mut mapped);
+        for (byte, out) in all.iter().zip(&mapped) {
+            assert_eq!(*out, c.apply_u8(*byte), "({contrast}, {weight}) at {byte}");
+        }
+    }
+}

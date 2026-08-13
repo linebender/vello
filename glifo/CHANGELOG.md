@@ -14,7 +14,7 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- `GlyphRenderer::glyph_coverage_contrast` (default `CoverageContrast::NONE`), applied to atlas-cached outline glyphs with the weight term resolved per draw against the tint color's luminance. ([#1790][] by [@AdrianEddy][])
+- `GlyphRenderer::glyph_coverage_contrast` (default `CoverageContrast::NONE`), applied to solid-painted outline glyphs with the weight term resolved per draw against the text color's luminance. Atlas-cached glyphs receive the transfer through their alpha-mask tint at sample time; glyphs drawn directly from their outlines receive the same transfer at fill time through the new `GlyphRenderer::fill_glyph_path` hook, so appearance does not depend on whether a glyph is cached. ([#1790][] by [@AdrianEddy][])
 
 ## [0.3.0][] - 2026-08-07
 

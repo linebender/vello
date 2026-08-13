@@ -14,7 +14,7 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- `RenderContext::set_glyph_coverage_contrast` for applying a `CoverageContrast` to atlas-cached glyph coverage. ([#1790][] by [@AdrianEddy][])
+- `RenderContext::set_glyph_coverage_contrast` for applying a `CoverageContrast` to outline glyph coverage, whether the glyph is atlas-cached or drawn directly from its outline. ([#1790][] by [@AdrianEddy][])
 
 ## [0.2.0][] - 2026-08-07
 

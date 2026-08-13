@@ -281,6 +281,17 @@ impl RenderContext {
 
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
+        self.fill_path_with_coverage_transfer(path, CoverageContrast::NONE);
+    }
+
+    /// Fill a path, remapping its coverage through `coverage_transfer` before
+    /// compositing (and before any clip intersection). Used by the glyph
+    /// integration so outline glyphs drawn directly match atlas-cached ones.
+    pub(crate) fn fill_path_with_coverage_transfer(
+        &mut self,
+        path: &BezPath,
+        coverage_transfer: CoverageContrast,
+    ) {
         // TODO: Similarly to Vello Hybrid, make sure that inline blend + filter are applies
         // to the same layer.
         self.with_optional_filter(|ctx| {
@@ -296,6 +307,7 @@ impl RenderContext {
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
+                coverage_transfer,
             );
         });
     }
@@ -350,6 +362,7 @@ impl RenderContext {
                     ctx.state.blend_mode,
                     ctx.aliasing_threshold,
                     ctx.mask.clone(),
+                    CoverageContrast::NONE,
                 );
             }
         });
@@ -442,6 +455,7 @@ impl RenderContext {
             self.state.blend_mode,
             self.aliasing_threshold,
             self.mask.clone(),
+            CoverageContrast::NONE,
         );
     }
 

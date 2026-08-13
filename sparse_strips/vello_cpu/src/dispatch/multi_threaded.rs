@@ -31,7 +31,7 @@ use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, Paint};
+use vello_common::paint::{CoverageContrast, ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
 use vello_common::record::{CommandRecorder, LayerClip, LayerProps, PoppedLayer};
 use vello_common::strip::Strip;
@@ -471,6 +471,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        coverage_transfer: CoverageContrast,
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -483,6 +484,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             blend_mode,
             aliasing_threshold,
             mask,
+            coverage_transfer,
         });
     }
 
@@ -536,6 +538,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             blend_mode,
             aliasing_threshold: None,
             mask,
+            coverage_transfer: CoverageContrast::NONE,
         });
     }
 
@@ -849,6 +852,7 @@ pub(crate) enum RenderTaskType {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        coverage_transfer: CoverageContrast,
     },
     StrokePath {
         path_range: Range<u32>,
@@ -946,7 +950,7 @@ mod tests {
     use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::peniko::{BlendMode, Fill};
-    use vello_common::paint::{Paint, PremulColor};
+    use vello_common::paint::{CoverageContrast, Paint, PremulColor};
 
     /// Ensure we don't cause a memory leak.
     #[test]
@@ -961,6 +965,7 @@ mod tests {
                 BlendMode::default(),
                 None,
                 None,
+                CoverageContrast::NONE,
             );
             dispatcher.flush();
         }

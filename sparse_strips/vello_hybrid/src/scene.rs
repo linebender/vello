@@ -344,6 +344,17 @@ impl Scene {
 
     /// Fill a path with the current paint and fill rule.
     pub fn fill_path(&mut self, path: &BezPath) {
+        self.fill_path_with_coverage_transfer(path, CoverageContrast::NONE);
+    }
+
+    /// Fill a path, remapping its coverage through `coverage_transfer` before
+    /// compositing (and before any clip intersection). Used by the glyph
+    /// integration so outline glyphs drawn directly match atlas-cached ones.
+    pub(crate) fn fill_path_with_coverage_transfer(
+        &mut self,
+        path: &BezPath,
+        coverage_transfer: CoverageContrast,
+    ) {
         if !self.paint_visible {
             return;
         }
@@ -356,6 +367,7 @@ impl Scene {
                 ctx.render_state.fill_rule,
                 paint,
                 ctx.aliasing_threshold,
+                coverage_transfer,
             );
         });
     }
@@ -368,13 +380,15 @@ impl Scene {
         fill_rule: Fill,
         paint: Paint,
         aliasing_threshold: Option<u8>,
+        coverage_transfer: CoverageContrast,
     ) {
         self.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
-            strip_generator.generate_filled_path(
+            strip_generator.generate_filled_path_with_coverage_transfer(
                 path,
                 fill_rule,
                 transform,
                 aliasing_threshold,
+                coverage_transfer,
                 strip_storage,
                 clip_path,
             );
@@ -490,6 +504,7 @@ impl Scene {
                     ctx.render_state.fill_rule,
                     paint,
                     ctx.aliasing_threshold,
+                    CoverageContrast::NONE,
                 );
             }
         });
@@ -524,6 +539,7 @@ impl Scene {
                 ctx.render_state.fill_rule,
                 paint,
                 ctx.aliasing_threshold,
+                CoverageContrast::NONE,
             );
         });
     }
@@ -648,6 +664,7 @@ impl Scene {
                     Fill::NonZero,
                     paint,
                     ctx.aliasing_threshold,
+                    CoverageContrast::NONE,
                 );
             }
         });

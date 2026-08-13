@@ -14,7 +14,7 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- `Scene::set_glyph_coverage_contrast` for applying a `CoverageContrast` to atlas-cached glyph coverage; the packed tint mode word now carries the strengths in bits 8-23. ([#1790][] by [@AdrianEddy][])
+- `Scene::set_glyph_coverage_contrast` for applying a `CoverageContrast` to outline glyph coverage, whether the glyph is atlas-cached (the packed tint mode word carries the strengths in bits 8-23) or drawn directly from its outline (coverage is remapped CPU-side at strip generation). ([#1790][] by [@AdrianEddy][])
 
 ## [0.2.0][] - 2026-08-07
 

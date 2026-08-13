@@ -8,6 +8,7 @@ use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::geometry::RectU16;
 use crate::kurbo::{Affine, PathEl, Rect, Stroke};
+use crate::paint::CoverageContrast;
 use crate::peniko::Fill;
 use crate::strip::Strip;
 use crate::tile::Tiles;
@@ -126,6 +127,35 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
+        self.generate_filled_path_with_coverage_transfer(
+            path,
+            fill_rule,
+            transform,
+            aliasing_threshold,
+            CoverageContrast::NONE,
+            strip_storage,
+            clip_path,
+        );
+    }
+
+    /// Like [`Self::generate_filled_path`], but remaps the generated coverage
+    /// in place through `coverage_transfer` (see [`CoverageContrast`]).
+    ///
+    /// The remap happens before any clip intersection, so a clip attenuates
+    /// the transferred coverage exactly as it attenuates an atlas-sampled
+    /// glyph whose transfer is applied at tint time. Used for outline glyphs
+    /// drawn directly (bypassing the glyph atlas), so they match atlas-cached
+    /// glyphs.
+    pub fn generate_filled_path_with_coverage_transfer(
+        &mut self,
+        path: impl IntoIterator<Item = PathEl>,
+        fill_rule: Fill,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
+        coverage_transfer: CoverageContrast,
+        strip_storage: &mut StripStorage,
+        clip_path: Option<PathDataRef<'_>>,
+    ) {
         let cull_bbox = clip_path
             .map(|clip_path| clip_path.bbox)
             .unwrap_or(RectU16::new(0, 0, self.width, self.height));
@@ -138,7 +168,13 @@ impl StripGenerator {
             cull_bbox,
         );
 
-        self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path);
+        self.generate_with_clip(
+            aliasing_threshold,
+            coverage_transfer,
+            strip_storage,
+            fill_rule,
+            clip_path,
+        );
     }
 
     /// Generate the strips for a stroked path.
@@ -164,12 +200,19 @@ impl StripGenerator {
             &mut self.stroke_ctx,
             cull_bbox,
         );
-        self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path);
+        self.generate_with_clip(
+            aliasing_threshold,
+            CoverageContrast::NONE,
+            strip_storage,
+            Fill::NonZero,
+            clip_path,
+        );
     }
 
     fn generate_with_clip(
         &mut self,
         aliasing_threshold: Option<u8>,
+        coverage_transfer: CoverageContrast,
         strip_storage: &mut StripStorage,
         fill_rule: Fill,
         clip_path: Option<PathDataRef<'_>>,
@@ -188,6 +231,7 @@ impl StripGenerator {
             strip_storage,
             clip_path,
             |strips, alphas| {
+                let generated_from = alphas.len();
                 strip::render(
                     level,
                     tiles,
@@ -197,6 +241,7 @@ impl StripGenerator {
                     aliasing_threshold,
                     line_buf,
                 );
+                coverage_transfer.apply_to_coverage(&mut alphas[generated_from..]);
             },
         );
     }
