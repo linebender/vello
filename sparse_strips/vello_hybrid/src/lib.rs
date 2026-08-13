@@ -67,6 +67,14 @@
 //! these and other limitations in future releases.
 
 #![no_std]
+#![cfg_attr(
+    not(any(feature = "wgpu", feature = "webgl")),
+    allow(
+        dead_code,
+        unused_imports,
+        reason = "backend implementations are unused when none is enabled"
+    )
+)]
 
 extern crate alloc;
 
