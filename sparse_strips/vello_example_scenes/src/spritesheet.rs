@@ -102,8 +102,8 @@ impl ExampleScene for SpritesheetScene {
                 ctx.set_paint_transform(Affine::IDENTITY);
                 ctx.draw_texture_rect(ExternalTextureRect {
                     texture_id: SPRITESHEET_TEXTURE_ID,
-                    source_rect: sprite,
-                    destination_rect: Rect::new(
+                    src_rect: sprite,
+                    dest_rect: Rect::new(
                         0.0,
                         0.0,
                         f64::from(sprite.width()),

@@ -494,27 +494,27 @@ impl Scene {
     ///
     /// See the documentation of [`ExternalTextureRect`] for more information.
     pub fn draw_texture_rect(&mut self, rect: ExternalTextureRect) {
-        if rect.source_rect.is_empty() || rect.destination_rect.is_zero_area() {
+        if rect.src_rect.is_empty() || rect.dest_rect.is_zero_area() {
             return;
         }
 
         self.with_optional_filter_or_blend_layer(|ctx| {
             let paint = ctx.encode_external_texture_paint(
                 rect.texture_id,
-                rect.source_rect,
+                rect.src_rect,
                 rect.sampler,
                 ctx.effective_paint_transform(),
                 rect.may_have_transparency,
             );
 
-            if let Some(bounds) = ctx.fast_rect_bounds(&rect.destination_rect) {
+            if let Some(bounds) = ctx.fast_rect_bounds(&rect.dest_rect) {
                 ctx.recorder
                     .push_draw(RecordedDraw::new_rect(bounds, paint), &[]);
                 return;
             }
 
             ctx.fill_path_with(
-                &rect.destination_rect.to_path(DEFAULT_TOLERANCE),
+                &rect.dest_rect.to_path(DEFAULT_TOLERANCE),
                 ctx.effective_path_transform(),
                 ctx.render_state.fill_rule,
                 paint,
