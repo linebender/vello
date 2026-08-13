@@ -161,6 +161,58 @@ mod tests {
         );
     }
 
+    /// Overlapping damage rects must composite translucent content exactly
+    /// once. The root draw sequence is replayed once per scissor rect, so
+    /// without normalizing the region into a disjoint union, the overlap
+    /// would blend the translucent fill twice and diverge from a full render.
+    /// The scene deliberately has no opaque backdrop: an opaque first draw
+    /// would reset the overlap on every replay and mask the double blend.
+    #[test]
+    fn partial_render_overlapping_damage_rects_match_full() {
+        let paint_translucent = |ctx: &mut HybridRenderer| {
+            ctx.set_paint(Color::new([0.2, 0.8, 0.4, 0.7]));
+            ctx.fill_rect(&Rect::new(4.0, 4.0, 124.0, 60.0));
+        };
+
+        let mut full_ctx = hybrid();
+        paint_translucent(&mut full_ctx);
+        let full = render_pixmap(&mut full_ctx);
+
+        // Two rects overlapping over x 40..88, y 16..48.
+        let damage = [RectU16::new(8, 8, 88, 48), RectU16::new(40, 16, 120, 56)];
+        let mut damaged_ctx = hybrid();
+        paint_translucent(&mut damaged_ctx);
+        let mut damaged = Pixmap::new(W, H);
+        damaged_ctx.render_region_to_pixmap(
+            ClearSettings::default(),
+            RenderRegion::Rects(&damage),
+            false,
+            &mut damaged,
+        );
+
+        for y in 0..H {
+            for x in 0..W {
+                let inside = damage
+                    .iter()
+                    .any(|r| x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1);
+                if inside {
+                    assert_eq!(
+                        pixel(&damaged, x, y),
+                        pixel(&full, x, y),
+                        "in-region pixel ({x}, {y}) must match the full render \
+                         (a mismatch inside the overlap means it was composited twice)"
+                    );
+                } else {
+                    assert_eq!(
+                        pixel(&damaged, x, y),
+                        [0, 0, 0, 0],
+                        "out-of-region pixel ({x}, {y}) must stay cleared"
+                    );
+                }
+            }
+        }
+    }
+
     /// [`ClearSettings::Rects`] renders into the caller's target, so its
     /// pipeline must be built for the render target's format — not for the
     /// `Rgba8Unorm` the renderer's own layer textures use.
