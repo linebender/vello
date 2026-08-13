@@ -30,8 +30,8 @@ pub use vello_common::paint::{Paint, PaintType};
 pub use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
 #[cfg(feature = "cpu")]
 use vello_cpu::{RenderContext, Resources as CpuResources};
+pub use vello_hybrid::{ExternalTextureRect, TextureId};
 use vello_hybrid::{Resources as HybridResources, Scene};
-pub use vello_hybrid::{SampleRect, TextureId};
 
 /// Renderer capability flags controlling which scenes are listed by [`get_example_scenes`].
 ///
@@ -40,7 +40,7 @@ pub use vello_hybrid::{SampleRect, TextureId};
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Capabilities {
     /// Whether the renderer supports externally bound textures and
-    /// [`RenderingContext::draw_texture_rects`].
+    /// [`RenderingContext::draw_texture_rect`].
     pub external_textures: bool,
 }
 
@@ -105,14 +105,8 @@ pub trait RenderingContext: Sized {
     fn pop_layer(&mut self);
     /// Pop the last clip path.
     fn pop_clip_path(&mut self);
-    /// Sample rectangular regions from an externally bound texture and draw them with the
-    /// corresponding transforms.
-    fn draw_texture_rects(
-        &mut self,
-        texture_id: TextureId,
-        quality: ImageQuality,
-        rects: impl IntoIterator<Item = SampleRect>,
-    );
+    /// Sample a rectangular region from an externally bound texture and draw it.
+    fn draw_texture_rect(&mut self, rect: ExternalTextureRect);
 }
 
 #[cfg(feature = "cpu")]
@@ -211,12 +205,7 @@ impl RenderingContext for RenderContext {
         Self::pop_clip_path(self);
     }
 
-    fn draw_texture_rects(
-        &mut self,
-        _texture_id: TextureId,
-        _quality: ImageQuality,
-        _rects: impl IntoIterator<Item = SampleRect>,
-    ) {
+    fn draw_texture_rect(&mut self, _rect: ExternalTextureRect) {
         unimplemented!("vello_cpu does not yet support external textures");
     }
 }
@@ -316,13 +305,8 @@ impl RenderingContext for Scene {
         Self::pop_clip_path(self);
     }
 
-    fn draw_texture_rects(
-        &mut self,
-        texture_id: TextureId,
-        quality: ImageQuality,
-        rects: impl IntoIterator<Item = SampleRect>,
-    ) {
-        self.draw_texture_rects(texture_id, quality, rects);
+    fn draw_texture_rect(&mut self, rect: ExternalTextureRect) {
+        self.draw_texture_rect(rect);
     }
 }
 

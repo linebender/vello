@@ -6,10 +6,10 @@
 use std::io::Cursor;
 
 use vello_common::geometry::RectU16;
-use vello_common::kurbo::Affine;
-use vello_common::peniko::ImageQuality;
+use vello_common::kurbo::{Affine, Rect};
+use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{SampleRect, TextureId};
+use vello_hybrid::{ExternalTextureRect, TextureId};
 
 use crate::{ExampleScene, RenderingContext};
 
@@ -30,9 +30,8 @@ const SPRITES: [RectU16; 4] = [
 
 /// The spritesheet scene.
 ///
-/// Draws many rectangular regions of one externally bound texture in a single
-/// [`RenderingContext::draw_texture_rects`] call. The host is responsible for uploading the
-/// spritesheet (see [`SpritesheetScene::read_spritesheet`]) and binding it under
+/// Draws many rectangular regions of one externally bound texture. The host is responsible for
+/// uploading the spritesheet (see [`SpritesheetScene::read_spritesheet`]) and binding it under
 /// [`SPRITESHEET_TEXTURE_ID`] at render time.
 #[derive(Debug, Default)]
 pub struct SpritesheetScene {}
@@ -79,9 +78,6 @@ impl ExampleScene for SpritesheetScene {
         const CELL_W: f64 = 80.;
         const CELL_H: f64 = 80.;
 
-        ctx.set_transform(root_transform);
-
-        let mut rects = Vec::with_capacity(COLS * ROWS);
         for row in 0..ROWS {
             for col in 0..COLS {
                 let i = row * COLS + col;
@@ -96,18 +92,32 @@ impl ExampleScene for SpritesheetScene {
                 let half_w = f64::from(sprite.width()) * 0.5;
                 let half_h = f64::from(sprite.height()) * 0.5;
 
-                // This per-rect transform maps the local source region (with origin (0,0) at
-                // the sampled region's top-left corner) into the destination.
                 let transform = Affine::translate((cx, cy))
                     * Affine::rotate(rotation)
                     * Affine::skew(skew_x, skew_y)
                     * Affine::scale(scale)
                     * Affine::translate((-half_w, -half_h));
 
-                rects.push(SampleRect::new(sprite, transform));
+                ctx.set_transform(root_transform * transform);
+                ctx.set_paint_transform(Affine::IDENTITY);
+                ctx.draw_texture_rect(ExternalTextureRect {
+                    texture_id: SPRITESHEET_TEXTURE_ID,
+                    src_rect: sprite,
+                    dest_rect: Rect::new(
+                        0.0,
+                        0.0,
+                        f64::from(sprite.width()),
+                        f64::from(sprite.height()),
+                    ),
+                    sampler: ImageSampler {
+                        x_extend: Extend::Pad,
+                        y_extend: Extend::Pad,
+                        quality: ImageQuality::Medium,
+                        alpha: 1.0,
+                    },
+                    may_have_transparency: true,
+                });
             }
         }
-
-        ctx.draw_texture_rects(SPRITESHEET_TEXTURE_ID, ImageQuality::Medium, rects);
     }
 }

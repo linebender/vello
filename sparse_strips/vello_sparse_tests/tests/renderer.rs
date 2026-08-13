@@ -10,12 +10,12 @@ use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
-use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
+use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
 use vello_hybrid::{
-    RenderSettings as HybridRenderSettings, Resources as HybridResources, SampleRect, Scene,
-    TextureId,
+    ExternalTextureRect, RenderSettings as HybridRenderSettings, Resources as HybridResources,
+    Scene, TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -88,12 +88,7 @@ pub(crate) trait Renderer: Sized {
     fn width(&self) -> u16;
     fn height(&self) -> u16;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
-    fn draw_texture_rects(
-        &mut self,
-        texture_id: TextureId,
-        quality: ImageQuality,
-        rects: impl IntoIterator<Item = SampleRect>,
-    );
+    fn draw_texture_rect(&mut self, rect: ExternalTextureRect);
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId;
 }
@@ -269,12 +264,7 @@ impl Renderer for CpuRenderer {
         unimplemented!("external textures are only supported by hybrid renderer tests")
     }
 
-    fn draw_texture_rects(
-        &mut self,
-        _: TextureId,
-        _: ImageQuality,
-        _: impl IntoIterator<Item = SampleRect>,
-    ) {
+    fn draw_texture_rect(&mut self, _: ExternalTextureRect) {
         unimplemented!("external textures are only supported by hybrid renderer tests")
     }
 
@@ -720,13 +710,8 @@ impl Renderer for HybridRenderer {
         texture_id
     }
 
-    fn draw_texture_rects(
-        &mut self,
-        texture_id: TextureId,
-        quality: ImageQuality,
-        rects: impl IntoIterator<Item = SampleRect>,
-    ) {
-        self.scene.draw_texture_rects(texture_id, quality, rects);
+    fn draw_texture_rect(&mut self, rect: ExternalTextureRect) {
+        self.scene.draw_texture_rect(rect);
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
@@ -1046,13 +1031,8 @@ impl Renderer for HybridRenderer {
         texture_id
     }
 
-    fn draw_texture_rects(
-        &mut self,
-        texture_id: TextureId,
-        quality: ImageQuality,
-        rects: impl IntoIterator<Item = SampleRect>,
-    ) {
-        self.scene.draw_texture_rects(texture_id, quality, rects);
+    fn draw_texture_rect(&mut self, rect: ExternalTextureRect) {
+        self.scene.draw_texture_rect(rect);
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {

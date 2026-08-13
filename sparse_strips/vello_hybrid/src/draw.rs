@@ -691,6 +691,20 @@ mod tests {
     }
 
     #[test]
+    fn texture_runs_coalesce_distinct_paints_for_same_texture() {
+        let texture = TextureId(10);
+        let encoded = [external(texture), external(texture)];
+        let resolver = PaintResolver::new(&encoded, &[0, 3]);
+        let mut case = DrawCase::new(RootTarget::UserSurface, RectU16::new(0, 0, 8, 8));
+        let mut draw = Draw::default();
+
+        case.rect(&mut draw, rect(0.0), indexed(0), resolver);
+        case.rect(&mut draw, rect(4.0), indexed(1), resolver);
+
+        assert_eq!(run_starts(&draw.external_texture_runs), [(texture, 0)]);
+    }
+
+    #[test]
     fn texture_runs_collapse_across_atlas_images() {
         let texture = TextureId(10);
         let encoded = [external(texture), atlas_image()];

@@ -3,15 +3,28 @@
 
 //! Sampling helpers for image drawing.
 
+use vello_common::TextureId;
 use vello_common::geometry::RectU16;
-use vello_common::kurbo::Affine;
+use vello_common::kurbo::Rect;
+use vello_common::peniko::ImageSampler;
 
-/// A rectangular source region sampled from an image input (e.g., [`crate::TextureId`]), paired
-/// with a transform of the rectangle into the destination.
+/// A rectangular region sampled from an externally bound texture and drawn into a destination
+/// rectangle.
 #[derive(Debug, Clone, Copy)]
-pub struct SampleRect {
-    /// Source region in texel coordinates.
-    pub source_region: RectU16,
+pub struct ExternalTextureRect {
+    /// The external texture to sample.
+    pub texture_id: TextureId,
+
+    /// Source rectangle in texel coordinates.
+    pub src_rect: RectU16,
+
+    /// Destination rectangle in local scene coordinates.
+    pub dest_rect: Rect,
+
+    /// Sampling parameters.
+    ///
+    /// A sampler alpha other than `1.0` is not currently supported.
+    pub sampler: ImageSampler,
 
     /// Whether the sampled source region may contain non-opaque pixels.
     ///
@@ -21,28 +34,4 @@ pub struct SampleRect {
     ///
     /// If unsure, always set this to `true`.
     pub may_have_transparency: bool,
-
-    /// Transform mapping the local source region to the destination.
-    ///
-    /// This maps from the *local* rectangle into the destination, ignoring the origin of
-    /// [`Self::source_region`].
-    pub transform: Affine,
-}
-
-impl SampleRect {
-    /// Create a new [`SampleRect`].
-    pub fn new(source_region: RectU16, transform: Affine) -> Self {
-        Self {
-            source_region,
-            may_have_transparency: true,
-            transform,
-        }
-    }
-
-    /// Indicate that the sample rect only contains opaque pixels.
-    #[must_use]
-    pub fn with_opaque_hint(mut self) -> Self {
-        self.may_have_transparency = false;
-        self
-    }
 }

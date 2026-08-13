@@ -101,7 +101,7 @@ pub use render::{PROBE_ELEMENTS, Probe, ProbeFeature, ProbeResult, ProbeStatisti
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 pub use resources::Resources;
-pub use sampling::SampleRect;
+pub use sampling::ExternalTextureRect;
 pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
 #[cfg(feature = "text")]
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
