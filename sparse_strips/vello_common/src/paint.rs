@@ -3,6 +3,8 @@
 
 //! Types for paints.
 
+use crate::TextureId;
+use crate::geometry::RectU16;
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
 pub use peniko::Color;
@@ -74,11 +76,21 @@ impl ImageId {
 pub enum ImageSource {
     /// Pixmap pixels travel with the scene packet.
     Pixmap(Arc<Pixmap>),
+    // TODO: Explore whether we can merge opaque ID and external texture in some form?
     /// Pixmap pixels were registered earlier; this is just a handle.
     OpaqueId {
         /// The image handle.
         id: ImageId,
         /// Whether the image may contain non-opaque pixels.
+        may_have_transparency: bool,
+    },
+    /// An externally owned texture supplied to the renderer at render time.
+    ExternalTexture {
+        /// Opaque external texture handle.
+        id: TextureId,
+        /// Source region to sample from in texel coordinates.
+        source_region: RectU16,
+        /// Whether the source region may contain non-opaque pixels.
         may_have_transparency: bool,
     },
 }
@@ -104,11 +116,37 @@ impl ImageSource {
         }
     }
 
+    /// Create an image source backed by a texture supplied to the renderer at render time.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `source_region` is empty.
+    pub fn external_texture(
+        texture_id: TextureId,
+        source_region: RectU16,
+        may_have_transparency: bool,
+    ) -> Self {
+        assert!(
+            !source_region.is_empty(),
+            "external texture source regions must not be empty"
+        );
+
+        Self::ExternalTexture {
+            id: texture_id,
+            source_region,
+            may_have_transparency,
+        }
+    }
+
     /// Returns whether this image source may contain non-opaque pixels.
     pub fn may_have_transparency(&self) -> bool {
         match self {
             Self::Pixmap(p) => p.may_have_transparency(),
             Self::OpaqueId {
+                may_have_transparency,
+                ..
+            }
+            | Self::ExternalTexture {
                 may_have_transparency,
                 ..
             } => *may_have_transparency,

@@ -60,8 +60,8 @@ use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
     TextureId,
     encode::{
-        EncodedBlurredRoundedRectangle, EncodedExternalTexture, EncodedGradient, EncodedKind,
-        EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
+        EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
+        MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
     geometry::{RectU16, SizeU16},
     paint::ImageSource,
@@ -94,7 +94,7 @@ pub struct RenderTargetConfig {
     pub height: u32,
 }
 
-/// Runtime bindings for [externally owned textures](`TextureId`) sampled by texture-rect draws.
+/// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct TextureBindings {
     views: HashMap<TextureId, TextureView>,
@@ -740,20 +740,23 @@ impl Renderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    let ImageSource::OpaqueId { id: image_id, .. } = img.source else {
-                        panic!("pixmap image sources are not supported by Vello Hybrid");
+                    let image_paint = match &img.source {
+                        ImageSource::OpaqueId { id, .. } => {
+                            let image_resource = image_cache.get(*id).unwrap();
+                            self.encode_image_paint(img, image_resource)
+                        }
+                        ImageSource::ExternalTexture {
+                            id, source_region, ..
+                        } => {
+                            if texture_bindings.get(*id).is_none() {
+                                return Err(RenderError::MissingTextureBinding(*id));
+                            }
+                            self.encode_external_texture_paint(img, *source_region)
+                        }
+                        ImageSource::Pixmap(_) => {
+                            panic!("pixmap image sources are not supported by Vello Hybrid")
+                        }
                     };
-
-                    let image_resource = image_cache.get(image_id).unwrap();
-                    let image_paint = self.encode_image_paint(img, image_resource);
-                    self.encoded_paints[encoded_paint_idx] = image_paint;
-                    current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
-                }
-                EncodedPaint::ExternalTexture(img) => {
-                    if texture_bindings.get(img.texture_id).is_none() {
-                        return Err(RenderError::MissingTextureBinding(img.texture_id));
-                    }
-                    let image_paint = self.encode_external_texture_paint(img);
                     self.encoded_paints[encoded_paint_idx] = image_paint;
                     current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                 }
@@ -810,9 +813,12 @@ impl Renderer {
         })
     }
 
-    fn encode_external_texture_paint(&self, image: &EncodedExternalTexture) -> GpuEncodedPaint {
+    fn encode_external_texture_paint(
+        &self,
+        image: &vello_common::encode::EncodedImage,
+        region: RectU16,
+    ) -> GpuEncodedPaint {
         let transform = image.transform.as_coeffs().map(|x| x as f32);
-        let region = image.source_region;
         let image_size = pack_image_size(region.width(), region.height());
         let image_offset = pack_image_offset(region.x0, region.y0);
         let image_params = pack_image_params(

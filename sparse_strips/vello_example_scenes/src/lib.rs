@@ -30,7 +30,7 @@ pub use vello_common::paint::{Paint, PaintType};
 pub use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
 #[cfg(feature = "cpu")]
 use vello_cpu::{RenderContext, Resources as CpuResources};
-pub use vello_hybrid::{ExternalTextureRect, TextureId};
+pub use vello_hybrid::TextureId;
 use vello_hybrid::{Resources as HybridResources, Scene};
 
 /// Renderer capability flags controlling which scenes are listed by [`get_example_scenes`].
@@ -39,8 +39,7 @@ use vello_hybrid::{Resources as HybridResources, Scene};
 /// feature are omitted. Defaults to everything off.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Capabilities {
-    /// Whether the renderer supports externally bound textures and
-    /// [`RenderingContext::draw_texture_rect`].
+    /// Whether the renderer supports externally bound textures.
     pub external_textures: bool,
 }
 
@@ -105,8 +104,6 @@ pub trait RenderingContext: Sized {
     fn pop_layer(&mut self);
     /// Pop the last clip path.
     fn pop_clip_path(&mut self);
-    /// Sample a rectangular region from an externally bound texture and draw it.
-    fn draw_texture_rect(&mut self, rect: ExternalTextureRect);
 }
 
 #[cfg(feature = "cpu")]
@@ -204,10 +201,6 @@ impl RenderingContext for RenderContext {
     fn pop_clip_path(&mut self) {
         Self::pop_clip_path(self);
     }
-
-    fn draw_texture_rect(&mut self, _rect: ExternalTextureRect) {
-        unimplemented!("vello_cpu does not yet support external textures");
-    }
 }
 
 impl RenderingContext for Scene {
@@ -303,10 +296,6 @@ impl RenderingContext for Scene {
 
     fn pop_clip_path(&mut self) {
         Self::pop_clip_path(self);
-    }
-
-    fn draw_texture_rect(&mut self, rect: ExternalTextureRect) {
-        self.draw_texture_rect(rect);
     }
 }
 

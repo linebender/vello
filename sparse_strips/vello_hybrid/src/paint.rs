@@ -88,12 +88,10 @@ impl<'a> PaintResolver<'a> {
 
                 let (paint_type, external_texture_id) = match encoded_paint {
                     EncodedPaint::Image(encoded_image) => match &encoded_image.source {
+                        ImageSource::ExternalTexture { id, .. } => (PAINT_TYPE_IMAGE, Some(*id)),
                         ImageSource::OpaqueId { .. } => (PAINT_TYPE_IMAGE, None),
-                        _ => unimplemented!("Unsupported image source"),
+                        ImageSource::Pixmap(_) => unimplemented!("Unsupported image source"),
                     },
-                    EncodedPaint::ExternalTexture(texture) => {
-                        (PAINT_TYPE_IMAGE, Some(texture.texture_id))
-                    }
                     EncodedPaint::Gradient(gradient) => {
                         let paint_type = match &gradient.kind {
                             EncodedKind::Linear(_) => PAINT_TYPE_LINEAR_GRADIENT,
