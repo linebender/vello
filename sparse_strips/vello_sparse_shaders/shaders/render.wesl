@@ -150,7 +150,7 @@ struct Config {
 struct StripInstance {
     // [x, y] packed as u16's
     // x, y — coordinates of the strip or rect
-    @location(0) xy: u32,
+    @location(0) xy: f32,
     // [width, dense_width] packed as u16's
     // width — width of the strip or rect
     // dense_width — width of the portion where alpha blending should be applied
@@ -160,17 +160,17 @@ struct StripInstance {
     // TODO: In the future, this could be optimized such that `width` always represents the width and a simple
     // 1-bit flag is used to distinguish between sparse fill region and strip. This frees up 15 other bits.
     // Otherwise, it might also be possible to merge a strip and sparse fill command into a single strip instance.
-    @location(1) widths_or_rect_height: u32,
+    @location(1) widths_or_rect_height: f32,
     // For normal strips: alpha texture column index where this strip's alpha values begin.
     // There are [`Config::strip_height`] alpha values per column.
     // For rect strips: packed fractional edge offsets for AA.
-    @location(2) col_idx_or_rect_frac: u32,
+    @location(2) col_idx_or_rect_frac: f32,
     // See StripInstance documentation above.
-    @location(3) payload: u32,
+    @location(3) payload: f32,
     // See StripInstance documentation above.
-    @location(4) paint_and_rect_flag: u32,
+    @location(4) paint_and_rect_flag: f32,
     // Painter's-order index for z-depth computation.
-    @location(5) depth_index: u32,
+    @location(5) depth_index: f32,
 }
 
 struct VertexOutput {
@@ -216,24 +216,30 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.sample_xy = vec2(0.0);
+    let xy = bitcast<u32>(instance.xy);
+    let widths_or_rect_height = bitcast<u32>(instance.widths_or_rect_height);
+    let col_idx_or_rect_frac = bitcast<u32>(instance.col_idx_or_rect_frac);
+    let payload = bitcast<u32>(instance.payload);
+    let paint_and_rect_flag = bitcast<u32>(instance.paint_and_rect_flag);
+    let depth_index = bitcast<u32>(instance.depth_index);
     // Map vertex_index (0-3) to quad corners:
     // 0 → (0,0), 1 → (1,0), 2 → (0,1), 3 → (1,1)
     let x = f32(in_vertex_index & 1u);
     let y = f32(in_vertex_index >> 1u);
     // Unpack the x and y coordinates from the packed u32 instance.xy
-    let x0 = instance.xy & 0xffffu;
-    let y0 = instance.xy >> 16u;
-    let width = instance.widths_or_rect_height & 0xffffu;
-    let dense_width = instance.widths_or_rect_height >> 16u;
+    let x0 = xy & 0xffffu;
+    let y0 = xy >> 16u;
+    let width = widths_or_rect_height & 0xffffu;
+    let dense_width = widths_or_rect_height >> 16u;
 
-    let is_rect = (instance.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
+    let is_rect = (paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
     var height = config.strip_height;
     if is_rect {
         height = dense_width;
         out.dense_end_or_rect_size = width | (dense_width << 16u);
-        out.rect_frac = instance.col_idx_or_rect_frac;
+        out.rect_frac = col_idx_or_rect_frac;
     } else {
-        out.dense_end_or_rect_size = instance.col_idx_or_rect_frac + dense_width;
+        out.dense_end_or_rect_size = col_idx_or_rect_frac + dense_width;
         out.rect_frac = 0u;
     }
     // Calculate the pixel coordinates of the current vertex within the strip.
@@ -245,15 +251,15 @@ fn vs_main(
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
     let ndc_y = 1.0 - pix_y * 2.0 / f32(config.height);
 
-    let color_source = (instance.paint_and_rect_flag >> 29u) & 0x3u;
+    let color_source = (paint_and_rect_flag >> 29u) & 0x3u;
     if color_source == COLOR_SOURCE_PAYLOAD {
-        let paint_type = (instance.paint_and_rect_flag >> 26u) & 0x7u;
+        let paint_type = (paint_and_rect_flag >> 26u) & 0x7u;
         // Unpack view coordinates for image sampling and gradient calculations
-        let scene_strip_x = instance.payload & 0xffffu;
-        let scene_strip_y = instance.payload >> 16u;
+        let scene_strip_x = payload & 0xffffu;
+        let scene_strip_y = payload >> 16u;
 
         if paint_type == PAINT_TYPE_IMAGE {
-            let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+            let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let image_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
             let image_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
             let image_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
@@ -270,25 +276,25 @@ fn vs_main(
             );
         }
     } else if color_source == COLOR_SOURCE_LAYER {
-        let src_x = instance.payload & 0xffffu;
-        let src_y = instance.payload >> 16u;
+        let src_x = payload & 0xffffu;
+        let src_y = payload >> 16u;
         out.sample_xy = vec2<f32>(
             f32(src_x) + x * f32(width),
             f32(src_y) + y * f32(height),
         );
     }
 
-    let col_offset = select(f32(instance.col_idx_or_rect_frac), 0.0, is_rect);
+    let col_offset = select(f32(col_idx_or_rect_frac), 0.0, is_rect);
     out.tex_coord = vec2<f32>(col_offset + x * f32(width), y * f32(height));
 
     // Divide by a power of 2 to ensure exact f32 arithmetic (and divide by the expected depth
     // buffer precision of 24 bits).
-    let z = 1.0 - f32(instance.depth_index) / f32(1u << 24u);
+    let z = 1.0 - f32(depth_index) / f32(1u << 24u);
     // Flip it based on the flag.
     let final_ndc_y = select(ndc_y, -ndc_y, config.ndc_y_negate != 0u);
     out.position = vec4<f32>(ndc_x, final_ndc_y, z, 1.0);
-    out.payload = instance.payload;
-    out.paint_and_rect_flag = instance.paint_and_rect_flag;
+    out.payload = payload;
+    out.paint_and_rect_flag = paint_and_rect_flag;
 
     return out;
 }

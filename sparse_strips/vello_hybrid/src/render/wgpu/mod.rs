@@ -1093,12 +1093,12 @@ impl GpuStrip {
     /// Vertex attributes for the strip
     pub fn vertex_attributes() -> [wgpu::VertexAttribute; 6] {
         wgpu::vertex_attr_array![
-            0 => Uint32,
-            1 => Uint32,
-            2 => Uint32,
-            3 => Uint32,
-            4 => Uint32,
-            5 => Uint32,
+            0 => Float32,
+            1 => Float32,
+            2 => Float32,
+            3 => Float32,
+            4 => Float32,
+            5 => Float32,
         ]
     }
 }
@@ -1319,9 +1319,9 @@ impl Programs {
                     array_stride: size_of::<GpuClearInstance>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &wgpu::vertex_attr_array![
-                        0 => Uint32x2,
-                        1 => Uint32x2,
-                        2 => Uint32x2,
+                        0 => Float32x2,
+                        1 => Float32x2,
+                        2 => Float32x2,
                     ],
                 }],
                 compilation_options: PipelineCompilationOptions::default(),
@@ -1453,15 +1453,15 @@ impl Programs {
                     array_stride: size_of::<FilterInstanceData>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &wgpu::vertex_attr_array![
-                        0 => Uint32,
-                        1 => Uint32,
-                        2 => Uint32,
-                        3 => Uint32,
-                        4 => Uint32,
-                        5 => Uint32,
-                        6 => Uint32,
-                        7 => Uint32,
-                        8 => Uint32,
+                        0 => Float32,
+                        1 => Float32,
+                        2 => Float32,
+                        3 => Float32,
+                        4 => Float32,
+                        5 => Float32,
+                        6 => Float32,
+                        7 => Float32,
+                        8 => Float32,
                     ],
                 }],
                 compilation_options: PipelineCompilationOptions::default(),
@@ -1560,24 +1560,24 @@ impl Programs {
             array_stride: size_of::<GpuBlendInstance>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &wgpu::vertex_attr_array![
-                0 => Uint32,
-                1 => Uint32,
-                2 => Uint32,
-                3 => Uint32,
-                4 => Uint32,
-                5 => Uint32,
-                6 => Uint32,
-                7 => Uint32,
+                0 => Float32,
+                1 => Float32,
+                2 => Float32,
+                3 => Float32,
+                4 => Float32,
+                5 => Float32,
+                6 => Float32,
+                7 => Float32,
             ],
         };
         let copy_vertex_state = wgpu::VertexBufferLayout {
             array_stride: size_of::<GpuCopyInstance>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &wgpu::vertex_attr_array![
-                0 => Uint32,
-                1 => Uint32,
-                2 => Uint32,
-                3 => Uint32,
+                0 => Float32,
+                1 => Float32,
+                2 => Float32,
+                3 => Float32,
             ],
         };
         let create_texture_op_pipeline =

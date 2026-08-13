@@ -40,14 +40,14 @@ const MIX_LUMINOSITY = 15u;
 const BLEND_HAS_ALPHA = 1u << 26u;
 
 struct BlendInstance {
-    @location(0) geometry_origin: u32,
-    @location(1) geometry_size: u32,
-    @location(2) geometry_alpha_col_idx: u32,
-    @location(3) parent_texture_size: u32,
-    @location(4) child_texture_origin: u32,
-    @location(5) child_parent_origin: u32,
-    @location(6) child_rect_size: u32,
-    @location(7) blend_config: u32,
+    @location(0) geometry_origin: f32,
+    @location(1) geometry_size: f32,
+    @location(2) geometry_alpha_col_idx: f32,
+    @location(3) parent_texture_size: f32,
+    @location(4) child_texture_origin: f32,
+    @location(5) child_parent_origin: f32,
+    @location(6) child_rect_size: f32,
+    @location(7) blend_config: f32,
 }
 
 struct VertexOutput {
@@ -76,11 +76,14 @@ fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
     instance: BlendInstance,
 ) -> VertexOutput {
-    let geometry_origin = unpack_u16_pair(instance.geometry_origin);
-    let geometry_size = vec2<f32>(unpack_u16_pair(instance.geometry_size));
-    let parent_texture_size = unpack_u16_pair(instance.parent_texture_size);
-    let child_parent_origin = unpack_u16_pair(instance.child_parent_origin);
-    let child_texture_origin = unpack_u16_pair(instance.child_texture_origin);
+    let geometry_origin = unpack_u16_pair(bitcast<u32>(instance.geometry_origin));
+    let geometry_size = vec2<f32>(unpack_u16_pair(bitcast<u32>(instance.geometry_size)));
+    let geometry_alpha_col_idx = bitcast<u32>(instance.geometry_alpha_col_idx);
+    let parent_texture_size = unpack_u16_pair(bitcast<u32>(instance.parent_texture_size));
+    let child_parent_origin = unpack_u16_pair(bitcast<u32>(instance.child_parent_origin));
+    let child_texture_origin = unpack_u16_pair(bitcast<u32>(instance.child_texture_origin));
+    let child_rect_size = bitcast<u32>(instance.child_rect_size);
+    let blend_config = bitcast<u32>(instance.blend_config);
 
     let x = f32(vertex_index & 1u);
     let y = f32(vertex_index >> 1u);
@@ -91,10 +94,10 @@ fn vs_main(
     out.parent_texture_xy = parent_texture_xy;
     out.child_texture_xy = vec2<f32>(child_texture_origin) + child_local;
     out.child_local = child_local;
-    out.child_rect_size = instance.child_rect_size;
-    out.blend_config = instance.blend_config;
+    out.child_rect_size = child_rect_size;
+    out.blend_config = blend_config;
     out.tex_coord = vec2<f32>(
-        f32(instance.geometry_alpha_col_idx) + x * geometry_size.x,
+        f32(geometry_alpha_col_idx) + x * geometry_size.x,
         y * geometry_size.y,
     );
 

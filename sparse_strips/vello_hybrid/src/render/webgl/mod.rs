@@ -2251,10 +2251,11 @@ fn initialize_copy_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) 
 fn initialize_packed_u32_attribs(gl: &WebGl2RenderingContext, count: u32, stride: i32) {
     for loc in 0..count {
         gl.enable_vertex_attrib_array(loc);
-        gl.vertex_attrib_i_pointer_with_i32(
+        gl.vertex_attrib_pointer_with_i32(
             loc,
             1,
-            WebGl2RenderingContext::UNSIGNED_INT,
+            WebGl2RenderingContext::FLOAT,
+            false,
             stride,
             i32::try_from(loc).unwrap() * size_of::<u32>() as i32,
         );
@@ -2585,10 +2586,11 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
         let offset = i * 4;
 
         gl.enable_vertex_attrib_array(location);
-        gl.vertex_attrib_i_pointer_with_i32(
+        gl.vertex_attrib_pointer_with_i32(
             location,
             1,
-            WebGl2RenderingContext::UNSIGNED_INT,
+            WebGl2RenderingContext::FLOAT,
+            false,
             STRIP_STRIDE,
             offset,
         );
@@ -2678,10 +2680,11 @@ impl WebGlRendererContext<'_> {
     fn set_strip_attrib_offset(&self, first_instance: i32) {
         let byte_offset = first_instance * STRIP_STRIDE;
         for i in 0..STRIP_ATTR_COUNT {
-            self.gl.vertex_attrib_i_pointer_with_i32(
+            self.gl.vertex_attrib_pointer_with_i32(
                 i as u32,
                 1,
-                WebGl2RenderingContext::UNSIGNED_INT,
+                WebGl2RenderingContext::FLOAT,
+                false,
                 STRIP_STRIDE,
                 i * 4 + byte_offset,
             );

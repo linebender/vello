@@ -4,10 +4,13 @@
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
-    @location(0) origin: vec2<u32>,
-    @location(1) size: vec2<u32>,
-    @location(2) target_size: vec2<u32>,
+    @location(0) origin_bits: vec2<f32>,
+    @location(1) size_bits: vec2<f32>,
+    @location(2) target_size_bits: vec2<f32>,
 ) -> @builtin(position) vec4<f32> {
+    let origin = bitcast<vec2<u32>>(origin_bits);
+    let size = bitcast<vec2<u32>>(size_bits);
+    let target_size = bitcast<vec2<u32>>(target_size_bits);
     let x = f32(vertex_index & 1u);
     let y = f32(vertex_index >> 1u);
 

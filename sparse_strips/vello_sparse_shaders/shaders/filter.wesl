@@ -99,15 +99,15 @@ fn get_drop_shadow_dy(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.y);
 fn get_drop_shadow_color(texel2: vec4<u32>) -> u32 { return texel2.z; }
 
 struct FilterInstanceData {
-    @location(0) source_origin: u32,
-    @location(1) source_size: u32,
-    @location(2) dest_origin: u32,
-    @location(3) dest_size: u32,
-    @location(4) dest_texture_size: u32,
-    @location(5) filter_data_offset: u32,
-    @location(6) original_origin: u32,
-    @location(7) original_size: u32,
-    @location(8) filter_pass_kind: u32,
+    @location(0) source_origin: f32,
+    @location(1) source_size: f32,
+    @location(2) dest_origin: f32,
+    @location(3) dest_size: f32,
+    @location(4) dest_texture_size: f32,
+    @location(5) filter_data_offset: f32,
+    @location(6) original_origin: f32,
+    @location(7) original_size: f32,
+    @location(8) filter_pass_kind: f32,
 }
 
 struct FilterVertexOutput {
@@ -133,13 +133,15 @@ fn vs_main(
     let quad_vertex = vertex_index % 4u;
     let x = f32((quad_vertex & 1u));
     let y = f32((quad_vertex >> 1u));
-    let source_origin = unpack_u16_pair(instance.source_origin);
-    let source_size = unpack_u16_pair(instance.source_size);
-    let dest_origin = unpack_u16_pair(instance.dest_origin);
-    let dest_size = unpack_u16_pair(instance.dest_size);
-    let dest_texture_size = vec2<f32>(unpack_u16_pair(instance.dest_texture_size));
-    let original_origin = unpack_u16_pair(instance.original_origin);
-    let original_size = unpack_u16_pair(instance.original_size);
+    let source_origin = unpack_u16_pair(bitcast<u32>(instance.source_origin));
+    let source_size = unpack_u16_pair(bitcast<u32>(instance.source_size));
+    let dest_origin = unpack_u16_pair(bitcast<u32>(instance.dest_origin));
+    let dest_size = unpack_u16_pair(bitcast<u32>(instance.dest_size));
+    let dest_texture_size = vec2<f32>(unpack_u16_pair(bitcast<u32>(instance.dest_texture_size)));
+    let filter_data_offset = bitcast<u32>(instance.filter_data_offset);
+    let original_origin = unpack_u16_pair(bitcast<u32>(instance.original_origin));
+    let original_size = unpack_u16_pair(bitcast<u32>(instance.original_size));
+    let filter_pass_kind = bitcast<u32>(instance.filter_pass_kind);
 
     // Decimated passes only write `dest_size`, but must also clear the bottom/right border
     // of stale pixels to transparent so our bilinear taps don't accidentally sample stale pixels.
@@ -152,13 +154,13 @@ fn vs_main(
 
     var out: FilterVertexOutput;
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-    out.filter_data_offset = instance.filter_data_offset;
+    out.filter_data_offset = filter_data_offset;
     out.source_origin = source_origin;
     out.source_size = source_size;
     out.dest_origin = dest_origin;
     out.dest_size = dest_size;
     out.original_origin = original_origin;
-    out.filter_pass_kind = instance.filter_pass_kind;
+    out.filter_pass_kind = filter_pass_kind;
     return out;
 }
 

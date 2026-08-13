@@ -8,6 +8,7 @@
 
 use naga::Module;
 
+mod no_integer_vertex_inputs;
 mod no_structs_in_fragment;
 
 /// Diagnostic produced by a single lint pass when it finds violations.
@@ -23,10 +24,13 @@ struct LintReport {
 /// Runs every WGSL shader lint over `module` and panics with a single aggregated
 /// message (prefixed by `shader_name`) if any lint reports violations.
 pub(crate) fn lint(shader_name: &str, module: &Module) {
-    let reports: Vec<LintReport> = [no_structs_in_fragment::check(module)]
-        .into_iter()
-        .flatten()
-        .collect();
+    let reports: Vec<LintReport> = [
+        no_structs_in_fragment::check(module),
+        no_integer_vertex_inputs::check(module),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
 
     if reports.is_empty() {
         return;

@@ -4,10 +4,10 @@
 //! Copy rectangular regions between intermediate textures.
 
 struct CopyInstance {
-    @location(0) dest_texture_origin: u32,
-    @location(1) source_texture_origin: u32,
-    @location(2) copy_rect_size: u32,
-    @location(3) dest_texture_size: u32,
+    @location(0) dest_texture_origin: f32,
+    @location(1) source_texture_origin: f32,
+    @location(2) copy_rect_size: f32,
+    @location(3) dest_texture_size: f32,
 }
 
 struct VertexOutput {
@@ -27,10 +27,10 @@ fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
     instance: CopyInstance,
 ) -> VertexOutput {
-    let dest_texture_origin = unpack_u16_pair(instance.dest_texture_origin);
-    let source_texture_origin = unpack_u16_pair(instance.source_texture_origin);
-    let copy_rect_size = unpack_u16_pair(instance.copy_rect_size);
-    let dest_texture_size = unpack_u16_pair(instance.dest_texture_size);
+    let dest_texture_origin = unpack_u16_pair(bitcast<u32>(instance.dest_texture_origin));
+    let source_texture_origin = unpack_u16_pair(bitcast<u32>(instance.source_texture_origin));
+    let copy_rect_size = unpack_u16_pair(bitcast<u32>(instance.copy_rect_size));
+    let dest_texture_size = unpack_u16_pair(bitcast<u32>(instance.dest_texture_size));
 
     let x = f32(vertex_index & 1u);
     let y = f32(vertex_index >> 1u);
