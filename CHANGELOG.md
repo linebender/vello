@@ -19,6 +19,7 @@ This release has an [MSRV][] of 1.88.
 ### Fixed
 
 - Rendering scenes whose binning requires more than 256 bins. ([#1700][] by [@b0nes164][])
+- Prefix-sum lookups no longer index workgroup arrays with an underflowed index in the discarded arm of a `select`, which caused a device loss on Mali GPUs for any scene containing a path. ([#1817][] by [@lexoliu][])
 
 ## [0.9.0][] - 2026-05-15
 
@@ -327,6 +328,7 @@ This release has an [MSRV][] of 1.75.
 [@Keavon]: https://github.com/Keavon
 [@kmoon2437]: https://github.com/kmoon2437
 [@LaurenzV]: https://github.com/LaurenzV
+[@lexoliu]: https://github.com/lexoliu
 [@msiglreith]: https://github.com/msiglreith
 [@nicoburns]: https://github.com/nicoburns
 [@oscargus]: https://github.com/oscargus
@@ -450,6 +452,7 @@ This release has an [MSRV][] of 1.75.
 [#1638]: https://github.com/linebender/vello/pull/1638
 [#1643]: https://github.com/linebender/vello/pull/1643
 [#1700]: https://github.com/linebender/vello/pull/1700
+[#1817]: https://github.com/linebender/vello/pull/1817
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.9.0...HEAD
 [0.9.0]: https://github.com/linebender/vello/compare/v0.8.0...v0.9.0

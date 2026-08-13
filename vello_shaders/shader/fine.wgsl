@@ -220,7 +220,7 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
             }
             let el_ix = lo;
             let last_pixel = i + 1u == sh_count[el_ix];
-            let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
+            let sub_ix = i - select(0u, sh_count[max(el_ix, 1u) - 1u], el_ix > 0u);
             let seg_off = fill.seg_data + batch * WG_SIZE + el_ix;
             let segment = segments[seg_off];
             // Coordinates are relative to tile origin
@@ -576,7 +576,7 @@ fn fill_path_ms_evenodd(fill: CmdFill, local_id: vec2<u32>, result: ptr<function
             }
             let el_ix = lo;
             let last_pixel = i + 1u == sh_count[el_ix];
-            let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
+            let sub_ix = i - select(0u, sh_count[max(el_ix, 1u) - 1u], el_ix > 0u);
             let seg_off = fill.seg_data + batch * WG_SIZE + el_ix;
             let segment = segments[seg_off];
             let xy0_in = segment.point0;
