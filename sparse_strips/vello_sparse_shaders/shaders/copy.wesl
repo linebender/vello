@@ -3,6 +3,8 @@
 
 //! Copy rectangular regions between intermediate textures.
 
+import package::helpers::util::unpack_u16_pair;
+
 struct CopyInstance {
     @location(0) dest_texture_origin: u32,
     @location(1) source_texture_origin: u32,
@@ -17,10 +19,6 @@ struct VertexOutput {
 
 @group(0) @binding(0)
 var source_texture: texture_2d<f32>;
-
-fn unpack_u16_pair(value: u32) -> vec2<u32> {
-    return vec2<u32>(value & 0xffffu, value >> 16u);
-}
 
 @vertex
 fn vs_main(

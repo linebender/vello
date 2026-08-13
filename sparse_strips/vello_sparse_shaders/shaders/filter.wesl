@@ -1,6 +1,8 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+import package::helpers::util::unpack_u16_pair;
+
 // The texture that holds the encoded parameters for all filter effects used in the scene.
 @group(0) @binding(0) var filter_data: texture_2d<u32>;
 // The texture page containing the current ping-pong source for this filter pass.
@@ -121,10 +123,6 @@ struct FilterVertexOutput {
     @location(6) @interpolate(flat) filter_pass_kind: u32,
 }
 
-fn unpack_u16_pair(value: u32) -> vec2<u32> {
-    return vec2<u32>(value & 0xffffu, value >> 16u);
-}
-
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
@@ -223,7 +221,7 @@ fn downscale(
     // [1,3,3,1], the left sample points needs to be shifted 0.25 to the left, and
     // the right sample point 1.25 to the right.
     let lo = vec2<f32>(-0.25);
-    let hi = vec2<f32>( 1.25);
+    let hi = vec2<f32>(1.25);
 
     let s00 = textureSampleLevel(source_texture, linear_sampler, (source_texel + vec2(lo.x, lo.y) + 0.5) / source_texture_size, 0.0);
     let s01 = textureSampleLevel(source_texture, linear_sampler, (source_texel + vec2(lo.x, hi.y) + 0.5) / source_texture_size, 0.0);
