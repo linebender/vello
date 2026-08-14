@@ -59,7 +59,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 #[cfg(feature = "text")]
-use glifo::{GLYPH_PADDING, PendingClearRect};
+use glifo::PendingClearRect;
 use hashbrown::HashMap;
 use resource::{Buffer, FragmentShader, Framebuffer, Program, Texture, VertexArray, VertexShader};
 use vello_common::image_cache::{ImageCache, ImageResource};
@@ -968,14 +968,12 @@ impl WebGlRenderer {
 fn clear_atlas_region(renderer: &mut WebGlRenderer, rect: &PendingClearRect) {
     // TODO: Similarly to wgpu, maybe this can be done in a more effective
     // way?
-    let padding = GLYPH_PADDING;
-    let offset = [
-        rect.x.saturating_sub(padding),
-        rect.y.saturating_sub(padding),
-    ];
-    let width = rect.width + padding * 2;
-    let height = rect.height + padding * 2;
-    renderer.clear_atlas_region(AtlasId::new(rect.page_index), offset, width, height);
+    renderer.clear_atlas_region(
+        AtlasId::new(rect.page_index),
+        [rect.x, rect.y],
+        rect.width,
+        rect.height,
+    );
 }
 
 /// Contains the WebGL programs and resources for rendering.
