@@ -98,8 +98,8 @@ pub mod util;
 
 #[cfg(feature = "webgl")]
 pub use render::{
-    AtlasTextureInfo, WebGlAtlasWriter, WebGlRenderer, WebGlTextureBindings,
-    WebGlTextureWithDimensions,
+    AtlasTextureInfo, WebGlAtlasWriter, WebGlRenderer, WebGlRendererInit, WebGlRendererInitStatus,
+    WebGlTextureBindings, WebGlTextureWithDimensions,
 };
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};

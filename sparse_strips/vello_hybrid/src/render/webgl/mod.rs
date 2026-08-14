@@ -108,6 +108,19 @@ fn get_max_texture_array_layers(gl: &WebGl2RenderingContext) -> u32 {
         .unwrap() as u32
 }
 
+/// Result of polling WebGL renderer initialization.
+#[derive(Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "both variants are one-shot ownership transfers; boxing would add unnecessary allocation"
+)]
+pub enum WebGlRendererInitStatus {
+    /// Shader compilation or program linking is still in progress.
+    Pending(WebGlRendererInit),
+    /// Initialization has completed and the renderer is ready to use.
+    Complete(WebGlRenderer),
+}
+
 /// Vello Hybrid's WebGL2 Renderer.
 #[derive(Debug)]
 pub struct WebGlRenderer {
@@ -124,6 +137,20 @@ pub struct WebGlRenderer {
     dummy_image_cache: Option<ImageCache>,
     schedule_storage: ScheduleStorage,
     scratch_buffers: ScratchBuffers,
+    layers_config: LayersConfig,
+    use_depth_buffer: bool,
+}
+
+/// WebGL renderer initialization that may still be compiling shader programs.
+///
+/// Poll this with [`WebGlRendererInit::try_finish`] from successive animation frames to avoid
+/// blocking the browser's main thread when `KHR_parallel_shader_compile` is available. On browsers
+/// without the extension, the first poll falls back to synchronously finishing initialization.
+#[derive(Debug)]
+pub struct WebGlRendererInit {
+    programs: PendingWebGlPrograms,
+    gl: WebGl2RenderingContext,
+    gradient_cache: GradientRampCache,
     layers_config: LayersConfig,
     use_depth_buffer: bool,
 }
@@ -187,6 +214,9 @@ pub struct AtlasTextureInfo {
 
 impl WebGlRenderer {
     /// Creates a new WebGL2 renderer and its persistent resources.
+    ///
+    /// This blocks until shader compilation and linking finish. Use [`WebGlRenderer::begin`] when
+    /// initialization must not block the browser's main thread.
     pub fn new(canvas: &HtmlCanvasElement) -> (Self, Resources) {
         Self::new_with(canvas, RenderSettings::default(), true)
     }
@@ -198,9 +228,33 @@ impl WebGlRenderer {
     /// overdraw.
     pub fn new_with(
         canvas: &HtmlCanvasElement,
-        mut settings: RenderSettings,
+        settings: RenderSettings,
         use_depth_buffer: bool,
     ) -> (Self, Resources) {
+        let (init, resources) = Self::begin_with(canvas, settings, use_depth_buffer);
+        (init.finish(), resources)
+    }
+
+    /// Begins creating a WebGL2 renderer and its persistent resources.
+    ///
+    /// When `KHR_parallel_shader_compile` is available, shader compilation and program linking can
+    /// continue while the caller yields to the browser. Poll the returned initialization with
+    /// [`WebGlRendererInit::try_finish`] on successive animation frames.
+    ///
+    /// If the extension is unavailable, the first poll synchronously finishes shader compilation
+    /// and linking.
+    pub fn begin(canvas: &HtmlCanvasElement) -> (WebGlRendererInit, Resources) {
+        Self::begin_with(canvas, RenderSettings::default(), true)
+    }
+
+    /// Begins creating a WebGL2 renderer with specific settings.
+    ///
+    /// See [`WebGlRenderer::begin`] for polling and fallback behavior.
+    pub fn begin_with(
+        canvas: &HtmlCanvasElement,
+        mut settings: RenderSettings,
+        use_depth_buffer: bool,
+    ) -> (WebGlRendererInit, Resources) {
         #[allow(
             clippy::assertions_on_constants,
             reason = "intentional guard against non-wasm32 use"
@@ -331,20 +385,15 @@ impl WebGlRenderer {
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
         let layer_config = settings.memory_settings.layers_config;
-        let renderer = Self {
-            programs: WebGlPrograms::new(gl.clone(), &resources.image_cache, layer_config),
+        let init = WebGlRendererInit {
+            programs: PendingWebGlPrograms::new(gl.clone(), &resources.image_cache, layer_config),
             gl,
-            encoded_paints: Vec::new(),
-            paint_idxs: Vec::new(),
             gradient_cache,
-            dummy_image_cache: Some(ImageCache::new_dummy()),
-            schedule_storage: ScheduleStorage::default(),
-            scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
             use_depth_buffer,
         };
 
-        (renderer, resources)
+        (init, resources)
     }
 
     /// Render `scene` using WebGL2
@@ -963,6 +1012,40 @@ impl WebGlRenderer {
     }
 }
 
+impl WebGlRendererInit {
+    /// Polls shader compilation and program linking without blocking when
+    /// `KHR_parallel_shader_compile` is available.
+    ///
+    /// On browsers without the extension, this synchronously finishes initialization and returns
+    /// [`WebGlRendererInitStatus::Complete`].
+    pub fn try_finish(self) -> WebGlRendererInitStatus {
+        if self.programs.is_complete(&self.gl) {
+            WebGlRendererInitStatus::Complete(self.finish())
+        } else {
+            WebGlRendererInitStatus::Pending(self)
+        }
+    }
+
+    /// Blocks until shader compilation and program linking finish.
+    ///
+    /// Prefer [`WebGlRendererInit::try_finish`] when blocking the browser's main thread is
+    /// undesirable.
+    pub fn finish(self) -> WebGlRenderer {
+        WebGlRenderer {
+            programs: self.programs.finish(&self.gl),
+            gl: self.gl,
+            encoded_paints: Vec::new(),
+            paint_idxs: Vec::new(),
+            gradient_cache: self.gradient_cache,
+            dummy_image_cache: Some(ImageCache::new_dummy()),
+            schedule_storage: ScheduleStorage::default(),
+            scratch_buffers: ScratchBuffers::default(),
+            layers_config: self.layers_config,
+            use_depth_buffer: self.use_depth_buffer,
+        }
+    }
+}
+
 #[cfg(feature = "text")]
 fn clear_atlas_region(renderer: &mut WebGlRenderer, rect: &PendingClearRect) {
     // TODO: Similarly to wgpu, maybe this can be done in a more effective
@@ -1166,28 +1249,119 @@ impl WebGlIntermediateTexture {
     }
 }
 
-impl WebGlPrograms {
-    /// Creates programs and initializes resources.
+/// `COMPLETION_STATUS_KHR` from the `KHR_parallel_shader_compile` specification.
+const COMPLETION_STATUS_KHR: u32 = 0x91B1;
+
+#[derive(Debug)]
+struct PendingShaderProgram {
+    vertex_shader: VertexShader,
+    fragment_shader: FragmentShader,
+    program: Program,
+}
+
+impl PendingShaderProgram {
+    fn new(gl: &WebGl2RenderingContext, vertex_src: &str, fragment_src: &str) -> Self {
+        let vertex_shader = VertexShader::new(gl);
+        gl.shader_source(&vertex_shader, vertex_src);
+        gl.compile_shader(&vertex_shader);
+
+        let fragment_shader = FragmentShader::new(gl);
+        gl.shader_source(&fragment_shader, fragment_src);
+        gl.compile_shader(&fragment_shader);
+
+        let program = Program::new(gl);
+        gl.attach_shader(&program, &vertex_shader);
+        gl.attach_shader(&program, &fragment_shader);
+        gl.link_program(&program);
+
+        Self {
+            vertex_shader,
+            fragment_shader,
+            program,
+        }
+    }
+
+    fn is_complete(&self, gl: &WebGl2RenderingContext) -> bool {
+        gl.get_program_parameter(&self.program, COMPLETION_STATUS_KHR)
+            .as_bool()
+            .unwrap_or(false)
+    }
+
+    fn finish(self, gl: &WebGl2RenderingContext) -> Program {
+        if !gl
+            .get_program_parameter(&self.program, WebGl2RenderingContext::LINK_STATUS)
+            .as_bool()
+            .unwrap_or(false)
+        {
+            if !gl
+                .get_shader_parameter(&self.vertex_shader, WebGl2RenderingContext::COMPILE_STATUS)
+                .as_bool()
+                .unwrap_or(false)
+            {
+                let info = gl
+                    .get_shader_info_log(&self.vertex_shader)
+                    .unwrap_or_else(|| "Unknown error creating vertex shader".into());
+                panic!("Failed to compile vertex shader: {info}");
+            }
+
+            if !gl
+                .get_shader_parameter(
+                    &self.fragment_shader,
+                    WebGl2RenderingContext::COMPILE_STATUS,
+                )
+                .as_bool()
+                .unwrap_or(false)
+            {
+                let info = gl
+                    .get_shader_info_log(&self.fragment_shader)
+                    .unwrap_or_else(|| "Unknown error creating fragment shader".into());
+                panic!("Failed to compile fragment shader: {info}");
+            }
+
+            let info = gl
+                .get_program_info_log(&self.program)
+                .unwrap_or_else(|| "Unknown error creating program".into());
+            panic!("Failed to link program: {info}");
+        }
+
+        self.program
+    }
+}
+
+#[derive(Debug)]
+struct PendingWebGlPrograms {
+    parallel_shader_compile: bool,
+    strip_program: PendingShaderProgram,
+    filter_program: PendingShaderProgram,
+    blend_program: PendingShaderProgram,
+    copy_program: PendingShaderProgram,
+    resources: WebGlResources,
+    encoded_paints_data: Vec<u8>,
+}
+
+impl PendingWebGlPrograms {
+    /// Starts compiling all programs before performing any blocking status queries.
     fn new(
         gl: WebGl2RenderingContext,
         image_cache: &ImageCache,
         layer_config: LayersConfig,
     ) -> Self {
+        let parallel_shader_compile = gl
+            .get_extension("KHR_parallel_shader_compile")
+            .unwrap()
+            .is_some();
+
         let strip_program =
-            create_shader_program(&gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE);
-        let filter_program = create_shader_program(
+            PendingShaderProgram::new(&gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE);
+        let filter_program = PendingShaderProgram::new(
             &gl,
             filter_shader::VERTEX_SOURCE,
             filter_shader::FRAGMENT_SOURCE,
         );
-        let filter_uniforms = get_filter_pass_uniforms(&gl, &filter_program);
         let blend_program =
-            create_shader_program(&gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE);
-        let blend_uniforms = get_blend_uniforms(&gl, &blend_program);
-        let copy_program = create_shader_program(&gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE);
-        let copy_uniforms = get_copy_uniforms(&gl, &copy_program);
-
-        let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
+            PendingShaderProgram::new(&gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE);
+        let copy_program =
+            PendingShaderProgram::new(&gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE);
 
         let resources = create_webgl_resources(&gl, image_cache, layer_config);
 
@@ -1198,32 +1372,67 @@ impl WebGlPrograms {
 
         let encoded_paints_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
 
+        Self {
+            parallel_shader_compile,
+            strip_program,
+            filter_program,
+            blend_program,
+            copy_program,
+            resources,
+            encoded_paints_data,
+        }
+    }
+
+    fn is_complete(&self, gl: &WebGl2RenderingContext) -> bool {
+        if !self.parallel_shader_compile {
+            return true;
+        }
+
+        self.strip_program.is_complete(gl)
+            && self.filter_program.is_complete(gl)
+            && self.blend_program.is_complete(gl)
+            && self.copy_program.is_complete(gl)
+    }
+
+    fn finish(self, gl: &WebGl2RenderingContext) -> WebGlPrograms {
+        let strip_program = self.strip_program.finish(gl);
+        let filter_program = self.filter_program.finish(gl);
+        let blend_program = self.blend_program.finish(gl);
+        let copy_program = self.copy_program.finish(gl);
+
+        let filter_uniforms = get_filter_pass_uniforms(gl, &filter_program);
+        let blend_uniforms = get_blend_uniforms(gl, &blend_program);
+        let copy_uniforms = get_copy_uniforms(gl, &copy_program);
+        let strip_uniforms = get_strip_uniforms(gl, &strip_program);
+
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(
             WebGl2RenderingContext::ONE,
             WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA,
         );
 
-        Self {
+        WebGlPrograms {
             strip_program,
+            strip_uniforms,
             filter_program,
             filter_uniforms,
             blend_program,
             blend_uniforms,
             copy_program,
             copy_uniforms,
-            strip_uniforms,
-            resources,
+            resources: self.resources,
             render_size: RenderSize {
                 width: 0,
                 height: 0,
             },
             negate_ndc: false,
-            encoded_paints_data,
+            encoded_paints_data: self.encoded_paints_data,
             filter_data: Vec::new(),
         }
     }
+}
 
+impl WebGlPrograms {
     /// Prepare resources for rendering.
     fn prepare(
         &mut self,
@@ -2042,64 +2251,6 @@ pub(crate) struct WebGlStateConfig {
     pub(crate) depth_mask: bool,
     /// Save/restore viewport
     pub(crate) viewport: bool,
-}
-
-/// Create a WebGL shader program from vertex and fragment sources.
-fn create_shader_program(
-    gl: &WebGl2RenderingContext,
-    vertex_src: &str,
-    fragment_src: &str,
-) -> Program {
-    // Compile vertex shader.
-    let vertex_shader = VertexShader::new(gl);
-    gl.shader_source(&vertex_shader, vertex_src);
-    gl.compile_shader(&vertex_shader);
-
-    if !gl
-        .get_shader_parameter(&vertex_shader, WebGl2RenderingContext::COMPILE_STATUS)
-        .as_bool()
-        .unwrap_or(false)
-    {
-        let info = gl
-            .get_shader_info_log(&vertex_shader)
-            .unwrap_or_else(|| "Unknown error creating vertex shader".into());
-        panic!("Failed to compile vertex shader: {info}");
-    }
-
-    // Compile fragment shader.
-    let fragment_shader = FragmentShader::new(gl);
-    gl.shader_source(&fragment_shader, fragment_src);
-    gl.compile_shader(&fragment_shader);
-
-    if !gl
-        .get_shader_parameter(&fragment_shader, WebGl2RenderingContext::COMPILE_STATUS)
-        .as_bool()
-        .unwrap_or(false)
-    {
-        let info = gl
-            .get_shader_info_log(&fragment_shader)
-            .unwrap_or_else(|| "Unknown error creating fragment shader".into());
-        panic!("Failed to compile fragment shader: {info}");
-    }
-
-    // Create and link the program.
-    let program = Program::new(gl);
-    gl.attach_shader(&program, &vertex_shader);
-    gl.attach_shader(&program, &fragment_shader);
-    gl.link_program(&program);
-
-    if !gl
-        .get_program_parameter(&program, WebGl2RenderingContext::LINK_STATUS)
-        .as_bool()
-        .unwrap_or(false)
-    {
-        let info = gl
-            .get_program_info_log(&program)
-            .unwrap_or_else(|| "Unknown error creating program".into());
-        panic!("Failed to link program: {info}");
-    }
-
-    program
 }
 
 /// Get the  uniform locations for the `render_strips` program.

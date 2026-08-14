@@ -96,6 +96,52 @@ async fn webgl_probe_succeeds() {
     );
 }
 
+#[cfg(feature = "webgl")]
+#[wasm_bindgen_test]
+async fn webgl_pending_renderer_init_completes() {
+    use vello_hybrid::WebGlRendererInitStatus;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+    use web_sys::HtmlCanvasElement;
+
+    async fn wait_for_animation_frame() {
+        let promise = web_sys::js_sys::Promise::new(&mut |resolve, _reject| {
+            web_sys::window()
+                .unwrap()
+                .request_animation_frame(&resolve)
+                .unwrap();
+        });
+        JsFuture::from(promise).await.unwrap();
+    }
+
+    let document = web_sys::window().unwrap().document().unwrap();
+    let canvas = document
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into::<HtmlCanvasElement>()
+        .unwrap();
+    canvas.set_width(16);
+    canvas.set_height(16);
+
+    let (mut init, _) = vello_hybrid::WebGlRenderer::begin(&canvas);
+    const MAX_FRAMES: u32 = 600;
+
+    for _ in 0..MAX_FRAMES {
+        match init.try_finish() {
+            WebGlRendererInitStatus::Complete(_) => return,
+            WebGlRendererInitStatus::Pending(next_init) => {
+                init = next_init;
+                wait_for_animation_frame().await;
+            }
+        }
+    }
+
+    panic!(
+        "WebGlRenderer initialization did not finish within {} animation frames",
+        MAX_FRAMES
+    );
+}
+
 // This test reproduces a bug where creating a renderer would leave a non-default framebuffer without
 // depth attachment bound, as a result of which `DEPTH_BITS` would return 0 when creating a second
 // renderer.
