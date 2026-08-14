@@ -113,6 +113,40 @@ pub struct RenderSettings {
     pub level: Level,
     /// Configuration for GPU memory used while rendering.
     pub memory_settings: MemorySettings,
+    /// When glyph-cache maintenance (age tick and eviction) runs.
+    pub glyph_maintenance: GlyphMaintenance,
+}
+
+/// When glyph-cache maintenance runs.
+///
+/// Maintenance advances the age of the glyph atlas and preparation caches by
+/// one tick and periodically evicts entries unused for more than the cache's
+/// maximum entry age (measured in ticks). Entries are age-stamped when a
+/// scene encodes them but referenced until that scene is rendered, so
+/// eviction is only safe if no scene is rendered more than the maximum entry
+/// age in ticks after it was encoded — otherwise its entries can be evicted
+/// while still referenced, leaving dangling atlas image ids:
+///
+/// * [`PerRender`](Self::PerRender) (default): every render call is one
+///   tick. Correct for applications that render one scene per frame.
+/// * [`Explicit`](Self::Explicit): for applications that render multiple
+///   scenes per frame (e.g. offscreen captures plus a main scene), where
+///   per-render ticking would break the rule above once a frame issues more
+///   renders than the maximum entry age. The application instead calls
+///   `maintain_glyphs` once per frame; any point in the frame works, as long
+///   as every scene encoded before the call is rendered within the maximum
+///   entry age (with one tick per frame, within that many frames).
+///   An application that never calls `maintain_glyphs` never evicts, so the
+///   atlas grows monotonically.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum GlyphMaintenance {
+    /// Maintenance runs after every render call (one scene per frame).
+    #[default]
+    PerRender,
+    /// The application calls `maintain_glyphs` once per frame (multiple
+    /// scenes per frame).
+    Explicit,
 }
 
 /// Settings controlling usage of GPU memory.
@@ -195,6 +229,7 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
             memory_settings: MemorySettings::default(),
+            glyph_maintenance: GlyphMaintenance::default(),
         }
     }
 }

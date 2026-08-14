@@ -24,6 +24,8 @@ only break in edge cases, and some of them are also only related to conversions 
 pub(crate) mod probe;
 pub(crate) mod resource;
 
+#[cfg(feature = "text")]
+use crate::GlyphMaintenance;
 use crate::draw::ExternalTextureRun;
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
@@ -126,6 +128,10 @@ pub struct WebGlRenderer {
     scratch_buffers: ScratchBuffers,
     layers_config: LayersConfig,
     use_depth_buffer: bool,
+    /// When glyph-cache maintenance runs: after every [`Self::render`]
+    /// (default), or only on explicit [`Self::maintain_glyphs`] calls.
+    #[cfg(feature = "text")]
+    glyph_maintenance: GlyphMaintenance,
 }
 
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by texture-rect draws.
@@ -342,6 +348,8 @@ impl WebGlRenderer {
             scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
             use_depth_buffer,
+            #[cfg(feature = "text")]
+            glyph_maintenance: settings.glyph_maintenance,
         };
 
         (renderer, resources)
@@ -408,15 +416,29 @@ impl WebGlRenderer {
         )?;
 
         #[cfg(feature = "text")]
-        {
-            // TODO: We should sort the rectangles once by atlas
-            // page and then clear per atlas page instead of per rect.
-            resources.after_render(self, |renderer, rect| {
-                clear_atlas_region(renderer, rect);
-            });
+        if self.glyph_maintenance == GlyphMaintenance::PerRender {
+            self.maintain_glyphs(resources);
         }
 
         Ok(())
+    }
+
+    /// Run glyph-cache maintenance: advance the cache age by one tick and
+    /// periodically evict entries that have not been used recently, clearing
+    /// their atlas regions.
+    ///
+    /// With [`GlyphMaintenance::Explicit`], call this once per frame,
+    /// typically right after the frame's last render. With
+    /// [`GlyphMaintenance::PerRender`] (the default), [`Self::render`]
+    /// already calls this itself; extra manual calls age the cache faster.
+    /// See [`GlyphMaintenance`] for the full contract.
+    #[cfg(feature = "text")]
+    pub fn maintain_glyphs(&mut self, resources: &mut Resources) {
+        // TODO: We should sort the rectangles once by atlas
+        // page and then clear per atlas page instead of per rect.
+        resources.after_render(self, |renderer, rect| {
+            clear_atlas_region(renderer, rect);
+        });
     }
 
     /// Render a `scene` directly into an atlas layer.
