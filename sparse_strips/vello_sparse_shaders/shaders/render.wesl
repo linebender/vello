@@ -26,6 +26,7 @@
 import package::helpers::alpha::unpack_alphas_from_channel;
 import package::helpers::blurred_rounded_rect::calculate_blurred_rounded_rect;
 import package::helpers::extend::extend_mode;
+import package::helpers::external_texture::sample_external_image;
 import package::helpers::gradient::{
     apply_gradient_transform,
     calculate_radial_gradient,
@@ -37,11 +38,14 @@ import package::helpers::gradient::{
     sample_gradient_lut,
     xy_to_unit_angle
 };
+import package::helpers::geometry::{pixel_to_ndc, quad_corner};
 import package::helpers::image::{
+    IMAGE_QUALITY_HIGH,
+    IMAGE_QUALITY_MEDIUM,
+    IMAGE_SOURCE_EXTERNAL,
     TINT_MODE_MULTIPLY,
     bicubic_sample,
     bilinear_sample,
-    cubic_weights,
     get_image_atlas_index,
     get_image_extend_modes,
     get_image_offset,
@@ -53,6 +57,7 @@ import package::helpers::image::{
     get_image_translate
 };
 import package::helpers::math::{NEARLY_ZERO_TOLERANCE, TWO_PI};
+import package::helpers::util::unpack_u16_pair;
 
 // Color source modes - where the fragment shader gets color data from.
 // Use payload (color or image coordinates)
@@ -72,14 +77,6 @@ const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5u;
 const PAINT_TEXTURE_INDEX_MASK: u32 = 0x03FFFFFFu;
 
 const RECT_STRIP_FLAG: u32 = 0x80000000u;
-
-// Image quality
-const IMAGE_QUALITY_LOW = 0u;
-const IMAGE_QUALITY_MEDIUM = 1u;
-const IMAGE_QUALITY_HIGH = 2u;
-
-const IMAGE_SOURCE_ATLAS = 0u;
-const IMAGE_SOURCE_EXTERNAL = 1u;
 
 struct Config {
     // Width of the rendering target
@@ -162,7 +159,8 @@ struct Config {
 struct StripInstance {
     // [x, y] packed as u16's
     // x, y — coordinates of the strip or rect
-    @location(0) xy: u32,
+    @location(0)
+    xy: u32,
     // [width, dense_width] packed as u16's
     // width — width of the strip or rect
     // dense_width — width of the portion where alpha blending should be applied
@@ -172,37 +170,49 @@ struct StripInstance {
     // TODO: In the future, this could be optimized such that `width` always represents the width and a simple
     // 1-bit flag is used to distinguish between sparse fill region and strip. This frees up 15 other bits.
     // Otherwise, it might also be possible to merge a strip and sparse fill command into a single strip instance.
-    @location(1) widths_or_rect_height: u32,
+    @location(1)
+    widths_or_rect_height: u32,
     // For normal strips: alpha texture column index where this strip's alpha values begin.
     // There are [`Config::strip_height`] alpha values per column.
     // For rect strips: packed fractional edge offsets for AA.
-    @location(2) col_idx_or_rect_frac: u32,
+    @location(2)
+    col_idx_or_rect_frac: u32,
     // See StripInstance documentation above.
-    @location(3) payload: u32,
+    @location(3)
+    payload: u32,
     // See StripInstance documentation above.
-    @location(4) paint_and_rect_flag: u32,
+    @location(4)
+    paint_and_rect_flag: u32,
     // Painter's-order index for z-depth computation.
-    @location(5) depth_index: u32,
+    @location(5)
+    depth_index: u32,
 }
 
 struct VertexOutput {
     // Render type for the strip
-    @location(0) @interpolate(flat) paint_and_rect_flag: u32,
+    @location(0) @interpolate(flat)
+    paint_and_rect_flag: u32,
     // Texture coordinates for the current fragment
-    @location(1) tex_coord: vec2<f32>,
+    @location(1)
+    tex_coord: vec2<f32>,
     // UV coordinates for the current fragment, used for image sampling
-    @location(2) sample_xy: vec2<f32>,
+    @location(2)
+    sample_xy: vec2<f32>,
     // For normal strips: ending x-position of the dense (alpha) region.
     // For rect strips: packed dimensions (width | height << 16).
-    @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
+    @location(3) @interpolate(flat)
+    dense_end_or_rect_size: u32,
     // Packed paint payload or layer sample coordinate.
-    @location(4) @interpolate(flat) payload: u32,
+    @location(4) @interpolate(flat)
+    payload: u32,
     // Packed fractional edge offsets for rectangles.
     // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
     // Zero for normal strips.
-    @location(5) @interpolate(flat) rect_frac: u32,
+    @location(5) @interpolate(flat)
+    rect_frac: u32,
     // Normalized device coordinates (NDC) for the current vertex
-    @builtin(position) position: vec4<f32>,
+    @builtin(position)
+    position: vec4<f32>,
 };
 
 // TODO: Measure performance of moving to a separate group
@@ -223,20 +233,23 @@ var gradient_texture: texture_2d<f32>;
 
 @vertex
 fn vs_main(
-    @builtin(vertex_index) in_vertex_index: u32,
+    @builtin(vertex_index)in_vertex_index: u32,
     instance: StripInstance,
 ) -> VertexOutput {
     var out: VertexOutput;
     out.sample_xy = vec2(0.0);
     // Map vertex_index (0-3) to quad corners:
     // 0 → (0,0), 1 → (1,0), 2 → (0,1), 3 → (1,1)
-    let x = f32(in_vertex_index & 1u);
-    let y = f32(in_vertex_index >> 1u);
+    let corner = quad_corner(in_vertex_index);
+    let x = corner.x;
+    let y = corner.y;
     // Unpack the x and y coordinates from the packed u32 instance.xy
-    let x0 = instance.xy & 0xffffu;
-    let y0 = instance.xy >> 16u;
-    let width = instance.widths_or_rect_height & 0xffffu;
-    let dense_width = instance.widths_or_rect_height >> 16u;
+    let strip_position = unpack_u16_pair(instance.xy);
+    let widths = unpack_u16_pair(instance.widths_or_rect_height);
+    let x0 = strip_position.x;
+    let y0 = strip_position.y;
+    let width = widths.x;
+    let dense_width = widths.y;
 
     let is_rect = (instance.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
     var height = config.strip_height;
@@ -250,19 +263,19 @@ fn vs_main(
     }
     // Calculate the pixel coordinates of the current vertex within the strip.
     // Don't forget to apply the strip offset!
-    let pix_x = f32(i32(x0) + config.strip_offset_x) + x * f32(width);
-    let pix_y = f32(i32(y0) + config.strip_offset_y) + y * f32(height);
+    let pixel = vec2<f32>(
+        f32(i32(x0) + config.strip_offset_x) + x * f32(width),
+        f32(i32(y0) + config.strip_offset_y) + y * f32(height),
+    );
     // Convert pixel coordinates to normalized device coordinates (NDC)
     // NDC ranges from -1 to 1, with (0,0) at the center of the viewport
-    let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
-    let ndc_y = 1.0 - pix_y * 2.0 / f32(config.height);
+    let ndc = pixel_to_ndc(pixel, vec2<f32>(f32(config.width), f32(config.height)));
 
     let color_source = (instance.paint_and_rect_flag >> 29u) & 0x3u;
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (instance.paint_and_rect_flag >> 26u) & 0x7u;
         // Unpack view coordinates for image sampling and gradient calculations
-        let scene_strip_x = instance.payload & 0xffffu;
-        let scene_strip_y = instance.payload >> 16u;
+        let scene_strip = unpack_u16_pair(instance.payload);
 
         if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
@@ -270,23 +283,25 @@ fn vs_main(
             let image_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
             let image_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
             // Use view coordinates for image sampling (always in global view space)
-            let pos = vec2<f32>(f32(scene_strip_x) + x * f32(width), f32(scene_strip_y) + y * f32(height));
+            let pos = vec2<f32>(
+                f32(scene_strip.x) + x * f32(width),
+                f32(scene_strip.y) + y * f32(height),
+            );
             out.sample_xy = get_image_translate(image_texel1, image_texel2)
                 + get_image_offset(image_texel0)
                 + get_image_transform(image_texel0, image_texel1) * pos;
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT || paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
             // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = vec2<f32>(
-                f32(scene_strip_x) + x * f32(width),
-                f32(scene_strip_y) + y * f32(height)
+                f32(scene_strip.x) + x * f32(width),
+                f32(scene_strip.y) + y * f32(height)
             );
         }
     } else if color_source == COLOR_SOURCE_LAYER {
-        let src_x = instance.payload & 0xffffu;
-        let src_y = instance.payload >> 16u;
+        let source = unpack_u16_pair(instance.payload);
         out.sample_xy = vec2<f32>(
-            f32(src_x) + x * f32(width),
-            f32(src_y) + y * f32(height),
+            f32(source.x) + x * f32(width),
+            f32(source.y) + y * f32(height),
         );
     }
 
@@ -297,8 +312,8 @@ fn vs_main(
     // buffer precision of 24 bits).
     let z = 1.0 - f32(instance.depth_index) / f32(1u << 24u);
     // Flip it based on the flag.
-    let final_ndc_y = select(ndc_y, -ndc_y, config.ndc_y_negate != 0u);
-    out.position = vec4<f32>(ndc_x, final_ndc_y, z, 1.0);
+    let final_ndc_y = select(ndc.y, -ndc.y, config.ndc_y_negate != 0u);
+    out.position = vec4<f32>(ndc.x, final_ndc_y, z, 1.0);
     out.payload = instance.payload;
     out.paint_and_rect_flag = instance.paint_and_rect_flag;
 
@@ -313,7 +328,7 @@ var layer_input_texture: texture_2d<f32>;
 
 @fragment
 fn fs_main(
-    @location(0) @interpolate(flat) paint_and_rect_flag: u32,
+    @location(0) @interpolate(flat)paint_and_rect_flag: u32,
     @location(1) tex_coord: vec2<f32>,
     @location(2) sample_xy: vec2<f32>,
     @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
@@ -332,7 +347,7 @@ fn fs_main(
         // then multiplying them.
         // For (maybe?) better performance, we calculate the x and y dimension in a single
         // pass by packing everything into a vec2.
-        let rect_size = vec2<f32>(f32(dense_end_or_rect_size & 0xFFFFu), f32(dense_end_or_rect_size >> 16u));
+        let rect_size = vec2<f32>(unpack_u16_pair(dense_end_or_rect_size));
         let tc = tex_coord;
         // + 0.5 and -0.5 since the fragment shader positions the coordinates in the center of the pixel.
         let bottom_and_right = min(tc + 0.5, rect_size - frac.zw);
@@ -408,6 +423,7 @@ fn fs_main(
             if image_source_kind == IMAGE_SOURCE_EXTERNAL {
                 let final_xy = image_offset + extended_xy;
                 sample_color = sample_external_image(
+                    external_texture,
                     image_quality,
                     final_xy,
                     image_offset,
@@ -454,11 +470,11 @@ fn fs_main(
             let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let gradient_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
             let gradient_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-            
+
             // Calculate fragment position and apply affine transform
             let fragment_pos = sample_xy;
             let grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
-            
+
             // For linear gradient, t-value is just the x coordinate in gradient space
             let t_value = grad_pos.x + 0.00001;
             let gradient_color = sample_gradient_lut(
@@ -475,11 +491,11 @@ fn fs_main(
             let gradient_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
             let gradient_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
             let gradient_texel3 = load_encoded_paint_texel(paint_tex_idx, 3u);
-            
+
             // Calculate fragment position and apply affine transform
             let fragment_pos = sample_xy;
             let grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
-            
+
             // For radial gradient, calculate distance from center
             let gradient_result = calculate_radial_gradient(grad_pos, gradient_texel2, gradient_texel3);
             let gradient_color = sample_gradient_lut(
@@ -499,7 +515,7 @@ fn fs_main(
             let gradient_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
             let gradient_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
             let gradient_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
-            
+
             // Calculate fragment position and apply affine transform
             let fragment_pos = sample_xy;
             var grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
@@ -514,7 +530,7 @@ fn fs_main(
             // vary across machines. See
             // <https://github.com/linebender/vello/pull/1352>.
             grad_pos = select(grad_pos, vec2(0.0), abs(grad_pos) < vec2(NEARLY_ZERO_TOLERANCE));
-            
+
             // For sweep gradient, calculate angle from center using fast polynomial approximation
             let unit_angle = xy_to_unit_angle(grad_pos.x, grad_pos.y);
             // Convert unit angle [0, 1) to radians [0, 2π)
@@ -568,83 +584,4 @@ fn load_encoded_paint_texel(paint_tex_idx: u32, texel_offset: u32) -> vec4<u32> 
         encoded_paint_coord(paint_tex_idx + texel_offset),
         0,
     );
-}
-
-// This is the same as `helpers::image::bilinear_sample`, but for the external texture binding
-// instead of the atlas texture array.
-fn external_bilinear_sample(
-    coords: vec2<f32>,
-    image_offset: vec2<f32>,
-    image_size: vec2<f32>,
-) -> vec4<f32> {
-    let atlas_max = image_offset + image_size - vec2(1.0);
-    let atlas_uv_clamped = clamp(coords, image_offset, atlas_max);
-    let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
-    let uv_frac = fract(coords);
-    let a = textureLoad(external_texture, vec2<i32>(uv_quad.xy), 0);
-    let b = textureLoad(external_texture, vec2<i32>(uv_quad.xw), 0);
-    let c = textureLoad(external_texture, vec2<i32>(uv_quad.zy), 0);
-    let d = textureLoad(external_texture, vec2<i32>(uv_quad.zw), 0);
-    return mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
-}
-
-// This is the same as `helpers::image::bicubic_sample`, but for the external texture binding
-// instead of the atlas texture array.
-fn external_bicubic_sample(
-    coords: vec2<f32>,
-    image_offset: vec2<f32>,
-    image_size: vec2<f32>,
-) -> vec4<f32> {
-     let atlas_max = image_offset + image_size - vec2(1.0);
-     let frac_coords = fract(coords + 0.5);
-     // Get cubic weights for x and y directions
-     let cx = cubic_weights(frac_coords.x);
-     let cy = cubic_weights(frac_coords.y);
-
-     // Sample 4x4 grid around coords
-     let s00 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, -1.5), image_offset, atlas_max)), 0);
-     let s10 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, -1.5), image_offset, atlas_max)), 0);
-     let s20 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, -1.5), image_offset, atlas_max)), 0);
-     let s30 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, -1.5), image_offset, atlas_max)), 0);
-
-     let s01 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, -0.5), image_offset, atlas_max)), 0);
-     let s11 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, -0.5), image_offset, atlas_max)), 0);
-     let s21 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, -0.5), image_offset, atlas_max)), 0);
-     let s31 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, -0.5), image_offset, atlas_max)), 0);
-
-     let s02 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, 0.5), image_offset, atlas_max)), 0);
-     let s12 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, 0.5), image_offset, atlas_max)), 0);
-     let s22 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, 0.5), image_offset, atlas_max)), 0);
-     let s32 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, 0.5), image_offset, atlas_max)), 0);
-
-     let s03 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, 1.5), image_offset, atlas_max)), 0);
-     let s13 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, 1.5), image_offset, atlas_max)), 0);
-     let s23 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, 1.5), image_offset, atlas_max)), 0);
-     let s33 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, 1.5), image_offset, atlas_max)), 0);
-
-    // Interpolate in x direction for each row
-    let row0 = cx.x * s00 + cx.y * s10 + cx.z * s20 + cx.w * s30;
-    let row1 = cx.x * s01 + cx.y * s11 + cx.z * s21 + cx.w * s31;
-    let row2 = cx.x * s02 + cx.y * s12 + cx.z * s22 + cx.w * s32;
-    let row3 = cx.x * s03 + cx.y * s13 + cx.z * s23 + cx.w * s33;
-    let result = cy.x * row0 + cy.y * row1 + cy.z * row2 + cy.w * row3;
-
-    // Clamp alpha first, then clamp premultiplied color channels against it.
-    let a = clamp(result.a, 0.0, 1.0);
-    return vec4<f32>(clamp(result.rgb, vec3(0.0), vec3(a)), a);
-}
-
-fn sample_external_image(
-    quality: u32,
-    coords: vec2<f32>,
-    image_offset: vec2<f32>,
-    image_size: vec2<f32>,
-) -> vec4<f32> {
-    if quality == IMAGE_QUALITY_HIGH {
-        return external_bicubic_sample(coords, image_offset, image_size);
-    }
-    if quality == IMAGE_QUALITY_MEDIUM {
-        return external_bilinear_sample(coords - vec2(0.5), image_offset, image_size);
-    }
-    return textureLoad(external_texture, vec2<u32>(coords), 0);
 }

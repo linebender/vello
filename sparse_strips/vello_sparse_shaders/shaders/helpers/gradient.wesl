@@ -5,6 +5,7 @@
 
 import package::helpers::extend::extend_mode_normalized;
 import package::helpers::math::NEARLY_ZERO_TOLERANCE;
+import package::helpers::texture::flat_index_to_texture_coord;
 
 // Gradient types.
 const GRADIENT_TYPE_LINEAR: u32 = 0u;
@@ -32,10 +33,9 @@ fn sample_gradient_lut(
     let flat_coord = gradient_start + t_offset;
     // Convert flat coordinate to 2D texture coordinate
     let gradient_tex_width = textureDimensions(gradient_texture).x;
-    let tex_x = flat_coord % gradient_tex_width;
-    let tex_y = flat_coord / gradient_tex_width;
+    let texture_coord = flat_index_to_texture_coord(flat_coord, gradient_tex_width);
     // Sample from the gradient texture at calculated position
-    let gradient_color = textureLoad(gradient_texture, vec2<u32>(tex_x, tex_y), 0);
+    let gradient_color = textureLoad(gradient_texture, texture_coord, 0);
     return gradient_color;
 }
 
@@ -135,11 +135,11 @@ fn calculate_radial_gradient(
 ) -> vec2<f32> {
     let x_pos = grad_pos.x;
     let y_pos = grad_pos.y;
-    
+
     var t_value: f32;
     var is_valid: bool;
     let kind = get_radial_kind(texel2);
-    
+
     switch kind {
         case RADIAL_GRADIENT_TYPE_STANDARD: {
             // Standard radial gradient: bias + scale * sqrt(x^2 + y^2)
@@ -168,15 +168,15 @@ fn calculate_radial_gradient(
             let fr1 = get_radial_fr1(texel3);
             let f_focal_x = get_radial_f_focal_x(texel3);
             let is_swapped = get_radial_f_is_swapped(texel2);
-            
+
             // Calculate focal flags directly from field values (matching FocalData implementation)
             let is_focal_on_circle = abs(1.0 - fr1) <= NEARLY_ZERO_TOLERANCE;
             let is_well_behaved = !is_focal_on_circle && fr1 > 1.0;
             let is_natively_focal = abs(f_focal_x) <= NEARLY_ZERO_TOLERANCE;
-            
+
             // Start with valid assumption
             is_valid = true;
-            
+
             if is_focal_on_circle {
                 t = x_pos + y_pos * y_pos / x_pos;
                 // Check for division by zero and negative t
@@ -188,35 +188,35 @@ fn calculate_radial_gradient(
                 let xx = x_pos * x_pos;
                 let yy = y_pos * y_pos;
                 let discriminant = xx - yy;
-                
+
                 if is_swapped != 0u || (1.0 - f_focal_x < 0.0) {
                     t = -sqrt(discriminant) - x_pos * fp0;
                 } else {
                     t = sqrt(discriminant) - x_pos * fp0;
                 }
-                
+
                 // Invalid if discriminant is negative or t is negative
                 is_valid = discriminant >= 0.0 && t >= 0.0;
             }
-            
+
             // Apply additional focal transforms only if still valid
             if is_valid {
                 if 1.0 - f_focal_x < 0.0 {
                     t = -t;
                 }
-                
+
                 if !is_natively_focal {
                     t = t + fp1;
                 }
-                
+
                 if is_swapped != 0u {
                     t = 1.0 - t;
                 }
             }
-            
+
             t_value = t;
         }
     }
-    
+
     return vec2<f32>(t_value, select(0.0, 1.0, is_valid));
 }

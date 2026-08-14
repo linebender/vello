@@ -3,6 +3,15 @@
 
 //! Shared encoded image accessors and atlas sampling (bilinear/bicubic) helpers.
 
+/// Image rendering quality.
+const IMAGE_QUALITY_LOW: u32 = 0u;
+const IMAGE_QUALITY_MEDIUM: u32 = 1u;
+const IMAGE_QUALITY_HIGH: u32 = 2u;
+
+/// Image source kinds.
+const IMAGE_SOURCE_ATLAS: u32 = 0u;
+const IMAGE_SOURCE_EXTERNAL: u32 = 1u;
+
 /// Tint mode constants.
 const TINT_MODE_ALPHA_MASK: u32 = 0u;
 const TINT_MODE_MULTIPLY: u32 = 1u;

@@ -5,29 +5,46 @@
 
 import package::helpers::alpha::unpack_alphas_from_channel;
 import package::helpers::blend::blend_mix_compose;
+import package::helpers::geometry::{pixel_to_ndc, quad_corner};
+import package::helpers::texture::flat_index_to_texture_coord;
 import package::helpers::util::unpack_u16_pair;
 
 const BLEND_HAS_ALPHA = 1u << 26u;
 
 struct BlendInstance {
-    @location(0) geometry_origin: u32,
-    @location(1) geometry_size: u32,
-    @location(2) geometry_alpha_col_idx: u32,
-    @location(3) parent_texture_size: u32,
-    @location(4) child_texture_origin: u32,
-    @location(5) child_parent_origin: u32,
-    @location(6) child_rect_size: u32,
-    @location(7) blend_config: u32,
+    @location(0)
+    geometry_origin: u32,
+    @location(1)
+    geometry_size: u32,
+    @location(2)
+    geometry_alpha_col_idx: u32,
+    @location(3)
+    parent_texture_size: u32,
+    @location(4)
+    child_texture_origin: u32,
+    @location(5)
+    child_parent_origin: u32,
+    @location(6)
+    child_rect_size: u32,
+    @location(7)
+    blend_config: u32,
 }
 
 struct VertexOutput {
-    @location(0) parent_texture_xy: vec2<f32>,
-    @location(1) child_texture_xy: vec2<f32>,
-    @location(2) child_local: vec2<f32>,
-    @location(3) @interpolate(flat) child_rect_size: u32,
-    @location(4) @interpolate(flat) blend_config: u32,
-    @location(5) tex_coord: vec2<f32>,
-    @builtin(position) position: vec4<f32>,
+    @location(0)
+    parent_texture_xy: vec2<f32>,
+    @location(1)
+    child_texture_xy: vec2<f32>,
+    @location(2)
+    child_local: vec2<f32>,
+    @location(3) @interpolate(flat)
+    child_rect_size: u32,
+    @location(4) @interpolate(flat)
+    blend_config: u32,
+    @location(5)
+    tex_coord: vec2<f32>,
+    @builtin(position)
+    position: vec4<f32>,
 }
 
 @group(0) @binding(0)
@@ -39,7 +56,7 @@ var alphas_texture: texture_2d<u32>;
 
 @vertex
 fn vs_main(
-    @builtin(vertex_index) vertex_index: u32,
+    @builtin(vertex_index)vertex_index: u32,
     instance: BlendInstance,
 ) -> VertexOutput {
     let geometry_origin = unpack_u16_pair(instance.geometry_origin);
@@ -48,9 +65,8 @@ fn vs_main(
     let child_parent_origin = unpack_u16_pair(instance.child_parent_origin);
     let child_texture_origin = unpack_u16_pair(instance.child_texture_origin);
 
-    let x = f32(vertex_index & 1u);
-    let y = f32(vertex_index >> 1u);
-    let parent_texture_xy = vec2<f32>(geometry_origin) + vec2<f32>(x, y) * geometry_size;
+    let corner = quad_corner(vertex_index);
+    let parent_texture_xy = vec2<f32>(geometry_origin) + corner * geometry_size;
     let child_local = parent_texture_xy - vec2<f32>(child_parent_origin);
 
     var out: VertexOutput;
@@ -60,13 +76,12 @@ fn vs_main(
     out.child_rect_size = instance.child_rect_size;
     out.blend_config = instance.blend_config;
     out.tex_coord = vec2<f32>(
-        f32(instance.geometry_alpha_col_idx) + x * geometry_size.x,
-        y * geometry_size.y,
+        f32(instance.geometry_alpha_col_idx) + corner.x * geometry_size.x,
+        corner.y * geometry_size.y,
     );
 
-    let ndc_x = parent_texture_xy.x * 2.0 / f32(parent_texture_size.x) - 1.0;
-    let ndc_y = 1.0 - parent_texture_xy.y * 2.0 / f32(parent_texture_size.y);
-    out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+    let ndc = pixel_to_ndc(parent_texture_xy, vec2<f32>(parent_texture_size));
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
     return out;
 }
 
@@ -80,7 +95,7 @@ fn load_layer(texture_index: u32, xy: vec2<i32>) -> vec4<f32> {
 
 @fragment
 fn fs_main(
-    @location(0) parent_texture_xy: vec2<f32>,
+    @location(0)parent_texture_xy: vec2<f32>,
     @location(1) child_texture_xy: vec2<f32>,
     @location(2) child_local: vec2<f32>,
     @location(3) @interpolate(flat) packed_child_rect_size: u32,
@@ -106,7 +121,7 @@ fn fs_main(
         let texture_width = textureDimensions(alphas_texture).x;
         let packed = textureLoad(
             alphas_texture,
-            vec2<u32>(texel_index % texture_width, texel_index / texture_width),
+            flat_index_to_texture_coord(texel_index, texture_width),
             0,
         );
         let column = unpack_alphas_from_channel(packed, channel_index);
@@ -122,8 +137,7 @@ fn fs_main(
     if child_local.x >= 0.0
         && child_local.y >= 0.0
         && child_local.x < f32(child_rect_size.x)
-        && child_local.y < f32(child_rect_size.y)
-    {
+        && child_local.y < f32(child_rect_size.y) {
         child = child_opacity * load_layer(child_texture_index, vec2<i32>(child_texture_xy));
     }
 
