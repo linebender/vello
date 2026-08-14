@@ -248,7 +248,7 @@ fn main(
                         part_ix = probe;
                     }
                 }
-                ix -= select(part_start_ix, sh_part_count[part_ix - 1u], part_ix > 0u);
+                ix -= select(part_start_ix, sh_part_count[max(part_ix, 1u) - 1u], part_ix > 0u);
                 let offset = config.bin_data_start + sh_part_offsets[part_ix];
                 sh_drawobj_ix[local_id.x] = info_bin_data[offset + ix];
             }
@@ -312,7 +312,7 @@ fn main(
             }
             drawobj_ix = sh_drawobj_ix[el_ix];
             tag = scene[config.drawtag_base + drawobj_ix];
-            let seq_ix = ix - select(0u, sh_tile_count[el_ix - 1u], el_ix > 0u);
+            let seq_ix = ix - select(0u, sh_tile_count[max(el_ix, 1u) - 1u], el_ix > 0u);
             let width = sh_tile_width[el_ix];
             let x0y0 = sh_tile_x0y0[el_ix];
             let x = (x0y0 & 0xffffu) + seq_ix % width;
