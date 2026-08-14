@@ -15,7 +15,7 @@ use crate::filter::FILTER_ATLAS_PADDING;
 use crate::scene::{LayersConfig, MemorySettings, RecordedDraw};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use vello_common::geometry::{SizeU16, SizeU32};
+use vello_common::geometry::SizeU16;
 use vello_common::record::CommandRecorder;
 
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
@@ -36,9 +36,9 @@ pub(crate) const IMAGE_PADDING: u16 = 0;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct DeviceLimits {
     /// Maximum width or height of a two-dimensional texture.
-    pub(crate) max_texture_dimension_2d: u32,
+    pub(crate) max_texture_dimension_2d: u16,
     /// Maximum number of layers in an image atlas texture array.
-    pub(crate) max_texture_array_layers: u32,
+    pub(crate) max_texture_array_layers: u16,
 }
 
 // This new type only serves the purpose of documenting the below invariants in a single place.
@@ -102,27 +102,24 @@ impl MemorySettings {
             layers_config,
         } = self;
 
-        image_atlas_config.atlas_size = SizeU32::from(image_atlas_config.atlas_size)
+        image_atlas_config.atlas_size = SizeU16::from(image_atlas_config.atlas_size)
             .clamp(1, device_limits.max_texture_dimension_2d)
             .into();
 
-        let supported_max_atlases = device_limits.max_texture_array_layers as usize;
+        let supported_max_atlases = usize::from(device_limits.max_texture_array_layers);
         image_atlas_config.max_atlases = image_atlas_config.max_atlases.min(supported_max_atlases);
         image_atlas_config.initial_atlas_count = image_atlas_config
             .initial_atlas_count
             .min(image_atlas_config.max_atlases);
 
-        let max_intermediate_texture_dimension =
-            u16::try_from(device_limits.max_texture_dimension_2d).unwrap();
-
         layers_config.min_texture_size = layers_config
             .min_texture_size
-            .clamp(1, max_intermediate_texture_dimension)
+            .clamp(1, device_limits.max_texture_dimension_2d)
             // In case the user erroneously provided a smaller max size than min size.
             .min(layers_config.max_texture_size);
         layers_config.max_texture_size = layers_config
             .max_texture_size
-            .clamp(1, max_intermediate_texture_dimension);
+            .clamp(1, device_limits.max_texture_dimension_2d);
     }
 }
 
@@ -134,39 +131,49 @@ impl LayersConfig {
         let min_size = self.min_texture_size;
         let max_size = self.max_texture_size;
 
-        let checked_size = |size: SizeU32| {
-            if size.width() > u32::from(max_size.width())
-                || size.height() > u32::from(max_size.height())
-            {
+        let checked_size = |width: u32, height: u32| {
+            if width > u32::from(max_size.width()) || height > u32::from(max_size.height()) {
                 return Err(IntermediateTextureError::TooLarge {
-                    width: size.width(),
-                    height: size.height(),
-                    max_width: u32::from(max_size.width()),
-                    max_height: u32::from(max_size.height()),
+                    width,
+                    height,
+                    max_width: max_size.width(),
+                    max_height: max_size.height(),
                 });
             }
 
-            Ok(SizeU16::try_from(size).unwrap())
+            Ok(SizeU16::from_wh(
+                u16::try_from(width).unwrap(),
+                u16::try_from(height).unwrap(),
+            ))
         };
 
         let filter_padding = u32::from(FILTER_ATLAS_PADDING) * 2;
-        let filter_size = recorder
-            .largest_filter_layer_size
-            .map_or(SizeU32::ZERO, |size| SizeU32::from(size) + filter_padding);
+        let filter_size = if let Some(size) = recorder.largest_filter_layer_size {
+            checked_size(
+                u32::from(size.width()) + filter_padding,
+                u32::from(size.height()) + filter_padding,
+            )?
+        } else {
+            SizeU16::ZERO
+        };
 
         let mut layer_size = recorder
             .largest_layer_size
-            .map_or(SizeU32::ZERO, SizeU32::from)
+            .unwrap_or(SizeU16::ZERO)
             .max(filter_size);
 
         // If we are blending into the root we will render the whole root into an
         // layer texture. Since we don't track the bbox of root draw commands, we need
         // to reserve space for the full size of the scene.
         if recorder.root_is_blend_target {
-            layer_size = layer_size.max(SizeU32::from(recorder.scene_size));
+            layer_size = layer_size.max(recorder.scene_size);
         }
 
-        Ok(checked_size(layer_size)?.max(min_size))
+        Ok(checked_size(
+            u32::from(layer_size.width()),
+            u32::from(layer_size.height()),
+        )?
+        .max(min_size))
     }
 }
 
@@ -178,7 +185,7 @@ mod tests {
     use vello_common::multi_atlas::AtlasConfig;
     use vello_common::record::CommandRecorder;
 
-    fn device_limits(max_texture_dimension_2d: u32, max_texture_array_layers: u32) -> DeviceLimits {
+    fn device_limits(max_texture_dimension_2d: u16, max_texture_array_layers: u16) -> DeviceLimits {
         DeviceLimits {
             max_texture_dimension_2d,
             max_texture_array_layers,
@@ -304,6 +311,38 @@ mod tests {
                 max_height: 512,
             })
         ));
+    }
+
+    #[test]
+    fn required_intermediate_texture_size_rejects_filter_padding_overflow() {
+        let mut recorder = CommandRecorder::<RecordedDraw>::new(10, 10);
+        recorder.largest_filter_layer_size = Some(SizeU16::from_wh(u16::MAX, 10));
+
+        let config = LayersConfig {
+            min_texture_size: SizeU16::new(1),
+            max_texture_size: SizeU16::new(u16::MAX),
+            ..Default::default()
+        };
+
+        let padding = u32::from(crate::filter::FILTER_ATLAS_PADDING) * 2;
+        let error = config
+            .required_intermediate_texture_size(&recorder)
+            .unwrap_err();
+
+        match error {
+            IntermediateTextureError::TooLarge {
+                width,
+                height,
+                max_width,
+                max_height,
+            } => {
+                assert_eq!(width, u32::from(u16::MAX) + padding);
+                assert_eq!(height, 10 + padding);
+                assert_eq!(max_width, u16::MAX);
+                assert_eq!(max_height, u16::MAX);
+            }
+            _ => panic!("expected TooLarge"),
+        }
     }
 }
 

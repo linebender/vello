@@ -216,8 +216,9 @@ impl GlyphAtlas {
         key: GlyphCacheKey,
         raster_metrics: RasterMetrics,
     ) -> Option<AtlasSlot> {
-        let padded_w = u32::from(raster_metrics.width) + u32::from(GLYPH_PADDING) * 2;
-        let padded_h = u32::from(raster_metrics.height) + u32::from(GLYPH_PADDING) * 2;
+        let padding = GLYPH_PADDING.checked_mul(2)?;
+        let padded_w = raster_metrics.width.checked_add(padding)?;
+        let padded_h = raster_metrics.height.checked_add(padding)?;
 
         let image_id = image_cache.allocate(padded_w, padded_h, 0).ok()?;
         let resource = image_cache.get(image_id)?;
@@ -262,10 +263,6 @@ impl GlyphAtlas {
     }
 
     /// Allocate atlas space, insert a cache entry, and return the page recorder.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "atlas dimensions are configured to fit in u16"
-    )]
     pub fn insert(
         &mut self,
         image_cache: &mut ImageCache,
@@ -273,10 +270,7 @@ impl GlyphAtlas {
         raster_metrics: RasterMetrics,
     ) -> Option<(AtlasSlot, &mut AtlasCommandRecorder)> {
         let atlas_slot = self.insert_entry(image_cache, key, raster_metrics)?;
-        let (atlas_w, atlas_h) = {
-            let (w, h) = image_cache.atlas_manager().config().atlas_size;
-            (w as u16, h as u16)
-        };
+        let (atlas_w, atlas_h) = image_cache.atlas_manager().config().atlas_size;
         let recorder = self.recorder_for_page(atlas_slot.page_index, atlas_w, atlas_h);
         Some((atlas_slot, recorder))
     }

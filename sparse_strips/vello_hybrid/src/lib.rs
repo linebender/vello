@@ -149,9 +149,9 @@ pub enum IntermediateTextureError {
         /// The requested allocation height.
         height: u32,
         /// The maximum intermediate texture width.
-        max_width: u32,
+        max_width: u16,
         /// The maximum intermediate texture height.
-        max_height: u32,
+        max_height: u16,
     },
     /// A render requires more intermediate textures than configured.
     #[error(

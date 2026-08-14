@@ -31,14 +31,14 @@ pub struct ImageResource {
 }
 
 impl ImageResource {
-    /// Returns the offset as `[u32; 2]`.
-    pub fn offsets(&self) -> [u32; 2] {
-        [self.offset[0] as u32, self.offset[1] as u32]
+    /// Returns the offset as `[u16; 2]`.
+    pub fn offsets(&self) -> [u16; 2] {
+        self.offset
     }
 
-    /// Returns the size as `[u32; 2]`.
-    pub fn size(&self) -> [u32; 2] {
-        [self.width as u32, self.height as u32]
+    /// Returns the size as `[u16; 2]`.
+    pub fn size(&self) -> [u16; 2] {
+        [self.width, self.height]
     }
 }
 
@@ -94,8 +94,8 @@ impl ImageCache {
     /// Allocate an image in the cache, with optional transparent padding.
     pub fn allocate(
         &mut self,
-        width: u32,
-        height: u32,
+        width: u16,
+        height: u16,
         padding: u16,
     ) -> Result<ImageId, AtlasError> {
         self.allocate_excluding(width, height, padding, None)
@@ -103,19 +103,27 @@ impl ImageCache {
 
     /// Allocate an image in the cache, with optional transparency padding
     /// and optionally excluding a specific atlas.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "u16 is enough for the offset and width/height"
-    )]
     pub fn allocate_excluding(
         &mut self,
-        width: u32,
-        height: u32,
+        width: u16,
+        height: u16,
         padding: u16,
         exclude_atlas_id: Option<AtlasId>,
     ) -> Result<ImageId, AtlasError> {
-        let padded_width = width + u32::from(padding) * 2;
-        let padded_height = height + u32::from(padding) * 2;
+        let doubled_padding = u32::from(padding) * 2;
+        let padded_width = u32::from(width) + doubled_padding;
+        let padded_height = u32::from(height) + doubled_padding;
+        let (max_width, max_height) = self.atlas_manager.config().atlas_size;
+        let (Ok(padded_width), Ok(padded_height)) =
+            (u16::try_from(padded_width), u16::try_from(padded_height))
+        else {
+            return Err(AtlasError::TextureTooLarge {
+                width: padded_width,
+                height: padded_height,
+                max_width,
+                max_height,
+            });
+        };
         let atlas_alloc = self.atlas_manager.try_allocate_excluding(
             padded_width,
             padded_height,
@@ -132,12 +140,12 @@ impl ImageCache {
 
         let image_id = ImageId::new(slot_idx as u32);
         let image_resource = ImageResource {
-            width: width as u16,
-            height: height as u16,
+            width,
+            height,
             atlas_id: atlas_alloc.atlas_id,
             offset: [
-                atlas_alloc.allocation.x as u16 + padding,
-                atlas_alloc.allocation.y as u16 + padding,
+                atlas_alloc.allocation.x + padding,
+                atlas_alloc.allocation.y + padding,
             ],
             padding,
             atlas_alloc_id: atlas_alloc.allocation.id,
@@ -152,9 +160,8 @@ impl ImageCache {
         let index = id.as_u32() as usize;
         if let Some(image_resource) = self.slots.get_mut(index).and_then(Option::take) {
             // Deallocate from the appropriate atlas
-            let padded_width = image_resource.width as u32 + u32::from(image_resource.padding) * 2;
-            let padded_height =
-                image_resource.height as u32 + u32::from(image_resource.padding) * 2;
+            let padded_width = image_resource.width + image_resource.padding * 2;
+            let padded_height = image_resource.height + image_resource.padding * 2;
             self.atlas_manager
                 .deallocate(
                     image_resource.atlas_id,
@@ -185,7 +192,7 @@ impl ImageCache {
 mod tests {
     use super::*;
 
-    const ATLAS_SIZE: u32 = 1024;
+    const ATLAS_SIZE: u16 = 1024;
 
     #[test]
     fn test_insert_single_image() {
@@ -220,6 +227,24 @@ mod tests {
         assert_eq!(resource.padding, 4);
         // Offset should be shifted inward by padding.
         assert_eq!(resource.offset, [4, 4]);
+    }
+
+    #[test]
+    fn test_rejects_padded_dimensions_outside_u16_atlas_domain() {
+        let mut cache = ImageCache::new_with_config(AtlasConfig {
+            atlas_size: (u16::MAX, u16::MAX),
+            ..Default::default()
+        });
+
+        assert!(matches!(
+            cache.allocate(u16::MAX, 100, 1),
+            Err(AtlasError::TextureTooLarge {
+                width: 65_537,
+                height: 102,
+                max_width: u16::MAX,
+                max_height: u16::MAX,
+            })
+        ));
     }
 
     #[test]

@@ -9,7 +9,7 @@ use vello_common::multi_atlas::AtlasId;
 
 use crate::SEED;
 
-const ATLAS_SIZE: u32 = 4096;
+const ATLAS_SIZE: u16 = 4096;
 
 fn make_atlas() -> Atlas {
     Atlas::new(AtlasId::new(0), ATLAS_SIZE, ATLAS_SIZE)
@@ -24,7 +24,7 @@ pub fn allocator(c: &mut Criterion) {
 /// Allocate 1000 rectangles with random sizes between 8x8 and 128x128.
 fn allocate_varied(c: &mut Criterion) {
     let mut rng = SmallRng::from_seed(SEED);
-    let sizes: Vec<(u32, u32)> = (0..1000)
+    let sizes: Vec<(u16, u16)> = (0..1000)
         .map(|_| (rng.random_range(8..=128), rng.random_range(8..=128)))
         .collect();
 
@@ -60,7 +60,7 @@ fn allocate_until_full(c: &mut Criterion) {
 /// (500 cycles). Measures reuse / merge performance under typical glyph-cache turnover.
 fn alloc_dealloc_churn(c: &mut Criterion) {
     let mut rng = SmallRng::from_seed(SEED);
-    let sizes: Vec<(u32, u32)> = (0..1000)
+    let sizes: Vec<(u16, u16)> = (0..1000)
         .map(|_| (rng.random_range(16..=64), rng.random_range(16..=64)))
         .collect();
 
@@ -68,7 +68,7 @@ fn alloc_dealloc_churn(c: &mut Criterion) {
     g.bench_function("churn_500_steady_state", |b| {
         b.iter(|| {
             let mut atlas = make_atlas();
-            let mut live: Vec<(vello_common::multi_atlas::AllocId, u32, u32)> = Vec::new();
+            let mut live: Vec<(vello_common::multi_atlas::AllocId, u16, u16)> = Vec::new();
 
             for &(w, h) in sizes.iter().take(500) {
                 if let Some(a) = atlas.allocate(w, h) {

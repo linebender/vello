@@ -183,16 +183,18 @@ impl Renderer {
         let mut settings = settings;
         let limits = device.limits();
         let device_limits = DeviceLimits {
-            max_texture_dimension_2d: limits.max_texture_dimension_2d,
-            max_texture_array_layers: limits.max_texture_array_layers,
+            max_texture_dimension_2d: u16::try_from(limits.max_texture_dimension_2d)
+                .unwrap_or(u16::MAX),
+            max_texture_array_layers: u16::try_from(limits.max_texture_array_layers)
+                .unwrap_or(u16::MAX),
         };
         settings.memory_settings.normalize(&device_limits);
         let resources = Resources::new(settings.memory_settings.image_atlas_config);
-        let max_texture_dimension_2d = device_limits.max_texture_dimension_2d;
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
+        let max_texture_dimension = u32::from(device_limits.max_texture_dimension_2d);
         let max_gradient_cache_size =
-            max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
+            max_texture_dimension * max_texture_dimension / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
         let layer_config = settings.memory_settings.layers_config;
 
@@ -367,8 +369,8 @@ impl Renderer {
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
-            width: atlas_width,
-            height: atlas_height,
+            width: u32::from(atlas_width),
+            height: u32::from(atlas_height),
         };
 
         let layer_view =
@@ -609,7 +611,7 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         image_id: vello_common::paint::ImageId,
         writer: &T,
-        offset_override: Option<[u32; 2]>,
+        offset_override: Option<[u16; 2]>,
     ) {
         let image_resource = image_cache.get(image_id).expect("Image resource not found");
 
@@ -620,10 +622,7 @@ impl Renderer {
             &self.programs.atlas_bind_group_layout,
             image_cache.atlas_count() as u32,
         );
-        let offset = offset_override.unwrap_or([
-            image_resource.offset[0] as u32,
-            image_resource.offset[1] as u32,
-        ]);
+        let offset = offset_override.unwrap_or(image_resource.offset);
         writer.write_to_atlas_layer(
             device,
             queue,
@@ -644,17 +643,17 @@ impl Renderer {
         image_id: vello_common::paint::ImageId,
     ) {
         if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
-            let padding = image_resource.padding as u32;
+            let padding = image_resource.padding;
 
             self.clear_atlas_region(
                 encoder,
                 image_resource.atlas_id,
                 [
-                    image_resource.offset[0] as u32 - padding,
-                    image_resource.offset[1] as u32 - padding,
+                    image_resource.offset[0] - padding,
+                    image_resource.offset[1] - padding,
                 ],
-                image_resource.width as u32 + padding * 2,
-                image_resource.height as u32 + padding * 2,
+                image_resource.width + padding * 2,
+                image_resource.height + padding * 2,
             );
         }
     }
@@ -673,9 +672,9 @@ impl Renderer {
         &mut self,
         encoder: &mut CommandEncoder,
         atlas_id: AtlasId,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
     ) {
         // Create a texture view for the specific atlas layer
         let layer_view =
@@ -714,7 +713,12 @@ impl Renderer {
         });
 
         // Set scissor rectangle to limit clearing to specific region
-        render_pass.set_scissor_rect(offset[0], offset[1], width, height);
+        render_pass.set_scissor_rect(
+            u32::from(offset[0]),
+            u32::from(offset[1]),
+            u32::from(width),
+            u32::from(height),
+        );
         // Use atlas clear pipeline to render transparent pixels
         render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
         // Draw fullscreen quad
@@ -1019,7 +1023,7 @@ struct GpuResources {
     /// View for atlas texture array
     atlas_texture_array_view: TextureView,
     /// Configured dimensions used when promoting the placeholder to a real atlas.
-    atlas_size: (u32, u32),
+    atlas_size: (u16, u16),
     /// Number of real atlas layers currently exposed by the texture view.
     atlas_layer_count: u32,
     /// Bind group for paint sources: an atlas textures as texture array plus an external texture.
@@ -1997,8 +2001,8 @@ impl Programs {
 
     fn create_atlas_texture_array(
         device: &Device,
-        width: u32,
-        height: u32,
+        width: u16,
+        height: u16,
         atlas_count: u32,
     ) -> (Texture, TextureView) {
         debug_assert!(
@@ -2017,8 +2021,8 @@ impl Programs {
         let atlas_texture_array = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture Array"),
             size: Extent3d {
-                width,
-                height,
+                width: u32::from(width),
+                height: u32::from(height),
                 depth_or_array_layers,
             },
             mip_level_count: 1,
@@ -2517,8 +2521,8 @@ impl Programs {
         old_atlas_texture_array: &Texture,
         new_atlas_texture_array: &Texture,
         layer_count_to_copy: u32,
-        width: u32,
-        height: u32,
+        width: u16,
+        height: u16,
     ) {
         // Copy all layers from old texture array to new texture array
         encoder.copy_texture_to_texture(
@@ -2535,8 +2539,8 @@ impl Programs {
                 aspect: wgpu::TextureAspect::All,
             },
             Extent3d {
-                width,
-                height,
+                width: u32::from(width),
+                height: u32::from(height),
                 depth_or_array_layers: layer_count_to_copy,
             },
         );
@@ -3301,9 +3305,9 @@ fn create_filter_original_texture_bind_group(
 /// - Custom implementations for other image sources
 pub trait AtlasWriter {
     /// Get the width of the image.
-    fn width(&self) -> u32;
+    fn width(&self) -> u16;
     /// Get the height of the image.
-    fn height(&self) -> u32;
+    fn height(&self) -> u16;
 
     /// Write image data to a specific layer of an atlas texture array at the specified offset.
     fn write_to_atlas_layer(
@@ -3313,20 +3317,20 @@ pub trait AtlasWriter {
         encoder: &mut CommandEncoder,
         atlas_texture: &Texture,
         layer: u32,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
     );
 }
 
 /// Implementation for `wgpu::Texture` - uses texture-to-texture copy
 impl AtlasWriter for Texture {
-    fn width(&self) -> u32 {
-        self.width()
+    fn width(&self) -> u16 {
+        u16::try_from(self.width()).expect("texture width exceeds the u16 atlas domain")
     }
 
-    fn height(&self) -> u32 {
-        self.height()
+    fn height(&self) -> u16 {
+        u16::try_from(self.height()).expect("texture height exceeds the u16 atlas domain")
     }
 
     fn write_to_atlas_layer(
@@ -3336,9 +3340,9 @@ impl AtlasWriter for Texture {
         encoder: &mut CommandEncoder,
         atlas_texture: &Texture,
         layer: u32,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
     ) {
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {
@@ -3351,15 +3355,15 @@ impl AtlasWriter for Texture {
                 texture: atlas_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
-                    x: offset[0],
-                    y: offset[1],
+                    x: u32::from(offset[0]),
+                    y: u32::from(offset[1]),
                     z: layer,
                 },
                 aspect: wgpu::TextureAspect::All,
             },
             Extent3d {
-                width,
-                height,
+                width: u32::from(width),
+                height: u32::from(height),
                 depth_or_array_layers: 1,
             },
         );
@@ -3368,12 +3372,12 @@ impl AtlasWriter for Texture {
 
 /// Implementation for `Pixmap` - direct upload to atlas
 impl AtlasWriter for Pixmap {
-    fn width(&self) -> u32 {
-        self.width() as u32
+    fn width(&self) -> u16 {
+        self.width()
     }
 
-    fn height(&self) -> u32 {
-        self.height() as u32
+    fn height(&self) -> u16 {
+        self.height()
     }
 
     fn write_to_atlas_layer(
@@ -3383,17 +3387,19 @@ impl AtlasWriter for Pixmap {
         _encoder: &mut CommandEncoder,
         atlas_texture: &Texture,
         layer: u32,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
     ) {
+        let width = u32::from(width);
+        let height = u32::from(height);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: atlas_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
-                    x: offset[0],
-                    y: offset[1],
+                    x: u32::from(offset[0]),
+                    y: u32::from(offset[1]),
                     z: layer,
                 },
                 aspect: wgpu::TextureAspect::All,
@@ -3415,12 +3421,12 @@ impl AtlasWriter for Pixmap {
 
 /// Implementation for `Arc<Pixmap>`
 impl AtlasWriter for Arc<Pixmap> {
-    fn width(&self) -> u32 {
-        self.as_ref().width() as u32
+    fn width(&self) -> u16 {
+        self.as_ref().width()
     }
 
-    fn height(&self) -> u32 {
-        self.as_ref().height() as u32
+    fn height(&self) -> u16 {
+        self.as_ref().height()
     }
 
     fn write_to_atlas_layer(
@@ -3430,9 +3436,9 @@ impl AtlasWriter for Arc<Pixmap> {
         encoder: &mut CommandEncoder,
         atlas_texture: &Texture,
         layer: u32,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
     ) {
         self.as_ref().write_to_atlas_layer(
             device,

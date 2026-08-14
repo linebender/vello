@@ -268,8 +268,8 @@ impl AppState {
         &self,
         pixmap: &vello_hybrid::Pixmap,
     ) -> vello_hybrid::WebGlTextureWithDimensions {
-        let width = pixmap.width() as u32;
-        let height = pixmap.height() as u32;
+        let width = pixmap.width();
+        let height = pixmap.height();
         let rgba_data = pixmap.data_as_u8_slice();
 
         let gl = &self.renderer_wrapper.renderer.gl_context();
