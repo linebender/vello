@@ -47,8 +47,6 @@ fn gaussian_blur(
     let n_linear_taps = get_n_linear_taps(texel0);
     let center_weight = get_center_weight(texel0);
 
-    // Use `textureSampleLevel` instead of `textureSample` because the loop below has a dynamic
-    // iteration count and must work properly in the Direct3D backend.
     var color = textureSampleLevel(
         source_texture,
         linear_sampler,
@@ -56,26 +54,23 @@ fn gaussian_blur(
         0.0,
     ) * center_weight;
 
-    // See https://github.com/linebender/vello/pull/1601#issuecomment-4323170395 for why we convert
-    // into arrays first. See https://github.com/linebender/vello/pull/1605 for why we assign each
-    // field separately.
-    var weights: array<f32, 3>;
     let linear_weights = get_linear_weights(texel0, texel1);
-    weights[0] = linear_weights.x;
-    weights[1] = linear_weights.y;
-    weights[2] = linear_weights.z;
-
-    var offsets: array<f32, 3>;
     let linear_offsets = get_linear_offsets(texel1);
-    offsets[0] = linear_offsets.x;
-    offsets[1] = linear_offsets.y;
-    offsets[2] = linear_offsets.z;
 
-    for (var i = 0u; i < n_linear_taps; i++) {
-        let weight = weights[i];
-        let distance = direction * offsets[i];
-        color += textureSampleLevel(source_texture, linear_sampler, (source_texel + distance + 0.5) / source_texture_size, 0.0) * weight;
-        color += textureSampleLevel(source_texture, linear_sampler, (source_texel - distance + 0.5) / source_texture_size, 0.0) * weight;
+    if n_linear_taps > 0u {
+        let distance = direction * linear_offsets.x;
+        color += textureSampleLevel(source_texture, linear_sampler, (source_texel + distance + 0.5) / source_texture_size, 0.0) * linear_weights.x;
+        color += textureSampleLevel(source_texture, linear_sampler, (source_texel - distance + 0.5) / source_texture_size, 0.0) * linear_weights.x;
+    }
+    if n_linear_taps > 1u {
+        let distance = direction * linear_offsets.y;
+        color += textureSampleLevel(source_texture, linear_sampler, (source_texel + distance + 0.5) / source_texture_size, 0.0) * linear_weights.y;
+        color += textureSampleLevel(source_texture, linear_sampler, (source_texel - distance + 0.5) / source_texture_size, 0.0) * linear_weights.y;
+    }
+    if n_linear_taps > 2u {
+        let distance = direction * linear_offsets.z;
+        color += textureSampleLevel(source_texture, linear_sampler, (source_texel + distance + 0.5) / source_texture_size, 0.0) * linear_weights.z;
+        color += textureSampleLevel(source_texture, linear_sampler, (source_texel - distance + 0.5) / source_texture_size, 0.0) * linear_weights.z;
     }
 
     return color;
