@@ -12,13 +12,22 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.10.0][] - 2026-08-14
+
+This release has an [MSRV][] of 1.88.
+
 ### Added
 
 - Support for gradient interpolation in the unpremultiplied alpha space. ([#1268][] by [@sagudev][])
 
+### Changed
+
+- Updated Skrifa to v0.44.0. ([#1774][] by [@LaurenzV][])
+
 ### Fixed
 
 - Rendering scenes whose binning requires more than 256 bins. ([#1700][] by [@b0nes164][])
+- Image textures are now explicitly destroyed when freed, releasing their GPU resources promptly. ([#1777][] by [@timon-schelling][])
 
 ## [0.9.0][] - 2026-05-15
 
@@ -333,6 +342,7 @@ This release has an [MSRV][] of 1.75.
 [@ratmice]: https://github.com/ratmice
 [@sagudev]: https://github.com/sagudev
 [@simbleau]: https://github.com/simbleau
+[@timon-schelling]: https://github.com/timon-schelling
 [@songhuaixu]: https://github.com/songhuaixu
 [@StT191]: https://github.com/StT191
 [@TheNachoBIT]: https://github.com/TheNachoB
@@ -450,8 +460,11 @@ This release has an [MSRV][] of 1.75.
 [#1638]: https://github.com/linebender/vello/pull/1638
 [#1643]: https://github.com/linebender/vello/pull/1643
 [#1700]: https://github.com/linebender/vello/pull/1700
+[#1774]: https://github.com/linebender/vello/pull/1774
+[#1777]: https://github.com/linebender/vello/pull/1777
 
-[Unreleased]: https://github.com/linebender/vello/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/linebender/vello/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/linebender/vello/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/linebender/vello/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/linebender/vello/compare/v0.6.0...v0.7.0
