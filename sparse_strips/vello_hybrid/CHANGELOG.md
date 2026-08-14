@@ -19,11 +19,11 @@ This release has an [MSRV][] of 1.88.
 
 ### Changed
 
-- `Renderer::destroy_image` no longer takes an `encoder`; it clears the freed atlas slot through the `queue`. ([#1739][] by [@AdrianEddy][])
+- `Renderer::destroy_image` no longer takes an `encoder` or `queue`, and takes `&Resources`; the destruction is deferred to the start of the next `render` call. ([#1739][] by [@AdrianEddy][])
 
 ### Fixed
 
-- `Renderer::destroy_image` now clears the freed atlas slot via `queue.write_texture`, so a slot reused within the same frame is no longer wiped by the freshly-uploaded image. ([#1739][] by [@AdrianEddy][])
+- `Renderer::destroy_image` now defers retiring the slot until the start of the next `render` call, where the freed region is cleared via `queue.write_texture`. This keeps an already-encoded (but not yet submitted) render sampling the image intact, and orders the clear before any re-upload into the reused region. ([#1739][] by [@AdrianEddy][])
 
 ## [0.2.0][] - 2026-08-07
 
