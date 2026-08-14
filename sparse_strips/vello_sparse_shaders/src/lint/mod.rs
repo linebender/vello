@@ -8,7 +8,7 @@
 
 use naga::Module;
 
-mod no_loops;
+mod no_dynamic_indexing;
 mod no_structs_in_fragment;
 
 /// Diagnostic produced by a single lint pass when it finds violations.
@@ -25,7 +25,7 @@ struct LintReport {
 /// message (prefixed by `shader_name`) if any lint reports violations.
 pub(crate) fn lint(shader_name: &str, module: &Module) {
     let reports: Vec<LintReport> = [
-        no_loops::check(module),
+        no_dynamic_indexing::check(module),
         no_structs_in_fragment::check(module),
     ]
     .into_iter()
