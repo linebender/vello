@@ -12,6 +12,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `CoverageContrast`, an opt-in coverage transfer for alpha-mask tints that sharpens glyph edges: a symmetric edge-steepening term plus a luminance-resolved weight term. `StripGenerator::generate_filled_path_with_coverage_transfer` applies the same transfer to generated coverage, for glyphs filled directly from their outlines. ([#1790][] by [@AdrianEddy][])
+
+### Changed
+
+- Breaking: `Tint` gained a `contrast` field; use `CoverageContrast::NONE` in struct literals to keep the previous behavior. ([#1790][] by [@AdrianEddy][])
+
 ## [0.2.0][] - 2026-08-07
 
 This release has an [MSRV][] of 1.88.
@@ -224,6 +232,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) release.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@b0nes164]: https://github.com/b0nes164
 [@conor-93]: https://github.com/conor-93
 [@dipeshbabu]: https://github.com/dipeshbabu
@@ -310,6 +319,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1768]: https://github.com/linebender/vello/pull/1768
 [#1778]: https://github.com/linebender/vello/pull/1778
 [#1779]: https://github.com/linebender/vello/pull/1779
+[#1790]: https://github.com/linebender/vello/pull/1790
 [#1801]: https://github.com/linebender/vello/pull/1801
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD

@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `RenderContext::set_glyph_coverage_contrast` for applying a `CoverageContrast` to outline glyph coverage, whether the glyph is atlas-cached or drawn directly from its outline. ([#1790][] by [@AdrianEddy][])
+
 ## [0.2.0][] - 2026-08-07
 
 This release has an [MSRV][] of 1.88.
@@ -209,6 +213,7 @@ This is the initial release. No changelog was kept for this release.
 See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10) release.
 
 [@DJMcNab]: https://github.com/DJMcNab
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@b0nes164]: https://github.com/b0nes164
 [@grebmeg]: https://github.com/grebmeg
 [@jrmoulton]: https://github.com/jrmoulton
@@ -275,6 +280,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1760]: https://github.com/linebender/vello/pull/1760
 [#1763]: https://github.com/linebender/vello/pull/1763
 [#1787]: https://github.com/linebender/vello/pull/1787
+[#1790]: https://github.com/linebender/vello/pull/1790
 [#1803]: https://github.com/linebender/vello/pull/1803
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
