@@ -162,6 +162,11 @@ pub struct Renderer {
     schedule_storage: ScheduleStorage,
     scratch_buffers: ScratchBuffers,
     layers_config: LayersConfig,
+    /// Images destroyed via [`destroy_image`](Self::destroy_image), awaiting the
+    /// next [`render`](Self::render) call. Their cache slots and atlas regions stay
+    /// allocated (so nothing can reuse them) and the GPU clear is not enqueued
+    /// until then; see `flush_pending_image_destroys` for the ordering argument.
+    pending_image_destroys: Vec<vello_common::paint::ImageId>,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
 }
@@ -210,6 +215,7 @@ impl Renderer {
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
+            pending_image_destroys: Vec::new(),
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
         };
@@ -271,6 +277,11 @@ impl Renderer {
         depth_view: Option<&TextureView>,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
+        // Retire images destroyed since the previous render call, before glyph
+        // maintenance below so freed regions are reusable by this frame's
+        // glyph allocations.
+        self.flush_pending_image_destroys(resources, queue);
+
         #[cfg(feature = "text")]
         {
             resources.before_render(
@@ -284,6 +295,7 @@ impl Renderer {
                             device,
                             queue,
                             atlas_id,
+                            None,
                             texture_bindings,
                         )
                         .expect("Failed to render glyphs to atlas");
@@ -342,6 +354,14 @@ impl Renderer {
     /// `texture_bindings` provides [externally bound textures](`TextureBindings`)
     /// referenced by the scene. Pass `&TextureBindings::new()` if the scene does
     /// not use any.
+    ///
+    /// The scene is composited into the layer with source-over, so a slot that
+    /// is being reused may retain stale pixels underneath the new content. Pass
+    /// `clear_rect` (a region in atlas-layer pixel coordinates) to clear exactly
+    /// that region to transparent first, leaving the rest of the layer intact.
+    /// The clear is recorded on the same encoder, after the atlas is grown to
+    /// fit `atlas_count` and before the scene is composited, so callers do not
+    /// need to size or pre-clear the atlas themselves.
     #[doc(hidden)]
     pub fn render_to_atlas(
         &mut self,
@@ -351,6 +371,7 @@ impl Renderer {
         device: &Device,
         queue: &Queue,
         atlas_id: AtlasId,
+        clear_rect: Option<RectU16>,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -364,6 +385,20 @@ impl Renderer {
             &self.programs.atlas_bind_group_layout,
             atlas_count,
         );
+
+        // Clear the destination slot to transparent before compositing, if
+        // requested. This is recorded after the resize above (so it targets a
+        // correctly sized layer) and before the scene render pass below, and it
+        // leaves the rest of the layer untouched.
+        if let Some(clear_rect) = clear_rect {
+            self.clear_atlas_region(
+                &mut encoder,
+                atlas_id,
+                [u32::from(clear_rect.x0), u32::from(clear_rect.y0)],
+                u32::from(clear_rect.width()),
+                u32::from(clear_rect.height()),
+            );
+        }
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
@@ -636,27 +671,99 @@ impl Renderer {
         );
     }
 
-    /// Destroy an image from the cache and clear the allocated slot in the atlas.
-    pub fn destroy_image(
-        &mut self,
-        resources: &mut Resources,
-        encoder: &mut CommandEncoder,
-        image_id: vello_common::paint::ImageId,
-    ) {
-        if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
-            let padding = image_resource.padding as u32;
-
-            self.clear_atlas_region(
-                encoder,
-                image_resource.atlas_id,
-                [
-                    image_resource.offset[0] as u32 - padding,
-                    image_resource.offset[1] as u32 - padding,
-                ],
-                image_resource.width as u32 + padding * 2,
-                image_resource.height as u32 + padding * 2,
-            );
+    /// Destroy an image: its cache slot and atlas region are retired at the start
+    /// of the next [`render`](Self::render) call, where the freed region is also
+    /// cleared to transparent.
+    ///
+    /// The destruction is deferred, not immediate, to stay correct on both GPU
+    /// orderings involved:
+    ///
+    /// * A clear issued here via `queue.write_texture` would execute before *all*
+    ///   command buffers in the next submit, including a render that was already
+    ///   encoded (but not yet submitted) and still samples this image.
+    /// * A clear recorded on an encoder would execute after *all* queued texture
+    ///   writes in its submit, including a later re-upload into the reused region,
+    ///   wiping it.
+    ///
+    /// Deferring until the next `render` call resolves both: every submit that
+    /// could reference the old content has been made by then (command buffers must
+    /// be submitted before the next `render` call, the same cadence
+    /// [`render_to_atlas`](Self::render_to_atlas) documents), and the region is
+    /// only returned to the allocator at that point, so any re-upload's
+    /// `write_texture` is enqueued after the clear's and stays ordered with it.
+    ///
+    /// `image_id` must belong to the `Resources` that will be passed to that next
+    /// `render` call, and the caller must not reference the image in scenes
+    /// rendered after this call.
+    pub fn destroy_image(&mut self, resources: &Resources, image_id: vello_common::paint::ImageId) {
+        if resources.image_cache.get(image_id).is_some() {
+            self.pending_image_destroys.push(image_id);
         }
+    }
+
+    /// Retire images destroyed since the previous render call: return their slots
+    /// to the image cache and zero the freed atlas regions.
+    ///
+    /// Called at the start of [`render`](Self::render). At that point every
+    /// command buffer that could sample the old content has been submitted, so the
+    /// `write_texture` clears enqueued here execute after those reads (queue
+    /// writes run at the head of the *next* submit). Regions become reusable only
+    /// now, so any subsequent re-upload is enqueued after the clear and queue-write
+    /// call order keeps the pair correct.
+    fn flush_pending_image_destroys(&mut self, resources: &mut Resources, queue: &Queue) {
+        while let Some(image_id) = self.pending_image_destroys.pop() {
+            if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
+                let padding = u32::from(image_resource.padding);
+                self.clear_atlas_region_via_queue(
+                    queue,
+                    image_resource.atlas_id,
+                    [
+                        u32::from(image_resource.offset[0]) - padding,
+                        u32::from(image_resource.offset[1]) - padding,
+                    ],
+                    u32::from(image_resource.width) + padding * 2,
+                    u32::from(image_resource.height) + padding * 2,
+                );
+            }
+        }
+    }
+
+    /// Zero a region of the atlas via `queue.write_texture`, staying ordered
+    /// with `write_texture`-based uploads within a submit (unlike
+    /// [`Self::clear_atlas_region`], which records a render pass).
+    fn clear_atlas_region_via_queue(
+        &self,
+        queue: &Queue,
+        atlas_id: AtlasId,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        let byte_count = width as usize * height as usize * 4;
+        let zeros = vec![0_u8; byte_count];
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.programs.resources.atlas_texture_array,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: atlas_id.as_u32(),
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &zeros,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     /// Returns a reference to the underlying atlas texture array.
@@ -668,8 +775,12 @@ impl Renderer {
         &self.programs.resources.atlas_texture_array
     }
 
-    /// Clear a specific region of the atlas texture.
-    fn clear_atlas_region(
+    /// Clear a specific region of the atlas texture by recording a render pass.
+    ///
+    /// For clears that must stay ordered with same-submit `queue.write_texture`
+    /// uploads (e.g. freeing a slot that may be reused the same frame), use
+    /// `clear_atlas_region_via_queue` instead.
+    pub fn clear_atlas_region(
         &mut self,
         encoder: &mut CommandEncoder,
         atlas_id: AtlasId,

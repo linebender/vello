@@ -1044,3 +1044,177 @@ impl Renderer for HybridRenderer {
         self.upload_image(&pixmap)
     }
 }
+
+/// An atlas slot that is freed and reused by a new image must render the
+/// *new* image. Regression test for `destroy_image` clearing the freed slot
+/// via an encoder pass, which wgpu orders after all queued texture writes in
+/// a submit and so wiped the re-uploaded pixels; with deferred destruction
+/// this pins that the flush's clear stays ordered before the re-upload.
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+#[test]
+fn atlas_slot_reuse_survives_same_frame_destroy() {
+    use vello_common::color::palette::css::{GREEN, RED};
+    use vello_common::color::{AlphaColor, Srgb};
+    use vello_common::paint::Image;
+    use vello_common::peniko::ImageSampler;
+
+    fn solid(color: AlphaColor<Srgb>) -> Arc<Pixmap> {
+        let mut pixmap = Pixmap::new(4, 4);
+        pixmap.data_mut().fill(color.premultiply().to_rgba8());
+        Arc::new(pixmap)
+    }
+
+    let mut h = HybridRenderer::new_with_settings(16, 16, HybridRenderSettings::default(), true);
+
+    let red_id = h.upload_image_with_resources(&solid(RED), "red");
+    let red_slot = {
+        let r = h.resources.image_cache().get(red_id).expect("red uploaded");
+        (r.atlas_id.as_u32(), r.offset)
+    };
+
+    h.renderer.destroy_image(&h.resources, red_id);
+
+    // The destroy is deferred to the next render call; drive one (empty)
+    // render so the slot is cleared and returned to the allocator.
+    let mut flush_out = Pixmap::new(16, 16);
+    h.render_to_pixmap(&mut flush_out);
+
+    let green_id = h.upload_image_with_resources(&solid(GREEN), "green");
+    let green_slot = {
+        let g = h
+            .resources
+            .image_cache()
+            .get(green_id)
+            .expect("green uploaded");
+        (g.atlas_id.as_u32(), g.offset)
+    };
+    assert_eq!(
+        red_slot, green_slot,
+        "green must reuse red's freed atlas slot to exercise the reuse hazard"
+    );
+
+    h.scene.set_paint(Image {
+        image: ImageSource::opaque_id_with_transparency_hint(green_id, false),
+        sampler: ImageSampler::default(),
+    });
+    h.scene.fill_rect(&Rect::new(0.0, 0.0, 16.0, 16.0));
+
+    let mut out = Pixmap::new(16, 16);
+    h.render_to_pixmap(&mut out);
+
+    let center = out.sample(8, 8);
+    assert_eq!(
+        center.a, 255,
+        "reused slot must render opaque, got {center:?}"
+    );
+    assert!(
+        center.g > center.r && center.g > center.b,
+        "reused slot must render the green image, got {center:?}"
+    );
+}
+
+/// An image destroyed after a render referencing it has been *encoded*, but
+/// before that encoder is *submitted*, must still render intact. Regression
+/// test for `destroy_image` clearing the slot eagerly through
+/// `queue.write_texture`, which wgpu executes before all command buffers of
+/// the next submit — including the already-encoded render.
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+#[test]
+fn destroyed_image_survives_already_encoded_render() {
+    use vello_common::color::palette::css::RED;
+    use vello_common::paint::Image;
+    use vello_common::peniko::ImageSampler;
+
+    const SIZE: u16 = 16;
+
+    let mut h =
+        HybridRenderer::new_with_settings(SIZE, SIZE, HybridRenderSettings::default(), true);
+
+    let mut pixmap = Pixmap::new(4, 4);
+    pixmap.data_mut().fill(RED.premultiply().to_rgba8());
+    let red_id = h.upload_image_with_resources(&Arc::new(pixmap), "red");
+
+    h.scene.set_paint(Image {
+        image: ImageSource::opaque_id_with_transparency_hint(red_id, false),
+        sampler: ImageSampler::default(),
+    });
+    h.scene
+        .fill_rect(&Rect::new(0.0, 0.0, f64::from(SIZE), f64::from(SIZE)));
+
+    let render_size = vello_hybrid::RenderSize {
+        width: SIZE.into(),
+        height: SIZE.into(),
+    };
+    let mut encoder = h
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("render before destroy"),
+        });
+    h.renderer
+        .render(
+            &h.scene,
+            &mut h.resources,
+            &h.device,
+            &h.queue,
+            &mut encoder,
+            &render_size,
+            &h.texture_view,
+            h.depth_texture_view.as_ref(),
+            &vello_hybrid::TextureBindings::new(),
+        )
+        .unwrap();
+
+    // Destroy after encoding and before submitting: the encoded render must
+    // still sample the red image when it executes.
+    h.renderer.destroy_image(&h.resources, red_id);
+
+    let bytes_per_row = (u32::from(SIZE) * 4).next_multiple_of(256);
+    let readback = h.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("readback"),
+        size: u64::from(bytes_per_row) * u64::from(SIZE),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &h.texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: None,
+            },
+        },
+        wgpu::Extent3d {
+            width: SIZE.into(),
+            height: SIZE.into(),
+            depth_or_array_layers: 1,
+        },
+    );
+    h.queue.submit([encoder.finish()]);
+
+    readback
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            if result.is_err() {
+                panic!("Failed to map texture for reading");
+            }
+        });
+    h.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+
+    let data = readback.slice(..).get_mapped_range();
+    let px = &data[8 * bytes_per_row as usize + 8 * 4..][..4];
+    assert_eq!(
+        px[3], 255,
+        "already-encoded render must stay opaque, got {px:?}"
+    );
+    assert!(
+        px[0] > px[1] && px[0] > px[2],
+        "already-encoded render must still sample the red image, got {px:?}"
+    );
+}
