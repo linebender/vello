@@ -1249,9 +1249,6 @@ impl WebGlIntermediateTexture {
     }
 }
 
-/// `COMPLETION_STATUS_KHR` from the `KHR_parallel_shader_compile` specification.
-const COMPLETION_STATUS_KHR: u32 = 0x91B1;
-
 #[derive(Debug)]
 struct PendingShaderProgram {
     vertex_shader: VertexShader,
@@ -1281,7 +1278,12 @@ impl PendingShaderProgram {
         }
     }
 
-    fn is_complete(&self, gl: &WebGl2RenderingContext) -> bool {
+    fn is_complete(&self, gl: &WebGl2RenderingContext, parallel_shader_compile: bool) -> bool {
+        /// `COMPLETION_STATUS_KHR` from the `KHR_parallel_shader_compile` specification.
+        const COMPLETION_STATUS_KHR: u32 = 0x91B1;
+        if !parallel_shader_compile {
+            return true;
+        }
         gl.get_program_parameter(&self.program, COMPLETION_STATUS_KHR)
             .as_bool()
             .unwrap_or(false)
@@ -1384,14 +1386,17 @@ impl PendingWebGlPrograms {
     }
 
     fn is_complete(&self, gl: &WebGl2RenderingContext) -> bool {
-        if !self.parallel_shader_compile {
-            return true;
-        }
-
-        self.strip_program.is_complete(gl)
-            && self.filter_program.is_complete(gl)
-            && self.blend_program.is_complete(gl)
-            && self.copy_program.is_complete(gl)
+        self.strip_program
+            .is_complete(gl, self.parallel_shader_compile)
+            && self
+                .filter_program
+                .is_complete(gl, self.parallel_shader_compile)
+            && self
+                .blend_program
+                .is_complete(gl, self.parallel_shader_compile)
+            && self
+                .copy_program
+                .is_complete(gl, self.parallel_shader_compile)
     }
 
     fn finish(self, gl: &WebGl2RenderingContext) -> WebGlPrograms {
