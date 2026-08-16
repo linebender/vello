@@ -9,9 +9,7 @@ use crate::strip::{Strip, visit_strip_fill_segments};
 use crate::tile::Tile;
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
-use fearless_simd::{
-    Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
-};
+use fearless_simd::{f32x16, prelude::*, u8x16, u16x8, u16x16, u16x32, u32x16};
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 use peniko::kurbo::{Affine, Rect};
@@ -60,16 +58,29 @@ impl<S: Simd> Div255Ext for u16x16<S> {
     }
 }
 
-/// Perform a normalized multiplication for u8x32.
-#[inline(always)]
-pub fn normalized_mul_u8x32<S: Simd>(a: u8x32<S>, b: u8x32<S>) -> u16x32<S> {
-    (S::widen_u8x32(a.simd, a) * S::widen_u8x32(b.simd, b)).div_255()
+impl<S: Simd> Div255Ext for u16x8<S> {
+    #[inline(always)]
+    fn div_255(self) -> Self {
+        let p1 = Self::splat(self.simd, 255);
+        let p2 = self + p1;
+        p2 >> 8
+    }
 }
 
-/// Perform a normalized multiplication for u8x16.
+/// Perform a normalized multiplication for a SIMD vector of `u8` values.
 #[inline(always)]
-pub fn normalized_mul_u8x16<S: Simd>(a: u8x16<S>, b: u8x16<S>) -> u16x16<S> {
-    (S::widen_u8x16(a.simd, a) * S::widen_u8x16(b.simd, b)).div_255()
+pub fn normalized_mul_u8<S, V>(a: V, b: V) -> <V::Widened as SimdCombine<S>>::Combined
+where
+    S: Simd,
+    V: SimdWiden<S>,
+    V::Widened: SimdCombine<S>,
+    <V::Widened as SimdCombine<S>>::Combined: Div255Ext,
+{
+    let (low_a, high_a) = a.widen();
+    let (low_b, high_b) = b.widen();
+    let a = low_a.combine(high_a);
+    let b = low_b.combine(high_b);
+    (a * b).div_255()
 }
 
 /// Check if an affine transform is a pure integer translation.

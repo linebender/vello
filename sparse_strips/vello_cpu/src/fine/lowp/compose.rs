@@ -7,6 +7,18 @@ use crate::util::NormalizedMulExt;
 use vello_common::fearless_simd::*;
 use vello_common::util::Div255Ext;
 
+#[inline(always)]
+fn widen_u8x32<S: Simd>(val: u8x32<S>) -> u16x32<S> {
+    let (low, high) = val.widen();
+    low.combine(high)
+}
+
+#[inline(always)]
+fn narrow_u16x32<S: Simd>(val: u16x32<S>) -> u8x32<S> {
+    let (low, high) = val.split();
+    low.narrow(high)
+}
+
 pub(crate) trait ComposeExt {
     fn compose<S: Simd>(
         &self,
@@ -60,9 +72,9 @@ fn compose_inner<S: Simd>(
 
     if let Some(alpha_mask) = alpha_mask {
         let alpha_mask_inv = 255 - alpha_mask;
-        let p1 = simd.widen_u8x32(alpha_mask) * simd.widen_u8x32(res);
-        let p2 = simd.widen_u8x32(alpha_mask_inv) * simd.widen_u8x32(bg_c);
-        res = simd.narrow_u16x32((p1 + p2).div_255());
+        let p1 = widen_u8x32(alpha_mask) * widen_u8x32(res);
+        let p2 = widen_u8x32(alpha_mask_inv) * widen_u8x32(bg_c);
+        res = narrow_u16x32((p1 + p2).div_255());
     }
 
     res
@@ -82,9 +94,9 @@ macro_rules! compose {
                 let fb = $fb(simd, al_s, al_b);
 
                 if $sat {
-                    simd.narrow_u16x32(
-                        (simd.widen_u8x32(src_c.normalized_mul(fa))
-                            + simd.widen_u8x32(fb.normalized_mul(bg_c)))
+                    narrow_u16x32(
+                        (widen_u8x32(src_c.normalized_mul(fa))
+                            + widen_u8x32(fb.normalized_mul(bg_c)))
                         .min(u16x32::splat(simd, 255))
                         .max(u16x32::splat(simd, 0)),
                     )

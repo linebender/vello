@@ -1084,9 +1084,9 @@ dependencies = [
 
 [[package]]
 name = "fearless_simd"
-version = "0.4.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76258897e51fd156ee03b6246ea53f3e0eb395d0b327e9961c4fc4c8b2fa151a"
+checksum = "f4beca3cb2444e3304ac30843cc091f44ed58932353cd492ce740067bfce6b12"
 dependencies = [
  "libm",
 ]
@@ -4497,6 +4497,7 @@ version = "0.2.0"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
+ "fearless_simd",
  "glifo",
  "hashbrown 0.17.1",
  "ordered-channel",

@@ -1165,26 +1165,16 @@ pub(crate) struct ShaderResultF32<S: Simd> {
 impl<S: Simd> ShaderResultF32<S> {
     /// Convert from planar format to interleaved RGBA format.
     ///
-    /// Returns two f32x16 vectors containing 8 pixels (4 RGBA components each)
-    /// with channels interleaved in the standard RGBA order.
+    /// Returns two sets of four f32x4 vectors containing 8 pixels (4 RGBA components each),
+    /// ready to be stored with `store_four_interleaved_f32x4`.
     #[inline(always)]
-    pub(crate) fn get(&self) -> (f32x16<S>, f32x16<S>) {
+    pub(crate) fn get(&self) -> [[f32x4<S>; 4]; 2] {
         let (r_1, r_2) = self.r.simd.split_f32x8(self.r);
         let (g_1, g_2) = self.g.simd.split_f32x8(self.g);
         let (b_1, b_2) = self.b.simd.split_f32x8(self.b);
         let (a_1, a_2) = self.a.simd.split_f32x8(self.a);
 
-        let first = self.r.simd.combine_f32x8(
-            self.r.simd.combine_f32x4(r_1, g_1),
-            self.r.simd.combine_f32x4(b_1, a_1),
-        );
-
-        let second = self.r.simd.combine_f32x8(
-            self.r.simd.combine_f32x4(r_2, g_2),
-            self.r.simd.combine_f32x4(b_2, a_2),
-        );
-
-        (first, second)
+        [[r_1, g_1, b_1, a_1], [r_2, g_2, b_2, a_2]]
     }
 }
 
