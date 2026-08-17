@@ -46,18 +46,6 @@ mod tests {
         }
     }
 
-    fn external_texture_image(
-        texture_id: TextureId,
-        source_region: RectU16,
-        sampler: ImageSampler,
-        may_have_transparency: bool,
-    ) -> Image {
-        Image {
-            image: ImageSource::external_texture(texture_id, source_region, may_have_transparency),
-            sampler,
-        }
-    }
-
     fn fill_texture_rect(
         ctx: &mut impl Renderer,
         texture_id: TextureId,
@@ -67,12 +55,14 @@ mod tests {
         height: f64,
         may_have_transparency: bool,
     ) {
-        ctx.set_paint(external_texture_image(
-            texture_id,
-            RectU16::new(0, 0, 1, 1),
-            pad_sampler(ImageQuality::Low),
-            may_have_transparency,
-        ));
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(
+                texture_id,
+                RectU16::new(0, 0, 1, 1),
+                may_have_transparency,
+            ),
+            sampler: pad_sampler(ImageQuality::Low),
+        });
         ctx.fill_rect(&Rect::new(x, y, x + width, y + height));
     }
 
@@ -84,12 +74,10 @@ mod tests {
         y: f64,
         quality: ImageQuality,
     ) {
-        ctx.set_paint(external_texture_image(
-            texture_id,
-            source_region,
-            pad_sampler(quality),
-            true,
-        ));
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(texture_id, source_region, true),
+            sampler: pad_sampler(quality),
+        });
         ctx.fill_rect(&Rect::new(
             x,
             y,
@@ -117,12 +105,10 @@ mod tests {
         let rect = circle.bounding_box();
 
         ctx.push_clip_path(&clip);
-        ctx.set_paint(external_texture_image(
-            texture_id,
-            RectU16::new(0, 0, 1, 1),
-            pad_sampler(ImageQuality::Medium),
-            true,
-        ));
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 1, 1), true),
+            sampler: pad_sampler(ImageQuality::Medium),
+        });
         ctx.fill_rect(&rect);
         ctx.pop_clip_path();
     }
@@ -148,12 +134,10 @@ mod tests {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
         ctx.set_paint_transform(Affine::translate((10., 10.)) * Affine::scale(5.));
-        ctx.set_paint(external_texture_image(
-            texture_id,
-            RectU16::new(0, 0, 16, 16),
-            pad_sampler(ImageQuality::Medium),
-            false,
-        ));
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 16, 16), false),
+            sampler: pad_sampler(ImageQuality::Medium),
+        });
         ctx.fill_path(&Circle::new((50., 50.), 40.).to_path(0.1));
     }
 
@@ -178,17 +162,15 @@ mod tests {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
         ctx.set_paint_transform(Affine::rotate(0.35) * Affine::scale(2.));
-        ctx.set_paint(external_texture_image(
-            texture_id,
-            RectU16::new(2, 2, 14, 14),
-            ImageSampler {
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(texture_id, RectU16::new(2, 2, 14, 14), false),
+            sampler: ImageSampler {
                 x_extend: Extend::Reflect,
                 y_extend: Extend::Reflect,
                 quality: ImageQuality::Medium,
                 alpha: 1.0,
             },
-            false,
-        ));
+        });
         ctx.fill_rect(&Rect::new(5., 5., 95., 95.));
     }
 
@@ -197,17 +179,15 @@ mod tests {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
         ctx.set_transform(Affine::translate((5., 5.)) * Affine::scale(5.625));
-        ctx.set_paint(external_texture_image(
-            texture_id,
-            RectU16::new(0, 0, 16, 16),
-            ImageSampler {
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 16, 16), false),
+            sampler: ImageSampler {
                 x_extend: Extend::Repeat,
                 y_extend: Extend::Repeat,
                 quality: ImageQuality::Medium,
                 alpha: 1.0,
             },
-            false,
-        ));
+        });
         ctx.fill_rect(&Rect::new(0., 0., 16., 16.));
     }
 
@@ -216,17 +196,15 @@ mod tests {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
         ctx.set_paint_transform(Affine::translate((14.0, 14.0)) * Affine::scale(6.0));
-        ctx.set_paint(external_texture_image(
-            texture_id,
-            RectU16::new(2, 2, 14, 14),
-            ImageSampler {
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(texture_id, RectU16::new(2, 2, 14, 14), false),
+            sampler: ImageSampler {
                 x_extend: Extend::Reflect,
                 y_extend: Extend::Reflect,
                 quality: ImageQuality::Medium,
                 alpha: 1.0,
             },
-            false,
-        ));
+        });
         ctx.fill_rect(&Rect::new(5., 5., 95., 95.));
     }
 
@@ -411,12 +389,10 @@ mod tests {
         let source_region = SPRITES[0];
         ctx.set_transform(Affine::translate((15., 15.)) * Affine::skew(0.2, 0.1));
         ctx.set_paint_transform(Affine::IDENTITY);
-        ctx.set_paint(external_texture_image(
-            texture_id,
-            source_region,
-            pad_sampler(ImageQuality::High),
-            true,
-        ));
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(texture_id, source_region, true),
+            sampler: pad_sampler(ImageQuality::High),
+        });
         ctx.fill_rect(&Rect::new(
             0.,
             0.,
@@ -494,12 +470,10 @@ mod tests {
         ] {
             ctx.set_transform(scene_transform * local_transform);
             ctx.set_paint_transform(Affine::IDENTITY);
-            ctx.set_paint(external_texture_image(
-                texture_id,
-                source_region,
-                pad_sampler(ImageQuality::Medium),
-                true,
-            ));
+            ctx.set_paint(Image {
+                image: ImageSource::external_texture(texture_id, source_region, true),
+                sampler: pad_sampler(ImageQuality::Medium),
+            });
             ctx.fill_rect(&Rect::new(
                 0.,
                 0.,
