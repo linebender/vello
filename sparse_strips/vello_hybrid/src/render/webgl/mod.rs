@@ -1732,17 +1732,17 @@ impl WebGlPrograms {
     }
 
     /// Update the alpha texture size if needed.
-    fn maybe_resize_alphas_tex(&mut self, max_texture_dimension_2d: u32, alphas_len: usize) {
+    fn maybe_resize_alphas_tex(&mut self, resource_texture_dimension_2d: u32, alphas_len: usize) {
         let required_alpha_height = (alphas_len as u32)
             // There are 16 1-byte alpha values per texel.
-            .div_ceil(max_texture_dimension_2d << 4);
+            .div_ceil(resource_texture_dimension_2d << 4);
 
         let current_alpha_height = self.resources.alpha_texture_height;
         if required_alpha_height > current_alpha_height {
             // We need to resize the alpha texture to fit the new alpha data.
             assert!(
-                required_alpha_height <= max_texture_dimension_2d,
-                "Alpha texture height exceeds max texture dimensions"
+                required_alpha_height <= resource_texture_dimension_2d,
+                "Alpha texture height exceeds resource texture dimensions"
             );
 
             // Track the new height.
@@ -1753,20 +1753,21 @@ impl WebGlPrograms {
     /// Update the encoded paints texture size if needed.
     fn maybe_resize_encoded_paints_tex(
         &mut self,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         paint_idxs: &[u32],
     ) {
         let required_texels = paint_idxs.last().unwrap();
-        let required_encoded_paints_height = required_texels.div_ceil(max_texture_dimension_2d);
+        let required_encoded_paints_height =
+            required_texels.div_ceil(resource_texture_dimension_2d);
         let current_encoded_paints_height = self.resources.encoded_paints_texture_height;
         if required_encoded_paints_height > current_encoded_paints_height {
             assert!(
-                required_encoded_paints_height <= max_texture_dimension_2d,
-                "Encoded paints texture height exceeds max texture dimensions"
+                required_encoded_paints_height <= resource_texture_dimension_2d,
+                "Encoded paints texture height exceeds resource texture dimensions"
             );
 
             let required_encoded_paints_size =
-                (max_texture_dimension_2d * required_encoded_paints_height) << 4;
+                (resource_texture_dimension_2d * required_encoded_paints_height) << 4;
             self.encoded_paints_data
                 .resize(required_encoded_paints_size as usize, 0);
             self.resources.encoded_paints_texture_height = required_encoded_paints_height;
@@ -1777,7 +1778,7 @@ impl WebGlPrograms {
     fn maybe_resize_gradient_tex(
         &mut self,
         _gl: &WebGl2RenderingContext,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         gradient_cache: &GradientRampCache,
     ) {
         if gradient_cache.is_empty() {
@@ -1787,13 +1788,13 @@ impl WebGlPrograms {
         let gradient_data_size = gradient_cache.luts_size();
         // Each texel is RGBA8, so 4 bytes per texel
         let required_gradient_height =
-            (gradient_data_size as u32).div_ceil(max_texture_dimension_2d * 4);
+            (gradient_data_size as u32).div_ceil(resource_texture_dimension_2d * 4);
 
         let current_gradient_height = self.resources.gradient_texture_height;
         if required_gradient_height > current_gradient_height {
             assert!(
-                required_gradient_height <= max_texture_dimension_2d,
-                "Gradient texture height exceeds max texture dimensions"
+                required_gradient_height <= resource_texture_dimension_2d,
+                "Gradient texture height exceeds resource texture dimensions"
             );
 
             self.resources.gradient_texture_height = required_gradient_height;
@@ -1804,7 +1805,7 @@ impl WebGlPrograms {
     fn maybe_update_config_buffer(
         &mut self,
         gl: &WebGl2RenderingContext,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
     ) {
         // Only negate if we are rendering to the main frame buffer.
@@ -1818,8 +1819,8 @@ impl WebGlPrograms {
                 width: new_render_size.width,
                 height: new_render_size.height,
                 strip_height: u32::from(Tile::HEIGHT),
-                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
+                encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
                 strip_offset_x: 0,
                 strip_offset_y: 0,
                 negate_ndc: u32::from(negate_ndc),
@@ -2538,14 +2539,14 @@ fn upload_layer_config_buffer(
     gl: &WebGl2RenderingContext,
     buffer: &Buffer,
     size: SizeU16,
-    max_texture_dimension_2d: u32,
+    resource_texture_dimension_2d: u32,
 ) {
     let config = Config {
         width: u32::from(size.width()),
         height: u32::from(size.height()),
         strip_height: u32::from(Tile::HEIGHT),
-        alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-        encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+        alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
+        encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
         strip_offset_x: 0,
         strip_offset_y: 0,
         // Always use y-down when rendering to layer textures.

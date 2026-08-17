@@ -656,17 +656,20 @@ impl FilterContext {
 
     /// Calculate the required height for the filter data texture.
     /// Returns `None` if no filters are present.
-    pub(crate) fn required_filter_data_height(&self, max_texture_dimension_2d: u32) -> Option<u32> {
+    pub(crate) fn required_filter_data_height(
+        &self,
+        resource_texture_dimension_2d: u32,
+    ) -> Option<u32> {
         let required_texels = self.total_texels();
 
         if required_texels == 0 {
             return None;
         }
-        let height = required_texels.div_ceil(max_texture_dimension_2d);
+        let height = required_texels.div_ceil(resource_texture_dimension_2d);
         // TODO: Turn into error.
         assert!(
-            height <= max_texture_dimension_2d,
-            "Filter texture height exceeds max texture dimensions"
+            height <= resource_texture_dimension_2d,
+            "Filter texture height exceeds resource texture dimensions"
         );
 
         Some(height)
@@ -723,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Filter texture height exceeds max texture dimensions")]
+    #[should_panic(expected = "Filter texture height exceeds resource texture dimensions")]
     fn filter_data_height_must_fit_resource_texture_limit() {
         let context = FilterContext {
             filters: alloc::vec![gpu_offset()],
