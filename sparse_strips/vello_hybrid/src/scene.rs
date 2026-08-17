@@ -416,9 +416,7 @@ impl Scene {
 
     /// Fill a rectangle with the current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        // TODO: Reject zero-area rects early so no encoded paint is generated (also in
-        // Vello CPU)
-        if !self.paint_visible {
+        if !self.paint_visible || rect.is_zero_area() {
             return;
         }
 
@@ -888,9 +886,11 @@ mod tests {
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
     use glifo::Glyph;
+    use vello_common::TextureId;
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{BezPath, Rect};
-    use vello_common::paint::{Paint, PremulColor};
+    use vello_common::paint::{Image, ImageSource, Paint, PremulColor};
+    use vello_common::peniko::ImageSampler;
     use vello_common::peniko::color::palette::css::{BLUE, TRANSPARENT};
     #[cfg(feature = "text")]
     use vello_common::peniko::{Blob, FontData};
@@ -942,6 +942,22 @@ mod tests {
 
         scene.fill_path(&BezPath::new());
 
+        assert!(scene.strip_storage.borrow().strips.is_empty());
+        assert!(scene.recorder.draws.is_empty());
+        assert!(scene.recorder.nodes.is_empty());
+    }
+
+    #[test]
+    fn zero_area_external_texture_rect_is_a_noop() {
+        let mut scene = Scene::new(100, 100);
+        scene.set_paint(Image {
+            image: ImageSource::external_texture(TextureId(7), RectU16::new(0, 0, 8, 8), false),
+            sampler: ImageSampler::default(),
+        });
+
+        scene.fill_rect(&Rect::new(10.0, 10.0, 10.0, 20.0));
+
+        assert!(scene.encoded_paints.is_empty());
         assert!(scene.strip_storage.borrow().strips.is_empty());
         assert!(scene.recorder.draws.is_empty());
         assert!(scene.recorder.nodes.is_empty());
