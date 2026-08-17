@@ -41,6 +41,19 @@ pub(crate) struct DeviceLimits {
     pub(crate) max_texture_array_layers: u16,
 }
 
+impl DeviceLimits {
+    pub(crate) fn resource_texture_dimension_2d(self) -> u32 {
+        // See https://github.com/linebender/vello/pull/1830 for why
+        // we enforce an additional limit on intermediate data textures.
+        const MAX_RESOURCE_TEXTURE_DIMENSION_2D: u16 = 4096;
+
+        u32::from(
+            self.max_texture_dimension_2d
+                .min(MAX_RESOURCE_TEXTURE_DIMENSION_2D),
+        )
+    }
+}
+
 // This new type only serves the purpose of documenting the below invariants in a single place.
 /// A scratch texture.
 ///
@@ -210,6 +223,18 @@ mod tests {
         assert_eq!(config.initial_atlas_count, 4);
         assert_eq!(config.max_atlases, 4);
         assert_eq!(config.atlas_size, (4096, 2048));
+    }
+
+    #[test]
+    fn resource_texture_dimension_is_capped_at_4k() {
+        assert_eq!(
+            device_limits(16384, 256).resource_texture_dimension_2d(),
+            4096
+        );
+        assert_eq!(
+            device_limits(2048, 256).resource_texture_dimension_2d(),
+            2048
+        );
     }
 
     #[test]

@@ -190,11 +190,11 @@ impl Renderer {
         };
         settings.memory_settings.normalize(&device_limits);
         let resources = Resources::new(settings.memory_settings.image_atlas_config);
-        // Estimate the maximum number of gradient cache entries based on the max texture dimension
-        // and the maximum gradient LUT size - worst case scenario.
-        let max_texture_dimension = u32::from(device_limits.max_texture_dimension_2d);
-        let max_gradient_cache_size =
-            max_texture_dimension * max_texture_dimension / MAX_GRADIENT_LUT_SIZE as u32;
+        let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
+        // Estimate the maximum number of gradient cache entries based on the resource texture
+        // dimension and the maximum gradient LUT size - worst case scenario.
+        let max_gradient_cache_size = resource_texture_dimension_2d * resource_texture_dimension_2d
+            / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
         let layer_config = settings.memory_settings.layers_config;
 
@@ -204,6 +204,7 @@ impl Renderer {
                 &resources.image_cache,
                 render_target_config,
                 layer_config,
+                resource_texture_dimension_2d,
             ),
             gradient_cache,
             encoded_paints: Vec::new(),
@@ -1024,6 +1025,8 @@ struct GpuResources {
     strips_buffer: Buffer,
     /// Alpha texture.
     alphas_texture: Texture,
+    /// Maximum width or height of packed resource textures.
+    resource_texture_dimension_2d: u32,
     /// Textures for atlas data (multiple atlases supported)
     atlas_texture_array: Texture,
     /// View for atlas texture array
@@ -1119,6 +1122,7 @@ impl Programs {
         image_cache: &ImageCache,
         render_target_config: &RenderTargetConfig,
         layer_config: LayersConfig,
+        resource_texture_dimension_2d: u32,
     ) -> Self {
         let strip_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1653,25 +1657,24 @@ impl Programs {
             &filter_input_bind_group_layouts[1],
             &placeholder_external_texture_view,
         );
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let layer_config_buffer = Self::create_config_buffer(
             device,
             u32::from(texture_size.width()),
             u32::from(texture_size.height()),
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
         );
 
         const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
         let alphas_texture = Self::create_alphas_texture(
             device,
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
             INITIAL_ALPHA_TEXTURE_HEIGHT,
         );
         let view_config_buffer = Self::create_config_buffer(
             device,
             render_target_config.width,
             render_target_config.height,
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
         );
 
         let AtlasConfig {
@@ -1710,12 +1713,12 @@ impl Programs {
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
         let encoded_paints_data = vec![
             0;
-            ((max_texture_dimension_2d * INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT) << 4)
+            ((resource_texture_dimension_2d * INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT) << 4)
                 as usize
         ];
         let encoded_paints_texture = Self::create_encoded_paints_texture(
             device,
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
             INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT,
         );
         let encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
@@ -1727,7 +1730,7 @@ impl Programs {
         const INITIAL_GRADIENT_TEXTURE_HEIGHT: u32 = 1;
         let gradient_texture = Self::create_gradient_texture(
             device,
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
             INITIAL_GRADIENT_TEXTURE_HEIGHT,
         );
         let gradient_bind_group = Self::create_gradient_bind_group(
@@ -1738,11 +1741,14 @@ impl Programs {
 
         // TODO: We really should deduplicate handling of this this with encoded paints texture.
         const INITIAL_FILTER_TEXTURE_HEIGHT: u32 = 1;
-        let filter_data =
-            vec![0_u8; ((max_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4) as usize];
+        let filter_data = vec![
+            0_u8;
+            ((resource_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4)
+                as usize
+        ];
         let filter_data_texture = Self::create_filter_data_texture(
             device,
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
             INITIAL_FILTER_TEXTURE_HEIGHT,
         );
         let filter_base_bind_group = Self::create_filter_base_bind_group(
@@ -1764,6 +1770,7 @@ impl Programs {
             scratch_copy_bind_group,
             layer_config_buffer,
             alphas_texture,
+            resource_texture_dimension_2d,
             atlas_texture_array,
             atlas_texture_array_view,
             atlas_size,
@@ -1860,7 +1867,7 @@ impl Programs {
                 device,
                 u32::from(texture_size.width()),
                 u32::from(texture_size.height()),
-                device.limits().max_texture_dimension_2d,
+                self.resources.resource_texture_dimension_2d,
             );
         }
 
@@ -2244,18 +2251,18 @@ impl Programs {
         paint_idxs: &[u32],
         filter_context: &FilterContext,
     ) {
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
-        self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
-        self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
+        let resource_texture_dimension_2d = self.resources.resource_texture_dimension_2d;
+        self.maybe_resize_alphas_tex(device, resource_texture_dimension_2d, alphas.len());
+        self.maybe_resize_encoded_paints_tex(device, resource_texture_dimension_2d, paint_idxs);
+        self.maybe_resize_filter_tex(device, resource_texture_dimension_2d, filter_context);
+        self.maybe_update_config_buffer(queue, resource_texture_dimension_2d, new_render_size);
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints);
         self.upload_filter_texture(queue, filter_context);
 
         if gradient_cache.has_changed() {
-            self.maybe_resize_gradient_tex(device, max_texture_dimension_2d, gradient_cache);
+            self.maybe_resize_gradient_tex(device, resource_texture_dimension_2d, gradient_cache);
             self.upload_gradient_texture(queue, gradient_cache);
             gradient_cache.mark_synced();
         }

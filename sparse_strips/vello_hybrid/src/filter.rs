@@ -663,7 +663,7 @@ impl FilterContext {
             return None;
         }
         let height = required_texels.div_ceil(max_texture_dimension_2d);
-        debug_assert!(
+        assert!(
             height <= max_texture_dimension_2d,
             "Filter texture height exceeds max texture dimensions"
         );
@@ -719,6 +719,16 @@ mod tests {
             AlphaColor::new([0.0, 0.0, 0.0, 1.0]),
         ))
         .into()
+    }
+
+    #[test]
+    #[should_panic(expected = "Filter texture height exceeds max texture dimensions")]
+    fn filter_data_height_must_fit_resource_texture_limit() {
+        let context = FilterContext {
+            filters: alloc::vec![gpu_offset()],
+        };
+
+        let _ = context.required_filter_data_height(1);
     }
 
     fn step_layout(plan: &FilterPassPlan) -> Vec<Vec<(u32, u32)>> {
