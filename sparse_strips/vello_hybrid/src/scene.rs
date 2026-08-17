@@ -416,6 +416,8 @@ impl Scene {
 
     /// Fill a rectangle with the current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
+        // TODO: Reject zero-area rects early so no encoded paint is generated (also in
+        // Vello CPU)
         if !self.paint_visible {
             return;
         }
