@@ -6,7 +6,7 @@
 use crate::filter::FILTER_ATLAS_PADDING;
 use crate::target::{LayerTextureId, TextureParity, TextureRegion};
 use alloc::vec::Vec;
-use vello_common::geometry::{RectU16, SizeU16, SizeU32};
+use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
 use vello_common::record::RecordedLayerKind;
 
@@ -91,8 +91,8 @@ impl Atlases {
         let size = self.texture_size;
         let atlas = Atlas::new(
             AtlasId::new(u32::from(page_index)),
-            u32::from(size.width()),
-            u32::from(size.height()),
+            size.width(),
+            size.height(),
         );
 
         self.layer_atlases[parity].push(atlas);
@@ -133,7 +133,7 @@ impl LayerAllocationRequest {
         }
     }
 
-    pub(super) fn allocation_size(self) -> SizeU32 {
+    pub(super) fn allocation_size(self) -> SizeU16 {
         self.region.allocation_size()
     }
 }
@@ -149,8 +149,11 @@ struct RegionProps {
 
 impl RegionProps {
     /// Size of the atlas allocation needed to hold the region and its padding.
-    fn allocation_size(self) -> SizeU32 {
-        SizeU32::from(self.size) + u32::from(self.padding) * 2
+    fn allocation_size(self) -> SizeU16 {
+        self.padding
+            .checked_mul(2)
+            .and_then(|padding| self.size.checked_add(padding))
+            .expect("layer allocation size exceeds the u16 atlas domain")
     }
 }
 
@@ -205,13 +208,13 @@ impl AtlasExt for Atlas {
         target: LayerTextureId,
         props: RegionProps,
     ) -> Option<AllocatedTextureRegion> {
-        let padding = u32::from(props.padding);
+        let padding = props.padding;
         let width = props.size.width();
         let height = props.size.height();
         let allocation_size = props.allocation_size();
         let allocation = self.allocate(allocation_size.width(), allocation_size.height())?;
-        let x = u16::try_from(allocation.x + padding).unwrap();
-        let y = u16::try_from(allocation.y + padding).unwrap();
+        let x = allocation.x + padding;
+        let y = allocation.y + padding;
         let region = AllocatedTextureRegion::new(
             TextureRegion {
                 target,
@@ -231,8 +234,8 @@ impl AtlasExt for Atlas {
             texture.alloc_id,
             // TODO: Change the atlas API to not require passing in the width/height again.
             // This should somehow be tracked internally in the atlas based on the allocation ID.
-            u32::from(allocation_region.width()),
-            u32::from(allocation_region.height()),
+            allocation_region.width(),
+            allocation_region.height(),
         );
     }
 }

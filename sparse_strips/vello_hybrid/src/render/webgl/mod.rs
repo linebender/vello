@@ -59,7 +59,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 #[cfg(feature = "text")]
-use glifo::{GLYPH_PADDING, PendingClearRect};
+use glifo::PendingClearRect;
 use hashbrown::HashMap;
 use resource::{Buffer, FragmentShader, Framebuffer, Program, Texture, VertexArray, VertexShader};
 use vello_common::image_cache::{ImageCache, ImageResource};
@@ -205,9 +205,9 @@ impl WebGlTextureBindings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AtlasTextureInfo {
     /// Width of the currently bound texture array.
-    pub width: u32,
+    pub width: u16,
     /// Height of the currently bound texture array.
-    pub height: u32,
+    pub height: u16,
     /// Number of real atlas layers available to the image cache.
     pub layer_count: u32,
 }
@@ -362,8 +362,10 @@ impl WebGlRenderer {
         }
 
         let device_limits = DeviceLimits {
-            max_texture_dimension_2d: get_max_texture_dimension_2d(&gl),
-            max_texture_array_layers: get_max_texture_array_layers(&gl),
+            max_texture_dimension_2d: u16::try_from(get_max_texture_dimension_2d(&gl))
+                .unwrap_or(u16::MAX),
+            max_texture_array_layers: u16::try_from(get_max_texture_array_layers(&gl))
+                .unwrap_or(u16::MAX),
         };
         settings.memory_settings.normalize(&device_limits);
         if use_depth_buffer {
@@ -377,12 +379,12 @@ impl WebGlRenderer {
             );
         }
         let resources = Resources::new(settings.memory_settings.image_atlas_config);
-        let max_texture_dimension_2d = device_limits.max_texture_dimension_2d;
 
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
+        let max_texture_dimension = u32::from(device_limits.max_texture_dimension_2d);
         let max_gradient_cache_size =
-            max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
+            max_texture_dimension * max_texture_dimension / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
         let layer_config = settings.memory_settings.layers_config;
         let init = WebGlRendererInit {
@@ -500,8 +502,8 @@ impl WebGlRenderer {
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
-            width: atlas_width,
-            height: atlas_height,
+            width: u32::from(atlas_width),
+            height: u32::from(atlas_height),
         };
 
         let atlas_framebuffer = self
@@ -720,16 +722,13 @@ impl WebGlRenderer {
         image_cache: &ImageCache,
         image_id: ImageId,
         writer: &T,
-        offset_override: Option<[u32; 2]>,
+        offset_override: Option<[u16; 2]>,
     ) {
         let image_resource = image_cache.get(image_id).expect("Image resource not found");
 
         self.programs
             .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
-        let offset = offset_override.unwrap_or([
-            image_resource.offset[0] as u32,
-            image_resource.offset[1] as u32,
-        ]);
+        let offset = offset_override.unwrap_or(image_resource.offset);
         writer.write_to_atlas_layer(
             &self.gl,
             &self.programs.resources.atlas_texture_array.texture,
@@ -743,15 +742,15 @@ impl WebGlRenderer {
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
     pub fn destroy_image(&mut self, resources: &mut Resources, image_id: ImageId) {
         if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
-            let padding = image_resource.padding as u32;
+            let padding = image_resource.padding;
             self.clear_atlas_region(
                 image_resource.atlas_id,
                 [
-                    image_resource.offset[0] as u32 - padding,
-                    image_resource.offset[1] as u32 - padding,
+                    image_resource.offset[0] - padding,
+                    image_resource.offset[1] - padding,
                 ],
-                image_resource.width as u32 + padding * 2,
-                image_resource.height as u32 + padding * 2,
+                image_resource.width + padding * 2,
+                image_resource.height + padding * 2,
             );
         }
     }
@@ -770,14 +769,16 @@ impl WebGlRenderer {
     pub fn atlas_info(&self) -> AtlasTextureInfo {
         let resources = &self.programs.resources;
         AtlasTextureInfo {
-            width: resources.atlas_texture_array.size.width,
-            height: resources.atlas_texture_array.size.height,
+            width: u16::try_from(resources.atlas_texture_array.size.width)
+                .expect("atlas texture width exceeds the u16 renderer domain"),
+            height: u16::try_from(resources.atlas_texture_array.size.height)
+                .expect("atlas texture height exceeds the u16 renderer domain"),
             layer_count: resources.atlas_layer_count,
         }
     }
 
     /// Clear a specific region of the atlas texture array.
-    fn clear_atlas_region(&mut self, atlas_id: AtlasId, offset: [u32; 2], width: u32, height: u32) {
+    fn clear_atlas_region(&mut self, atlas_id: AtlasId, offset: [u16; 2], width: u16, height: u16) {
         let _state_guard = WebGlStateGuard::for_clear_atlas_region(&self.gl);
         let temp_framebuffer = Framebuffer::new(&self.gl);
 
@@ -1050,14 +1051,12 @@ impl WebGlRendererInit {
 fn clear_atlas_region(renderer: &mut WebGlRenderer, rect: &PendingClearRect) {
     // TODO: Similarly to wgpu, maybe this can be done in a more effective
     // way?
-    let padding = u32::from(GLYPH_PADDING);
-    let offset = [
-        u32::from(rect.x).saturating_sub(padding),
-        u32::from(rect.y).saturating_sub(padding),
-    ];
-    let width = u32::from(rect.width) + padding * 2;
-    let height = u32::from(rect.height) + padding * 2;
-    renderer.clear_atlas_region(AtlasId::new(rect.page_index), offset, width, height);
+    renderer.clear_atlas_region(
+        AtlasId::new(rect.page_index),
+        [rect.x, rect.y],
+        rect.width,
+        rect.height,
+    );
 }
 
 /// Contains the WebGL programs and resources for rendering.
@@ -1147,7 +1146,7 @@ pub(crate) struct WebGlResources {
     /// Texture array for atlas data (multiple atlases supported)
     pub(crate) atlas_texture_array: WebGlTextureArray,
     /// Configured dimensions used when promoting the placeholder to a real atlas.
-    pub(crate) atlas_size: (u32, u32),
+    pub(crate) atlas_size: (u16, u16),
     /// Number of real atlas layers currently allocated.
     pub(crate) atlas_layer_count: u32,
     /// Encoded paints texture for image metadata.
@@ -1564,7 +1563,10 @@ impl WebGlPrograms {
                 None,
             )
             .unwrap();
-            self.resources.atlas_texture_array.size = WebGlTextureSize { width, height };
+            self.resources.atlas_texture_array.size = WebGlTextureSize {
+                width: u32::from(width),
+                height: u32::from(height),
+            };
         } else {
             // Growing an atlas that already holds data: allocate a new, larger `TEXTURE_2D_ARRAY`,
             // copy the existing layers across, then swap. On Mali-G52 under the Android WebView GL
@@ -2670,8 +2672,8 @@ fn create_intermediate_texture(
 /// Create an atlas texture array.
 pub(crate) fn create_atlas_texture_array(
     gl: &WebGl2RenderingContext,
-    width: u32,
-    height: u32,
+    width: u16,
+    height: u16,
     layer_count: u32,
 ) -> WebGlTextureArray {
     debug_assert!(
@@ -2699,7 +2701,7 @@ pub(crate) fn create_atlas_texture_array(
     )
     .unwrap();
 
-    WebGlTextureArray::new(atlas_texture, width, height)
+    WebGlTextureArray::new(atlas_texture, u32::from(width), u32::from(height))
 }
 
 /// Create a framebuffer for a texture.
@@ -3341,9 +3343,9 @@ impl Backend for WebGlRendererContext<'_> {
 /// - Custom implementations for other image sources
 pub trait WebGlAtlasWriter {
     /// Get the width of the image.
-    fn width(&self) -> u32;
+    fn width(&self) -> u16;
     /// Get the height of the image.
-    fn height(&self) -> u32;
+    fn height(&self) -> u16;
 
     /// Write image data to a specific layer of an atlas texture array at the specified offset.
     fn write_to_atlas_layer(
@@ -3351,20 +3353,20 @@ pub trait WebGlAtlasWriter {
         gl: &WebGl2RenderingContext,
         atlas_texture_array: &WebGlTexture,
         layer: u32,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
     );
 }
 
 /// Implementation for `Pixmap` - direct upload using raw pixel data.
 impl WebGlAtlasWriter for Pixmap {
-    fn width(&self) -> u32 {
-        self.width() as u32
+    fn width(&self) -> u16 {
+        self.width()
     }
 
-    fn height(&self) -> u32 {
-        self.height() as u32
+    fn height(&self) -> u16 {
+        self.height()
     }
 
     fn write_to_atlas_layer(
@@ -3372,9 +3374,9 @@ impl WebGlAtlasWriter for Pixmap {
         gl: &WebGl2RenderingContext,
         atlas_texture_array: &WebGlTexture,
         layer: u32,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
     ) {
         // Bind the atlas texture array
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
@@ -3406,12 +3408,12 @@ impl WebGlAtlasWriter for Pixmap {
 
 /// Implementation for `Arc<Pixmap>`.
 impl WebGlAtlasWriter for Arc<Pixmap> {
-    fn width(&self) -> u32 {
-        self.as_ref().width() as u32
+    fn width(&self) -> u16 {
+        self.as_ref().width()
     }
 
-    fn height(&self) -> u32 {
-        self.as_ref().height() as u32
+    fn height(&self) -> u16 {
+        self.as_ref().height()
     }
 
     fn write_to_atlas_layer(
@@ -3419,9 +3421,9 @@ impl WebGlAtlasWriter for Arc<Pixmap> {
         gl: &WebGl2RenderingContext,
         atlas_texture_array: &WebGlTexture,
         layer: u32,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
     ) {
         self.as_ref()
             .write_to_atlas_layer(gl, atlas_texture_array, layer, offset, width, height);
@@ -3430,14 +3432,14 @@ impl WebGlAtlasWriter for Arc<Pixmap> {
 
 /// Implementation for `WebGlTexture` - texture-to-texture copy.
 impl WebGlAtlasWriter for WebGlTexture {
-    fn width(&self) -> u32 {
+    fn width(&self) -> u16 {
         // WebGL textures don't expose their dimensions directly
         // This is a limitation - in practice, you'd need to track dimensions separately
         // For now, we'll require the caller to provide correct width/height parameters
         unreachable!("WebGlTexture width must be provided by caller")
     }
 
-    fn height(&self) -> u32 {
+    fn height(&self) -> u16 {
         // WebGL textures don't expose their dimensions directly
         // This is a limitation - in practice, you'd need to track dimensions separately
         // For now, we'll require the caller to provide correct width/height parameters
@@ -3449,9 +3451,9 @@ impl WebGlAtlasWriter for WebGlTexture {
         gl: &WebGl2RenderingContext,
         atlas_texture_array: &WebGlTexture,
         layer: u32,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
     ) {
         copy_to_texture_array_layer(
             gl,
@@ -3467,8 +3469,8 @@ impl WebGlAtlasWriter for WebGlTexture {
             },
             atlas_texture_array,
             layer,
-            offset,
-            [width, height],
+            [u32::from(offset[0]), u32::from(offset[1])],
+            [u32::from(width), u32::from(height)],
         );
     }
 }
@@ -3479,17 +3481,17 @@ pub struct WebGlTextureWithDimensions {
     /// The WebGL texture.
     pub texture: WebGlTexture,
     /// The width of the texture.
-    pub width: u32,
+    pub width: u16,
     /// The height of the texture.
-    pub height: u32,
+    pub height: u16,
 }
 
 impl WebGlAtlasWriter for WebGlTextureWithDimensions {
-    fn width(&self) -> u32 {
+    fn width(&self) -> u16 {
         self.width
     }
 
-    fn height(&self) -> u32 {
+    fn height(&self) -> u16 {
         self.height
     }
 
@@ -3498,9 +3500,9 @@ impl WebGlAtlasWriter for WebGlTextureWithDimensions {
         gl: &WebGl2RenderingContext,
         atlas_texture_array: &WebGlTexture,
         layer: u32,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
     ) {
         self.texture
             .write_to_atlas_layer(gl, atlas_texture_array, layer, offset, width, height);

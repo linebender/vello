@@ -54,14 +54,7 @@ impl GlyphAtlasResources {
 impl Resources {
     fn ensure_glyph_resources(&mut self) {
         if self.glyph_resources.is_none() {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "atlas dimensions are configured to fit in u16"
-            )]
-            let (atlas_width, atlas_height) = {
-                let (width, height) = self.image_cache.atlas_manager().config().atlas_size;
-                (width as u16, height as u16)
-            };
+            let (atlas_width, atlas_height) = self.image_cache.atlas_manager().config().atlas_size;
             // TODO: Use a config optionally provided by the user!
             self.glyph_resources = Some(GlyphAtlasResources::with_config(
                 atlas_width,
@@ -101,7 +94,7 @@ impl Resources {
         &mut self,
         backend: &mut T,
         mut render_to_atlas: impl FnMut(&mut T, &Scene, u32, AtlasConfig, AtlasId),
-        mut upload_to_atlas: impl FnMut(&mut T, &ImageCache, &PendingBitmapUpload, u32, u32),
+        mut upload_to_atlas: impl FnMut(&mut T, &ImageCache, &PendingBitmapUpload, u16, u16),
     ) {
         let atlas_count = self.atlas_count();
         let atlas_config = self.atlas_config();
@@ -109,13 +102,13 @@ impl Resources {
             render_to_atlas(backend, glyph_renderer, atlas_count, atlas_config, atlas_id);
         });
 
-        const PADDING: u32 = GLYPH_PADDING as u32;
+        const PADDING: u16 = GLYPH_PADDING;
 
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             for upload in glyph_resources.glyph_atlas.drain_pending_uploads() {
                 let resource = self.image_cache.get(upload.image_id).unwrap();
-                let dst_x = resource.offset[0] as u32 + PADDING;
-                let dst_y = resource.offset[1] as u32 + PADDING;
+                let dst_x = resource.offset[0] + PADDING;
+                let dst_y = resource.offset[1] + PADDING;
                 upload_to_atlas(backend, &self.image_cache, &upload, dst_x, dst_y);
             }
         }

@@ -68,18 +68,18 @@ impl Cursor {
         // Therefore, we need to attempt to create a new one.
         self.atlases.add_layer_atlas(request.texture_parity);
 
-        let requested_size = request.allocation_size();
         let texture_size = self.atlases.texture_size();
+        let requested_size = request.allocation_size();
         let allocation = self
             .atlases
             .allocate_layer(&request)
             // If we successfully added a new texture but allocation still fails, it means the layer
             // itself is larger than the maximum texture size, so it cannot possibly fit.
             .ok_or(IntermediateTextureError::TooLarge {
-                width: requested_size.width(),
-                height: requested_size.height(),
-                max_width: u32::from(texture_size.width()),
-                max_height: u32::from(texture_size.height()),
+                width: u32::from(requested_size.width()),
+                height: u32::from(requested_size.height()),
+                max_width: texture_size.width(),
+                max_height: texture_size.height(),
             })?;
 
         Ok(Allocation {
