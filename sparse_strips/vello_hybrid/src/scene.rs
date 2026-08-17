@@ -5,17 +5,15 @@
 
 #[cfg(feature = "text")]
 use crate::Resources;
-use crate::sampling::ExternalTextureRect;
 #[cfg(feature = "text")]
 use crate::text::GlyphRunBuilder;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
-use vello_common::TextureId;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::clip::PathDataRef;
-use vello_common::encode::{EncodeExt, EncodedExternalTexture, EncodedPaint};
+use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
@@ -27,7 +25,7 @@ use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Fill, ImageSampler};
+use vello_common::peniko::{BlendMode, Fill};
 use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps, PoppedLayer};
 use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
@@ -302,41 +300,6 @@ impl Scene {
         }
     }
 
-    /// Encode the current external texture into a [`Paint`] that can be used for rendering.
-    fn encode_external_texture_paint(
-        &mut self,
-        texture_id: TextureId,
-        source_region: RectU16,
-        sampler: ImageSampler,
-        transform: Affine,
-        may_have_transparency: bool,
-    ) -> Paint {
-        assert_eq!(
-            sampler.alpha, 1.0,
-            "external textures currently only support alpha of 1"
-        );
-
-        let idx = self.encoded_paints.len();
-        let has_opacity = self
-            .render_state
-            .tint
-            .is_some_and(|tint| tint.color.components[3] < 1.0)
-            // Not supported yet, but just to future-proof.
-            || sampler.alpha != 1.0;
-
-        let encoded = EncodedExternalTexture {
-            texture_id,
-            source_region,
-            sampler,
-            may_have_transparency: may_have_transparency || has_opacity,
-            transform: transform.inverse(),
-            tint: self.render_state.tint,
-        };
-        self.encoded_paints
-            .push(EncodedPaint::ExternalTexture(encoded));
-        Paint::Indexed(vello_common::paint::IndexedPaint::new(idx))
-    }
-
     /// Fill a path with the current paint and fill rule.
     pub fn fill_path(&mut self, path: &BezPath) {
         if !self.paint_visible {
@@ -453,7 +416,7 @@ impl Scene {
 
     /// Fill a rectangle with the current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        if !self.paint_visible {
+        if !self.paint_visible || rect.is_zero_area() {
             return;
         }
 
@@ -487,39 +450,6 @@ impl Scene {
                     ctx.aliasing_threshold,
                 );
             }
-        });
-    }
-
-    /// Draw a region from an externally bound texture.
-    ///
-    /// See the documentation of [`ExternalTextureRect`] for more information.
-    pub fn draw_texture_rect(&mut self, rect: ExternalTextureRect) {
-        if rect.src_rect.is_empty() || rect.dest_rect.is_zero_area() {
-            return;
-        }
-
-        self.with_optional_filter_or_blend_layer(|ctx| {
-            let paint = ctx.encode_external_texture_paint(
-                rect.texture_id,
-                rect.src_rect,
-                rect.sampler,
-                ctx.effective_paint_transform(),
-                rect.may_have_transparency,
-            );
-
-            if let Some(bounds) = ctx.fast_rect_bounds(&rect.dest_rect) {
-                ctx.recorder
-                    .push_draw(RecordedDraw::new_rect(bounds, paint), &[]);
-                return;
-            }
-
-            ctx.fill_path_with(
-                &rect.dest_rect.to_path(DEFAULT_TOLERANCE),
-                ctx.effective_path_transform(),
-                ctx.render_state.fill_rule,
-                paint,
-                ctx.aliasing_threshold,
-            );
         });
     }
 
@@ -956,9 +886,11 @@ mod tests {
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
     use glifo::Glyph;
+    use vello_common::TextureId;
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{BezPath, Rect};
-    use vello_common::paint::{Paint, PremulColor};
+    use vello_common::paint::{Image, ImageSource, Paint, PremulColor};
+    use vello_common::peniko::ImageSampler;
     use vello_common::peniko::color::palette::css::{BLUE, TRANSPARENT};
     #[cfg(feature = "text")]
     use vello_common::peniko::{Blob, FontData};
@@ -1010,6 +942,22 @@ mod tests {
 
         scene.fill_path(&BezPath::new());
 
+        assert!(scene.strip_storage.borrow().strips.is_empty());
+        assert!(scene.recorder.draws.is_empty());
+        assert!(scene.recorder.nodes.is_empty());
+    }
+
+    #[test]
+    fn zero_area_external_texture_rect_is_a_noop() {
+        let mut scene = Scene::new(100, 100);
+        scene.set_paint(Image {
+            image: ImageSource::external_texture(TextureId(7), RectU16::new(0, 0, 8, 8), false),
+            sampler: ImageSampler::default(),
+        });
+
+        scene.fill_rect(&Rect::new(10.0, 10.0, 10.0, 20.0));
+
+        assert!(scene.encoded_paints.is_empty());
         assert!(scene.strip_storage.borrow().strips.is_empty());
         assert!(scene.recorder.draws.is_empty());
         assert!(scene.recorder.nodes.is_empty());

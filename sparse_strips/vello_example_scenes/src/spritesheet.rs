@@ -7,9 +7,10 @@ use std::io::Cursor;
 
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, Rect};
+use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{ExternalTextureRect, TextureId};
+use vello_hybrid::TextureId;
 
 use crate::{ExampleScene, RenderingContext};
 
@@ -100,23 +101,21 @@ impl ExampleScene for SpritesheetScene {
 
                 ctx.set_transform(root_transform * transform);
                 ctx.set_paint_transform(Affine::IDENTITY);
-                ctx.draw_texture_rect(ExternalTextureRect {
-                    texture_id: SPRITESHEET_TEXTURE_ID,
-                    src_rect: sprite,
-                    dest_rect: Rect::new(
-                        0.0,
-                        0.0,
-                        f64::from(sprite.width()),
-                        f64::from(sprite.height()),
-                    ),
+                ctx.set_paint(Image {
+                    image: ImageSource::external_texture(SPRITESHEET_TEXTURE_ID, sprite, true),
                     sampler: ImageSampler {
                         x_extend: Extend::Pad,
                         y_extend: Extend::Pad,
                         quality: ImageQuality::Medium,
                         alpha: 1.0,
                     },
-                    may_have_transparency: true,
                 });
+                ctx.fill_rect(&Rect::new(
+                    0.0,
+                    0.0,
+                    f64::from(sprite.width()),
+                    f64::from(sprite.height()),
+                ));
             }
         }
     }

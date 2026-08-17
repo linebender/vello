@@ -534,7 +534,7 @@ mod tests {
     use crate::util::VecExt;
     use alloc::vec::Vec;
     use vello_common::TextureId;
-    use vello_common::encode::{EncodedExternalTexture, EncodedImage, EncodedPaint};
+    use vello_common::encode::{EncodedImage, EncodedPaint};
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{Affine, Rect, Vec2};
     use vello_common::paint::{ImageId, ImageSource, IndexedPaint, Paint, PremulColor};
@@ -623,9 +623,8 @@ mod tests {
     }
 
     fn external(texture_id: TextureId) -> EncodedPaint {
-        EncodedPaint::ExternalTexture(EncodedExternalTexture {
-            texture_id,
-            source_region: RectU16::new(0, 0, 8, 8),
+        EncodedPaint::Image(EncodedImage {
+            source: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 8, 8), true),
             sampler: ImageSampler {
                 x_extend: Extend::Pad,
                 y_extend: Extend::Pad,
@@ -634,6 +633,8 @@ mod tests {
             },
             may_have_transparency: true,
             transform: Affine::IDENTITY,
+            x_advance: Vec2::new(1.0, 0.0),
+            y_advance: Vec2::new(0.0, 1.0),
             tint: None,
         })
     }

@@ -14,8 +14,7 @@ use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
 use vello_hybrid::{
-    ExternalTextureRect, RenderSettings as HybridRenderSettings, Resources as HybridResources,
-    Scene, TextureId,
+    RenderSettings as HybridRenderSettings, Resources as HybridResources, Scene, TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -88,7 +87,6 @@ pub(crate) trait Renderer: Sized {
     fn width(&self) -> u16;
     fn height(&self) -> u16;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
-    fn draw_texture_rect(&mut self, rect: ExternalTextureRect);
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId;
 }
@@ -261,10 +259,6 @@ impl Renderer for CpuRenderer {
     }
 
     fn register_external_texture(&mut self, _: Arc<Pixmap>) -> TextureId {
-        unimplemented!("external textures are only supported by hybrid renderer tests")
-    }
-
-    fn draw_texture_rect(&mut self, _: ExternalTextureRect) {
         unimplemented!("external textures are only supported by hybrid renderer tests")
     }
 
@@ -710,10 +704,6 @@ impl Renderer for HybridRenderer {
         texture_id
     }
 
-    fn draw_texture_rect(&mut self, rect: ExternalTextureRect) {
-        self.scene.draw_texture_rect(rect);
-    }
-
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let image_id = self.upload_image_with_resources(&pixmap, "Upload Test Image");
         ImageSource::opaque_id_with_transparency_hint(image_id, pixmap.may_have_transparency())
@@ -1029,10 +1019,6 @@ impl Renderer for HybridRenderer {
 
         self.external_textures.insert(texture_id, texture);
         texture_id
-    }
-
-    fn draw_texture_rect(&mut self, rect: ExternalTextureRect) {
-        self.scene.draw_texture_rect(rect);
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {

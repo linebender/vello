@@ -67,8 +67,8 @@ use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
     TextureId,
     encode::{
-        EncodedBlurredRoundedRectangle, EncodedExternalTexture, EncodedGradient, EncodedKind,
-        EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
+        EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
+        MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
     geometry::{RectU16, SizeU16},
     paint::{ImageId, ImageSource},
@@ -155,7 +155,7 @@ pub struct WebGlRendererInit {
     use_depth_buffer: bool,
 }
 
-/// Runtime bindings for [externally owned textures](`TextureId`) sampled by texture-rect draws.
+/// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct WebGlTextureBindings {
     textures: HashMap<TextureId, WebGlTexture>,
@@ -829,12 +829,23 @@ impl WebGlRenderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    let ImageSource::OpaqueId { id: image_id, .. } = img.source else {
-                        panic!("pixmap image sources are not supported by Vello Hybrid");
+                    let gpu_image = match &img.source {
+                        ImageSource::OpaqueId { id, .. } => {
+                            let image_resource = image_cache.get(*id).unwrap();
+                            self.encode_image_paint(img, image_resource)
+                        }
+                        ImageSource::ExternalTexture {
+                            id, source_region, ..
+                        } => {
+                            if texture_bindings.get(*id).is_none() {
+                                return Err(RenderError::MissingTextureBinding(*id));
+                            }
+                            Self::encode_external_texture_paint(img, *source_region)
+                        }
+                        ImageSource::Pixmap(_) => {
+                            panic!("pixmap image sources are not supported by Vello Hybrid")
+                        }
                     };
-
-                    let image_resource = image_cache.get(image_id).unwrap();
-                    let gpu_image = self.encode_image_paint(img, image_resource);
                     self.encoded_paints[encoded_paint_idx] = gpu_image;
                     current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                 }
@@ -851,14 +862,6 @@ impl WebGlRenderer {
                     };
                     self.encoded_paints[encoded_paint_idx] = gpu_gradient;
                     current_idx += gradient_size_texels;
-                }
-                EncodedPaint::ExternalTexture(texture) => {
-                    if texture_bindings.get(texture.texture_id).is_none() {
-                        return Err(RenderError::MissingTextureBinding(texture.texture_id));
-                    }
-                    self.encoded_paints[encoded_paint_idx] =
-                        Self::encode_external_texture_paint(texture);
-                    current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                 }
                 EncodedPaint::BlurredRoundedRect(blurred_rect) => {
                     self.encoded_paints[encoded_paint_idx] =
@@ -899,19 +902,21 @@ impl WebGlRenderer {
         })
     }
 
-    fn encode_external_texture_paint(texture: &EncodedExternalTexture) -> GpuEncodedPaint {
-        let transform = texture.transform.as_coeffs().map(|x| x as f32);
-        let region = texture.source_region;
+    fn encode_external_texture_paint(
+        image: &vello_common::encode::EncodedImage,
+        region: RectU16,
+    ) -> GpuEncodedPaint {
+        let transform = image.transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(region.width(), region.height());
         let image_offset = pack_image_offset(region.x0, region.y0);
         let image_params = pack_image_params(
-            texture.sampler.quality as u32,
-            texture.sampler.x_extend as u32,
-            texture.sampler.y_extend as u32,
+            image.sampler.quality as u32,
+            image.sampler.x_extend as u32,
+            image.sampler.y_extend as u32,
             0,
             true,
         );
-        let (tint, tint_mode) = pack_tint(texture.tint);
+        let (tint, tint_mode) = pack_tint(image.tint);
 
         GpuEncodedPaint::Image(GpuEncodedImage {
             image_params,

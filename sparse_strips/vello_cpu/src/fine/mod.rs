@@ -1003,6 +1003,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         .image_resolver
                         .resolve(*id)
                         .unwrap_or_else(|| panic!("Image {:?} not found in registry", id)),
+                    ImageSource::ExternalTexture { .. } => {
+                        unimplemented!("External textures are not supported by `vello_cpu`")
+                    }
                 };
                 let tint = image.tint.as_ref();
 
@@ -1062,9 +1065,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         );
                     }
                 }
-            }
-            EncodedPaint::ExternalTexture(_) => {
-                unimplemented!("External textures are not supported by `vello_cpu`")
             }
         }
     }
