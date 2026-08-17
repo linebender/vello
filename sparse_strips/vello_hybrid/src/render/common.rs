@@ -15,7 +15,8 @@ use crate::filter::FILTER_ATLAS_PADDING;
 use crate::scene::{LayersConfig, MemorySettings, RecordedDraw};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use vello_common::geometry::{SizeU16, SizeU32};
+use vello_common::color::{AlphaColor, Srgb};
+use vello_common::geometry::{RectU16, SizeU16, SizeU32};
 use vello_common::record::CommandRecorder;
 
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
@@ -31,6 +32,42 @@ pub(crate) const GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS: u32 =
 // TODO: If we want to use native bilinear sampling for uploaded images,
 // we can pass 1 instead of 0 here.
 pub(crate) const IMAGE_PADDING: u16 = 0;
+
+/// Controls how the output target is cleared before drawing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ClearSettings<'a> {
+    /// Do not clear the target.
+    DontClear,
+    /// Clear the complete viewport to `color`.
+    Viewport {
+        /// The clear color.
+        color: AlphaColor<Srgb>,
+    },
+    /// Clear each rectangle to `color`.
+    Rects {
+        /// The clear color.
+        color: AlphaColor<Srgb>,
+        /// The rectangles to clear.
+        rects: &'a [RectU16],
+    },
+}
+
+impl ClearSettings<'_> {
+    pub(crate) fn clear_color(self) -> Option<AlphaColor<Srgb>> {
+        match self {
+            Self::DontClear => None,
+            Self::Viewport { color } | Self::Rects { color, .. } => Some(color),
+        }
+    }
+}
+
+impl Default for ClearSettings<'_> {
+    fn default() -> Self {
+        Self::Viewport {
+            color: AlphaColor::TRANSPARENT,
+        }
+    }
+}
 
 /// Texture limits reported by the rendering device.
 #[derive(Debug, Clone, Copy)]
@@ -83,7 +120,7 @@ pub(crate) struct ScratchBuffers {
     pub(crate) copy_instances: Vec<GpuCopyInstance>,
 }
 
-/// Per-instance data for clearing a rectangle in an intermediate texture.
+/// Per-instance data for clearing a rectangle in a render target.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub(crate) struct GpuClearInstance {
@@ -93,6 +130,8 @@ pub(crate) struct GpuClearInstance {
     pub(crate) size: [u32; 2],
     /// Width and height of the target texture.
     pub(crate) target_size: [u32; 2],
+    /// Premultiplied clear color.
+    pub(crate) color: u32,
 }
 
 impl MemorySettings {

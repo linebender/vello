@@ -28,7 +28,7 @@ use crate::draw::ExternalTextureRun;
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
 use crate::{
-    GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
+    ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
     blend::{BlendStrip, GpuBlendInstance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
@@ -411,6 +411,7 @@ impl WebGlRenderer {
         resources: &mut Resources,
         render_size: &RenderSize,
         texture_bindings: &WebGlTextureBindings,
+        clear: ClearSettings<'_>,
     ) -> Result<(), RenderError> {
         debug_assert_eq!(
             RenderSize {
@@ -451,7 +452,7 @@ impl WebGlRenderer {
             scene,
             &resources.image_cache,
             render_size,
-            true,
+            clear,
             RootTarget::UserSurface,
             texture_bindings,
         )?;
@@ -542,7 +543,7 @@ impl WebGlRenderer {
             scene,
             &dummy_image_cache,
             &atlas_render_size,
-            false,
+            ClearSettings::DontClear,
             RootTarget::AtlasLayer,
             texture_bindings,
         );
@@ -576,16 +577,12 @@ impl WebGlRenderer {
     /// Shared render pipeline: prepares GPU resources, runs the scheduler, and
     /// maintains caches.
     ///
-    /// When `clear` is true the view framebuffer is cleared to transparent black
-    /// before drawing. This must happen *after* `prepare` (which may create/resize
-    /// the framebuffer attachment). Atlas renders skip the clear so previously
-    /// rendered atlas content is preserved.
     pub(crate) fn render_scene(
         &mut self,
         scene: &Scene,
         image_cache: &ImageCache,
         render_size: &RenderSize,
-        clear: bool,
+        clear: ClearSettings<'_>,
         root_output_target: RootTarget,
         texture_bindings: &WebGlTextureBindings,
     ) -> Result<(), RenderError> {
@@ -632,10 +629,8 @@ impl WebGlRenderer {
             render_size,
             &self.paint_idxs,
             &self.schedule_storage.filter_context,
+            root_output_target,
         );
-        if clear {
-            self.programs.clear_view_framebuffer(&self.gl);
-        }
         self.programs.resources.depth_cleared_this_frame = false;
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
@@ -644,6 +639,7 @@ impl WebGlRenderer {
             scratch_buffers: &mut self.scratch_buffers,
             use_depth_buffer: self.use_depth_buffer,
         };
+        ctx.clear_pass_inner(DrawPassTarget::Root(root_output_target), clear);
         crate::schedule::execute(
             &mut ctx,
             &mut self.schedule_storage,
@@ -1448,13 +1444,19 @@ impl WebGlPrograms {
         render_size: &RenderSize,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
+        root_target: RootTarget,
     ) {
         let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
 
         self.maybe_resize_alphas_tex(max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(max_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_data_tex(filter_context);
-        self.maybe_update_config_buffer(gl, max_texture_dimension_2d, render_size);
+        self.maybe_update_config_buffer(
+            gl,
+            max_texture_dimension_2d,
+            render_size,
+            DrawPassTarget::Root(root_target),
+        );
 
         self.upload_alpha_texture(gl, alphas);
         self.upload_encoded_paints_texture(gl, encoded_paints);
@@ -1789,9 +1791,9 @@ impl WebGlPrograms {
         gl: &WebGl2RenderingContext,
         max_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
+        target: DrawPassTarget,
     ) {
-        // Only negate if we are rendering to the main frame buffer.
-        let negate_ndc = self.resources.view_framebuffer_override.is_none();
+        let negate_ndc = target.negate_ndc();
 
         // TODO: Collect all attributes that influence the config buffer into a
         // single struct and compare that, such that we cannot forget to update the
@@ -1913,17 +1915,6 @@ impl WebGlPrograms {
         // Restore the luts back to the cache.
         luts.truncate(old_luts_len);
         gradient_cache.restore_luts(luts);
-    }
-
-    /// Clear the view framebuffer.
-    // TODO: Investigate adding tests for the clear_view behavior.
-    fn clear_view_framebuffer(&mut self, gl: &WebGl2RenderingContext) {
-        gl.bind_framebuffer(
-            WebGl2RenderingContext::FRAMEBUFFER,
-            self.resources.view_framebuffer_override.as_deref(),
-        );
-        gl.clear_color(0.0, 0.0, 0.0, 0.0);
-        gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
 
     /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
@@ -3256,32 +3247,72 @@ impl WebGlRendererContext<'_> {
         );
     }
 
-    fn clear_pass_inner(&self, target: LayerTextureId, rects: &[RectU16]) {
-        let size = self.texture_size();
-        self.gl.disable(WebGl2RenderingContext::BLEND);
-        self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
-        let framebuffer = self.programs.resources.layer_framebuffer(target);
-        self.gl
-            .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(framebuffer));
-        self.gl
-            .viewport(0, 0, i32::from(size.width()), i32::from(size.height()));
-        self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+    fn clear_pass_inner(&self, target: DrawPassTarget, settings: ClearSettings<'_>) {
+        let Some(color) = settings.clear_color() else {
+            return;
+        };
 
-        // It's unclear whether it's better to scissor + clear repeatedly, or to do
-        // one instanced clear pass via a shader. But using this approach should give the
-        // GPU more semantic information about what we want to do, so it seems reasonable
-        // to assume that this is better.
-        for rect in rects {
-            self.gl.scissor(
-                i32::from(rect.x0),
-                i32::from(rect.y0),
-                i32::from(rect.width()),
-                i32::from(rect.height()),
-            );
-            self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+        let negate_ndc = target.negate_ndc();
+        let (width, height) = match target {
+            DrawPassTarget::Root(_) => {
+                self.gl.bind_framebuffer(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    self.programs.resources.view_framebuffer_override.as_deref(),
+                );
+                (
+                    u16::try_from(self.programs.render_size.width).unwrap(),
+                    u16::try_from(self.programs.render_size.height).unwrap(),
+                )
+            }
+            DrawPassTarget::Layer(target) => {
+                let size = self.texture_size();
+                let framebuffer = self.programs.resources.layer_framebuffer(target);
+                self.gl
+                    .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(framebuffer));
+                (size.width(), size.height())
+            }
+        };
+
+        self.gl.viewport(0, 0, i32::from(width), i32::from(height));
+        let [r, g, b, a] = color.premultiply().components;
+        self.gl.clear_color(r, g, b, a);
+
+        match settings {
+            ClearSettings::DontClear => unreachable!(),
+            ClearSettings::Viewport { .. } => {
+                self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+                self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+            }
+            ClearSettings::Rects { rects, .. } => {
+                self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+                let bounds = RectU16::new(0, 0, width, height);
+
+                // It's unclear whether it's better to scissor + clear repeatedly, or to do
+                // one instanced clear pass via a shader. But using this approach should give the
+                // GPU more semantic information about what we want to do, so it seems reasonable
+                // to assume that this is better.
+                for rect in rects
+                    .iter()
+                    .map(|rect| rect.intersect(bounds))
+                    .filter(|rect| !rect.is_empty())
+                {
+                    let y = if negate_ndc {
+                        height - rect.y1
+                    } else {
+                        rect.y0
+                    };
+
+                    self.gl.scissor(
+                        i32::from(rect.x0),
+                        i32::from(y),
+                        i32::from(rect.width()),
+                        i32::from(rect.height()),
+                    );
+                    self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+                }
+                self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+            }
         }
-        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
-        self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 }
 
@@ -3329,7 +3360,13 @@ impl Backend for WebGlRendererContext<'_> {
     }
 
     fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) {
-        self.clear_pass_inner(target, rects);
+        self.clear_pass_inner(
+            DrawPassTarget::Layer(target),
+            ClearSettings::Rects {
+                color: vello_common::color::AlphaColor::TRANSPARENT,
+                rects,
+            },
+        );
     }
 }
 
@@ -3625,4 +3662,10 @@ fn upload_data_to_rgba32_texture(
         Some(&packed_array),
     )
     .unwrap();
+}
+impl DrawPassTarget {
+    fn negate_ndc(self) -> bool {
+        // Only negate if we are rendering to the main frame buffer.
+        matches!(self, Self::Root(RootTarget::UserSurface))
+    }
 }
