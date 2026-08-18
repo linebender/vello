@@ -1,0 +1,17 @@
+[package]
+name = "premultiply_web_bench"
+description = "Browser benchmark for RGBA8 premultiplication implementations."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+vello_common = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

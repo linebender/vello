@@ -14,6 +14,7 @@ members = [
     "examples/with_winit",
 
     "sparse_strips/vello_bench",
+    "sparse_strips/premultiply_web_bench",
     "sparse_strips/vello_common",
     "sparse_strips/vello_cpu",
     "sparse_strips/vello_cpu/examples/wasm_cpu",

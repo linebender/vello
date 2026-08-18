@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RGBA8 premultiply WebAssembly benchmark</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      line-height: 1.5;
+    }
+    body {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    h1 { font: 700 1.45rem system-ui, sans-serif; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: end;
+      margin: 24px 0;
+    }
+    label { display: grid; gap: 4px; }
+    input, button {
+      box-sizing: border-box;
+      min-height: 38px;
+      padding: 6px 10px;
+      font: inherit;
+    }
+    input { width: 112px; }
+    button { cursor: pointer; }
+    button:disabled { cursor: wait; }
+    #environment, #status { margin: 12px 0; }
+    #output {
+      min-height: 12rem;
+      overflow-x: auto;
+      padding: 16px;
+      border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+      border-radius: 6px;
+      white-space: pre;
+    }
+    .error { color: #d33; }
+  </style>
+</head>
+<body>
+  <h1>RGBA8 premultiply WebAssembly benchmark</h1>
+  <p>Runs the old scalar and new 64-byte interleaved implementations over 800 × 500, 1920 × 1080, and 3840 × 2160 RGBA8 buffers.</p>
+  <div id="environment">Loading WebAssembly…</div>
+  <div class="controls">
+    <label>
+      Warm-up (ms)
+      <input id="warmup" type="number" min="100" step="100" value="2000">
+    </label>
+    <label>
+      Benchmark time (ms)
+      <input id="benchmark-time" type="number" min="100" step="100" value="3000">
+    </label>
+    <button id="run" disabled>Run benchmark</button>
+    <button id="copy" disabled>Copy results</button>
+  </div>
+  <div id="status"></div>
+  <pre id="output">Waiting to run.</pre>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
