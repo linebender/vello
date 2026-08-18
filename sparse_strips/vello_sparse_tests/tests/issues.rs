@@ -20,7 +20,7 @@ use vello_common::peniko::{
     InterpolationAlphaSpace, Mix,
 };
 use vello_common::peniko::{ColorStops, RadialGradientPosition};
-use vello_common::pixmap::Pixmap;
+use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_cpu::color::palette::css::{BLACK, RED};
 use vello_cpu::peniko::{Compose, Extend};
 use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings};
@@ -571,7 +571,7 @@ fn issue_1433(ctx: &mut impl Renderer) {
         b, b, b, b
     ];
 
-    let pixmap = Pixmap::from_parts(image, 4, 4);
+    let pixmap = Pixmap::from_parts(bytemuck::cast_vec(image), 4, 4, PixelMetadata::default());
     let source = ctx.get_image_source(Arc::new(pixmap));
     let image = Image {
         image: source,

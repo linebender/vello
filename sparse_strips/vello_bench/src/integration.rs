@@ -9,9 +9,8 @@ use criterion::Criterion;
 use vello_common::kurbo::{Affine, Rect};
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::ImageSampler;
-use vello_common::peniko::{Extend, ImageQuality};
-use vello_common::pixmap::Pixmap;
-use vello_cpu::color::AlphaColor;
+use vello_common::peniko::{Extend, ImageAlphaType, ImageQuality};
+use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_cpu::{RenderContext, Resources};
 
 /// Image scene rendering benchmark.
@@ -72,27 +71,15 @@ fn load_flower_image() -> ImageSource {
     let height = image.height();
     let rgba_data = image.into_rgba8().into_vec();
 
-    let mut may_have_transparency = false;
     #[expect(
         clippy::cast_possible_truncation,
         reason = "Image dimensions fit in u16"
     )]
-    let pixmap = Pixmap::from_parts_with_opacity(
-        rgba_data
-            .chunks_exact(4)
-            .map(|rgba| {
-                let alpha = rgba[3];
-                if alpha != 255 {
-                    may_have_transparency = true;
-                }
-                AlphaColor::from_rgba8(rgba[0], rgba[1], rgba[2], alpha)
-                    .premultiply()
-                    .to_rgba8()
-            })
-            .collect(),
+    let pixmap = Pixmap::from_parts(
+        rgba_data,
         width as u16,
         height as u16,
-        may_have_transparency,
+        PixelMetadata::new(ImageAlphaType::Alpha, true),
     );
 
     ImageSource::Pixmap(Arc::new(pixmap))

@@ -5,11 +5,9 @@
 use std::f64::consts::PI;
 use std::io::Cursor;
 
-use vello_common::color::PremulRgba8;
 use vello_common::kurbo::{BezPath, Point, Shape, Vec2};
-use vello_common::peniko::ImageFormat;
-use vello_common::peniko::ImageSampler;
-use vello_common::pixmap::Pixmap;
+use vello_common::peniko::{ImageAlphaType, ImageFormat, ImageSampler};
+use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_common::{
     kurbo::{Affine, Rect},
     paint::{Image, ImageSource},
@@ -186,24 +184,11 @@ impl ImageScene {
     #[expect(clippy::cast_possible_truncation, reason = "deliberate quantization")]
     pub fn read_image(data: &[u8]) -> Pixmap {
         let image_data = decode_image(data);
-        let premul_data: Vec<PremulRgba8> = image_data
-            .data
-            .chunks_exact(4)
-            .map(|rgba| {
-                let alpha = u16::from(rgba[3]);
-                let premultiply = |component| (alpha * (u16::from(component)) / 255) as u8;
-                PremulRgba8 {
-                    r: premultiply(rgba[0]),
-                    g: premultiply(rgba[1]),
-                    b: premultiply(rgba[2]),
-                    a: alpha as u8,
-                }
-            })
-            .collect();
         Pixmap::from_parts(
-            premul_data,
+            image_data.data,
             image_data.width as u16,
             image_data.height as u16,
+            PixelMetadata::new(ImageAlphaType::Alpha, true),
         )
     }
 
