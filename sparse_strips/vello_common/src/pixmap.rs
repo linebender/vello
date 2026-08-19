@@ -120,10 +120,9 @@ impl Pixmap {
             pixel_metadata.may_have_transparency
         };
 
-        let data: Vec<PremulRgba8> = bytemuck::try_cast_vec(data).expect(
-            "The capacity of the\
-        vector needs to be divisble by 4.",
-        );
+        let data: Vec<PremulRgba8> = bytemuck::try_cast_vec(data)
+            .map_err(|(error, _data)| error)
+            .expect("The capacity of the vector needs to be divisible by 4.");
         assert_eq!(
             data.len(),
             usize::from(width) * usize::from(height),
