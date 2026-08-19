@@ -10,8 +10,8 @@ use wesl::{Mangler, ModulePath};
 
 const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
-const BASE62: &[u8; 62] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const LETTERS: &[u8; 52] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const BASE62: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 /// Mangler producing compact names from stable hashes of fully-qualified declarations.
 #[derive(Default)]
@@ -62,12 +62,18 @@ fn encode_identifier(mut value: u64) -> String {
 
     // Naga appends `_` to names ending in digits so that its own numeric suffixes remain
     // unambiguous. Use a letter for the final digit while retaining base62 for the rest.
-    buffer[start] = LETTERS[(value % 52) as usize];
-    value /= 52;
+    let letter_radix = LETTERS.len() as u64;
+    let letter_index =
+        usize::try_from(value % letter_radix).expect("letter index should fit in usize");
+    buffer[start] = LETTERS[letter_index];
+    value /= letter_radix;
+    let base62_radix = BASE62.len() as u64;
     while value != 0 {
         start -= 1;
-        buffer[start] = BASE62[(value % 62) as usize];
-        value /= 62;
+        let base62_index =
+            usize::try_from(value % base62_radix).expect("base62 index should fit in usize");
+        buffer[start] = BASE62[base62_index];
+        value /= base62_radix;
     }
 
     std::str::from_utf8(&buffer[start..])
