@@ -47,8 +47,7 @@ fn load_shader_infos(shader_dir: &Path) -> Vec<ShaderInfo> {
     let shader_names = load_shader_names(shader_dir);
     let mut compiler = Wesl::new(shader_dir);
 
-    // Keep the initial migration behavior-preserving.
-    compiler.use_stripping(false);
+    compiler.use_stripping(true);
 
     shader_names
         .into_iter()
