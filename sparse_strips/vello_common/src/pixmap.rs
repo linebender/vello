@@ -459,6 +459,7 @@ fn premultiply_rgba8(data: &mut [u8]) -> bool {
     dispatch!(level, simd => premultiply_rgba8_impl(simd, data))
 }
 
+#[inline(always)]
 fn premultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) -> bool {
     let (body, tail) = data.as_chunks_mut::<64>();
     let mut transparency = mask8x16::splat(simd, 0);
