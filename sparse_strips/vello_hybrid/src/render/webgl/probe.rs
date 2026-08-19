@@ -120,6 +120,7 @@ impl WebGlRenderer {
             WebGl2RenderingContext::NEAREST,
             WebGl2RenderingContext::NEAREST,
         );
+
         self.gl
             .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
                 WebGl2RenderingContext::TEXTURE_2D,
