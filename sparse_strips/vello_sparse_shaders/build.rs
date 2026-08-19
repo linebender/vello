@@ -17,6 +17,8 @@ mod compile;
 #[cfg(feature = "glsl")]
 #[path = "src/lint/mod.rs"]
 mod lint;
+#[path = "src/mangle.rs"]
+mod mangle;
 #[allow(warnings)]
 #[cfg(feature = "glsl")]
 #[path = "src/types.rs"]
@@ -46,6 +48,7 @@ fn main() {
 fn load_shader_infos(shader_dir: &Path) -> Vec<ShaderInfo> {
     let shader_names = load_shader_names(shader_dir);
     let mut compiler = Wesl::new(shader_dir);
+    compiler.set_custom_mangler(mangle::ShortMangler::default());
 
     compiler.use_stripping(true);
 
