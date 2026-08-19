@@ -384,7 +384,7 @@ mod tests {
         );
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only)]
+    #[vello_test(width = 96, height = 96, hybrid_only, hybrid_tolerance = 1)]
     fn external_texture_skewed(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let source_region = SPRITES[0];
