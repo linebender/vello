@@ -1,21 +1,21 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::render::common::IMAGE_PADDING;
 use crate::render::webgl::resource::Framebuffer;
 use crate::render::webgl::{
-    WebGlStateConfig, WebGlStateGuard, WebGlTextureBindings, create_atlas_texture_array,
-    create_framebuffer_for_texture, create_texture,
+    WebGlStateConfig, WebGlStateGuard, WebGlTextureBindings, create_framebuffer_for_texture,
+    create_texture,
 };
 use crate::target::RootTarget;
 use crate::{RenderError, RenderSize, Scene, WebGlRenderer};
-use alloc::{borrow::Cow, format, sync::Arc};
+use alloc::{borrow::Cow, format};
 use core::ops::Deref;
 use thiserror::Error;
+use vello_common::TextureId;
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::image_cache::ImageCache;
 use vello_common::kurbo::{Affine, BezPath, Rect};
-use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig};
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::BlendMode;
 use vello_common::pixmap::Pixmap;
@@ -114,44 +114,36 @@ impl WebGlRenderer {
             .unwrap();
         let probe_framebuffer = create_framebuffer_for_texture(&self.gl, &probe_texture);
 
-        let atlas_config = AtlasConfig {
-            initial_atlas_count: 1,
-            // These should be large enough for the probe scene.
-            atlas_size: (256, 256),
-            max_atlases: 1,
-            auto_grow: true,
-            allocation_strategy: AllocationStrategy::FirstFit,
-        };
-        let (atlas_width, atlas_height) = atlas_config.atlas_size;
-
-        let mut probe_image_cache = ImageCache::new_with_config(atlas_config);
-        let mut probe_atlas_texture_array =
-            create_atlas_texture_array(&self.gl, atlas_width, atlas_height, 1);
-        let mut probe_atlas_size = (atlas_width, atlas_height);
-        let mut probe_atlas_layer_count = 1;
-        core::mem::swap(
-            &mut self.programs.resources.atlas_texture_array,
-            &mut probe_atlas_texture_array,
-        );
-        core::mem::swap(
-            &mut self.programs.resources.atlas_size,
-            &mut probe_atlas_size,
-        );
-        core::mem::swap(
-            &mut self.programs.resources.atlas_layer_count,
-            &mut probe_atlas_layer_count,
+        let probe_image = vello_common::probe::probe_image_pixmap();
+        let probe_image_texture = create_texture(
+            &self.gl,
+            WebGl2RenderingContext::NEAREST,
+            WebGl2RenderingContext::NEAREST,
         );
 
-        let probe_image = Arc::new(vello_common::probe::probe_image_pixmap());
-        // Note: No need to destroy the image explicitly in the end, because we discard the image
-        // cache anyway.
-        let probe_image_id =
-            self.upload_image_with(&mut probe_image_cache, &probe_image, IMAGE_PADDING);
+        self.gl
+            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                WebGl2RenderingContext::RGBA8 as i32,
+                i32::from(probe_image.width()),
+                i32::from(probe_image.height()),
+                0,
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                Some(probe_image.data_as_u8_slice()),
+            )
+            .unwrap();
+
+        let probe_texture_id = TextureId(0);
+        let mut texture_bindings = WebGlTextureBindings::new();
+        texture_bindings.insert(probe_texture_id, probe_image_texture.deref().clone());
         let mut scene = Scene::new(width, height);
         vello_common::probe::draw_scene(
             &mut scene,
-            ImageSource::opaque_id_with_transparency_hint(
-                probe_image_id,
+            ImageSource::external_texture(
+                probe_texture_id,
+                RectU16::new(0, 0, probe_image.width(), probe_image.height()),
                 probe_image.may_have_transparency(),
             ),
         );
@@ -163,11 +155,11 @@ impl WebGlRenderer {
             .replace(probe_framebuffer);
         let render_result = self.render_scene(
             &scene,
-            &probe_image_cache,
+            &ImageCache::new_dummy(),
             &render_size,
             true,
             RootTarget::AtlasLayer,
-            &WebGlTextureBindings::new(),
+            &texture_bindings,
         );
         let probe_framebuffer = self
             .programs
@@ -177,21 +169,7 @@ impl WebGlRenderer {
             .expect("probe framebuffer must be restored after rendering");
         self.programs.resources.view_framebuffer_override = previous_view_framebuffer;
 
-        core::mem::swap(
-            &mut self.programs.resources.atlas_texture_array,
-            &mut probe_atlas_texture_array,
-        );
-        core::mem::swap(
-            &mut self.programs.resources.atlas_size,
-            &mut probe_atlas_size,
-        );
-        core::mem::swap(
-            &mut self.programs.resources.atlas_layer_count,
-            &mut probe_atlas_layer_count,
-        );
-
-        // We do this here instead of above such that in case the render result is not
-        // valid, we still properly restore the state (e.g. the old atlas texture array).
+        // Propagate render failures only after restoring the framebuffer override.
         render_result?;
 
         let pending = launch_probe(&self.gl, &probe_framebuffer, width, height);
