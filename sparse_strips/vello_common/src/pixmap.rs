@@ -467,9 +467,12 @@ fn premultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) -> bool {
         let (b, a) = simd.split_u8x32(ba);
 
         transparency |= !a.simd_eq(255);
-        let premultiply = |component| {
-            let product = simd.widen_u8x16(component) * simd.widen_u8x16(a);
-            simd.narrow_u16x16(product.div_255())
+        let premultiply = {
+            #[inline(always)]
+            |component| {
+                let product = simd.widen_u8x16(component) * simd.widen_u8x16(a);
+                simd.narrow_u16x16(product.div_255())
+            }
         };
         let premultiplied = simd.combine_u8x32(
             simd.combine_u8x16(premultiply(r), premultiply(g)),
