@@ -109,14 +109,14 @@ impl Pixmap {
             && pixel_metadata.alpha_type == ImageAlphaType::Alpha
         {
             // If there might be transparency and the data is not premultiplied yet, we need to
-            // iterate over all pixels anyway to premultiply. Because of this, we can use the
-            // opportunity to recheck the pixels whether there really is any transparent pixel.
-            // If not, we can mark it as fully opaque. This only adds little overhead (around
-            // 5-10% from my benchmarks), but is useful in cases where the user conservatively
-            // passed `true` because they received their image from a PNG or similar, but in
-            // reality the image is fully opaque.
+            // iterate over all pixels anyway. Rechecking the alpha values only adds little
+            // overhead (around 5-10% from my benchmarks), and lets us downgrade a conservative
+            // transparency hint to fully opaque.
             premultiply_rgba8(&mut data)
         } else {
+            // If the data is already premultiplied, we want to avoid reloading all pixels from
+            // memory just to _maybe_ downgrade the transparency hint, so we avoid doing that
+            // and always return the hint directly.
             pixel_metadata.may_have_transparency
         };
 
@@ -449,6 +449,9 @@ impl Default for PixelMetadata {
     }
 }
 
+/// Premultiplies each RGBA8 pixel in `data`.
+///
+/// Returns `true` if at least one pixel is not fully opaque.
 fn premultiply_rgba8(data: &mut [u8]) -> bool {
     // Unfortunately we need to construct a custom level here and cannot use the one
     // from the Vello CPU / Vello Hybrid context. This does mean we are not testing
