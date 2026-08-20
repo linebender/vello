@@ -190,11 +190,11 @@ impl Renderer {
         };
         settings.memory_settings.normalize(&device_limits);
         let resources = Resources::new(settings.memory_settings.image_atlas_config);
-        // Estimate the maximum number of gradient cache entries based on the max texture dimension
-        // and the maximum gradient LUT size - worst case scenario.
-        let max_texture_dimension = u32::from(device_limits.max_texture_dimension_2d);
-        let max_gradient_cache_size =
-            max_texture_dimension * max_texture_dimension / MAX_GRADIENT_LUT_SIZE as u32;
+        let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
+        // Estimate the maximum number of gradient cache entries based on the resource texture
+        // dimension and the maximum gradient LUT size - worst case scenario.
+        let max_gradient_cache_size = resource_texture_dimension_2d * resource_texture_dimension_2d
+            / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
         let layer_config = settings.memory_settings.layers_config;
 
@@ -204,6 +204,7 @@ impl Renderer {
                 &resources.image_cache,
                 render_target_config,
                 layer_config,
+                resource_texture_dimension_2d,
             ),
             gradient_cache,
             encoded_paints: Vec::new(),
@@ -1024,6 +1025,8 @@ struct GpuResources {
     strips_buffer: Buffer,
     /// Alpha texture.
     alphas_texture: Texture,
+    /// Maximum width or height of packed resource textures.
+    resource_texture_dimension_2d: u32,
     /// Textures for atlas data (multiple atlases supported)
     atlas_texture_array: Texture,
     /// View for atlas texture array
@@ -1119,6 +1122,7 @@ impl Programs {
         image_cache: &ImageCache,
         render_target_config: &RenderTargetConfig,
         layer_config: LayersConfig,
+        resource_texture_dimension_2d: u32,
     ) -> Self {
         let strip_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1653,25 +1657,24 @@ impl Programs {
             &filter_input_bind_group_layouts[1],
             &placeholder_external_texture_view,
         );
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let layer_config_buffer = Self::create_config_buffer(
             device,
             u32::from(texture_size.width()),
             u32::from(texture_size.height()),
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
         );
 
         const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
         let alphas_texture = Self::create_alphas_texture(
             device,
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
             INITIAL_ALPHA_TEXTURE_HEIGHT,
         );
         let view_config_buffer = Self::create_config_buffer(
             device,
             render_target_config.width,
             render_target_config.height,
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
         );
 
         let AtlasConfig {
@@ -1710,12 +1713,12 @@ impl Programs {
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
         let encoded_paints_data = vec![
             0;
-            ((max_texture_dimension_2d * INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT) << 4)
+            ((resource_texture_dimension_2d * INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT) << 4)
                 as usize
         ];
         let encoded_paints_texture = Self::create_encoded_paints_texture(
             device,
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
             INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT,
         );
         let encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
@@ -1727,7 +1730,7 @@ impl Programs {
         const INITIAL_GRADIENT_TEXTURE_HEIGHT: u32 = 1;
         let gradient_texture = Self::create_gradient_texture(
             device,
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
             INITIAL_GRADIENT_TEXTURE_HEIGHT,
         );
         let gradient_bind_group = Self::create_gradient_bind_group(
@@ -1738,11 +1741,14 @@ impl Programs {
 
         // TODO: We really should deduplicate handling of this this with encoded paints texture.
         const INITIAL_FILTER_TEXTURE_HEIGHT: u32 = 1;
-        let filter_data =
-            vec![0_u8; ((max_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4) as usize];
+        let filter_data = vec![
+            0_u8;
+            ((resource_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4)
+                as usize
+        ];
         let filter_data_texture = Self::create_filter_data_texture(
             device,
-            max_texture_dimension_2d,
+            resource_texture_dimension_2d,
             INITIAL_FILTER_TEXTURE_HEIGHT,
         );
         let filter_base_bind_group = Self::create_filter_base_bind_group(
@@ -1764,6 +1770,7 @@ impl Programs {
             scratch_copy_bind_group,
             layer_config_buffer,
             alphas_texture,
+            resource_texture_dimension_2d,
             atlas_texture_array,
             atlas_texture_array_view,
             atlas_size,
@@ -1860,7 +1867,7 @@ impl Programs {
                 device,
                 u32::from(texture_size.width()),
                 u32::from(texture_size.height()),
-                device.limits().max_texture_dimension_2d,
+                self.resources.resource_texture_dimension_2d,
             );
         }
 
@@ -2244,18 +2251,18 @@ impl Programs {
         paint_idxs: &[u32],
         filter_context: &FilterContext,
     ) {
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
-        self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
-        self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
+        let resource_texture_dimension_2d = self.resources.resource_texture_dimension_2d;
+        self.maybe_resize_alphas_tex(device, resource_texture_dimension_2d, alphas.len());
+        self.maybe_resize_encoded_paints_tex(device, resource_texture_dimension_2d, paint_idxs);
+        self.maybe_resize_filter_tex(device, resource_texture_dimension_2d, filter_context);
+        self.maybe_update_config_buffer(queue, resource_texture_dimension_2d, new_render_size);
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints);
         self.upload_filter_texture(queue, filter_context);
 
         if gradient_cache.has_changed() {
-            self.maybe_resize_gradient_tex(device, max_texture_dimension_2d, gradient_cache);
+            self.maybe_resize_gradient_tex(device, resource_texture_dimension_2d, gradient_cache);
             self.upload_gradient_texture(queue, gradient_cache);
             gradient_cache.mark_synced();
         }
@@ -2264,26 +2271,27 @@ impl Programs {
     fn maybe_resize_filter_tex(
         &mut self,
         device: &Device,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         filter_context: &FilterContext,
     ) {
         let Some(required_filter_height) =
-            filter_context.required_filter_data_height(max_texture_dimension_2d)
+            filter_context.required_filter_data_height(resource_texture_dimension_2d)
         else {
             return;
         };
         debug_assert!(
-            self.resources.filter_data_texture.width() == max_texture_dimension_2d,
-            "Filter texture width must match max texture dimensions"
+            self.resources.filter_data_texture.width() == resource_texture_dimension_2d,
+            "Filter texture width must match resource texture dimensions"
         );
         let current_filter_height = self.resources.filter_data_texture.height();
         if required_filter_height > current_filter_height {
-            let required_filter_size = (max_texture_dimension_2d * required_filter_height) << 4;
+            let required_filter_size =
+                (resource_texture_dimension_2d * required_filter_height) << 4;
             self.filter_data.resize(required_filter_size as usize, 0);
 
             let filter_texture = Self::create_filter_data_texture(
                 device,
-                max_texture_dimension_2d,
+                resource_texture_dimension_2d,
                 required_filter_height,
             );
             self.resources.filter_data_texture = filter_texture;
@@ -2302,29 +2310,29 @@ impl Programs {
     fn maybe_resize_alphas_tex(
         &mut self,
         device: &Device,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         alphas_len: usize,
     ) {
         let required_alpha_height = u32::try_from(alphas_len)
             .unwrap()
             // There are 16 1-byte alpha values per texel.
-            .div_ceil(max_texture_dimension_2d << 4);
+            .div_ceil(resource_texture_dimension_2d << 4);
         debug_assert!(
-            self.resources.alphas_texture.width() == max_texture_dimension_2d,
-            "Alpha texture width must match max texture dimensions"
+            self.resources.alphas_texture.width() == resource_texture_dimension_2d,
+            "Alpha texture width must match resource texture dimensions"
         );
         let current_alpha_height = self.resources.alphas_texture.height();
         if required_alpha_height > current_alpha_height {
             // We need to resize the alpha texture to fit the new alpha data.
             assert!(
-                required_alpha_height <= max_texture_dimension_2d,
-                "Alpha texture height exceeds max texture dimensions"
+                required_alpha_height <= resource_texture_dimension_2d,
+                "Alpha texture height exceeds resource texture dimensions"
             );
 
             // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
             let alphas_texture = Self::create_alphas_texture(
                 device,
-                max_texture_dimension_2d,
+                resource_texture_dimension_2d,
                 required_alpha_height,
             );
             self.resources.alphas_texture = alphas_texture;
@@ -2337,28 +2345,29 @@ impl Programs {
     fn maybe_resize_encoded_paints_tex(
         &mut self,
         device: &Device,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         paint_idxs: &[u32],
     ) {
         let required_texels = paint_idxs.last().unwrap();
-        let required_encoded_paints_height = required_texels.div_ceil(max_texture_dimension_2d);
+        let required_encoded_paints_height =
+            required_texels.div_ceil(resource_texture_dimension_2d);
         debug_assert!(
-            self.resources.encoded_paints_texture.width() == max_texture_dimension_2d,
-            "Encoded paints texture width must match max texture dimensions"
+            self.resources.encoded_paints_texture.width() == resource_texture_dimension_2d,
+            "Encoded paints texture width must match resource texture dimensions"
         );
         let current_encoded_paints_height = self.resources.encoded_paints_texture.height();
         if required_encoded_paints_height > current_encoded_paints_height {
             assert!(
-                required_encoded_paints_height <= max_texture_dimension_2d,
-                "Encoded paints texture height exceeds max texture dimensions"
+                required_encoded_paints_height <= resource_texture_dimension_2d,
+                "Encoded paints texture height exceeds resource texture dimensions"
             );
             let required_encoded_paints_size =
-                (max_texture_dimension_2d * required_encoded_paints_height) << 4;
+                (resource_texture_dimension_2d * required_encoded_paints_height) << 4;
             self.encoded_paints_data
                 .resize(required_encoded_paints_size as usize, 0);
             let encoded_paints_texture = Self::create_encoded_paints_texture(
                 device,
-                max_texture_dimension_2d,
+                resource_texture_dimension_2d,
                 required_encoded_paints_height,
             );
             self.resources.encoded_paints_texture = encoded_paints_texture;
@@ -2379,24 +2388,24 @@ impl Programs {
     fn maybe_resize_gradient_tex(
         &mut self,
         device: &Device,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         gradient_cache: &GradientRampCache,
     ) {
         let gradient_pixels = (gradient_cache.luts_size() / 4) as u32; // 4 bytes per RGBA8 pixel
-        let required_gradient_height = gradient_pixels.div_ceil(max_texture_dimension_2d);
+        let required_gradient_height = gradient_pixels.div_ceil(resource_texture_dimension_2d);
         debug_assert!(
-            self.resources.gradient_texture.width() == max_texture_dimension_2d,
-            "Gradient texture width must match max texture dimensions"
+            self.resources.gradient_texture.width() == resource_texture_dimension_2d,
+            "Gradient texture width must match resource texture dimensions"
         );
         let current_gradient_height = self.resources.gradient_texture.height();
         if required_gradient_height > current_gradient_height {
             assert!(
-                required_gradient_height <= max_texture_dimension_2d,
-                "Gradient texture height exceeds max texture dimensions"
+                required_gradient_height <= resource_texture_dimension_2d,
+                "Gradient texture height exceeds resource texture dimensions"
             );
             let gradient_texture = Self::create_gradient_texture(
                 device,
-                max_texture_dimension_2d,
+                resource_texture_dimension_2d,
                 required_gradient_height,
             );
             self.resources.gradient_texture = gradient_texture;
@@ -2417,7 +2426,7 @@ impl Programs {
     fn maybe_update_config_buffer(
         &mut self,
         queue: &Queue,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
     ) {
         if self.render_size != *new_render_size {
@@ -2425,8 +2434,8 @@ impl Programs {
                 width: new_render_size.width,
                 height: new_render_size.height,
                 strip_height: Tile::HEIGHT.into(),
-                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
+                encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
                 strip_offset_x: 0,
                 strip_offset_y: 0,
                 negate_ndc: 0,

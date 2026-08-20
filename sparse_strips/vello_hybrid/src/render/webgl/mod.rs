@@ -379,16 +379,21 @@ impl WebGlRenderer {
             );
         }
         let resources = Resources::new(settings.memory_settings.image_atlas_config);
+        let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
 
-        // Estimate the maximum number of gradient cache entries based on the max texture dimension
-        // and the maximum gradient LUT size - worst case scenario.
-        let max_texture_dimension = u32::from(device_limits.max_texture_dimension_2d);
-        let max_gradient_cache_size =
-            max_texture_dimension * max_texture_dimension / MAX_GRADIENT_LUT_SIZE as u32;
+        // Estimate the maximum number of gradient cache entries based on the resource texture
+        // dimension and the maximum gradient LUT size - worst case scenario.
+        let max_gradient_cache_size = resource_texture_dimension_2d * resource_texture_dimension_2d
+            / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
         let layer_config = settings.memory_settings.layers_config;
         let init = WebGlRendererInit {
-            programs: PendingWebGlPrograms::new(gl.clone(), &resources.image_cache, layer_config),
+            programs: PendingWebGlPrograms::new(
+                gl.clone(),
+                &resources.image_cache,
+                layer_config,
+                resource_texture_dimension_2d,
+            ),
             gl,
             gradient_cache,
             layers_config: layer_config,
@@ -1174,9 +1179,8 @@ pub(crate) struct WebGlResources {
     /// Pre-allocated JS array for `invalidateFramebuffer` calls.
     depth_attachment_array: js_sys::Array,
 
-    /// Cached result from querying `WebGl2RenderingContext::MAX_TEXTURE_SIZE` which is a blocking
-    /// WebGL call.
-    max_texture_dimension_2d: u32,
+    /// Maximum width or height of packed resource textures.
+    resource_texture_dimension_2d: u32,
 
     /// Dimensions of the intermediate layer and scratch textures.
     texture_size: SizeU16,
@@ -1351,6 +1355,7 @@ impl PendingWebGlPrograms {
         gl: WebGl2RenderingContext,
         image_cache: &ImageCache,
         layer_config: LayersConfig,
+        resource_texture_dimension_2d: u32,
     ) -> Self {
         let parallel_shader_compile = gl
             .get_extension("KHR_parallel_shader_compile")
@@ -1369,14 +1374,19 @@ impl PendingWebGlPrograms {
         let copy_program =
             PendingShaderProgram::new(&gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE);
 
-        let resources = create_webgl_resources(&gl, image_cache, layer_config);
+        let resources = create_webgl_resources(
+            &gl,
+            image_cache,
+            layer_config,
+            resource_texture_dimension_2d,
+        );
 
         initialize_strip_vao(&gl, &resources);
         initialize_filter_vao(&gl, &resources);
         initialize_blend_vao(&gl, &resources);
         initialize_copy_vao(&gl, &resources);
 
-        let encoded_paints_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
+        let encoded_paints_data = vec![0; (resources.resource_texture_dimension_2d << 4) as usize];
 
         Self {
             parallel_shader_compile,
@@ -1453,19 +1463,19 @@ impl WebGlPrograms {
         paint_idxs: &[u32],
         filter_context: &FilterContext,
     ) {
-        let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
+        let resource_texture_dimension_2d = self.resources.resource_texture_dimension_2d;
 
-        self.maybe_resize_alphas_tex(max_texture_dimension_2d, alphas.len());
-        self.maybe_resize_encoded_paints_tex(max_texture_dimension_2d, paint_idxs);
+        self.maybe_resize_alphas_tex(resource_texture_dimension_2d, alphas.len());
+        self.maybe_resize_encoded_paints_tex(resource_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_data_tex(filter_context);
-        self.maybe_update_config_buffer(gl, max_texture_dimension_2d, render_size);
+        self.maybe_update_config_buffer(gl, resource_texture_dimension_2d, render_size);
 
         self.upload_alpha_texture(gl, alphas);
         self.upload_encoded_paints_texture(gl, encoded_paints);
         self.upload_filter_data_texture(gl, filter_context);
 
         if gradient_cache.has_changed() {
-            self.maybe_resize_gradient_tex(gl, max_texture_dimension_2d, gradient_cache);
+            self.maybe_resize_gradient_tex(gl, resource_texture_dimension_2d, gradient_cache);
             self.upload_gradient_texture(gl, gradient_cache);
             gradient_cache.mark_synced();
         }
@@ -1488,7 +1498,7 @@ impl WebGlPrograms {
                 gl,
                 &self.resources.layer_config_buffer,
                 texture_size,
-                self.resources.max_texture_dimension_2d,
+                self.resources.resource_texture_dimension_2d,
             );
         }
 
@@ -1633,16 +1643,16 @@ impl WebGlPrograms {
     }
 
     fn maybe_resize_filter_data_tex(&mut self, filter_context: &FilterContext) {
-        let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
+        let resource_texture_dimension_2d = self.resources.resource_texture_dimension_2d;
 
         let Some(required_height) =
-            filter_context.required_filter_data_height(max_texture_dimension_2d)
+            filter_context.required_filter_data_height(resource_texture_dimension_2d)
         else {
             return;
         };
 
         if required_height > self.resources.filter_data_texture_height {
-            let required_size = (max_texture_dimension_2d * required_height) << 4;
+            let required_size = (resource_texture_dimension_2d * required_height) << 4;
             self.filter_data.resize(required_size as usize, 0);
             self.resources.filter_data_texture_height = required_height;
         }
@@ -1657,7 +1667,7 @@ impl WebGlPrograms {
             return;
         }
 
-        let width = self.resources.max_texture_dimension_2d;
+        let width = self.resources.resource_texture_dimension_2d;
         let height = self.resources.filter_data_texture_height;
         filter_context.serialize_to_buffer(&mut self.filter_data);
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
@@ -1722,17 +1732,17 @@ impl WebGlPrograms {
     }
 
     /// Update the alpha texture size if needed.
-    fn maybe_resize_alphas_tex(&mut self, max_texture_dimension_2d: u32, alphas_len: usize) {
+    fn maybe_resize_alphas_tex(&mut self, resource_texture_dimension_2d: u32, alphas_len: usize) {
         let required_alpha_height = (alphas_len as u32)
             // There are 16 1-byte alpha values per texel.
-            .div_ceil(max_texture_dimension_2d << 4);
+            .div_ceil(resource_texture_dimension_2d << 4);
 
         let current_alpha_height = self.resources.alpha_texture_height;
         if required_alpha_height > current_alpha_height {
             // We need to resize the alpha texture to fit the new alpha data.
             assert!(
-                required_alpha_height <= max_texture_dimension_2d,
-                "Alpha texture height exceeds max texture dimensions"
+                required_alpha_height <= resource_texture_dimension_2d,
+                "Alpha texture height exceeds resource texture dimensions"
             );
 
             // Track the new height.
@@ -1743,20 +1753,21 @@ impl WebGlPrograms {
     /// Update the encoded paints texture size if needed.
     fn maybe_resize_encoded_paints_tex(
         &mut self,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         paint_idxs: &[u32],
     ) {
         let required_texels = paint_idxs.last().unwrap();
-        let required_encoded_paints_height = required_texels.div_ceil(max_texture_dimension_2d);
+        let required_encoded_paints_height =
+            required_texels.div_ceil(resource_texture_dimension_2d);
         let current_encoded_paints_height = self.resources.encoded_paints_texture_height;
         if required_encoded_paints_height > current_encoded_paints_height {
             assert!(
-                required_encoded_paints_height <= max_texture_dimension_2d,
-                "Encoded paints texture height exceeds max texture dimensions"
+                required_encoded_paints_height <= resource_texture_dimension_2d,
+                "Encoded paints texture height exceeds resource texture dimensions"
             );
 
             let required_encoded_paints_size =
-                (max_texture_dimension_2d * required_encoded_paints_height) << 4;
+                (resource_texture_dimension_2d * required_encoded_paints_height) << 4;
             self.encoded_paints_data
                 .resize(required_encoded_paints_size as usize, 0);
             self.resources.encoded_paints_texture_height = required_encoded_paints_height;
@@ -1767,7 +1778,7 @@ impl WebGlPrograms {
     fn maybe_resize_gradient_tex(
         &mut self,
         _gl: &WebGl2RenderingContext,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         gradient_cache: &GradientRampCache,
     ) {
         if gradient_cache.is_empty() {
@@ -1777,13 +1788,13 @@ impl WebGlPrograms {
         let gradient_data_size = gradient_cache.luts_size();
         // Each texel is RGBA8, so 4 bytes per texel
         let required_gradient_height =
-            (gradient_data_size as u32).div_ceil(max_texture_dimension_2d * 4);
+            (gradient_data_size as u32).div_ceil(resource_texture_dimension_2d * 4);
 
         let current_gradient_height = self.resources.gradient_texture_height;
         if required_gradient_height > current_gradient_height {
             assert!(
-                required_gradient_height <= max_texture_dimension_2d,
-                "Gradient texture height exceeds max texture dimensions"
+                required_gradient_height <= resource_texture_dimension_2d,
+                "Gradient texture height exceeds resource texture dimensions"
             );
 
             self.resources.gradient_texture_height = required_gradient_height;
@@ -1794,7 +1805,7 @@ impl WebGlPrograms {
     fn maybe_update_config_buffer(
         &mut self,
         gl: &WebGl2RenderingContext,
-        max_texture_dimension_2d: u32,
+        resource_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
     ) {
         // Only negate if we are rendering to the main frame buffer.
@@ -1808,8 +1819,8 @@ impl WebGlPrograms {
                 width: new_render_size.width,
                 height: new_render_size.height,
                 strip_height: u32::from(Tile::HEIGHT),
-                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
+                encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
                 strip_offset_x: 0,
                 strip_offset_y: 0,
                 negate_ndc: u32::from(negate_ndc),
@@ -1836,7 +1847,7 @@ impl WebGlPrograms {
             return;
         }
 
-        let alpha_texture_width = self.resources.max_texture_dimension_2d;
+        let alpha_texture_width = self.resources.resource_texture_dimension_2d;
         let alpha_texture_height = self.resources.alpha_texture_height;
         let total_size = alpha_texture_width as usize * alpha_texture_height as usize * 16;
 
@@ -1864,7 +1875,7 @@ impl WebGlPrograms {
         encoded_paints: &[GpuEncodedPaint],
     ) {
         if !encoded_paints.is_empty() {
-            let encoded_paints_texture_width = self.resources.max_texture_dimension_2d;
+            let encoded_paints_texture_width = self.resources.resource_texture_dimension_2d;
             let encoded_paints_texture_height = self.resources.encoded_paints_texture_height;
 
             GpuEncodedPaint::serialize_to_buffer(encoded_paints, &mut self.encoded_paints_data);
@@ -1889,7 +1900,7 @@ impl WebGlPrograms {
             return;
         }
 
-        let gradient_texture_width = self.resources.max_texture_dimension_2d;
+        let gradient_texture_width = self.resources.resource_texture_dimension_2d;
         let gradient_texture_height = self.resources.gradient_texture_height;
         let total_capacity = (gradient_texture_width * gradient_texture_height * 4) as usize;
 
@@ -2528,14 +2539,14 @@ fn upload_layer_config_buffer(
     gl: &WebGl2RenderingContext,
     buffer: &Buffer,
     size: SizeU16,
-    max_texture_dimension_2d: u32,
+    resource_texture_dimension_2d: u32,
 ) {
     let config = Config {
         width: u32::from(size.width()),
         height: u32::from(size.height()),
         strip_height: u32::from(Tile::HEIGHT),
-        alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-        encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+        alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
+        encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
         strip_offset_x: 0,
         strip_offset_y: 0,
         // Always use y-down when rendering to layer textures.
@@ -2554,6 +2565,7 @@ fn create_webgl_resources(
     gl: &WebGl2RenderingContext,
     image_cache: &ImageCache,
     layer_config: LayersConfig,
+    resource_texture_dimension_2d: u32,
 ) -> WebGlResources {
     let strip_vao = VertexArray::new(gl);
     let filter_vao = VertexArray::new(gl);
@@ -2565,14 +2577,13 @@ fn create_webgl_resources(
 
     let strips_buffer = Buffer::new(gl);
     let view_config_buffer = Buffer::new(gl);
-    let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
     let texture_size = layer_config.min_texture_size;
     let layer_config_buffer = Buffer::new(gl);
     upload_layer_config_buffer(
         gl,
         &layer_config_buffer,
         texture_size,
-        max_texture_dimension_2d,
+        resource_texture_dimension_2d,
     );
 
     // Create and configure alpha texture.
@@ -2628,7 +2639,7 @@ fn create_webgl_resources(
         // framebuffer. If we ever support non-default framebuffers, this must change
         // to DEPTH_ATTACHMENT.
         depth_attachment_array: js_sys::Array::of1(&WebGl2RenderingContext::DEPTH.into()),
-        max_texture_dimension_2d,
+        resource_texture_dimension_2d,
         texture_size,
         stub_atlas_texture_array,
         atlas_render_framebuffer: None,
