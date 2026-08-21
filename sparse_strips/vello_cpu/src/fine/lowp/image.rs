@@ -5,10 +5,22 @@ use crate::fine::PosExt;
 use crate::fine::common::image::{ImagePainterData, extend, fract_floor, sample};
 use crate::fine::macros::u8x16_painter;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, u8x16, u16x16};
+use vello_common::fearless_simd::{f32x4, prelude::*, u8x16, u16x16};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
 use vello_common::util::{Div255Ext, f32_to_u8};
+
+#[inline(always)]
+fn widen_u8x16<S: Simd>(value: u8x16<S>) -> u16x16<S> {
+    let (low, high) = value.widen();
+    low.combine(high)
+}
+
+#[inline(always)]
+fn narrow_u16x16<S: Simd>(value: u16x16<S>) -> u8x16<S> {
+    let (low, high) = value.split();
+    low.narrow(high)
+}
 
 /// A faster bilinear image renderer for the u8 pipeline.
 #[derive(Debug)]
@@ -79,8 +91,8 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
             fract_floor(y_positions + 0.5).mul_add(255.0, 0.5),
         ));
 
-        let fx = self.simd.widen_u8x16(fx);
-        let fy = self.simd.widen_u8x16(fy);
+        let fx = widen_u8x16(fx);
+        let fy = widen_u8x16(fy);
         let fx_inv = u16x16::splat(self.simd, 255) - fx;
         let fy_inv = u16x16::splat(self.simd, 255) - fy;
 
@@ -89,22 +101,14 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
         let y_pos1 = extend_y(y_positions - 0.5);
         let y_pos2 = extend_y(y_positions + 0.5);
 
-        let p00 = self
-            .simd
-            .widen_u8x16(sample(self.simd, &self.data, x_pos1, y_pos1));
-        let p10 = self
-            .simd
-            .widen_u8x16(sample(self.simd, &self.data, x_pos2, y_pos1));
-        let p01 = self
-            .simd
-            .widen_u8x16(sample(self.simd, &self.data, x_pos1, y_pos2));
-        let p11 = self
-            .simd
-            .widen_u8x16(sample(self.simd, &self.data, x_pos2, y_pos2));
+        let p00 = widen_u8x16(sample(self.simd, &self.data, x_pos1, y_pos1));
+        let p10 = widen_u8x16(sample(self.simd, &self.data, x_pos2, y_pos1));
+        let p01 = widen_u8x16(sample(self.simd, &self.data, x_pos1, y_pos2));
+        let p11 = widen_u8x16(sample(self.simd, &self.data, x_pos2, y_pos2));
 
         let ip1 = (p00 * fx_inv + p10 * fx).div_255();
         let ip2 = (p01 * fx_inv + p11 * fx).div_255();
-        let res = self.simd.narrow_u16x16((ip1 * fy_inv + ip2 * fy).div_255());
+        let res = narrow_u16x16((ip1 * fy_inv + ip2 * fy).div_255());
 
         self.data.cur_pos += self.data.image.x_advance;
 
@@ -178,7 +182,7 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
                     simd,
                     fract_floor(y_positions + 0.5).mul_add(255.0, 0.5),
                 ));
-                let fy = simd.widen_u8x16(fy);
+                let fy = widen_u8x16(fy);
                 let fy_inv = u16x16::splat(simd, 255) - fy;
 
                 let cur_x_pos = f32x4::splat_pos(
@@ -232,29 +236,19 @@ impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
             self.simd,
             fract_floor(x_plus_half).mul_add(255.0, 0.5),
         ));
-        let fx = self.simd.widen_u8x16(fx);
+        let fx = widen_u8x16(fx);
         let fx_inv = u16x16::splat(self.simd, 255) - fx;
 
         // Sample the 4 corners using pre-computed y positions
-        let p00 = self
-            .simd
-            .widen_u8x16(sample(self.simd, &self.data, x_pos1, self.y_pos1));
-        let p10 = self
-            .simd
-            .widen_u8x16(sample(self.simd, &self.data, x_pos2, self.y_pos1));
-        let p01 = self
-            .simd
-            .widen_u8x16(sample(self.simd, &self.data, x_pos1, self.y_pos2));
-        let p11 = self
-            .simd
-            .widen_u8x16(sample(self.simd, &self.data, x_pos2, self.y_pos2));
+        let p00 = widen_u8x16(sample(self.simd, &self.data, x_pos1, self.y_pos1));
+        let p10 = widen_u8x16(sample(self.simd, &self.data, x_pos2, self.y_pos1));
+        let p01 = widen_u8x16(sample(self.simd, &self.data, x_pos1, self.y_pos2));
+        let p11 = widen_u8x16(sample(self.simd, &self.data, x_pos2, self.y_pos2));
 
         // Bilinear interpolation
         let ip1 = (p00 * fx_inv + p10 * fx).div_255();
         let ip2 = (p01 * fx_inv + p11 * fx).div_255();
-        let res = self
-            .simd
-            .narrow_u16x16((ip1 * self.fy_inv + ip2 * self.fy).div_255());
+        let res = narrow_u16x16((ip1 * self.fy_inv + ip2 * self.fy).div_255());
 
         self.cur_x_pos += self.advance;
 

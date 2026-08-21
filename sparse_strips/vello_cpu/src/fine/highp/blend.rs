@@ -51,25 +51,16 @@ fn mix_inner<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) ->
     res_bg.g = apply_alpha(bg_a, src_a, unpremultiplied_src.g, mix_src.g);
     res_bg.b = apply_alpha(bg_a, src_a, unpremultiplied_src.b, mix_src.b);
 
-    let combined = simd.combine_f32x8(
-        simd.combine_f32x4(res_bg.r, res_bg.g),
-        simd.combine_f32x4(res_bg.b, src_a),
-    );
-
     let mut storage = [0.0; 16];
-    simd.store_interleaved_128_f32x16(combined, &mut storage);
+    simd.store_four_interleaved_f32x4([res_bg.r, res_bg.g, res_bg.b, src_a], &mut storage);
     f32x16::from_slice(simd, &storage)
 }
 
 #[inline(always)]
 fn split<S: Simd>(simd: S, input: f32x16<S>) -> (Channels<S>, f32x4<S>) {
     let mut storage = [0.0; 16];
-    simd.store_interleaved_128_f32x16(input, &mut storage);
-    let input_v = f32x16::from_slice(simd, &storage);
-
-    let p1 = simd.split_f32x16(input_v);
-    let (r, g) = simd.split_f32x8(p1.0);
-    let (b, a) = simd.split_f32x8(p1.1);
+    input.store_slice(&mut storage);
+    let [r, g, b, a] = simd.load_four_interleaved_f32x4(&storage);
 
     (Channels { r, g, b }, a)
 }

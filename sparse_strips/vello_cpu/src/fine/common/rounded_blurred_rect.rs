@@ -94,11 +94,8 @@ impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
                     let b = u8x16::from_f32(simd, simd.combine_f32x8(first.b, second.b));
                     let a = u8x16::from_f32(simd, simd.combine_f32x8(first.a, second.a));
 
-                    let combined =
-                        simd.combine_u8x32(simd.combine_u8x16(r, g), simd.combine_u8x16(b, a));
-
-                    simd.store_interleaved_128_u8x64(
-                        combined,
+                    simd.store_four_interleaved_u8x16(
+                        [r, g, b, a],
                         (&mut chunk[..]).try_into().unwrap(),
                     );
                 }
@@ -111,11 +108,13 @@ impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
             #[inline(always)]
             || {
                 for chunk in buf.chunks_exact_mut(32) {
-                    let (c1, c2) = self.next().unwrap().get();
-                    c1.simd
-                        .store_interleaved_128_f32x16(c1, (&mut chunk[..16]).try_into().unwrap());
-                    c2.simd
-                        .store_interleaved_128_f32x16(c2, (&mut chunk[16..]).try_into().unwrap());
+                    let [c1, c2] = self.next().unwrap().get();
+                    c1[0]
+                        .simd
+                        .store_four_interleaved_f32x4(c1, (&mut chunk[..16]).try_into().unwrap());
+                    c2[0]
+                        .simd
+                        .store_four_interleaved_f32x4(c2, (&mut chunk[16..]).try_into().unwrap());
                 }
             },
         );
