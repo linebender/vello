@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 #[cfg(feature = "png")]
 use std::io::{BufRead, Seek};
 
-use crate::fearless_simd::{Level, Simd, SimdBase, SimdInt, SimdMask, dispatch, mask8x16};
+use crate::fearless_simd::{Level, Simd, SimdBase, SimdInt, SimdMask, dispatch, mask8x16, u16x16};
 use crate::peniko::{ImageAlphaType, color::PremulRgba8};
 use crate::util::Div255Ext;
 
@@ -391,20 +391,7 @@ impl Pixmap {
     pub fn take(self, alpha_type: ImageAlphaType) -> Vec<u8> {
         let mut data = bytemuck::cast_vec(self.buf);
         if alpha_type == ImageAlphaType::Alpha {
-            for pixel in data.chunks_exact_mut(4) {
-                let alpha = pixel[3];
-                if alpha != 0 {
-                    let scale = 255.0 / f32::from(alpha);
-                    for component in &mut pixel[..3] {
-                        #[expect(
-                            clippy::cast_possible_truncation,
-                            reason = "deliberate quantization"
-                        )]
-                        let unpremultiplied = (f32::from(*component) * scale + 0.5) as u8;
-                        *component = unpremultiplied;
-                    }
-                }
-            }
+            unpremultiply_rgba8(&mut data);
         }
         data
     }
@@ -452,6 +439,64 @@ fn premultiply_rgba8(data: &mut [u8]) -> bool {
     dispatch!(level, simd => premultiply_rgba8_impl(simd, data))
 }
 
+/// Unpremultiplies each RGBA8 pixel in `data` using an eight-bit fixed-point reciprocal.
+fn unpremultiply_rgba8(data: &mut [u8]) {
+    let level = Level::try_detect().unwrap_or(Level::baseline());
+    dispatch!(level, simd => unpremultiply_rgba8_impl(simd, data));
+}
+
+#[inline(always)]
+fn unpremultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) {
+    let (body, tail) = data.as_chunks_mut::<64>();
+    let rounding = u16x16::splat(simd, 128);
+
+    for chunk in body {
+        let rgba = simd.load_interleaved_128_u8x64(chunk);
+        let (rg, ba) = simd.split_u8x64(rgba);
+        let (r, g) = simd.split_u8x32(rg);
+        let (b, a) = simd.split_u8x32(ba);
+
+        let reciprocal =
+            u16x16::from_fn(simd, |lane| UNPREMULTIPLY_RECIPROCALS[usize::from(a[lane])]);
+        let unpremultiply = |component| {
+            let product = simd.widen_u8x16(component) * reciprocal + rounding;
+            simd.narrow_u16x16(product >> 8)
+        };
+
+        let rgba = simd.combine_u8x32(
+            simd.combine_u8x16(unpremultiply(r), unpremultiply(g)),
+            simd.combine_u8x16(unpremultiply(b), a),
+        );
+        simd.store_interleaved_128_u8x64(rgba, chunk);
+    }
+
+    for pixel in tail.chunks_exact_mut(4) {
+        let reciprocal = UNPREMULTIPLY_RECIPROCALS[usize::from(pixel[3])];
+        for component in &mut pixel[..3] {
+            let unpremultiplied = ((u16::from(*component) * reciprocal + 128) >> 8) as u8;
+            *component = unpremultiplied;
+        }
+    }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "all generated reciprocals fit into a u16"
+)]
+const fn unpremultiply_reciprocals() -> [u16; 256] {
+    let mut values = [0; 256];
+    // Preserve RGB for fully transparent pixels.
+    values[0] = 256;
+    let mut alpha = 1;
+    while alpha < 256 {
+        values[alpha] = ((255 * 256 + alpha / 2) / alpha) as u16;
+        alpha += 1;
+    }
+    values
+}
+
+const UNPREMULTIPLY_RECIPROCALS: [u16; 256] = unpremultiply_reciprocals();
+
 #[inline(always)]
 fn premultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) -> bool {
     let (body, tail) = data.as_chunks_mut::<64>();
@@ -493,7 +538,7 @@ fn premultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
+    use alloc::{vec, vec::Vec};
 
     use super::{PixelMetadata, Pixmap};
     use crate::peniko::ImageAlphaType;
@@ -594,5 +639,42 @@ mod tests {
             pixmap.take(ImageAlphaType::Alpha),
             [199, 100, 50, 128, 9, 8, 7, 255, 1, 2, 3, 0]
         );
+    }
+
+    #[test]
+    fn fixed_unpremultiply_is_within_one_for_all_valid_components() {
+        let mut data = Vec::new();
+        for alpha in 0_u8..=255 {
+            for component in 0..=alpha {
+                data.extend_from_slice(&[component, alpha - component, component / 2, alpha]);
+            }
+        }
+        let pixel_count = data.len() / 4;
+        let pixmap = Pixmap::from_parts(
+            data.clone(),
+            pixel_count.try_into().unwrap(),
+            1,
+            PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, true),
+        );
+        let unpremultiplied = pixmap.take(ImageAlphaType::Alpha);
+
+        for (source, result) in data.chunks_exact(4).zip(unpremultiplied.chunks_exact(4)) {
+            let alpha = source[3];
+            assert_eq!(result[3], alpha);
+            for (&source, &result) in source[..3].iter().zip(&result[..3]) {
+                let expected = if alpha == 0 {
+                    source
+                } else {
+                    (f32::from(source) * 255.0 / f32::from(alpha) + 0.5) as u8
+                };
+                assert!(
+                    result.abs_diff(expected) <= 1,
+                    "component {source} with alpha {alpha} produced {result} instead of {expected}"
+                );
+                if source == alpha && alpha != 0 {
+                    assert_eq!(result, 255);
+                }
+            }
+        }
     }
 }
