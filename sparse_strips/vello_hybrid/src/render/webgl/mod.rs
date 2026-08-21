@@ -2383,6 +2383,10 @@ const FILTER_INSTANCE_STRIDE: i32 = size_of::<FilterInstanceData>() as i32;
 fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.filter_vao));
     gl.bind_buffer(
+        WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
+        Some(&resources.quad_index_buffer),
+    );
+    gl.bind_buffer(
         WebGl2RenderingContext::ARRAY_BUFFER,
         Some(&resources.filter_instance_buffer),
     );
@@ -2399,6 +2403,10 @@ const BLEND_INSTANCE_STRIDE: i32 = size_of::<GpuBlendInstance>() as i32;
 fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.blend_vao));
     gl.bind_buffer(
+        WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
+        Some(&resources.quad_index_buffer),
+    );
+    gl.bind_buffer(
         WebGl2RenderingContext::ARRAY_BUFFER,
         Some(&resources.blend_instance_buffer),
     );
@@ -2414,6 +2422,10 @@ const COPY_INSTANCE_STRIDE: i32 = size_of::<GpuCopyInstance>() as i32;
 
 fn initialize_copy_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.copy_vao));
+    gl.bind_buffer(
+        WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
+        Some(&resources.quad_index_buffer),
+    );
     gl.bind_buffer(
         WebGl2RenderingContext::ARRAY_BUFFER,
         Some(&resources.copy_instance_buffer),
@@ -2577,6 +2589,12 @@ fn create_webgl_resources(
     // In Vulkan u8 only was added in later versions: https://docs.vulkan.org/refpages/latest/refpages/source/VkIndexType.html
     // ANGLE also seems to special-case on Metal, as additional evidence: https://chromium.googlesource.com/angle/angle/+/bfc764c553fa0613f858315bc6c0cc1ecee469a1/src/libANGLE/renderer/metal/VertexArrayMtl.mm#63
     let quad_indices = js_sys::Uint16Array::from(&[0_u16, 1, 2, 3][..]);
+
+    let temp_vao = VertexArray::new(gl);
+    // Just to avoid potentially modifying a VAO that might
+    // have been bound by a caller before calling Vello, since
+    // binding `ELEMENT_ARRAY_BUFFER` also updates VAO state.
+    gl.bind_vertex_array(Some(&temp_vao));
     gl.bind_buffer(
         WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
         Some(&quad_index_buffer),
@@ -2586,6 +2604,7 @@ fn create_webgl_resources(
         &quad_indices,
         WebGl2RenderingContext::STATIC_DRAW,
     );
+    gl.bind_vertex_array(None);
 
     let strip_vao = VertexArray::new(gl);
     let filter_vao = VertexArray::new(gl);
@@ -2771,6 +2790,10 @@ const _: () = assert!(
 fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.strip_vao));
     gl.bind_buffer(
+        WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
+        Some(&resources.quad_index_buffer),
+    );
+    gl.bind_buffer(
         WebGl2RenderingContext::ARRAY_BUFFER,
         Some(&resources.strips_buffer),
     );
@@ -2809,11 +2832,6 @@ struct WebGlRendererContext<'a> {
 impl WebGlRendererContext<'_> {
     /// Draw `instance_count` quad instances using the currently bound VAO.
     fn draw_instanced_quads(&self, instance_count: i32) {
-        self.gl.bind_buffer(
-            WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
-            Some(&self.programs.resources.quad_index_buffer),
-        );
-
         // We use `drawElementsInstanced` instead of `drawArraysInstanced` due to a bug on
         // older Chrome versions where integer vertex attributes aren't handled correctly.
         // See https://github.com/linebender/vello/pull/1819 for more information.
