@@ -8,6 +8,7 @@
 
 use std::io::BufWriter;
 use vello_common::kurbo::{Affine, Stroke};
+use vello_common::peniko::ImageAlphaType;
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_hybrid::{DimensionConstraints, Scene};
@@ -169,7 +170,7 @@ async fn run() {
     png_encoder.set_color(png::ColorType::Rgba);
     let mut writer = png_encoder.write_header().unwrap();
     writer
-        .write_image_data(bytemuck::cast_slice(&pixmap.take_unpremultiplied()))
+        .write_image_data(&pixmap.take(ImageAlphaType::Alpha))
         .unwrap();
 }
 

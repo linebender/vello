@@ -9,10 +9,7 @@ use alloc::vec::Vec;
 use std::io::{BufRead, Seek};
 
 use crate::fearless_simd::{Level, Simd, SimdBase, SimdInt, SimdMask, dispatch, mask8x16};
-use crate::peniko::{
-    ImageAlphaType,
-    color::{PremulRgba8, Rgba8},
-};
+use crate::peniko::{ImageAlphaType, color::PremulRgba8};
 use crate::util::Div255Ext;
 
 #[cfg(feature = "png")]
@@ -312,7 +309,7 @@ impl Pixmap {
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header()?;
-        writer.write_image_data(bytemuck::cast_slice(&self.take_unpremultiplied()))?;
+        writer.write_image_data(&self.take(ImageAlphaType::Alpha))?;
         writer.finish().map(|_| data)
     }
 
@@ -386,37 +383,30 @@ impl Pixmap {
         self.buf[idx] = pixel;
     }
 
-    /// Consume the pixmap, returning the data as the underlying [`Vec`] of premultiplied RGBA8.
+    /// Consume the pixmap, returning its RGBA8 bytes with the requested alpha representation.
     ///
-    /// The pixels are in row-major order.
-    pub fn take(self) -> Vec<PremulRgba8> {
-        self.buf
-    }
-
-    /// Consume the pixmap, returning the data as (unpremultiplied) RGBA8.
-    ///
-    /// Not fast, but useful for saving to PNG etc.
-    ///
-    /// The pixels are in row-major order.
-    pub fn take_unpremultiplied(self) -> Vec<Rgba8> {
-        self.buf
-            .into_iter()
-            .map(|PremulRgba8 { r, g, b, a }| {
-                let alpha = 255.0 / f32::from(a);
-                if a != 0 {
-                    #[expect(clippy::cast_possible_truncation, reason = "deliberate quantization")]
-                    let unpremultiply = |component| (f32::from(component) * alpha + 0.5) as u8;
-                    Rgba8 {
-                        r: unpremultiply(r),
-                        g: unpremultiply(g),
-                        b: unpremultiply(b),
-                        a,
+    /// The pixels are in row-major order. Note that it's always cheapest to call this method
+    /// with [`ImageAlphaType::AlphaPremultiplied`] since this is the internal representation
+    /// of the pixmap.
+    pub fn take(self, alpha_type: ImageAlphaType) -> Vec<u8> {
+        let mut data = bytemuck::cast_vec(self.buf);
+        if alpha_type == ImageAlphaType::Alpha {
+            for pixel in data.chunks_exact_mut(4) {
+                let alpha = pixel[3];
+                if alpha != 0 {
+                    let scale = 255.0 / f32::from(alpha);
+                    for component in &mut pixel[..3] {
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "deliberate quantization"
+                        )]
+                        let unpremultiplied = (f32::from(*component) * scale + 0.5) as u8;
+                        *component = unpremultiplied;
                     }
-                } else {
-                    Rgba8 { r, g, b, a }
                 }
-            })
-            .collect()
+            }
+        }
+        data
     }
 }
 
@@ -584,5 +574,25 @@ mod tests {
 
         assert!(!pixmap.may_have_transparency());
         assert_eq!(pixmap.data_as_u8_slice(), data);
+    }
+
+    #[test]
+    fn take_returns_requested_alpha_type_as_bytes() {
+        let data = vec![100, 50, 25, 128, 9, 8, 7, 255, 1, 2, 3, 0];
+        let pixmap = Pixmap::from_parts(
+            data.clone(),
+            3,
+            1,
+            PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, true),
+        );
+
+        assert_eq!(
+            pixmap.clone().take(ImageAlphaType::AlphaPremultiplied),
+            data
+        );
+        assert_eq!(
+            pixmap.take(ImageAlphaType::Alpha),
+            [199, 100, 50, 128, 9, 8, 7, 255, 1, 2, 3, 0]
+        );
     }
 }

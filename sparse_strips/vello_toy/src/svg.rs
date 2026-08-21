@@ -19,7 +19,7 @@ use usvg::tiny_skia_path::PathSegment;
 use usvg::{Node, Paint, PaintOrder};
 use vello_cpu::color::AlphaColor;
 use vello_cpu::kurbo::{Affine, BezPath, Stroke};
-use vello_cpu::peniko::Fill;
+use vello_cpu::peniko::{Fill, ImageAlphaType};
 use vello_cpu::{Level, Pixmap, RenderContext, RenderSettings, Resources};
 
 fn main() {
@@ -68,14 +68,14 @@ fn main() {
 }
 
 fn write_pixmap(pixmap: &mut Pixmap) {
-    let data = pixmap.clone().take_unpremultiplied();
+    let data = pixmap.clone().take(ImageAlphaType::Alpha);
 
     let mut png_data = Vec::new();
     let cursor = Cursor::new(&mut png_data);
     let encoder = PngEncoder::new(cursor);
     encoder
         .write_image(
-            bytemuck::cast_slice(&data),
+            &data,
             pixmap.width() as u32,
             pixmap.height() as u32,
             ExtendedColorType::Rgba8,
