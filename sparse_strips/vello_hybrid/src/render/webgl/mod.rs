@@ -1145,6 +1145,8 @@ struct StripUniforms {
 /// Contains all WebGL resources needed for rendering.
 #[derive(Debug)]
 pub(crate) struct WebGlResources {
+    /// Shared indices for four-vertex triangle-strip draws.
+    quad_index_buffer: Buffer,
     /// VAO for strip rendering.
     strip_vao: VertexArray,
     /// Buffer for [`GpuStrip`] data.
@@ -2567,6 +2569,24 @@ fn create_webgl_resources(
     layer_config: LayersConfig,
     resource_texture_dimension_2d: u32,
 ) -> WebGlResources {
+    let quad_index_buffer = Buffer::new(gl);
+    // We use u16 for the indices instead of u8 due to better compatibility, to avoid overhead
+    // from any potential emulation that the driver might have to do for correctness reasons.
+    // D3D11 only supports u16/u32: https://learn.microsoft.com/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-iasetindexbuffer
+    // Same for Metal: https://developer.apple.com/documentation/metal/mtlindextype
+    // In Vulkan u8 only was added in later versions: https://docs.vulkan.org/refpages/latest/refpages/source/VkIndexType.html
+    // ANGLE also seems to special-case on Metal, as additional evidence: https://chromium.googlesource.com/angle/angle/+/bfc764c553fa0613f858315bc6c0cc1ecee469a1/src/libANGLE/renderer/metal/VertexArrayMtl.mm#63
+    let quad_indices = js_sys::Uint16Array::from(&[0_u16, 1, 2, 3][..]);
+    gl.bind_buffer(
+        WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
+        Some(&quad_index_buffer),
+    );
+    gl.buffer_data_with_array_buffer_view(
+        WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
+        &quad_indices,
+        WebGl2RenderingContext::STATIC_DRAW,
+    );
+
     let strip_vao = VertexArray::new(gl);
     let filter_vao = VertexArray::new(gl);
     let blend_vao = VertexArray::new(gl);
@@ -2620,6 +2640,7 @@ fn create_webgl_resources(
     let filter_data_texture = create_placeholder_rgba32ui_texture(gl);
 
     WebGlResources {
+        quad_index_buffer,
         strip_vao,
         strips_buffer,
         alphas_texture,
@@ -2786,6 +2807,25 @@ struct WebGlRendererContext<'a> {
 }
 
 impl WebGlRendererContext<'_> {
+    /// Draw `instance_count` quad instances using the currently bound VAO.
+    fn draw_instanced_quads(&self, instance_count: i32) {
+        self.gl.bind_buffer(
+            WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
+            Some(&self.programs.resources.quad_index_buffer),
+        );
+
+        // We use `drawElementsInstanced` instead of `drawArraysInstanced` due to a bug on
+        // older Chrome versions where integer vertex attributes aren't handled correctly.
+        // See https://github.com/linebender/vello/pull/1819 for more information.
+        self.gl.draw_elements_instanced_with_i32(
+            WebGl2RenderingContext::TRIANGLE_STRIP,
+            4,
+            WebGl2RenderingContext::UNSIGNED_SHORT,
+            0,
+            instance_count,
+        );
+    }
+
     /// Draw `count` strip instances starting at `first_instance`, split into one draw per
     /// external texture run.
     ///
@@ -2833,8 +2873,7 @@ impl WebGlRendererContext<'_> {
             return;
         }
         self.set_strip_attrib_offset(first_instance);
-        self.gl
-            .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, count);
+        self.draw_instanced_quads(count);
     }
 
     /// Bind `texture`, or the placeholder when `None`, as the texture sampled by paints with an
@@ -3126,8 +3165,7 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.blend_uniforms.layer_texture_1), 1);
 
-        self.gl
-            .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, instance_count);
+        self.draw_instanced_quads(instance_count);
 
         self.scratch_buffers.copy_instances.clear();
         self.scratch_buffers.copy_instances.extend(
@@ -3162,8 +3200,7 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.copy_uniforms.source_texture), 0);
 
-        self.gl
-            .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, instance_count);
+        self.draw_instanced_quads(instance_count);
 
         self.gl.bind_vertex_array(None);
     }
@@ -3198,12 +3235,7 @@ impl WebGlRendererContext<'_> {
             );
             self.gl
                 .uniform1i(Some(&self.programs.copy_uniforms.source_texture), 0);
-            self.gl.draw_arrays_instanced(
-                WebGl2RenderingContext::TRIANGLE_STRIP,
-                0,
-                4,
-                i32::try_from(copy_pass.len()).unwrap(),
-            );
+            self.draw_instanced_quads(i32::try_from(copy_pass.len()).unwrap());
         }
 
         self.gl.use_program(Some(&self.programs.filter_program));
@@ -3266,12 +3298,7 @@ impl WebGlRendererContext<'_> {
         // TODO: Filter instances ideally should be uploaded once for the whole round (or even once
         // globally), not per pass.
         self.programs.upload_filter_instances(self.gl, instances);
-        self.gl.draw_arrays_instanced(
-            WebGl2RenderingContext::TRIANGLE_STRIP,
-            0,
-            4,
-            i32::try_from(instances.len()).unwrap(),
-        );
+        self.draw_instanced_quads(i32::try_from(instances.len()).unwrap());
     }
 
     fn clear_pass_inner(&self, target: LayerTextureId, rects: &[RectU16]) {
