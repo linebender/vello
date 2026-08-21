@@ -174,6 +174,7 @@ impl ImageSource {
 
         // Unfortunately, we have to create a new allocation, because pixmap requires
         // a real vector.
+        // TODO: Figure out a better story for this.
         let mut rgba = image.data.data().to_vec();
         match image.format {
             peniko::ImageFormat::Rgba8 => {}
