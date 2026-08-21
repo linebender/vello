@@ -5,13 +5,13 @@ mod tests {
     use std::sync::Arc;
 
     use vello_common::color;
-    use vello_common::color::{AlphaColor, PremulRgba8, Srgb};
+    use vello_common::color::{AlphaColor, Srgb};
     use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{Affine, Circle, Rect, Shape};
     use vello_common::paint::{Image, ImageSource, Tint, TintMode};
-    use vello_common::peniko::{Color, Extend, ImageQuality, ImageSampler};
-    use vello_common::pixmap::Pixmap;
+    use vello_common::peniko::{Color, Extend, ImageAlphaType, ImageQuality, ImageSampler};
+    use vello_common::pixmap::{PixelMetadata, Pixmap};
     use vello_dev_macros::vello_test;
     use vello_hybrid::TextureId;
 
@@ -31,9 +31,10 @@ mod tests {
 
     fn solid_pixmap(r: u8, g: u8, b: u8, a: u8) -> Arc<Pixmap> {
         Arc::new(Pixmap::from_parts(
-            vec![PremulRgba8::from_u8_array([r, g, b, a])],
+            vec![r, g, b, a],
             1,
             1,
+            PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, a != 255),
         ))
     }
 
@@ -383,7 +384,7 @@ mod tests {
         );
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only)]
+    #[vello_test(width = 96, height = 96, hybrid_only, hybrid_tolerance = 1)]
     fn external_texture_skewed(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let source_region = SPRITES[0];

@@ -8,7 +8,12 @@ use alloc::vec::Vec;
 #[cfg(feature = "png")]
 use std::io::{BufRead, Seek};
 
-use crate::peniko::color::{PremulRgba8, Rgba8};
+use crate::fearless_simd::{Level, Simd, SimdBase, SimdInt, SimdMask, dispatch, mask8x16};
+use crate::peniko::{
+    ImageAlphaType,
+    color::{PremulRgba8, Rgba8},
+};
+use crate::util::Div255Ext;
 
 #[cfg(feature = "png")]
 extern crate std;
@@ -88,46 +93,42 @@ impl Pixmap {
         }
     }
 
-    /// Create a new pixmap with the given premultiplied RGBA8 data.
-    ///
-    /// The `data` vector must be of length `width * height` exactly.
-    ///
-    /// The pixels are in row-major order.
-    ///
-    /// This assumes the image may have transparent pixels. Use
-    /// [`from_parts_with_opacity`](Self::from_parts_with_opacity) if you already
-    /// know the opacity status to enable optimizations.
+    /// Create a new pixmap from the given buffer of bytes, representing pixel data.
     ///
     /// # Panics
     ///
-    /// Panics if the `data` vector is not of length `width * height`.
-    pub fn from_parts(data: Vec<PremulRgba8>, width: u16, height: u16) -> Self {
-        Self::from_parts_with_opacity(data, width, height, true)
-    }
-
-    /// Create a new pixmap with the given premultiplied RGBA8 data and precomputed opacity flag.
-    ///
-    /// The `data` vector must be of length `width * height` exactly.
-    ///
-    /// The pixels are in row-major order.
-    ///
-    /// Use this when you've already determined whether the data contains
-    /// non-opaque pixels to avoid redundant scanning.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `data` vector is not of length `width * height`.
-    pub fn from_parts_with_opacity(
-        data: Vec<PremulRgba8>,
+    /// - Panics if `data` is not exactly `width * height * 4` bytes long.
+    /// - Panics if the capacity of the vector is not a multiple of 4.
+    pub fn from_parts(
+        mut data: Vec<u8>,
         width: u16,
         height: u16,
-        may_have_transparency: bool,
+        pixel_metadata: PixelMetadata,
     ) -> Self {
+        let may_have_transparency = if pixel_metadata.may_have_transparency
+            && pixel_metadata.alpha_type == ImageAlphaType::Alpha
+        {
+            // If there might be transparency and the data is not premultiplied yet, we need to
+            // iterate over all pixels anyway. Rechecking the alpha values only adds little
+            // overhead (around 5-10% from my benchmarks), and lets us downgrade a conservative
+            // transparency hint to fully opaque.
+            premultiply_rgba8(&mut data)
+        } else {
+            // If the data is already premultiplied, we want to avoid reloading all pixels from
+            // memory just to _maybe_ downgrade the transparency hint, so we avoid doing that
+            // and always return the hint directly.
+            pixel_metadata.may_have_transparency
+        };
+
+        let data: Vec<PremulRgba8> = bytemuck::try_cast_vec(data)
+            .map_err(|(error, _data)| error)
+            .expect("The capacity of the vector needs to be divisible by 4.");
         assert_eq!(
             data.len(),
             usize::from(width) * usize::from(height),
             "Expected `data` to have length of exactly `width * height`"
         );
+
         Self {
             width,
             height,
@@ -298,23 +299,7 @@ impl Pixmap {
             }
         };
 
-        let mut may_have_transparency = false;
-        for pixel in pixmap.data_mut() {
-            let alpha = pixel.a;
-            if alpha != 255 {
-                may_have_transparency = true;
-            }
-            let alpha_u16 = u16::from(alpha);
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "Overflow should be impossible."
-            )]
-            let premultiply = |e: u8| ((u16::from(e) * alpha_u16) / 255) as u8;
-            pixel.r = premultiply(pixel.r);
-            pixel.g = premultiply(pixel.g);
-            pixel.b = premultiply(pixel.b);
-        }
-        pixmap.may_have_transparency = may_have_transparency;
+        pixmap.may_have_transparency = premultiply_rgba8(pixmap.data_as_u8_slice_mut());
 
         Ok(pixmap)
     }
@@ -432,5 +417,172 @@ impl Pixmap {
                 }
             })
             .collect()
+    }
+}
+
+/// Metadata about the pixels of an image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PixelMetadata {
+    /// Whether the pixels may be non-opaque.
+    ///
+    /// If unsure, always set this to `true`. Setting this to `false` is a strong guarantee that
+    /// every pixel in the image **is guaranteed** to be opaque. Setting this to `false` mistakenly
+    /// can lead to wrong rendering.
+    pub may_have_transparency: bool,
+    /// How the alpha channel is represented.
+    pub alpha_type: ImageAlphaType,
+}
+
+impl PixelMetadata {
+    /// Create a new pixel metadata description.
+    pub const fn new(alpha_type: ImageAlphaType, may_have_transparency: bool) -> Self {
+        Self {
+            may_have_transparency,
+            alpha_type,
+        }
+    }
+}
+
+impl Default for PixelMetadata {
+    fn default() -> Self {
+        Self::new(ImageAlphaType::AlphaPremultiplied, true)
+    }
+}
+
+/// Premultiplies each RGBA8 pixel in `data`.
+///
+/// Returns `true` if at least one pixel is not fully opaque.
+fn premultiply_rgba8(data: &mut [u8]) -> bool {
+    // Unfortunately we need to construct a custom level here and cannot use the one
+    // from the Vello CPU / Vello Hybrid context. This does mean we are not testing
+    // all possible combinations in CI, but the used intrinsics are very simple and
+    // also used in other parts of the pipeline, so risk is very low.
+    let level = Level::try_detect().unwrap_or(Level::baseline());
+
+    dispatch!(level, simd => premultiply_rgba8_impl(simd, data))
+}
+
+#[inline(always)]
+fn premultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) -> bool {
+    let (body, tail) = data.as_chunks_mut::<64>();
+    let mut transparency = mask8x16::splat(simd, 0);
+
+    for chunk in body {
+        let rgba = simd.load_interleaved_128_u8x64(chunk);
+        let (rg, ba) = simd.split_u8x64(rgba);
+        let (r, g) = simd.split_u8x32(rg);
+        let (b, a) = simd.split_u8x32(ba);
+
+        transparency |= !a.simd_eq(255);
+        let premultiply = {
+            #[inline(always)]
+            |component| {
+                let product = simd.widen_u8x16(component) * simd.widen_u8x16(a);
+                simd.narrow_u16x16(product.div_255())
+            }
+        };
+        let premultiplied = simd.combine_u8x32(
+            simd.combine_u8x16(premultiply(r), premultiply(g)),
+            simd.combine_u8x16(premultiply(b), a),
+        );
+        simd.store_interleaved_128_u8x64(premultiplied, chunk);
+    }
+
+    let mut may_have_transparency = transparency.any_true();
+    for pixel in tail.chunks_exact_mut(4) {
+        let alpha = u16::from(pixel[3]);
+        may_have_transparency |= alpha != 255;
+        let premultiply = |component| ((u16::from(component) * alpha + 255) >> 8) as u8;
+        pixel[0] = premultiply(pixel[0]);
+        pixel[1] = premultiply(pixel[1]);
+        pixel[2] = premultiply(pixel[2]);
+    }
+
+    may_have_transparency
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec;
+
+    use super::{PixelMetadata, Pixmap};
+    use crate::peniko::ImageAlphaType;
+
+    #[test]
+    fn straight_alpha_is_premultiplied_in_body_and_tail() {
+        let pixmap = Pixmap::from_parts(
+            vec![
+                // SIMD body
+                200, 100, 50, 128, 128, 64, 32, 128, 255, 128, 64, 64, 255, 100, 1, 0, 64, 32, 16,
+                192, 10, 20, 30, 255, 240, 120, 60, 128, 80, 40, 20, 64, 100, 50, 25, 128, 32, 16,
+                8, 192, 200, 150, 100, 64, 3, 2, 1, 128, 254, 253, 252, 128, 1, 2, 3, 64, 127, 63,
+                31, 192, 9, 8, 7, 255, // Scalar tail
+                80, 40, 20, 64,
+            ],
+            17,
+            1,
+            PixelMetadata::new(ImageAlphaType::Alpha, true),
+        );
+
+        assert!(pixmap.may_have_transparency());
+        assert_eq!(
+            pixmap.data_as_u8_slice(),
+            [
+                // SIMD body
+                100, 50, 25, 128, 64, 32, 16, 128, 64, 32, 16, 64, 0, 0, 0, 0, 48, 24, 12, 192, 10,
+                20, 30, 255, 120, 60, 30, 128, 20, 10, 5, 64, 50, 25, 13, 128, 24, 12, 6, 192, 50,
+                38, 25, 64, 2, 1, 1, 128, 127, 127, 126, 128, 1, 1, 1, 64, 96, 48, 24, 192, 9, 8,
+                7, 255, // Scalar tail
+                20, 10, 5, 64,
+            ]
+        );
+    }
+
+    #[test]
+    fn straight_alpha_is_premultiplied_with_only_tail() {
+        let pixmap = Pixmap::from_parts(
+            vec![200, 100, 50, 128, 9, 8, 7, 255],
+            2,
+            1,
+            PixelMetadata::new(ImageAlphaType::Alpha, true),
+        );
+
+        assert!(pixmap.may_have_transparency());
+        assert_eq!(pixmap.data_as_u8_slice(), [100, 50, 25, 128, 9, 8, 7, 255]);
+    }
+
+    #[test]
+    fn straight_opaque_alpha_clears_transparency_hint_in_body_and_tail() {
+        let data = vec![
+            // SIMD body
+            200, 100, 50, 255, 1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255, 13, 14,
+            15, 255, 16, 17, 18, 255, 19, 20, 21, 255, 22, 23, 24, 255, 25, 26, 27, 255, 28, 29,
+            30, 255, 31, 32, 33, 255, 34, 35, 36, 255, 37, 38, 39, 255, 40, 41, 42, 255, 43, 44,
+            45, 255, // Scalar tail
+            80, 40, 20, 255,
+        ];
+        let pixmap = Pixmap::from_parts(
+            data.clone(),
+            17,
+            1,
+            PixelMetadata::new(ImageAlphaType::Alpha, true),
+        );
+
+        assert!(!pixmap.may_have_transparency());
+        assert_eq!(pixmap.data_as_u8_slice(), data);
+    }
+
+    #[test]
+    fn straight_opaque_alpha_clears_transparency_hint_with_only_tail() {
+        let data = vec![1, 2, 3, 255];
+        let pixmap = Pixmap::from_parts(
+            data.clone(),
+            1,
+            1,
+            PixelMetadata::new(ImageAlphaType::Alpha, true),
+        );
+
+        assert!(!pixmap.may_have_transparency());
+        assert_eq!(pixmap.data_as_u8_slice(), data);
     }
 }

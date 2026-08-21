@@ -21,7 +21,7 @@ use vello_common::paint::{Image, PaintType, PremulColor};
 use vello_common::peniko::{
     Blob, Extend, FontData, Gradient, ImageQuality, ImageSampler, LinearGradientPosition,
 };
-use vello_common::pixmap::Pixmap;
+use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_dev_macros::vello_test;
 
 fn render_transform_composition_rows(
@@ -462,12 +462,18 @@ fn glyphs_with_transformed_paint_inner(
             let pixels = color_strip
                 .0
                 .iter()
-                .map(|stop| {
+                .flat_map(|stop| {
                     PremulColor::from_alpha_color(stop.color.to_alpha_color::<Srgb>())
                         .as_premul_rgba8()
+                        .to_u8_array()
                 })
                 .collect();
-            let image = ctx.get_image_source(Arc::new(Pixmap::from_parts(pixels, 4, 1)));
+            let image = ctx.get_image_source(Arc::new(Pixmap::from_parts(
+                pixels,
+                4,
+                1,
+                PixelMetadata::default(),
+            )));
             PaintType::from(Image {
                 image,
                 sampler: ImageSampler {

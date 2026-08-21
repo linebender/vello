@@ -5,7 +5,7 @@
 
 use crate::TextureId;
 use crate::geometry::RectU16;
-use crate::pixmap::Pixmap;
+use crate::pixmap::{PixelMetadata, Pixmap};
 use alloc::sync::Arc;
 pub use peniko::Color;
 use peniko::{
@@ -164,8 +164,6 @@ impl ImageSource {
     pub fn from_peniko_image_data(image: &peniko::ImageData) -> Self {
         // TODO: how do we deal with `peniko::ImageFormat` growing? See also
         // <https://github.com/linebender/vello/pull/996#discussion_r2080510863>.
-        let do_alpha_multiply = image.alpha_type != peniko::ImageAlphaType::AlphaPremultiplied;
-
         assert!(
             image.width <= u16::MAX as u32 && image.height <= u16::MAX as u32,
             "The image is too big. Its width and height can be no larger than {} pixels.",
@@ -174,40 +172,27 @@ impl ImageSource {
         let width = image.width.try_into().unwrap();
         let height = image.height.try_into().unwrap();
 
-        // TODO: SIMD
-        let mut may_have_transparency = false;
-        #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow.")]
-        let pixels = image
-            .data
-            .data()
-            .chunks_exact(4)
-            .map(|pixel| {
-                let rgba: [u8; 4] = match image.format {
-                    peniko::ImageFormat::Rgba8 => pixel.try_into().unwrap(),
-                    peniko::ImageFormat::Bgra8 => [pixel[2], pixel[1], pixel[0], pixel[3]],
-                    format => unimplemented!("Unsupported image format: {format:?}"),
-                };
-                may_have_transparency |= rgba[3] != 255;
-                let alpha = u16::from(rgba[3]);
-                let multiply = |component| ((alpha * u16::from(component)) / 255) as u8;
-                if do_alpha_multiply {
-                    PremulRgba8 {
-                        r: multiply(rgba[0]),
-                        g: multiply(rgba[1]),
-                        b: multiply(rgba[2]),
-                        a: rgba[3],
-                    }
-                } else {
-                    PremulRgba8 {
-                        r: rgba[0],
-                        g: rgba[1],
-                        b: rgba[2],
-                        a: rgba[3],
-                    }
+        // Unfortunately, we have to create a new allocation, because pixmap requires
+        // a real vector.
+        // TODO: Figure out a better story for this.
+        let mut rgba = image.data.data().to_vec();
+        match image.format {
+            peniko::ImageFormat::Rgba8 => {}
+            peniko::ImageFormat::Bgra8 => {
+                // TODO: SIMDify
+                for pixel in rgba.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
                 }
-            })
-            .collect();
-        let pixmap = Pixmap::from_parts_with_opacity(pixels, width, height, may_have_transparency);
+            }
+            format => unimplemented!("Unsupported image format: {format:?}"),
+        }
+
+        let pixmap = Pixmap::from_parts(
+            rgba,
+            width,
+            height,
+            PixelMetadata::new(image.alpha_type, true),
+        );
 
         Self::Pixmap(Arc::new(pixmap))
     }
@@ -332,15 +317,22 @@ mod tests {
 
     #[test]
     fn from_peniko_image_data_computes_transparency_hint() {
-        for alpha_type in [
+        let opaque = image_data(
+            &[10, 20, 30, 255, 40, 50, 60, 255],
             peniko::ImageAlphaType::Alpha,
-            peniko::ImageAlphaType::AlphaPremultiplied,
-        ] {
-            let opaque = image_data(&[10, 20, 30, 255, 40, 50, 60, 255], alpha_type);
-            assert!(!ImageSource::from_peniko_image_data(&opaque).may_have_transparency());
+        );
+        assert!(!ImageSource::from_peniko_image_data(&opaque).may_have_transparency());
 
-            let translucent = image_data(&[10, 20, 30, 255, 40, 50, 60, 128], alpha_type);
-            assert!(ImageSource::from_peniko_image_data(&translucent).may_have_transparency());
-        }
+        let translucent = image_data(
+            &[10, 20, 30, 255, 40, 50, 60, 128],
+            peniko::ImageAlphaType::Alpha,
+        );
+        assert!(ImageSource::from_peniko_image_data(&translucent).may_have_transparency());
+
+        let premultiplied = image_data(
+            &[10, 20, 30, 255, 40, 50, 60, 255],
+            peniko::ImageAlphaType::AlphaPremultiplied,
+        );
+        assert!(ImageSource::from_peniko_image_data(&premultiplied).may_have_transparency());
     }
 }
