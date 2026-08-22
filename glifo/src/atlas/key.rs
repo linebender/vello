@@ -8,9 +8,8 @@
 //! COLR context color, and variable-font coordinates. Two keys that compare
 //! equal produce identical bitmaps and can safely share a single atlas entry.
 
-use crate::color::{AlphaColor, Srgb};
+use crate::color::{AlphaColor, PremulRgba8, Srgb, palette::css::BLACK};
 use crate::glyph::FontEmbolden;
-use crate::kurbo::Join;
 use core::hash::{Hash, Hasher};
 #[cfg(not(feature = "std"))]
 use core_maths::CoreFloat as _;
@@ -65,21 +64,27 @@ pub struct GlyphCacheKey {
     pub context_color: AlphaColor<Srgb>,
     /// Pre-packed context color (premultiplied RGBA8 as u32) used in Hash/Eq.
     pub context_color_packed: u32,
-    /// Synthetic embolden amount. Only non-zero for outline glyphs.
-    pub embolden_x_bits: u32,
-    /// Synthetic embolden amount. Only non-zero for outline glyphs.
-    pub embolden_y_bits: u32,
-    /// Join style for synthetic embolden. Only meaningful for outline glyphs.
-    pub embolden_join_bits: u8,
-    /// Miter limit for synthetic embolden. Only meaningful for outline glyphs.
-    pub embolden_miter_limit_bits: u32,
-    /// Tolerance for synthetic embolden. Only meaningful for outline glyphs.
-    pub embolden_tolerance_bits: u32,
+    /// Synthetic embolden settings for outline glyphs.
+    pub embolden: [u32; 5],
     /// Variation coordinates for variable fonts.
     pub var_coords: SmallVec<[NormalizedCoord; 4]>,
 }
 
 impl GlyphCacheKey {
+    /// A default value of [`GlyphCacheKey`].
+    pub const DEFAULT: Self = Self {
+        font_id: 0,
+        font_index: 0,
+        glyph_id: 0,
+        size_bits: 0,
+        hinted: false,
+        subpixel_x: SUBPIXEL_BUCKETS,
+        context_color: BLACK,
+        context_color_packed: BLACK_PACKED,
+        embolden: FontEmbolden::DEFAULT.to_array(),
+        var_coords: SmallVec::new_const(),
+    };
+
     /// Creates a new cache key.
     ///
     /// `fractional_x` (the fractional pixel offset) is quantized into
@@ -106,13 +111,21 @@ impl GlyphCacheKey {
             subpixel_x: quantize_subpixel(fractional_x),
             context_color,
             context_color_packed,
-            embolden_x_bits: f32_bits(embolden.amount.xx),
-            embolden_y_bits: f32_bits(embolden.amount.yy),
-            embolden_join_bits: join_bits(embolden.join),
-            embolden_miter_limit_bits: f32_bits(embolden.miter_limit),
-            embolden_tolerance_bits: f32_bits(embolden.tolerance),
+            embolden: embolden.to_array(),
             var_coords: SmallVec::from_slice(var_coords),
         }
+    }
+
+    /// Converts the cache key to a COLR glyph cache key.
+    pub const fn to_colr(mut self) -> Self {
+        self.subpixel_x = SUBPIXEL_COLR;
+        self
+    }
+
+    /// Converts the cache key to a bitmap glyph cache key.
+    pub const fn to_bitmap(mut self) -> Self {
+        self.subpixel_x = SUBPIXEL_BITMAP;
+        self
     }
 }
 
@@ -130,11 +143,7 @@ impl Hash for GlyphCacheKey {
         self.hinted.hash(state);
         self.subpixel_x.hash(state);
         self.context_color_packed.hash(state);
-        self.embolden_x_bits.hash(state);
-        self.embolden_y_bits.hash(state);
-        self.embolden_join_bits.hash(state);
-        self.embolden_miter_limit_bits.hash(state);
-        self.embolden_tolerance_bits.hash(state);
+        self.embolden.hash(state);
     }
 }
 
@@ -148,33 +157,20 @@ impl PartialEq for GlyphCacheKey {
             && self.size_bits == other.size_bits
             && self.hinted == other.hinted
             && self.context_color_packed == other.context_color_packed
-            && self.embolden_x_bits == other.embolden_x_bits
-            && self.embolden_y_bits == other.embolden_y_bits
-            && self.embolden_join_bits == other.embolden_join_bits
-            && self.embolden_miter_limit_bits == other.embolden_miter_limit_bits
-            && self.embolden_tolerance_bits == other.embolden_tolerance_bits
+            && self.embolden == other.embolden
     }
 }
 
 impl Eq for GlyphCacheKey {}
 
-#[inline(always)]
-fn join_bits(join: Join) -> u8 {
-    match join {
-        Join::Bevel => 0,
-        Join::Miter => 1,
-        Join::Round => 2,
-    }
+/// Pre-packed `BLACK` color as a `u32` for use in `GlyphCacheKey`.
+pub(crate) const BLACK_PACKED: u32 = PremulRgba8 {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 255,
 }
-
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "Cache keys intentionally store embolden parameters at f32 precision."
-)]
-#[inline(always)]
-fn f32_bits(value: f64) -> u32 {
-    (value as f32).to_bits()
-}
+.to_u32();
 
 /// Premultiply and pack an RGBA color into a `u32` for bitwise hashing/comparison.
 #[inline]
@@ -182,7 +178,7 @@ pub(crate) fn pack_color(color: AlphaColor<Srgb>) -> u32 {
     color.premultiply().to_rgba8().to_u32()
 }
 
-/// Quantize a fractional pixel offset into one of [`SUBPIXEL_BUCKETS`] buckets.
+/// Quantize a fractional pixel offset into one of `SUBPIXEL_BUCKETS` buckets.
 ///
 /// Values near 1.0 (>= 0.875 with 4 buckets) are clamped to the last bucket
 /// rather than wrapping to 0. Wrapping to bucket 0 without also incrementing the
@@ -193,7 +189,7 @@ pub(crate) fn pack_color(color: AlphaColor<Srgb>) -> u32 {
     reason = "result is clamped to SUBPIXEL_BUCKETS-1 which fits in u8"
 )]
 #[inline]
-fn quantize_subpixel(frac: f32) -> u8 {
+pub fn quantize_subpixel(frac: f32) -> u8 {
     let normalized = frac.fract();
     let normalized = if normalized < 0.0 {
         normalized + 1.0
@@ -293,11 +289,7 @@ mod tests {
             subpixel_x: SUBPIXEL_COLR,
             context_color: BLACK,
             context_color_packed: packed,
-            embolden_x_bits: 0,
-            embolden_y_bits: 0,
-            embolden_join_bits: join_bits(Join::Miter),
-            embolden_miter_limit_bits: 4.0_f32.to_bits(),
-            embolden_tolerance_bits: 0.1_f32.to_bits(),
+            embolden: FontEmbolden::DEFAULT.to_array(),
             var_coords: SmallVec::new(),
         };
         let bitmap_key = GlyphCacheKey {
@@ -309,11 +301,7 @@ mod tests {
             subpixel_x: SUBPIXEL_BITMAP,
             context_color: BLACK,
             context_color_packed: packed,
-            embolden_x_bits: 0,
-            embolden_y_bits: 0,
-            embolden_join_bits: join_bits(Join::Miter),
-            embolden_miter_limit_bits: 4.0_f32.to_bits(),
-            embolden_tolerance_bits: 0.1_f32.to_bits(),
+            embolden: FontEmbolden::DEFAULT.to_array(),
             var_coords: SmallVec::new(),
         };
         assert_ne!(outline_key, colr_key);
