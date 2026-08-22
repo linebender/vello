@@ -8,12 +8,12 @@ use alloc::vec::Vec;
 #[cfg(feature = "png")]
 use std::io::{BufRead, Seek};
 
-use crate::fearless_simd::{Level, Simd, SimdBase, SimdInt, SimdMask, dispatch, mask8x16};
+use crate::fearless_simd::{Level, Simd, SimdBase, SimdInt, SimdMask, dispatch, mask8x16, u16x16};
 use crate::peniko::{
     ImageAlphaType,
     color::{PremulRgba8, Rgba8},
 };
-use crate::util::Div255Ext;
+use crate::util::{Div255Ext, unpremultiply};
 
 #[cfg(feature = "png")]
 extern crate std;
@@ -395,28 +395,11 @@ impl Pixmap {
 
     /// Consume the pixmap, returning the data as (unpremultiplied) RGBA8.
     ///
-    /// Not fast, but useful for saving to PNG etc.
-    ///
     /// The pixels are in row-major order.
-    pub fn take_unpremultiplied(self) -> Vec<Rgba8> {
-        self.buf
-            .into_iter()
-            .map(|PremulRgba8 { r, g, b, a }| {
-                let alpha = 255.0 / f32::from(a);
-                if a != 0 {
-                    #[expect(clippy::cast_possible_truncation, reason = "deliberate quantization")]
-                    let unpremultiply = |component| (f32::from(component) * alpha + 0.5) as u8;
-                    Rgba8 {
-                        r: unpremultiply(r),
-                        g: unpremultiply(g),
-                        b: unpremultiply(b),
-                        a,
-                    }
-                } else {
-                    Rgba8 { r, g, b, a }
-                }
-            })
-            .collect()
+    pub fn take_unpremultiplied(mut self) -> Vec<Rgba8> {
+        unpremultiply_rgba8(bytemuck::cast_slice_mut(&mut self.buf));
+
+        bytemuck::cast_vec(self.buf)
     }
 }
 
@@ -460,6 +443,39 @@ fn premultiply_rgba8(data: &mut [u8]) -> bool {
     let level = Level::try_detect().unwrap_or(Level::baseline());
 
     dispatch!(level, simd => premultiply_rgba8_impl(simd, data))
+}
+
+/// Unpremultiplies each RGBA8 pixel in `data`.
+fn unpremultiply_rgba8(data: &mut [u8]) {
+    let level = Level::try_detect().unwrap_or(Level::baseline());
+
+    dispatch!(level, simd => unpremultiply_rgba8_impl(simd, data));
+}
+
+#[inline(always)]
+fn unpremultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) {
+    let (body, tail) = data.as_chunks_mut::<64>();
+
+    for chunk in body {
+        let rgba = simd.load_interleaved_128_u8x64(chunk);
+        let (rg, ba) = simd.split_u8x64(rgba);
+        let (r, g) = simd.split_u8x32(rg);
+        let (b, a) = simd.split_u8x32(ba);
+        let reciprocal = u16x16::from_fn(simd, |lane| unpremultiply::reciprocal(a[lane]));
+        let r = unpremultiply::simd(simd, r, reciprocal);
+        let g = unpremultiply::simd(simd, g, reciprocal);
+        let b = unpremultiply::simd(simd, b, reciprocal);
+
+        let rgba = simd.combine_u8x32(simd.combine_u8x16(r, g), simd.combine_u8x16(b, a));
+        simd.store_interleaved_128_u8x64(rgba, chunk);
+    }
+
+    for pixel in tail.chunks_exact_mut(4) {
+        let reciprocal = unpremultiply::reciprocal(pixel[3]);
+        for component in &mut pixel[..3] {
+            *component = unpremultiply::scalar(*component, reciprocal);
+        }
+    }
 }
 
 #[inline(always)]
