@@ -7,9 +7,10 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
-    ComputePassDescriptor, ComputePipeline, Device, PipelineCache, PipelineCompilationOptions,
-    Queue, Texture, TextureAspect, TextureUsages, TextureView, TextureViewDimension,
+    BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandBuffer, CommandEncoder,
+    CommandEncoderDescriptor, ComputePassDescriptor, ComputePipeline, Device, PipelineCache,
+    PipelineCompilationOptions, Queue, Texture, TextureAspect, TextureUsages, TextureView,
+    TextureViewDimension,
 };
 
 use crate::{
@@ -138,6 +139,19 @@ struct TransientBindMap<'a> {
 enum TransientBuf<'a> {
     Cpu(&'a [u8]),
     Gpu(&'a Buffer),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CommandBufferSubmission<T> {
+    Render(T),
+    PrefixAndRender(T, T),
+}
+
+fn command_buffer_submission<T>(prefix: Option<T>, render: T) -> CommandBufferSubmission<T> {
+    match prefix {
+        Some(prefix) => CommandBufferSubmission::PrefixAndRender(prefix, render),
+        None => CommandBufferSubmission::Render(render),
+    }
 }
 
 impl WgpuEngine {
@@ -384,6 +398,7 @@ impl WgpuEngine {
         recording: &Recording,
         external_resources: &[ExternalResource<'_>],
         label: &'static str,
+        prefix: Option<CommandBuffer>,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
     ) -> Result<()> {
         let mut free_bufs: HashSet<ResourceId> = HashSet::default();
@@ -754,7 +769,14 @@ impl WgpuEngine {
         // TODO: This only actually needs to happen once per frame, but run_recording happens two or three times
         #[cfg(feature = "wgpu-profiler")]
         profiler.resolve_queries(&mut encoder);
-        queue.submit(Some(encoder.finish()));
+        match command_buffer_submission(prefix, encoder.finish()) {
+            CommandBufferSubmission::PrefixAndRender(prefix, render) => {
+                queue.submit([prefix, render]);
+            }
+            CommandBufferSubmission::Render(render) => {
+                queue.submit(Some(render));
+            }
+        };
         for id in free_bufs {
             if let Some(buf) = self.bind_map.buf_map.remove(&id)
                 && let MaterializedBuffer::Gpu(gpu_buf) = buf.buffer
@@ -1243,5 +1265,22 @@ impl<'a> TransientBindMap<'a> {
                 ResourceProxy::Image(_) => todo!(),
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CommandBufferSubmission, command_buffer_submission};
+
+    #[test]
+    fn command_buffer_submission_preserves_prefix_order_and_fallback() {
+        assert_eq!(
+            command_buffer_submission(Some("prefix"), "render"),
+            CommandBufferSubmission::PrefixAndRender("prefix", "render")
+        );
+        assert_eq!(
+            command_buffer_submission(None, "render"),
+            CommandBufferSubmission::Render("render")
+        );
     }
 }

@@ -160,7 +160,7 @@ use wgpu_engine::{ExternalResource, WgpuEngine};
 #[cfg(feature = "wgpu")]
 use std::{num::NonZeroUsize, sync::atomic::AtomicBool};
 #[cfg(feature = "wgpu")]
-use wgpu::{Device, Queue, TextureView};
+use wgpu::{CommandBuffer, Device, Queue, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
@@ -479,6 +479,26 @@ impl Renderer {
         texture: &TextureView,
         params: &RenderParams,
     ) -> Result<()> {
+        self.render_to_texture_with_command_buffer(device, queue, scene, texture, params, None)
+    }
+
+    /// Renders a scene to the target texture, optionally after a caller-provided command buffer.
+    ///
+    /// This is an advanced API. When `prefix` is `Some`, Vello consumes the command buffer and
+    /// submits it immediately before its internally encoded render command buffer in the same
+    /// [`wgpu::Queue::submit`] call. The command buffer must have been created from `device` and
+    /// is dropped without submission if recording the Vello render fails.
+    ///
+    /// When `prefix` is `None`, this has the same behavior as [`Self::render_to_texture`].
+    pub fn render_to_texture_with_command_buffer(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene: &Scene,
+        texture: &TextureView,
+        params: &RenderParams,
+        prefix: Option<CommandBuffer>,
+    ) -> Result<()> {
         let (recording, target) = render::render_full(
             scene,
             &mut self.resolver,
@@ -496,6 +516,7 @@ impl Renderer {
             &recording,
             &external_resources,
             "render_to_texture",
+            prefix,
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
@@ -695,6 +716,7 @@ impl Renderer {
                 &recording,
                 &external_resources,
                 "render_to_texture_async debug layers",
+                None,
                 #[cfg(feature = "wgpu-profiler")]
                 &mut self.profiler,
             )?;
@@ -746,6 +768,7 @@ impl Renderer {
             &recording,
             &[],
             "t_async_coarse",
+            None,
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
@@ -772,6 +795,7 @@ impl Renderer {
             &recording,
             &external_resources,
             "t_async_fine",
+            None,
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
