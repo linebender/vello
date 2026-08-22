@@ -136,9 +136,44 @@ fn coverage<const N: usize>(start: u16, rect_lo: f32, rect_hi: f32) -> [f32; N] 
     #[allow(clippy::needless_range_loop, reason = "better clarity")]
     for i in 0..N {
         let px = (start as usize + i) as f32;
-        cov[i] = (rect_hi.min(px + 1.0) - rect_lo.max(px)).clamp(0.0, 1.0);
+        cov[i] = pixel_coverage(px, rect_lo, rect_hi);
     }
     cov
+}
+
+/// How much of the 1-pixel span starting at `px` is covered by `[rect_lo, rect_hi]`, in `[0, 1]`.
+#[inline(always)]
+pub fn pixel_coverage(px: f32, rect_lo: f32, rect_hi: f32) -> f32 {
+    (rect_hi.min(px + 1.0) - rect_lo.max(px)).clamp(0.0, 1.0)
+}
+
+/// Quantize a `[0, 1]` single-axis coverage value to a byte.
+///
+/// This is the quantization the strip renderer applies to axis-aligned rectangle coverage. The
+/// GPU rect quad in `vello_hybrid` derives its per-pixel alpha from bytes produced by this
+/// function and [`corner_coverage_u8`], which is what keeps the two rasterizers byte-identical.
+#[inline(always)]
+pub fn coverage_to_u8(cov: f32) -> u8 {
+    (cov * 255.0 + 0.5) as u8
+}
+
+/// The alpha byte of a pixel covered by `cov_x * cov_y` of its area (a rectangle corner pixel),
+/// quantized from the exact product — the same value [`render`] writes for that pixel.
+#[inline(always)]
+pub fn corner_coverage_u8(cov_x: f32, cov_y: f32) -> u8 {
+    (cov_x * cov_y * 255.0 + 0.5) as u8
+}
+
+/// `round(x * y / 255)` computed exactly in integer arithmetic.
+///
+/// This approximates [`corner_coverage_u8`] from the two already-quantized axis bytes; the result
+/// is always within 1 of it (quantizing each axis first loses strictly less than half an alpha
+/// step per axis). The GPU rect quad evaluates this expression in its shader and applies a
+/// precomputed 2-bit correction to land exactly on the [`corner_coverage_u8`] value.
+#[inline(always)]
+pub fn combine_coverage_u8(x: u8, y: u8) -> u8 {
+    let p = u32::from(x) * u32::from(y) + 128;
+    ((p + (p >> 8)) >> 8) as u8
 }
 
 /// Build an alpha mask for the 4x4 tile from the given horizontal coverages,
@@ -149,7 +184,7 @@ fn alpha_mask_from_x_coverage<S: Simd>(s: S, cov: &[f32; Tile::WIDTH as usize]) 
 
     #[allow(clippy::needless_range_loop, reason = "better clarity")]
     for col in 0..Tile::WIDTH as usize {
-        let alpha = (cov[col] * 255.0 + 0.5) as u8;
+        let alpha = coverage_to_u8(cov[col]);
         let base = col * Tile::HEIGHT as usize;
         buf[base..base + Tile::HEIGHT as usize].fill(alpha);
     }
@@ -168,7 +203,7 @@ fn combined_tile_alpha<S: Simd>(
     let mut buf = [0_u8; 16];
     for (col, xc) in x_cov.iter().copied().enumerate() {
         for (row, yc) in y_cov.iter().copied().enumerate() {
-            buf[col * Tile::HEIGHT as usize + row] = (xc * yc * 255.0 + 0.5) as u8;
+            buf[col * Tile::HEIGHT as usize + row] = corner_coverage_u8(xc, yc);
         }
     }
 

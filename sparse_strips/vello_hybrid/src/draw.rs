@@ -5,7 +5,7 @@
 
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, COLOR_SOURCE_SHIFT, PaintResolver};
-use crate::rect::{RectPart, split_rect};
+use crate::rect::{FULL_COVERAGE, FULLY_OPAQUE_ADJUST, RectPart, split_rect};
 use crate::scene::{RecordedDraw, RecordedPath};
 use crate::target::{DrawTarget, LayerTextureRegion};
 use crate::util::{Ranges, VecExt, pack_opacity, pack_u16_pair};
@@ -233,7 +233,9 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         let paint = paint_resolver.pack(paint);
         let depth_index = self.state.depth_counter.next(paint.opaque);
 
-        let split = split_rect(&clipped_rect);
+        let Some(split) = split_rect(&clipped_rect) else {
+            return;
+        };
 
         for part in [
             Some(split.main),
@@ -256,7 +258,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
             );
 
             if !(paint.opaque
-                && part.frac == 0
+                && part.corner_adjust == FULLY_OPAQUE_ADJUST
                 && self.push_opaque(strip, paint.external_texture_id))
             {
                 self.draw
@@ -311,7 +313,8 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
 
             let rect_part = RectPart {
                 rect: sample_bbox.shift(self.state.target.geometry_shift()),
-                frac: 0,
+                frac: FULL_COVERAGE,
+                corner_adjust: FULLY_OPAQUE_ADJUST,
             };
 
             self.draw.has_child_layer = true;
@@ -419,6 +422,10 @@ impl GpuStrip {
     }
 
     fn from_rect(part: RectPart, payload: u32, paint: u32, depth_index: u32) -> Self {
+        debug_assert!(
+            depth_index < (1 << 24),
+            "depth indices are 24-bit; the top byte carries rect corner corrections"
+        );
         Self {
             x: part.rect.x0,
             y: part.rect.y0,
@@ -427,7 +434,9 @@ impl GpuStrip {
             col_idx_or_rect_frac: part.frac,
             payload,
             paint_and_rect_flag: paint | RECT_STRIP_FLAG,
-            depth_index,
+            // The z value only uses the low 24 bits (see `render.wesl`), so the top byte is
+            // free to carry the rect's corner corrections.
+            depth_index: depth_index | (u32::from(part.corner_adjust) << 24),
         }
     }
 }
@@ -527,6 +536,7 @@ mod tests {
     use super::{Draw, DrawBuffers, DrawBuilder, DrawState, ExternalTextureRun, OpaqueDraw};
     use crate::GpuStrip;
     use crate::paint::PaintResolver;
+    use crate::rect::FULLY_OPAQUE_ADJUST;
     use crate::scene::{RecordedDraw, RecordedRect};
     use crate::target::{
         DrawTarget, LayerTextureId, LayerTextureRegion, RootTarget, TextureParity, TextureRegion,
@@ -862,12 +872,14 @@ mod tests {
             case.rect(&mut draw, rect(x), solid(alpha), no_paints());
         }
 
+        // The z value lives in the low 24 bits; the top byte carries the
+        // rect's corner corrections (all-opaque marker for these full rects).
         assert_eq!(
             case.buffers
                 .strips
                 .ranged(&draw.strip_ranges)
                 .iter()
-                .map(|strip| strip.depth_index)
+                .map(|strip| strip.depth_index & 0xff_ffff)
                 .collect::<Vec<_>>(),
             [0, 0, 1, 1, 2]
         );
@@ -876,9 +888,18 @@ mod tests {
                 .opaque
                 .strips()
                 .iter()
-                .map(|strip| strip.depth_index)
+                .map(|strip| strip.depth_index & 0xff_ffff)
                 .collect::<Vec<_>>(),
             [1, 2]
         );
+        for strip in case
+            .buffers
+            .strips
+            .ranged(&draw.strip_ranges)
+            .iter()
+            .chain(case.buffers.opaque.strips().iter())
+        {
+            assert_eq!(strip.depth_index >> 24, u32::from(FULLY_OPAQUE_ADJUST));
+        }
     }
 }
