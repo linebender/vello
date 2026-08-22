@@ -369,6 +369,139 @@ pub fn strip_bbox(strips: &[Strip]) -> Option<RectU16> {
     }
 }
 
+pub(crate) mod unpremultiply {
+    use fearless_simd::{Simd, SimdBase, u8x16, u16x16};
+
+    trait Div256Ext {
+        /// Divide by 256, rounding to the nearest integer.
+        ///
+        /// Values must not exceed `u16::MAX - 128`.
+        fn div_256(self) -> Self;
+    }
+
+    impl Div256Ext for u16 {
+        #[inline(always)]
+        fn div_256(self) -> Self {
+            (self + 128) >> 8
+        }
+    }
+
+    impl<S: Simd> Div256Ext for u16x16<S> {
+        #[inline(always)]
+        fn div_256(self) -> Self {
+            (self + Self::splat(self.simd, 128)) >> 8
+        }
+    }
+
+    // Unlike premultiplication, unpremultiplication is difficult to perform
+    // efficiently with SIMD because the divisor varies for each pixel.
+    // Premultiplication computes `rgb * alpha / 255`, while
+    // unpremultiplication computes `rgb * 255 / alpha`.
+    //
+    // Therefore, what we do instead is that we precompute the reciprocal
+    // 255 / alpha for each possible alpha value such that the
+    // computation simply becomes rgb * reciprocal. We do this using fixed-point
+    // artithmetic with 8 fractional digits, hence why we need to multiply and
+    // divide by 256.
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "all generated reciprocals fit into a u16"
+    )]
+    const fn reciprocals() -> [u16; 256] {
+        let mut values = [0; 256];
+
+        // When alpha is 0, so are the RGB channels so it just stays
+        // 0.
+        let mut alpha = 1;
+
+        while alpha < 256 {
+            let round_factor = alpha / 2;
+            values[alpha] = ((255 * 256 + round_factor) / alpha) as u16;
+            alpha += 1;
+        }
+
+        values
+    }
+
+    const RECIPROCALS: [u16; 256] = reciprocals();
+
+    #[inline(always)]
+    pub(crate) const fn reciprocal(alpha: u8) -> u16 {
+        RECIPROCALS[alpha as usize]
+    }
+
+    #[inline(always)]
+    pub(crate) fn scalar(component: u8, reciprocal: u16) -> u8 {
+        (u16::from(component) * reciprocal).div_256() as u8
+    }
+
+    #[inline(always)]
+    pub(crate) fn simd<S: Simd>(simd: S, component: u8x16<S>, reciprocal: u16x16<S>) -> u8x16<S> {
+        let product = simd.widen_u8x16(component) * reciprocal;
+        simd.narrow_u16x16(product.div_256())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use fearless_simd::{Level, SimdBase, dispatch, u8x16, u16x16};
+
+        use super::{reciprocal, scalar, simd as unpremultiply_simd};
+
+        fn assert_accurate(component: u8, alpha: u8, actual: u8) {
+            // For 0 and 255 we want exact matches, otherwise we tolerate
+            // a delta of at most 1 compared to f32.
+
+            if component == 0 || alpha == 0 || alpha == 255 {
+                assert_eq!(actual, component);
+            } else if component == alpha {
+                assert_eq!(actual, 255);
+            } else {
+                let expected = (f32::from(component) * 255.0 / f32::from(alpha) + 0.5) as u8;
+
+                assert!(
+                    actual.abs_diff(expected) <= 1,
+                    "component {component} with alpha {alpha} produced {actual} instead of {expected}"
+                );
+            }
+        }
+
+        #[test]
+        fn scalar_exhaustive() {
+            for alpha in 0_u8..=255 {
+                for component in 0_u8..=alpha {
+                    assert_accurate(component, alpha, scalar(component, reciprocal(alpha)));
+                }
+            }
+        }
+
+        #[test]
+        fn simd_exhaustive() {
+            let level = Level::try_detect().unwrap_or(Level::baseline());
+
+            dispatch!(level, simd => {
+                for alpha in 0_u8..=255 {
+                    let alpha_simd = u8x16::splat(simd, alpha);
+                    let reciprocal =
+                        u16x16::from_fn(simd, |lane| reciprocal(alpha_simd[lane]));
+
+                    for component_start in (0_u16..=u16::from(alpha)).step_by(16) {
+                        let component = u8x16::from_fn(simd, |lane| {
+                            (component_start + lane as u16).min(u16::from(alpha)) as u8
+                        });
+                        let actual = unpremultiply_simd(simd, component, reciprocal);
+
+                        for lane in 0..16 {
+                            let component = component[lane];
+                            assert_accurate(component, alpha, actual[lane]);
+                        }
+                    }
+                }
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::RectU16;
