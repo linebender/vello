@@ -398,7 +398,7 @@ impl Pixmap {
     /// The pixels are in row-major order.
     pub fn take_unpremultiplied(mut self) -> Vec<Rgba8> {
         unpremultiply_rgba8(bytemuck::cast_slice_mut(&mut self.buf));
-        
+
         bytemuck::cast_vec(self.buf)
     }
 }
@@ -448,7 +448,7 @@ fn premultiply_rgba8(data: &mut [u8]) -> bool {
 /// Unpremultiplies each RGBA8 pixel in `data`.
 fn unpremultiply_rgba8(data: &mut [u8]) {
     let level = Level::try_detect().unwrap_or(Level::baseline());
-    
+
     dispatch!(level, simd => unpremultiply_rgba8_impl(simd, data));
 }
 
