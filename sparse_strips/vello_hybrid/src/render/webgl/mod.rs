@@ -1645,8 +1645,6 @@ impl WebGlPrograms {
     }
 
     /// Grow the filter data texture if needed.
-    ///
-    /// See [`maybe_resize_alphas_tex`](Self::maybe_resize_alphas_tex) for the storage strategy.
     fn maybe_resize_filter_data_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
@@ -1674,9 +1672,6 @@ impl WebGlPrograms {
     }
 
     /// Upload filter data to the texture.
-    ///
-    /// Only the rows covering this frame's filter data are uploaded; see
-    /// [`upload_alpha_texture`](Self::upload_alpha_texture).
     fn upload_filter_data_texture(
         &mut self,
         gl: &WebGl2RenderingContext,
@@ -1742,10 +1737,6 @@ impl WebGlPrograms {
     }
 
     /// Grow the alpha texture if needed.
-    ///
-    /// The texture uses immutable storage, so growing allocates a new texture. No contents need
-    /// copying: the alpha data is fully rewritten every frame. The allocated height only ever
-    /// grows; frames upload just the rows they use.
     fn maybe_resize_alphas_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
@@ -1775,8 +1766,6 @@ impl WebGlPrograms {
     }
 
     /// Grow the encoded paints texture if needed.
-    ///
-    /// See [`maybe_resize_alphas_tex`](Self::maybe_resize_alphas_tex) for the storage strategy.
     fn maybe_resize_encoded_paints_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
@@ -1808,11 +1797,6 @@ impl WebGlPrograms {
     }
 
     /// Grow the gradient texture if needed.
-    ///
-    /// See [`maybe_resize_alphas_tex`](Self::maybe_resize_alphas_tex) for the storage strategy.
-    /// No contents need copying on growth: this is only called when the gradient cache has
-    /// changed, and [`upload_gradient_texture`](Self::upload_gradient_texture) then re-uploads
-    /// the entire LUT cache.
     fn maybe_resize_gradient_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
@@ -1886,10 +1870,6 @@ impl WebGlPrograms {
     }
 
     /// Upload alpha data to the texture.
-    ///
-    /// Only the rows used by this frame's alpha data are uploaded, not the full (peak-sized)
-    /// texture. Rows above keep stale contents from previous frames, which is fine because the
-    /// shader only reads alpha indices produced by the current frame.
     fn upload_alpha_texture(&mut self, gl: &WebGl2RenderingContext, alphas: &mut Vec<u8>) {
         if alphas.is_empty() {
             return;
@@ -1918,9 +1898,6 @@ impl WebGlPrograms {
     }
 
     /// Upload encoded paints to the texture.
-    ///
-    /// Only the rows covering this frame's paints are uploaded; see
-    /// [`upload_alpha_texture`](Self::upload_alpha_texture).
     fn upload_encoded_paints_texture(
         &mut self,
         gl: &WebGl2RenderingContext,
@@ -2552,16 +2529,7 @@ fn create_texture_inner(
     texture
 }
 
-/// Create a data texture backed by immutable storage (`texStorage2D`).
-///
-/// Immutable storage is preferred over `texImage2D` for the per-frame data textures: the driver
-/// allocates and validates the texture once at creation instead of re-specifying (and
-/// re-validating) the backing store on every upload, and contents can then be streamed with
-/// `texSubImage2D` covering only the region that changed. See
-/// <https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_texstorage_to_create_textures>.
-///
-/// The size and format are fixed for the lifetime of the texture; growing requires creating a
-/// new texture. WebGL guarantees the storage is zero-initialized.
+/// Create a zero-initialized data texture backed by immutable storage (`texStorage2D`).
 fn create_data_texture_storage(
     gl: &WebGl2RenderingContext,
     internal_format: u32,
@@ -2574,6 +2542,8 @@ fn create_data_texture_storage(
         WebGl2RenderingContext::NEAREST,
     );
     // `create_texture` leaves the new texture bound on the active texture unit.
+    // Prefer `texStorage2D` over `texImage2D` for potentially better performance; see
+    // <https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_texstorage_to_create_textures>.
     gl.tex_storage_2d(
         WebGl2RenderingContext::TEXTURE_2D,
         1,
@@ -2586,7 +2556,7 @@ fn create_data_texture_storage(
 
 /// Create a 1x1 RGBA32UI placeholder texture.
 fn create_placeholder_rgba32ui_texture(gl: &WebGl2RenderingContext) -> Texture {
-    // See `create_placeholder_rgba8_texture` for why the initial allocation matters.
+    // Allocated storage keeps the placeholder texture complete when no data is available.
     create_data_texture_storage(gl, WebGl2RenderingContext::RGBA32UI, 1, 1)
 }
 
@@ -2596,7 +2566,7 @@ fn create_placeholder_rgba32ui_texture(gl: &WebGl2RenderingContext) -> Texture {
 /// makes the draw call non-renderable: the driver substitutes a black texture for every draw and
 /// browsers log a render warning for each one. Data textures are only uploaded when a scene has
 /// data for them, so allocate a minimal level 0 up front to keep them complete for scenes that
-/// don't. WebGL zero-initializes the storage, so these sample as transparent black.
+/// don't.
 fn create_placeholder_rgba8_texture(gl: &WebGl2RenderingContext) -> Texture {
     create_data_texture_storage(gl, WebGl2RenderingContext::RGBA8, 1, 1)
 }
@@ -3691,12 +3661,10 @@ fn copy_to_texture_array_layer(
     );
 }
 
-/// Upload `rows` full rows of RGBA32UI texel data into the given texture's existing
-/// (immutable) storage via `texSubImage2D`.
+/// Upload full rows of RGBA32UI data into immutable texture storage.
 ///
-/// `data` must contain exactly `width * rows` RGBA32UI texels (4 `u32`s per texel). Only the
-/// uploaded rows are modified; rows above `rows` keep their previous contents, which is fine
-/// because shaders only read texels referenced by the current frame's data.
+/// `data` must contain exactly `width * rows * 4` `u32` values.
+/// Texels outside the uploaded rows remain unchanged.
 fn upload_rgba32ui_rows(
     gl: &WebGl2RenderingContext,
     texture: &WebGlTexture,
