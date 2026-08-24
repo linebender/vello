@@ -32,5 +32,18 @@ pub fn pixmap(c: &mut Criterion) {
             BatchSize::LargeInput,
         );
     });
+    let pixmap = Pixmap::from_parts(
+        rgba,
+        WIDTH,
+        HEIGHT,
+        PixelMetadata::new(ImageAlphaType::Alpha, true),
+    );
+    group.bench_function("take_unpremultiplied", |b| {
+        b.iter_batched(
+            || pixmap.clone(),
+            |pixmap| black_box(pixmap.take_unpremultiplied()),
+            BatchSize::LargeInput,
+        );
+    });
     group.finish();
 }
