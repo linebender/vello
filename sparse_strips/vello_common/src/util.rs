@@ -371,14 +371,29 @@ pub fn strip_bbox(strips: &[Strip]) -> Option<RectU16> {
 
 #[cfg(test)]
 mod tests {
-    use super::RectU16;
-    use super::{RectExt, strip_bbox};
+    use super::{RectExt, RectU16, f32_to_u8, strip_bbox};
     use crate::strip::Strip;
     use crate::tile::Tile;
+    use fearless_simd::{Fallback, SimdBase, f32x16};
     use peniko::kurbo::Rect;
 
     fn sentinel(y: u16, alpha_idx: u32) -> Strip {
         Strip::new(u16::MAX, y, alpha_idx, false)
+    }
+
+    #[test]
+    fn f32_to_u8_preserves_truncated_byte_values() {
+        let simd = Fallback::new();
+        let values = [
+            0.0, 0.99, 1.0, 1.99, 42.0, 42.9, 127.0, 127.9, 128.0, 128.9, 254.0, 254.9, 255.0,
+            255.49, 255.5, 255.99,
+        ];
+        let expected = [
+            0, 0, 1, 1, 42, 42, 127, 127, 128, 128, 254, 254, 255, 255, 255, 255,
+        ];
+        let actual: [u8; 16] = f32_to_u8(f32x16::from_slice(simd, &values)).into();
+
+        assert_eq!(actual, expected);
     }
 
     #[test]

@@ -346,6 +346,45 @@ jobs:
       - name: cargo test --doc
         run: cargo test --doc --workspace --locked --all-features --no-fail-fast
 
+  test-big-endian:
+    name: cargo test (big-endian, ${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64_be-unknown-linux-gnu
+          - powerpc64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+
+      - name: install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
+          key: ${{ matrix.target }}
+
+      - name: cargo test
+        run: |
+          start=$SECONDS
+          set +e
+          cross test -p vello_common --locked --target ${{ matrix.target }} --no-default-features --features std
+          status=$?
+          set -e
+          echo "### ${{ matrix.target }}: ${SECONDS}s" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
   test-stable-wasm:
     name: cargo test (wasm32, ${{ matrix.name }})
     needs: prime-lfs-cache
