@@ -2582,6 +2582,7 @@ fn create_webgl_resources(
     resource_texture_dimension_2d: u32,
 ) -> WebGlResources {
     let quad_index_buffer = Buffer::new(gl);
+    let strip_vao = VertexArray::new(gl);
     // We use u16 for the indices instead of u8 due to better compatibility, to avoid overhead
     // from any potential emulation that the driver might have to do for correctness reasons.
     // D3D11 only supports u16/u32: https://learn.microsoft.com/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-iasetindexbuffer
@@ -2590,11 +2591,10 @@ fn create_webgl_resources(
     // ANGLE also seems to special-case on Metal, as additional evidence: https://chromium.googlesource.com/angle/angle/+/bfc764c553fa0613f858315bc6c0cc1ecee469a1/src/libANGLE/renderer/metal/VertexArrayMtl.mm#63
     let quad_indices = js_sys::Uint16Array::from(&[0_u16, 1, 2, 3][..]);
 
-    let temp_vao = VertexArray::new(gl);
     // Just to avoid potentially modifying a VAO that might
     // have been bound by a caller before calling Vello, since
     // binding `ELEMENT_ARRAY_BUFFER` also updates VAO state.
-    gl.bind_vertex_array(Some(&temp_vao));
+    gl.bind_vertex_array(Some(&strip_vao));
     gl.bind_buffer(
         WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
         Some(&quad_index_buffer),
@@ -2606,7 +2606,6 @@ fn create_webgl_resources(
     );
     gl.bind_vertex_array(None);
 
-    let strip_vao = VertexArray::new(gl);
     let filter_vao = VertexArray::new(gl);
     let blend_vao = VertexArray::new(gl);
     let copy_vao = VertexArray::new(gl);
