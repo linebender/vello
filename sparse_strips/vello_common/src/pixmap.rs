@@ -400,7 +400,9 @@ impl Pixmap {
     ///
     /// The pixels are in row-major order.
     pub fn take_unpremultiplied(mut self) -> Vec<Rgba8> {
-        unpremultiply_rgba8(bytemuck::cast_slice_mut(&mut self.buf));
+        if self.may_have_transparency {
+            unpremultiply_rgba8(bytemuck::cast_slice_mut(&mut self.buf));
+        }
 
         bytemuck::cast_vec(self.buf)
     }
