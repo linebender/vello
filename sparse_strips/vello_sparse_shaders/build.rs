@@ -1,7 +1,25 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Build.
+//! Build-time shader pipeline.
+//!
+//! Every top-level file in `shaders` is treated as a root module. WESL links each root with its
+//! imports, then the linked WGSL is parsed into Naga IR. Named declarations are deterministically
+//! shortened while renderer-facing entry-point names remain unchanged, and redundant comments and
+//! whitespace are removed from the serialized WGSL.
+//!
+//! The generated module always embeds the minified WGSL. With the `glsl` feature, it also contains
+//! minified vertex and fragment GLSL plus reflection metadata. Global names are recorded before
+//! renaming so that this metadata continues to expose the resource names authored in WESL.
+//!
+//! ```text
+//! shaders/*.wesl -> linked WGSL -> renamed Naga IR -> minified WGSL
+//!                                                       |-> WGSL constants ---------|
+//!                                                       |                           |
+//!                                                       |-> [glsl] GLSL + reflection|
+//!                                                                                   |
+//!                                            OUT_DIR/compiled_shaders.rs <----------|
+//! ```
 
 use std::env;
 use std::fmt::Write;
@@ -17,8 +35,8 @@ mod compile;
 #[cfg(feature = "glsl")]
 #[path = "src/lint/mod.rs"]
 mod lint;
-#[path = "src/mangle.rs"]
-mod mangle;
+#[path = "src/minify.rs"]
+mod minify;
 #[allow(warnings)]
 #[cfg(feature = "glsl")]
 #[path = "src/types.rs"]
@@ -27,6 +45,8 @@ mod types;
 struct ShaderInfo {
     name: String,
     wgsl_source: String,
+    #[cfg(feature = "glsl")]
+    original_global_names: std::collections::BTreeMap<String, String>,
 }
 
 // TODO: Format the generated code via `rustfmt`.
@@ -48,7 +68,6 @@ fn main() {
 fn load_shader_infos(shader_dir: &Path) -> Vec<ShaderInfo> {
     let shader_names = load_shader_names(shader_dir);
     let mut compiler = Wesl::new(shader_dir);
-    compiler.set_custom_mangler(mangle::ShortMangler::default());
 
     compiler.use_stripping(true);
 
@@ -78,12 +97,18 @@ fn compile_shader<R: wesl::Resolver>(compiler: &Wesl<R>, name: String) -> Shader
     let module_path = format!("package::{name}")
         .parse()
         .expect("generated WESL module path should be valid");
-    let wgsl_source = compiler
+    let linked_wgsl = compiler
         .compile(&module_path)
         .unwrap_or_else(|error| panic!("Unable to compile `{name}.wesl`: {error}"))
         .to_string();
+    let minified = minify::minify_wgsl(&linked_wgsl);
 
-    ShaderInfo { name, wgsl_source }
+    ShaderInfo {
+        name,
+        wgsl_source: minified.source,
+        #[cfg(feature = "glsl")]
+        original_global_names: minified.original_global_names,
+    }
 }
 
 fn generate_compiled_shaders_module(shader_infos: &[ShaderInfo]) -> String {
@@ -129,6 +154,7 @@ fn generate_compiled_shaders_module(shader_infos: &[ShaderInfo]) -> String {
                 &shader_info.name,
                 "vs_main",
                 "fs_main",
+                &shader_info.original_global_names,
             );
             let generated_code = shader.to_generated_code(&shader_info.name);
             writeln!(buf, "{generated_code}").unwrap();

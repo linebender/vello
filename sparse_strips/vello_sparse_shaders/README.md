@@ -14,24 +14,26 @@ shader programs, used by the Vello Hybrid renderer.
 
 ## Features
 - Single source of truth authored as [WESL](https://wesl-lang.dev/) programs.
-- Automated build step for linking WESL to WGSL and compiling GLSL shaders using
-  [naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga).
+- Automated build step that links WESL, then uses
+  [naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) to minify the resulting WGSL.
+- Optional generation of minified GLSL and reflection metadata for WebGL.
 
 ## Usage
 This crate provides linked WGSL programs and the build step for GLSL programs used by the optimized
 hybrid rendering engine.
 
-Whenever the WESL shaders are updated, the build script automatically relinks the WGSL and
-regenerates the GLSL programs used by the crate itself.
+Whenever the WESL shaders are updated, the build script automatically relinks and minifies the
+WGSL. When the `glsl` feature is enabled, it also regenerates the minified GLSL programs and
+reflection metadata used by `vello_hybrid`.
 
-If you want to inspect the generated WebGL GLSL output directly, you can also create a "local copy" that is
-easier to inspect by running:
+To inspect the generated WebGL GLSL and the embedded `compiled_shaders.rs` module used by
+`vello_hybrid`, create local copies by running:
 
 ```sh
 cargo run -p vello_sparse_shaders --features glsl
 ```
 
-After doing so, the WebGL shaders will be written into the `generated_glsl` folder.
+The generated files will be written into the `generated_glsl` folder.
 
 ## Minimum supported Rust Version (MSRV)
 
