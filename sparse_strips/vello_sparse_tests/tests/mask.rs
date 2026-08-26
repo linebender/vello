@@ -57,6 +57,17 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     }
 }
 
+#[vello_test(transparent)]
+fn mask_prevents_background(ctx: &mut impl Renderer) {
+    let mut data = vec![0; 100 * 100];
+    for row in data.chunks_exact_mut(100).skip(25).take(50) {
+        row[25..75].fill(255);
+    }
+    ctx.set_mask(Mask::from_parts(data, 100, 100));
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+}
+
 fn mask(ctx: &mut impl Renderer, alpha_mask: bool) {
     let mask = example_mask(alpha_mask);
 

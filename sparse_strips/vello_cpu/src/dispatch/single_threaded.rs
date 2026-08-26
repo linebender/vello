@@ -12,6 +12,7 @@ use crate::record::RecordedFill;
 use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use core::cell::RefCell;
+use vello_common::color::{OpaqueColor, Srgb};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter::FilterData;
@@ -65,16 +66,17 @@ impl SingleThreadedDispatcher {
     #[cfg(feature = "f32_pipeline")]
     fn rasterize_f32(
         &self,
-        target: PixmapMut<'_>,
+        target: &mut PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        background_color: Option<OpaqueColor<Srgb>>,
     ) {
         use crate::fine::F32Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver, background_color));
     }
 
     /// Rasterizes the scene using u8 precision (fast).
@@ -84,16 +86,17 @@ impl SingleThreadedDispatcher {
     #[cfg(feature = "u8_pipeline")]
     fn rasterize_u8(
         &self,
-        target: PixmapMut<'_>,
+        target: &mut PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        background_color: Option<OpaqueColor<Srgb>>,
     ) {
         use crate::fine::U8Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver, background_color));
     }
 
     // Note: We purposefully don't add `vectorize` to each of these helpers,
@@ -101,12 +104,13 @@ impl SingleThreadedDispatcher {
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        target: PixmapMut<'_>,
+        target: &mut PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        background_color: Option<OpaqueColor<Srgb>>,
     ) {
         let filters = self.rasterize_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let use_src_over = settings.composite_mode == CompositeMode::SrcOver;
@@ -125,6 +129,7 @@ impl SingleThreadedDispatcher {
             use_src_over,
             encoded_paints,
             image_resolver,
+            background_color,
         );
     }
 
@@ -134,11 +139,12 @@ impl SingleThreadedDispatcher {
         cmds: &[Node],
         viewport: RectU16,
         filter_ctx: &FilterContext,
-        mut target: PixmapMut<'_>,
+        target: &mut PixmapMut<'_>,
         params: FineRenderParams,
         use_src_over: bool,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        background_color: Option<OpaqueColor<Srgb>>,
     ) {
         let mut bucketer = self.bucketer.borrow_mut();
         bucketer.reset(viewport);
@@ -159,12 +165,19 @@ impl SingleThreadedDispatcher {
             image_resolver,
         };
         let mut regions = Regions::new(
-            &mut target,
+            target,
             params.scene_size,
             params.target_offset,
             bucketer.rows().len(),
         );
-        Self::rasterize_target::<S, F>(simd, &bucketer, resources, &mut regions, use_src_over);
+        Self::rasterize_target::<S, F>(
+            simd,
+            &bucketer,
+            resources,
+            &mut regions,
+            use_src_over,
+            background_color,
+        );
     }
 
     fn rasterize_target<S: Simd, F: FineKernel<S>>(
@@ -173,6 +186,7 @@ impl SingleThreadedDispatcher {
         resources: FineResources<'_>,
         regions: &mut Regions<'_>,
         use_src_over: bool,
+        background_color: Option<OpaqueColor<Srgb>>,
     ) {
         // TODO: Reuse fine and depth buffer across targets?
         let mut fine = Fine::<S, F>::new(simd, bucketer.width());
@@ -185,6 +199,7 @@ impl SingleThreadedDispatcher {
                 bucketer,
                 resources,
                 use_src_over,
+                background_color,
             );
         });
     }
@@ -239,16 +254,18 @@ impl SingleThreadedDispatcher {
                 target_offset: (0, 0),
             };
 
+            let mut target = (&mut pixmap).into();
             self.bucket_and_rasterize::<S, F>(
                 simd,
                 &self.recorder.layers[id as usize].nodes,
                 pixmap_bbox,
                 &filter_ctx,
-                (&mut pixmap).into(),
+                &mut target,
                 params,
                 false,
                 encoded_paints,
                 image_resolver,
+                None,
             );
 
             F::filter_layer(
@@ -270,6 +287,10 @@ impl SingleThreadedDispatcher {
 }
 
 impl Dispatcher for SingleThreadedDispatcher {
+    fn is_empty(&self) -> bool {
+        self.recorder.nodes.is_empty() && self.viewport.clip().is_none()
+    }
+
     fn has_layers(&self) -> bool {
         self.recorder.has_layers()
     }
@@ -414,12 +435,13 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn rasterize(
         &self,
-        target: PixmapMut<'_>,
+        target: &mut PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        background_color: Option<OpaqueColor<Srgb>>,
     ) {
         // If only the u8 pipeline is enabled, then use it.
         #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
@@ -431,6 +453,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 settings,
                 encoded_paints,
                 image_resolver,
+                background_color,
             );
         }
 
@@ -444,6 +467,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 settings,
                 encoded_paints,
                 image_resolver,
+                background_color,
             );
         }
 
@@ -459,6 +483,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                     settings,
                     encoded_paints,
                     image_resolver,
+                    background_color,
                 );
             }
             crate::RenderMode::OptimizeQuality => {
@@ -470,6 +495,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                     settings,
                     encoded_paints,
                     image_resolver,
+                    background_color,
                 );
             }
         }

@@ -9,6 +9,14 @@ use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_dev_macros::vello_test;
 
+#[vello_test(transparent)]
+fn layer_prevents_background(ctx: &mut impl Renderer) {
+    ctx.push_opacity_layer(0.5);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_layer();
+}
+
 #[vello_test(cpu_u8_tolerance = 1)]
 fn layer_multiple_properties_1(ctx: &mut impl Renderer) {
     let mask = example_mask(true);

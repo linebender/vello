@@ -18,6 +18,15 @@ use vello_cpu::peniko::{
 };
 use vello_dev_macros::vello_test;
 
+#[vello_test(transparent)]
+fn clip_prevents_background(ctx: &mut impl Renderer) {
+    let clip = Rect::new(25.0, 25.0, 75.0, 75.0).to_path(0.1);
+    ctx.push_clip_path(&clip);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_clip_path();
+}
+
 #[vello_test(hybrid_tolerance = 1)]
 fn clip_triangle_with_star(ctx: &mut impl Renderer) {
     let mut triangle_path = BezPath::new();

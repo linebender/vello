@@ -34,7 +34,9 @@
 
 use crate::filter::{FilterData, FilterLayerPlacement};
 use crate::geometry::{RectU16, SizeU16};
+use crate::kurbo::Rect;
 use crate::mask::Mask;
+use crate::paint::{Paint, PremulColor};
 use crate::peniko::BlendMode;
 use crate::strip::Strip;
 use crate::util::RectExt;
@@ -448,13 +450,84 @@ pub enum PoppedLayer {
     Filter,
 }
 
+/// Track the background color of the root viewport.
+#[derive(Clone, Copy, Debug)]
+pub struct RootBackground {
+    viewport: Rect,
+    color: Option<PremulColor>,
+    /// Whether only opaque colors should be accepted as a background color.
+    only_opaque: bool,
+    /// Whether the background is guaranteed to be preserved.
+    is_preserved: bool,
+}
+
+impl RootBackground {
+    /// Create a root background for the given viewport.
+    #[inline]
+    pub fn new(viewport: Rect, only_opaque: bool) -> Self {
+        Self {
+            viewport,
+            color: None,
+            only_opaque,
+            is_preserved: true,
+        }
+    }
+
+    /// Try to extract a background from the given rectangle and its paint.
+    #[inline]
+    pub fn try_extract(&mut self, rect: Rect, paint: &Paint, blend_mode: BlendMode) -> bool {
+        if blend_mode != BlendMode::default() {
+            return false;
+        }
+
+        let Paint::Solid(color) = paint else {
+            return false;
+        };
+
+        if rect.contains_rect(self.viewport) && (!self.only_opaque || color.is_opaque()) {
+            self.color = Some(*color);
+
+            true
+        } else {
+            // If we already have a background and the rect has the same color, we can just
+            // absorb it into the background, even if it doesn't cover the whole area.
+            color.is_opaque() && self.color == Some(*color)
+        }
+    }
+
+    /// Record a blend operation against the root background.
+    #[inline]
+    pub fn record_blend(&mut self, blend_mode: BlendMode) {
+        self.is_preserved &= blend_mode == BlendMode::default();
+    }
+
+    /// Return the color used to initialize the root target.
+    #[inline]
+    pub fn color(&self) -> Option<PremulColor> {
+        self.color
+    }
+
+    /// Return whether the background is guaranteed to.
+    #[inline]
+    pub fn is_preserved(&self) -> bool {
+        self.is_preserved
+    }
+
+    /// Reset the state of the background.
+    #[inline]
+    pub fn reset(&mut self, scene_viewport: Rect) {
+        *self = Self::new(scene_viewport, self.only_opaque);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::filter_effects::{Filter, FilterPrimitive};
     use crate::geometry::PaddingU16;
     use crate::kurbo::Affine;
-    use crate::peniko::Mix;
+    use crate::peniko::color::palette::css::{BLUE, RED};
+    use crate::peniko::{Compose, Mix};
     use crate::tile::Tile;
 
     const DEFAULT_SIZE: u16 = 10;
@@ -509,6 +582,102 @@ mod tests {
             assert_eq!(&cmd.draws, draws);
             assert_eq!(cmd.layer, *layer);
         }
+    }
+
+    fn root_background(only_opaque: bool) -> RootBackground {
+        RootBackground::new(Rect::new(2.0, 3.0, 12.0, 13.0), only_opaque)
+    }
+
+    #[test]
+    fn root_background_extracts_latest_eligible_covering_draw() {
+        let scene_viewport = Rect::new(2.0, 3.0, 12.0, 13.0);
+        let mut background = root_background(true);
+        let red = Paint::from(RED);
+        let blue = Paint::from(BLUE);
+
+        assert!(!background.try_extract(
+            Rect::new(2.0, 3.0, 11.0, 13.0),
+            &red,
+            BlendMode::default(),
+        ));
+        assert!(!background.try_extract(scene_viewport, &red, Mix::Multiply.into()));
+        assert!(background.try_extract(
+            Rect::new(0.0, 0.0, 14.0, 14.0),
+            &red,
+            BlendMode::default(),
+        ));
+        assert_eq!(
+            background.color().unwrap().as_premul_rgba8(),
+            RED.premultiply().to_rgba8()
+        );
+        assert!(background.try_extract(scene_viewport, &blue, BlendMode::default()));
+        assert_eq!(
+            background.color().unwrap().as_premul_rgba8(),
+            BLUE.premultiply().to_rgba8()
+        );
+    }
+
+    #[test]
+    fn root_background_applies_non_opaque_policy() {
+        let scene_viewport = Rect::new(2.0, 3.0, 12.0, 13.0);
+        let translucent_red = Paint::from(RED.with_alpha(0.5));
+        assert!(!root_background(true).try_extract(
+            scene_viewport,
+            &translucent_red,
+            BlendMode::default(),
+        ));
+
+        let mut accepting = root_background(false);
+        assert!(accepting.try_extract(scene_viewport, &translucent_red, BlendMode::default(),));
+        assert!(accepting.color().is_some_and(|color| !color.is_opaque()));
+        assert!(!accepting.try_extract(
+            Rect::new(4.0, 5.0, 6.0, 7.0),
+            &translucent_red,
+            BlendMode::default(),
+        ));
+    }
+
+    #[test]
+    fn root_background_absorbs_matching_opaque_draw() {
+        let scene_viewport = Rect::new(2.0, 3.0, 12.0, 13.0);
+        let partial_rect = Rect::new(4.0, 5.0, 6.0, 7.0);
+        let mut background = root_background(true);
+        let red = Paint::from(RED);
+
+        assert!(background.try_extract(scene_viewport, &red, BlendMode::default()));
+        assert!(background.try_extract(partial_rect, &red, BlendMode::default()));
+        assert!(!background.try_extract(partial_rect, &red, Mix::Multiply.into()));
+    }
+
+    #[test]
+    fn root_background_does_not_absorb_different_color() {
+        let scene_viewport = Rect::new(2.0, 3.0, 12.0, 13.0);
+        let mut background = root_background(true);
+
+        assert!(background.try_extract(scene_viewport, &Paint::from(RED), BlendMode::default(),));
+        assert!(!background.try_extract(
+            Rect::new(4.0, 5.0, 6.0, 7.0),
+            &Paint::from(BLUE),
+            BlendMode::default(),
+        ));
+    }
+
+    #[test]
+    fn root_background_tracks_transparency_invalidation() {
+        let scene_viewport = Rect::new(2.0, 3.0, 12.0, 13.0);
+        let mut background = root_background(true);
+        assert!(background.try_extract(scene_viewport, &Paint::from(RED), BlendMode::default(),));
+        assert!(background.is_preserved());
+
+        background.record_blend(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+        assert!(!background.is_preserved());
+
+        background.reset(Rect::new(0.0, 0.0, 5.0, 5.0));
+        assert!(background.color().is_none());
+        assert!(background.is_preserved());
+
+        background.record_blend(BlendMode::new(Mix::Normal, Compose::Clear));
+        assert!(!background.is_preserved());
     }
 
     fn layer_cmds(recorder: &CommandRecorder<TestDraw>, id: usize) -> &[Node] {

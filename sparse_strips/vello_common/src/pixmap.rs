@@ -43,6 +43,8 @@ pub struct PixmapMut<'a> {
     height: u16,
     /// Buffer of the pixmap in RGBA8 format.
     buf: &'a mut [u8],
+    /// Opacity metadata of the owning [`Pixmap`], when this view was created from one.
+    may_have_transparency: Option<&'a mut bool>,
 }
 
 impl<'a> PixmapMut<'a> {
@@ -51,7 +53,12 @@ impl<'a> PixmapMut<'a> {
     /// Returns `None` if `buf` is not exactly `width * height * 4` bytes long.
     pub fn new(width: u16, height: u16, buf: &'a mut [u8]) -> Option<Self> {
         if buf.len() == usize::from(width) * usize::from(height) * 4 {
-            Some(Self { width, height, buf })
+            Some(Self {
+                width,
+                height,
+                buf,
+                may_have_transparency: None,
+            })
         } else {
             None
         }
@@ -70,6 +77,13 @@ impl<'a> PixmapMut<'a> {
     /// Returns a mutable reference to the underlying data as premultiplied RGBA8 bytes.
     pub fn data_mut(&mut self) -> &mut [u8] {
         self.buf
+    }
+
+    /// Update the opacity hint.
+    pub fn set_may_have_transparency(&mut self, may_have_transparency: bool) {
+        if let Some(flag) = self.may_have_transparency.as_deref_mut() {
+            *flag = may_have_transparency;
+        }
     }
 }
 
@@ -359,6 +373,7 @@ impl Pixmap {
             width: self.width,
             height: self.height,
             buf: bytemuck::cast_slice_mut(&mut self.buf),
+            may_have_transparency: Some(&mut self.may_have_transparency),
         }
     }
 

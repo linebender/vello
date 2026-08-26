@@ -37,6 +37,20 @@ fn compose_clear(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Clear);
 }
 
+#[vello_test(transparent)]
+fn compose_clear_after_background(ctx: &mut impl Renderer) {
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
+    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.fill_path(&Circle::new(Point::new(50.0, 50.0), 35.0).to_path(0.1));
+
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Clear));
+    ctx.set_paint(GREEN);
+    ctx.fill_rect(&Rect::new(35.0, 35.0, 65.0, 65.0));
+    ctx.pop_layer();
+}
+
 #[vello_test(width = 100, height = 100)]
 fn compose_clear_empty_layer(ctx: &mut impl Renderer) {
     ctx.push_layer(None, None, None, None, None);

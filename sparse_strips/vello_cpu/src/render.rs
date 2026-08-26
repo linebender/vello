@@ -30,6 +30,7 @@ use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::{Pixmap, PixmapMut};
+use vello_common::record::RootBackground;
 use vello_common::render_state::RenderState;
 use vello_common::transforms::{RootTransforms, Transforms};
 use vello_common::util::is_axis_aligned;
@@ -170,6 +171,7 @@ pub struct RenderContext {
     pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     pub(crate) filter: Option<Filter>,
+    root_background: RootBackground,
     #[cfg_attr(
         not(feature = "text"),
         allow(dead_code, reason = "used when the `text` feature is enabled")
@@ -231,6 +233,7 @@ impl RenderContext {
         let encoded_paints = vec![];
         let temp_path = BezPath::new();
         let aliasing_threshold = None;
+        let scene_viewport = Rect::new(0.0, 0.0, f64::from(width), f64::from(height));
 
         Self {
             width,
@@ -244,6 +247,28 @@ impl RenderContext {
             temp_path,
             encoded_paints,
             filter: None,
+            root_background: RootBackground::new(
+                scene_viewport,
+                // Handling non-opaque colors is a bit more complicated when using `CompositeMode::SrcOver`,
+                // so we don't do that for now.
+                true,
+            ),
+        }
+    }
+
+    fn try_extract_background(&mut self, rect: Rect, paint: &Paint) -> bool {
+        if !self.dispatcher.is_empty() || self.mask.is_some() {
+            return false;
+        }
+
+        self.root_background
+            .try_extract(rect, paint, self.state.blend_mode)
+    }
+
+    #[inline]
+    fn record_blend(&mut self, blend_mode: BlendMode) {
+        if !self.dispatcher.has_layers() {
+            self.root_background.record_blend(blend_mode);
         }
     }
 
@@ -283,6 +308,7 @@ impl RenderContext {
             let transform = ctx
                 .root_transforms
                 .effective_path_transform(ctx.transforms());
+            ctx.record_blend(ctx.state.blend_mode);
             ctx.dispatcher.fill_path(
                 path,
                 ctx.state.fill_rule,
@@ -302,6 +328,7 @@ impl RenderContext {
             let transform = ctx
                 .root_transforms
                 .effective_path_transform(ctx.transforms());
+            ctx.record_blend(ctx.state.blend_mode);
             ctx.dispatcher.stroke_path(
                 path,
                 &ctx.state.stroke,
@@ -321,6 +348,7 @@ impl RenderContext {
             let transform = ctx
                 .root_transforms
                 .effective_path_transform(ctx.transforms());
+            ctx.record_blend(ctx.state.blend_mode);
 
             // Fast path: Use optimized rect filling if we have no skew in the path transform
             // and anti-aliasing is enabled.
@@ -328,6 +356,11 @@ impl RenderContext {
             if is_axis_aligned(&transform) && ctx.aliasing_threshold.is_none() {
                 // Transform the rect to screen coordinates.
                 let transformed_rect = transform.transform_rect_bbox(*rect);
+
+                if ctx.try_extract_background(transformed_rect, &paint) {
+                    return;
+                }
+
                 ctx.dispatcher.fill_rect_fast(
                     &transformed_rect,
                     paint,
@@ -358,6 +391,7 @@ impl RenderContext {
             let transform = ctx
                 .root_transforms
                 .effective_path_transform(ctx.transforms());
+            ctx.record_blend(ctx.state.blend_mode);
             ctx.dispatcher.stroke_path(
                 &ctx.temp_path,
                 &ctx.state.stroke,
@@ -429,6 +463,7 @@ impl RenderContext {
         self.rect_to_temp_path(&inflated_rect);
 
         let paint = blurred_rect.encode_into(&mut self.encoded_paints, paint_transform, None);
+        self.record_blend(self.state.blend_mode);
         self.dispatcher.fill_path(
             &self.temp_path,
             Fill::NonZero,
@@ -486,6 +521,7 @@ impl RenderContext {
 
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
+        self.record_blend(blend_mode);
         let layer_transform = self
             .root_transforms
             .effective_path_transform(self.transforms());
@@ -717,6 +753,12 @@ impl RenderContext {
         self.mask = None;
         self.root_transforms.reset();
         self.state.reset();
+        self.root_background.reset(Rect::new(
+            0.0,
+            0.0,
+            f64::from(self.width),
+            f64::from(self.height),
+        ));
     }
 
     /// Push a new clip path to the clip stack.
@@ -814,14 +856,31 @@ impl RenderContext {
             target.data_mut().fill(0);
         }
 
+        let background_color = self
+            .root_background
+            .color()
+            .map(|color| color.as_opaque_color().unwrap());
+        let background_is_preserved = self.root_background.is_preserved();
+
         self.dispatcher.rasterize(
-            target,
+            &mut target,
             self.width,
             self.height,
             settings,
             &self.encoded_paints,
             &resources.image_registry,
+            background_color,
         );
+
+        // Three conditions that need to be fulfilled so we can actually claim the pixmap
+        // has no transparency:
+        // 1) We must be rendering to the whole pixmap.
+        // 2) The (opaque) background must exist.
+        // 3) The background must not (potentially) have been destroyed by a blend operation.
+        let is_opaque =
+            target_fully_covered && background_color.is_some() && background_is_preserved;
+
+        target.set_may_have_transparency(!is_opaque);
         // TODO: We need to figure something out here API-wise. At the moment, the user can
         // theoretically rasterize the same `RenderContext` multiple times without resetting in-between.
         // However, if glyph caching is enabled, this method call could now evict that were previously
@@ -971,7 +1030,7 @@ mod tests {
     use vello_common::color::PremulRgba8;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::kurbo::{Rect, Shape};
-    use vello_common::peniko::ImageAlphaType;
+    use vello_common::peniko::{BlendMode, Compose, ImageAlphaType, Mix};
     use vello_common::pixmap::{PixelMetadata, Pixmap, PixmapMut};
     use vello_common::tile::Tile;
 
@@ -1009,6 +1068,147 @@ mod tests {
         ctx.fill_rect(&rect);
         ctx.flush();
         ctx
+    }
+
+    #[test]
+    fn opaque_background_updates_pixmap_opacity() {
+        let ctx = red_rect_context(1, 1, Rect::new(0.0, 0.0, 1.0, 1.0));
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(1, 1);
+
+        ctx.render(&mut pixmap, &mut resources);
+
+        assert!(!pixmap.may_have_transparency());
+        assert_eq!(pixmap.sample(0, 0), red_pixel());
+    }
+
+    #[test]
+    fn opaque_background_replaces_src_over_destination() {
+        let ctx = red_rect_context(1, 1, Rect::new(0.0, 0.0, 1.0, 1.0));
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(1, 1, blue_pixel());
+
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                composite_mode: CompositeMode::SrcOver,
+                ..Default::default()
+            },
+        );
+
+        assert!(!pixmap.may_have_transparency());
+        assert_eq!(pixmap.sample(0, 0), red_pixel());
+    }
+
+    #[test]
+    fn inline_non_src_over_invalidates_opaque_background() {
+        let mut ctx = RenderContext::new(2, 2);
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 2.0, 2.0));
+        ctx.set_blend_mode(BlendMode::new(Mix::Normal, Compose::Clear));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+        ctx.flush();
+
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(2, 2);
+        ctx.render(&mut pixmap, &mut resources);
+
+        assert!(pixmap.may_have_transparency());
+        assert_eq!(pixmap.sample(0, 0), transparent_pixel());
+    }
+
+    #[test]
+    fn unused_non_default_blend_preserves_opaque_background() {
+        let mut ctx = RenderContext::new(1, 1);
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+        ctx.set_blend_mode(BlendMode::new(Mix::Normal, Compose::Clear));
+        ctx.flush();
+
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(1, 1);
+        ctx.render(&mut pixmap, &mut resources);
+
+        assert!(!pixmap.may_have_transparency());
+        assert_eq!(pixmap.sample(0, 0), red_pixel());
+    }
+
+    #[test]
+    fn intermediate_non_src_over_preserves_opaque_root() {
+        let mut ctx = RenderContext::new(2, 2);
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 2.0, 2.0));
+        ctx.push_blend_layer(BlendMode::default());
+        ctx.set_blend_mode(BlendMode::new(Mix::Normal, Compose::Clear));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+        ctx.pop_layer();
+        ctx.flush();
+
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(2, 2);
+        ctx.render(&mut pixmap, &mut resources);
+
+        assert!(!pixmap.may_have_transparency());
+        assert!(pixmap.data().iter().all(|pixel| *pixel == red_pixel()));
+    }
+
+    #[test]
+    fn root_blend_target_invalidates_opaque_background() {
+        let mut ctx = RenderContext::new(2, 2);
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 2.0, 2.0));
+        // Technically multiply doesn't change the background, but we are conservative
+        // and only permit scr-over with normal mix.
+        ctx.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+        ctx.set_paint(BLUE);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+        ctx.pop_layer();
+        ctx.flush();
+
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(2, 2);
+        ctx.render(&mut pixmap, &mut resources);
+
+        assert!(pixmap.may_have_transparency());
+    }
+
+    #[test]
+    fn active_clip_prevents_background_extraction() {
+        let mut ctx = RenderContext::new(2, 2);
+        ctx.push_clip_path(&Rect::new(0.0, 0.0, 1.0, 2.0).to_path(0.1));
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 2.0, 2.0));
+        ctx.pop_clip_path();
+        ctx.flush();
+
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(2, 2);
+        ctx.render(&mut pixmap, &mut resources);
+
+        assert!(pixmap.may_have_transparency());
+        assert_eq!(pixmap.sample(0, 0), red_pixel());
+        assert_eq!(pixmap.sample(1, 0), transparent_pixel());
+    }
+
+    #[test]
+    fn background_after_another_draw_is_not_extracted() {
+        // This test only documents current behavior. In theory, it would be
+        // correct to emit a background here.
+
+        let mut ctx = RenderContext::new(2, 2);
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+        ctx.set_paint(BLUE);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 2.0, 2.0));
+        ctx.flush();
+
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(2, 2);
+        ctx.render(&mut pixmap, &mut resources);
+
+        assert!(pixmap.may_have_transparency());
+        assert!(pixmap.data().iter().all(|pixel| *pixel == blue_pixel()));
     }
 
     #[test]
@@ -1184,7 +1384,7 @@ mod tests {
     }
 
     #[test]
-    fn render_src_over_transparent() {
+    fn no_background_src_over_composites_destination() {
         let mut ctx = RenderContext::new(1, 1);
         ctx.set_paint(RED.with_alpha(0.5));
         ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
@@ -1211,6 +1411,25 @@ mod tests {
                 a: 255,
             }
         );
+    }
+
+    #[test]
+    fn no_background_replace_replaces_destination() {
+        let mut ctx = RenderContext::new(1, 1);
+        ctx.set_paint(RED.with_alpha(0.5));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+        ctx.flush();
+
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(1, 1, blue_pixel());
+
+        ctx.render(&mut pixmap, &mut resources);
+
+        assert_eq!(
+            pixmap.sample(0, 0),
+            RED.with_alpha(0.5).premultiply().to_rgba8()
+        );
+        assert!(pixmap.may_have_transparency());
     }
 
     #[cfg(feature = "multithreading")]

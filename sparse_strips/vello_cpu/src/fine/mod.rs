@@ -28,6 +28,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
+use vello_common::color::{OpaqueColor, Srgb};
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
@@ -459,6 +460,7 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
     bucketer: &CommandBucketer,
     resources: FineResources<'_>,
     unpack_dest: bool,
+    background_color: Option<OpaqueColor<Srgb>>,
 ) {
     let scene_y = region.row_idx as u16 * Tile::HEIGHT;
     let row = &bucketer.rows()[region.row_idx];
@@ -477,8 +479,8 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
         });
     }
 
-    // Clear any regions in the fine buffer that haven't been filled with an opaque fill.
-    fine.init_uncovered_range(span, region, unpack_dest, depth);
+    // Initialize any regions in the fine buffer that haven't been filled with an opaque fill.
+    fine.init_uncovered_range(span, region, unpack_dest, background_color, depth);
 
     // Render the main commands back-to-front, with depth-buffer read.
     for cmd in &row.render_cmds {
@@ -558,24 +560,36 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     /// with a solid paint.
     ///
     /// In case [`ComositeMode::SrcOver`] was chosen, it will be initialized with
-    /// the pixels from the user-supplied pixmap. Otherwise, the range will simply be zeroed.
+    /// the pixels from the user-supplied pixmap. Otherwise, the range will simply be
+    /// filled with the background color.
     fn init_uncovered_range(
         &mut self,
         scratch_span: Span,
         region: &mut Region<'_>,
         use_src_over: bool,
+        background_color: Option<OpaqueColor<Srgb>>,
         depth: &DepthBuffer,
     ) {
+        let background_color = background_color
+            .map(|color| T::extract_color(PremulColor::from_premul_color(color.into())));
+
         depth.for_each_unset_run(scratch_span, |span| {
             let x = span.pixel_x();
-            let end = span.pixel_end();
-
-            if use_src_over {
-                let mut region = region.sub_span(x, end - x);
-                self.unpack(x, &mut region);
-            } else {
-                self.blend_buffers[0][Self::scratch_range(Span::new(x, end - x))]
-                    .fill(T::Numeric::ZERO);
+            let width = span.pixel_width();
+            let scratch_range = Self::scratch_range(span);
+            match background_color {
+                Some(color) => {
+                    // Note that the background color for Vello CPU is always opaque,
+                    // so we don't need to handle the case of `SrcOver` + non-opaque color.
+                    T::copy_solid(self.simd, &mut self.blend_buffers[0][scratch_range], color);
+                }
+                None if use_src_over => {
+                    let mut region = region.sub_span(x, width);
+                    self.unpack(x, &mut region);
+                }
+                None => {
+                    self.blend_buffers[0][scratch_range].fill(T::Numeric::ZERO);
+                }
             }
         });
     }

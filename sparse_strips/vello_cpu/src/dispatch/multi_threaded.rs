@@ -26,6 +26,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
 use vello_common::clip::ClipContext;
+use vello_common::color::{OpaqueColor, Srgb};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter::FilterData;
@@ -163,29 +164,31 @@ impl MultiThreadedDispatcher {
     #[cfg(feature = "f32_pipeline")]
     fn rasterize_f32(
         &self,
-        target: PixmapMut<'_>,
+        target: &mut PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        background_color: Option<OpaqueColor<Srgb>>,
     ) {
         use crate::fine::F32Kernel;
-        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver, background_color));
     }
 
     #[cfg(feature = "u8_pipeline")]
     fn rasterize_u8(
         &self,
-        target: PixmapMut<'_>,
+        target: &mut PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        background_color: Option<OpaqueColor<Srgb>>,
     ) {
         use crate::fine::U8Kernel;
-        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver, background_color));
     }
 
     fn init(&mut self) {
@@ -388,12 +391,13 @@ impl MultiThreadedDispatcher {
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        mut target: PixmapMut<'_>,
+        target: &mut PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        background_color: Option<OpaqueColor<Srgb>>,
     ) {
         let mut bucketer = self.bucketer.lock().unwrap();
         let filters = FilterContext::new(0);
@@ -423,7 +427,7 @@ impl MultiThreadedDispatcher {
             };
 
             let mut regions = Regions::new(
-                &mut target,
+                target,
                 params.scene_size,
                 params.target_offset,
                 bucketer.rows().len(),
@@ -448,6 +452,7 @@ impl MultiThreadedDispatcher {
                         &bucketer,
                         resources,
                         use_src_over,
+                        background_color,
                     );
                 });
             });
@@ -458,6 +463,13 @@ impl MultiThreadedDispatcher {
 }
 
 impl Dispatcher for MultiThreadedDispatcher {
+    fn is_empty(&self) -> bool {
+        self.task_idx == 0
+            && self.allocation_group.render_tasks.is_empty()
+            && self.recorder.nodes.is_empty()
+            && self.clip_context.get().is_none()
+    }
+
     fn has_layers(&self) -> bool {
         self.layer_depth != 0
     }
@@ -636,12 +648,13 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn rasterize(
         &self,
-        target: PixmapMut<'_>,
+        target: &mut PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        background_color: Option<OpaqueColor<Srgb>>,
     ) {
         assert!(self.flushed, "attempted to rasterize before flushing");
 
@@ -655,6 +668,7 @@ impl Dispatcher for MultiThreadedDispatcher {
                 settings,
                 encoded_paints,
                 image_resolver,
+                background_color,
             );
         }
         // Only f32 pipeline enabled
@@ -667,6 +681,7 @@ impl Dispatcher for MultiThreadedDispatcher {
                 settings,
                 encoded_paints,
                 image_resolver,
+                background_color,
             );
         }
 
@@ -681,6 +696,7 @@ impl Dispatcher for MultiThreadedDispatcher {
                     settings,
                     encoded_paints,
                     image_resolver,
+                    background_color,
                 );
             }
             crate::RenderMode::OptimizeQuality => {
@@ -691,6 +707,7 @@ impl Dispatcher for MultiThreadedDispatcher {
                     settings,
                     encoded_paints,
                     image_resolver,
+                    background_color,
                 );
             }
         }

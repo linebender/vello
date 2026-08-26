@@ -10,7 +10,7 @@ use alloc::sync::Arc;
 pub use peniko::Color;
 use peniko::{
     Gradient,
-    color::{AlphaColor, PremulRgba8, Srgb},
+    color::{AlphaColor, OpaqueColor, PremulRgba8, Srgb},
 };
 
 /// A paint that needs to be resolved via its index.
@@ -261,6 +261,11 @@ impl PremulColor {
     /// Return whether the color is opaque (i.e. doesn't have transparency).
     pub fn is_opaque(&self) -> bool {
         self.premul_f32.components[3] == 1.0
+    }
+
+    /// Return this color without an alpha channel if it is fully opaque.
+    pub fn as_opaque_color(&self) -> Option<OpaqueColor<Srgb>> {
+        self.is_opaque().then(|| self.premul_f32.discard_alpha())
     }
 }
 

@@ -9,6 +9,7 @@ use crate::RasterizerSettings;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use core::fmt::Debug;
+use vello_common::color::{OpaqueColor, Srgb};
 use vello_common::encode::EncodedPaint;
 use vello_common::filter::FilterData;
 use vello_common::mask::Mask;
@@ -16,6 +17,7 @@ use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
 
 pub(crate) trait Dispatcher: Debug + Send {
+    fn is_empty(&self) -> bool;
     fn has_layers(&self) -> bool;
     fn fill_path(
         &mut self,
@@ -69,12 +71,13 @@ pub(crate) trait Dispatcher: Debug + Send {
     fn flush(&mut self);
     fn rasterize(
         &self,
-        target: PixmapMut<'_>,
+        target: &mut PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        background_color: Option<OpaqueColor<Srgb>>,
     );
     fn is_multi_threaded(&self) -> bool;
 }
