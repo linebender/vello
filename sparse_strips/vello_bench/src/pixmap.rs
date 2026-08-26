@@ -16,6 +16,7 @@ pub fn pixmap(c: &mut Criterion) {
         ("opaque", OPAQUE_BLUE.repeat(pixel_count)),
         ("translucent", TRANSLUCENT_BLUE.repeat(pixel_count)),
         ("interleaved", interleaved_pixels(pixel_count)),
+        ("mixed_lanes", mixed_lane_pixels(pixel_count)),
     ];
 
     let mut group = c.benchmark_group("pixmap/premultiply");
@@ -66,6 +67,19 @@ fn interleaved_pixels(pixel_count: usize) -> Vec<u8> {
     let mut rgba = Vec::with_capacity(pixel_count * 4);
     for index in 0..pixel_count {
         let pixel = if (index / 16).is_multiple_of(2) {
+            TRANSLUCENT_BLUE
+        } else {
+            OPAQUE_BLUE
+        };
+        rgba.extend_from_slice(&pixel);
+    }
+    rgba
+}
+
+fn mixed_lane_pixels(pixel_count: usize) -> Vec<u8> {
+    let mut rgba = Vec::with_capacity(pixel_count * 4);
+    for index in 0..pixel_count {
+        let pixel = if (index / 8).is_multiple_of(2) {
             TRANSLUCENT_BLUE
         } else {
             OPAQUE_BLUE
