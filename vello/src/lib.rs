@@ -131,6 +131,12 @@ pub mod low_level {
     pub use crate::shaders::FullShaders;
     /// Temporary export, used in `with_winit` for stats
     pub use vello_encoding::BumpAllocators;
+
+    /// The scene encoding layer used to build an alternative renderer.
+    ///
+    /// This is re-exported so that consumers can depend on the same
+    /// `vello_encoding` version that `vello` was built against.
+    pub use vello_encoding;
 }
 /// Styling and composition primitives.
 pub use peniko;
