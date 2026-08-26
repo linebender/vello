@@ -95,6 +95,9 @@ impl Pixmap {
 
     /// Create a new pixmap from the given buffer of bytes, representing pixel data.
     ///
+    /// When passing premultiplied pixels, the data must be correctly premultiplied, i.e. each RGB
+    /// component must be less than or equal to its pixel's alpha component.
+    ///
     /// # Panics
     ///
     /// - Panics if `data` is not exactly `width * height * 4` bytes long.
