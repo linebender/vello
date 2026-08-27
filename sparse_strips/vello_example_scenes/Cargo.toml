@@ -28,6 +28,16 @@ log = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 parley = { version = "0.11.0", default-features = false, features = ["std"] }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = [
+    "Window",
+    "Performance",
+    "Document",
+    "Node",
+    "Element",
+    "HtmlElement",
+    "CssStyleDeclaration",
+] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 parley = { version = "0.11.0", default-features = true }

@@ -14,6 +14,8 @@ pub mod gradient;
 pub mod image;
 pub mod multi_image;
 pub mod path;
+#[cfg(target_arch = "wasm32")]
+pub mod performance;
 pub mod random_text;
 pub mod simple;
 pub mod spritesheet;
