@@ -61,11 +61,27 @@ pub fn pixmap(c: &mut Criterion) {
         group.bench_function(*name, |b| {
             b.iter_batched(
                 || pixmap.clone(),
-                |pixmap| black_box(pixmap.take_unpremultiplied()),
+                |pixmap| black_box(pixmap.take_rgba8(ImageAlphaType::Alpha)),
                 BatchSize::LargeInput,
             );
         });
     }
+    group.finish();
+
+    let opaque_pixmap = Pixmap::from_parts(
+        OPAQUE_BLUE.repeat(pixel_count),
+        WIDTH,
+        HEIGHT,
+        PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, false),
+    );
+    let mut group = c.benchmark_group("pixmap/rgba_to_rgb");
+    group.bench_function("opaque", |b| {
+        b.iter_batched(
+            || opaque_pixmap.clone(),
+            |pixmap| black_box(pixmap.try_take_rgb8(ImageAlphaType::Alpha)),
+            BatchSize::LargeInput,
+        );
+    });
     group.finish();
 }
 

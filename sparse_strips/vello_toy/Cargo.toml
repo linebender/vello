@@ -12,7 +12,6 @@ publish = false
 [dependencies]
 svg = { workspace = true }
 usvg = { workspace = true }
-bytemuck = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 vello_common = { workspace = true }
 vello_cpu = { workspace = true, features = ["multithreading"] }
