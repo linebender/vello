@@ -5,7 +5,7 @@ use crate::fine::Splat4thExt;
 use crate::peniko::{BlendMode, Compose};
 use crate::util::NormalizedMulExt;
 use vello_common::fearless_simd::*;
-use vello_common::util::Div255Ext;
+use vello_common::util::{Div255Ext, narrow, widen};
 
 pub(crate) trait ComposeExt {
     fn compose<S: Simd>(
@@ -60,9 +60,9 @@ fn compose_inner<S: Simd>(
 
     if let Some(alpha_mask) = alpha_mask {
         let alpha_mask_inv = 255 - alpha_mask;
-        let p1 = simd.widen_u8x32(alpha_mask) * simd.widen_u8x32(res);
-        let p2 = simd.widen_u8x32(alpha_mask_inv) * simd.widen_u8x32(bg_c);
-        res = simd.narrow_u16x32((p1 + p2).div_255());
+        let p1 = widen(alpha_mask) * widen(res);
+        let p2 = widen(alpha_mask_inv) * widen(bg_c);
+        res = narrow((p1 + p2).div_255());
     }
 
     res
@@ -82,11 +82,10 @@ macro_rules! compose {
                 let fb = $fb(simd, al_s, al_b);
 
                 if $sat {
-                    simd.narrow_u16x32(
-                        (simd.widen_u8x32(src_c.normalized_mul(fa))
-                            + simd.widen_u8x32(fb.normalized_mul(bg_c)))
-                        .min(u16x32::splat(simd, 255))
-                        .max(u16x32::splat(simd, 0)),
+                    narrow(
+                        (widen(src_c.normalized_mul(fa)) + widen(fb.normalized_mul(bg_c)))
+                            .min(u16x32::splat(simd, 255))
+                            .max(u16x32::splat(simd, 0)),
                     )
                 } else {
                     src_c.normalized_mul(fa) + fb.normalized_mul(bg_c)

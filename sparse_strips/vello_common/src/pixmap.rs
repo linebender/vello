@@ -8,12 +8,12 @@ use alloc::vec::Vec;
 #[cfg(feature = "png")]
 use std::io::{BufRead, Seek};
 
-use crate::fearless_simd::{Level, Simd, SimdBase, SimdInt, SimdMask, dispatch, mask8x16, u16x16};
+use crate::fearless_simd::{Level, dispatch, mask8x16, prelude::*, u8x16, u16x16};
 use crate::peniko::{
     ImageAlphaType,
     color::{PremulRgba8, Rgba8},
 };
-use crate::util::{Div255Ext, unpremultiply};
+use crate::util::{Div255Ext, narrow, unpremultiply, widen};
 
 #[cfg(feature = "png")]
 extern crate std;
@@ -462,17 +462,13 @@ fn unpremultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) {
     let (body, tail) = data.as_chunks_mut::<64>();
 
     for chunk in body {
-        let rgba = simd.load_interleaved_128_u8x64(chunk);
-        let (rg, ba) = simd.split_u8x64(rgba);
-        let (r, g) = simd.split_u8x32(rg);
-        let (b, a) = simd.split_u8x32(ba);
+        let [r, g, b, a] = simd.load_four_interleaved_u8x16(chunk);
         let reciprocal = u16x16::from_fn(simd, |lane| unpremultiply::reciprocal(a[lane]));
         let r = unpremultiply::simd(simd, r, reciprocal);
         let g = unpremultiply::simd(simd, g, reciprocal);
         let b = unpremultiply::simd(simd, b, reciprocal);
 
-        let rgba = simd.combine_u8x32(simd.combine_u8x16(r, g), simd.combine_u8x16(b, a));
-        simd.store_interleaved_128_u8x64(rgba, chunk);
+        simd.store_four_interleaved_u8x16([r, g, b, a], chunk);
     }
 
     for pixel in tail.chunks_exact_mut(4) {
@@ -486,27 +482,20 @@ fn unpremultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) {
 #[inline(always)]
 fn premultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) -> bool {
     let (body, tail) = data.as_chunks_mut::<64>();
-    let mut transparency = mask8x16::splat(simd, 0);
+    let mut transparency = mask8x16::splat(simd, false);
 
     for chunk in body {
-        let rgba = simd.load_interleaved_128_u8x64(chunk);
-        let (rg, ba) = simd.split_u8x64(rgba);
-        let (r, g) = simd.split_u8x32(rg);
-        let (b, a) = simd.split_u8x32(ba);
+        let [r, g, b, a] = simd.load_four_interleaved_u8x16(chunk);
 
         transparency |= !a.simd_eq(255);
         let premultiply = {
             #[inline(always)]
-            |component| {
-                let product = simd.widen_u8x16(component) * simd.widen_u8x16(a);
-                simd.narrow_u16x16(product.div_255())
-            }
+            |component: u8x16<S>| narrow((widen(component) * widen(a)).div_255())
         };
-        let premultiplied = simd.combine_u8x32(
-            simd.combine_u8x16(premultiply(r), premultiply(g)),
-            simd.combine_u8x16(premultiply(b), a),
+        simd.store_four_interleaved_u8x16(
+            [premultiply(r), premultiply(g), premultiply(b), a],
+            chunk,
         );
-        simd.store_interleaved_128_u8x64(premultiplied, chunk);
     }
 
     let mut may_have_transparency = transparency.any_true();

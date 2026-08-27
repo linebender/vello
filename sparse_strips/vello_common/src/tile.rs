@@ -478,7 +478,7 @@ impl Tiles {
     pub fn sort_tiles(&mut self) {
         self.sorted = true;
         // To enable auto-vectorization.
-        self.level.dispatch(|_| self.tile_buf.sort_unstable());
+        dispatch!(self.level, _ => self.tile_buf.sort_unstable());
     }
 
     /// Get the tile at a certain index.

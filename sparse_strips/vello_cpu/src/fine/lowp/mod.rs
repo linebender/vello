@@ -31,7 +31,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{PremulColor, Tint, TintMode};
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
-use vello_common::util::Div255Ext;
+use vello_common::util::{narrow, normalized_mul_u8};
 
 /// The kernel for doing rendering using u8/u16.
 #[derive(Clone, Copy, Debug)]
@@ -138,10 +138,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
             || {
                 for el in dest.chunks_exact_mut(16) {
                     let loaded = u8x16::from_slice(simd, el);
-                    let mulled = simd.narrow_u16x16(
-                        (simd.widen_u8x16(loaded) * simd.widen_u8x16(src.next().unwrap()))
-                            .div_255(),
-                    );
+                    let mulled = narrow(normalized_mul_u8(loaded, src.next().unwrap()));
                     mulled.store_slice(el);
                 }
             },
@@ -360,10 +357,9 @@ fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Regio
     for col in scratch[..width * TILE_HEIGHT_COMPONENTS].chunks_exact(CHUNK_LENGTH) {
         let casted: &[u32; 16] = cast_slice::<u8, u32>(col).try_into().unwrap();
 
-        let loaded = simd.load_interleaved_128_u32x16(casted).to_bytes();
-        let (loaded_lo, loaded_hi) = simd.split_u8x64(loaded);
-        let (loaded_1, loaded_2) = simd.split_u8x32(loaded_lo);
-        let (loaded_3, loaded_4) = simd.split_u8x32(loaded_hi);
+        let [loaded_1, loaded_2, loaded_3, loaded_4] = simd
+            .load_four_interleaved_u32x4(casted)
+            .map(u32x4::to_bytes);
 
         let (dest0, rest0) = row0.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
         let (dest1, rest1) = row1.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
@@ -440,9 +436,7 @@ fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch
         let r1 = f32x4::from_bytes(u8x16::from_slice(simd, src1));
         let r2 = f32x4::from_bytes(u8x16::from_slice(simd, src2));
         let r3 = f32x4::from_bytes(u8x16::from_slice(simd, src3));
-        let combined = simd.combine_f32x8(simd.combine_f32x4(r0, r1), simd.combine_f32x4(r2, r3));
-
-        simd.store_interleaved_128_f32x16(combined, col);
+        simd.store_four_interleaved_f32x4([r0, r1, r2, r3], col);
 
         row0 = rest0;
         row1 = rest1;
@@ -473,7 +467,7 @@ mod fill {
     use crate::fine::lowp::compose::ComposeExt;
     use crate::peniko::{BlendMode, Mix};
     use vello_common::fearless_simd::*;
-    use vello_common::util::normalized_mul_u8x32;
+    use vello_common::util::{narrow, normalized_mul_u8};
 
     /// Applies blend mode compositing to a buffer without per-pixel masks.
     pub(super) fn blend<S: Simd, T: Iterator<Item = u8x32<S>>>(
@@ -551,12 +545,12 @@ mod fill {
     /// This implements the Porter-Duff "source over" operator.
     #[inline(always)]
     fn alpha_composite_inner<S: Simd>(
-        s: S,
+        _s: S,
         bg: u8x32<S>,
         src: u8x32<S>,
         one_minus_alpha: u8x32<S>,
     ) -> u8x32<S> {
-        s.narrow_u16x32(normalized_mul_u8x32(bg, one_minus_alpha)) + src
+        narrow(normalized_mul_u8(bg, one_minus_alpha)) + src
     }
 }
 
@@ -571,7 +565,7 @@ mod alpha_fill {
     use crate::fine::lowp::{blend, extract_masks};
     use crate::peniko::{BlendMode, Mix};
     use vello_common::fearless_simd::*;
-    use vello_common::util::{Div255Ext, normalized_mul_u8x32};
+    use vello_common::util::{Div255Ext, narrow, normalized_mul_u8, widen};
 
     /// Applies blend mode compositing with per-pixel alpha masks.
     pub(super) fn blend<S: Simd, T: Iterator<Item = u8x32<S>>>(
@@ -672,11 +666,14 @@ mod alpha_fill {
                 let bg_v = u8x32::from_slice(s, dest);
 
                 let mask_v = extract_masks(s, masks);
-                let inv_src_a_mask_a = one - s.narrow_u16x32(normalized_mul_u8x32(src_a, mask_v));
+                let inv_src_a_mask_a = one - narrow(normalized_mul_u8(src_a, mask_v));
 
-                let p1 = s.widen_u8x32(bg_v) * s.widen_u8x32(inv_src_a_mask_a);
-                let p2 = s.widen_u8x32(src_c) * s.widen_u8x32(mask_v);
-                let res = s.narrow_u16x32((p1 + p2).div_255());
+                let bg = widen(bg_v);
+                let inv = widen(inv_src_a_mask_a);
+                let src = widen(src_c);
+                let mask = widen(mask_v);
+                let result = (bg * inv + src * mask).div_255();
+                let res = narrow(result);
 
                 res.store_slice(dest);
             },

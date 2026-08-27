@@ -44,7 +44,7 @@ cargo run -p vello_sparse_shaders --features glsl,unminified
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Vello Hybrid Shaders has been verified to compile with **Rust 1.88** and later.
+This version of Vello Hybrid Shaders has been verified to compile with **Rust 1.89** and later.
 
 Future versions of Vello Hybrid might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.

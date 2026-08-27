@@ -9,9 +9,7 @@ use crate::strip::{Strip, visit_strip_fill_segments};
 use crate::tile::Tile;
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
-use fearless_simd::{
-    Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
-};
+use fearless_simd::{f32x16, prelude::*, u8x16, u32x16};
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 use peniko::kurbo::{Affine, Rect};
@@ -51,39 +49,79 @@ pub fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
 }
 
 /// A trait for implementing a fast approximal division by 255 for integers.
-pub trait Div255Ext {
+pub trait Div255Ext: private::Sealed {
     /// Divide by 255.
     fn div_255(self) -> Self;
 }
 
-impl<S: Simd> Div255Ext for u16x32<S> {
+mod private {
+    use fearless_simd::{Simd, u16x16, u16x32};
+
+    #[expect(unnameable_types, reason = "Sealed trait pattern.")]
+    pub trait Sealed {}
+
+    impl<S: Simd> Sealed for u16x16<S> {}
+    impl<S: Simd> Sealed for u16x32<S> {}
+}
+
+/// Widen a SIMD vector and combine the two widened halves into one vector.
+#[inline(always)]
+pub fn widen<S, V>(value: V) -> <V::Widened as SimdCombine<S>>::Combined
+where
+    S: Simd,
+    V: SimdWiden<S>,
+    V::Widened: SimdCombine<S>,
+{
+    let (low, high) = value.widen();
+    low.combine(high)
+}
+
+/// Split a SIMD vector and narrow its two halves into one vector.
+#[inline(always)]
+pub fn narrow<S, V>(value: V) -> <V::Split as SimdNarrow<S>>::Narrowed
+where
+    S: Simd,
+    V: SimdSplit<S>,
+    V::Split: SimdNarrow<S>,
+{
+    let (low, high) = value.split();
+    low.narrow(high)
+}
+
+/// Split a SIMD vector and narrow its two halves with saturation.
+#[inline(always)]
+pub fn saturating_narrow<S, V>(value: V) -> <V::Split as SimdNarrow<S>>::Narrowed
+where
+    S: Simd,
+    V: SimdSplit<S>,
+    V::Split: SimdNarrow<S>,
+{
+    let (low, high) = value.split();
+    low.saturating_narrow(high)
+}
+
+impl<T> Div255Ext for T
+where
+    T: private::Sealed + core::ops::Add<u16, Output = T> + core::ops::Shr<u32, Output = T>,
+{
     #[inline(always)]
     fn div_255(self) -> Self {
-        let p1 = Self::splat(self.simd, 255);
-        let p2 = self + p1;
-        p2 >> 8
+        (self + 255_u16) >> 8_u32
     }
 }
 
-impl<S: Simd> Div255Ext for u16x16<S> {
-    #[inline(always)]
-    fn div_255(self) -> Self {
-        let p1 = Self::splat(self.simd, 255);
-        let p2 = self + p1;
-        p2 >> 8
-    }
-}
-
-/// Perform a normalized multiplication for u8x32.
+/// Perform a normalized multiplication for a SIMD vector of `u8` values.
 #[inline(always)]
-pub fn normalized_mul_u8x32<S: Simd>(a: u8x32<S>, b: u8x32<S>) -> u16x32<S> {
-    (S::widen_u8x32(a.simd, a) * S::widen_u8x32(b.simd, b)).div_255()
-}
-
-/// Perform a normalized multiplication for u8x16.
-#[inline(always)]
-pub fn normalized_mul_u8x16<S: Simd>(a: u8x16<S>, b: u8x16<S>) -> u16x16<S> {
-    (S::widen_u8x16(a.simd, a) * S::widen_u8x16(b.simd, b)).div_255()
+pub fn normalized_mul_u8<S, V>(a: V, b: V) -> <V::Widened as SimdCombine<S>>::Combined
+where
+    S: Simd,
+    V: SimdWiden<S>,
+    V::Widened: SimdCombine<S>,
+    <V::Widened as SimdCombine<S>>::Combined: Div255Ext,
+{
+    let a = widen(a);
+    let b = widen(b);
+    (a * b).div_255()
 }
 
 /// Check if an affine transform is a pure integer translation.
@@ -384,7 +422,7 @@ pub fn strip_bbox(strips: &[Strip]) -> Option<RectU16> {
 }
 
 pub(crate) mod unpremultiply {
-    use fearless_simd::{Simd, SimdBase, u8x16, u16x16};
+    use fearless_simd::{prelude::*, u8x16, u16x16};
 
     trait Div256Ext {
         /// Divide by 256, rounding to the nearest integer.
@@ -393,17 +431,13 @@ pub(crate) mod unpremultiply {
         fn div_256(self) -> Self;
     }
 
-    impl Div256Ext for u16 {
+    impl<T> Div256Ext for T
+    where
+        T: core::ops::Add<u16, Output = T> + core::ops::Shr<u32, Output = T>,
+    {
         #[inline(always)]
         fn div_256(self) -> Self {
-            (self + 128) >> 8
-        }
-    }
-
-    impl<S: Simd> Div256Ext for u16x16<S> {
-        #[inline(always)]
-        fn div_256(self) -> Self {
-            (self + Self::splat(self.simd, 128)) >> 8
+            (self + 128_u16) >> 8_u32
         }
     }
 
@@ -451,9 +485,10 @@ pub(crate) mod unpremultiply {
     }
 
     #[inline(always)]
-    pub(crate) fn simd<S: Simd>(simd: S, component: u8x16<S>, reciprocal: u16x16<S>) -> u8x16<S> {
-        let product = simd.widen_u8x16(component) * reciprocal;
-        simd.narrow_u16x16(product.div_256())
+    pub(crate) fn simd<S: Simd>(_simd: S, component: u8x16<S>, reciprocal: u16x16<S>) -> u8x16<S> {
+        let component = super::widen(component);
+        let product = (component * reciprocal).div_256();
+        super::narrow(product)
     }
 
     #[cfg(test)]
