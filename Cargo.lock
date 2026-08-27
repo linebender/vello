@@ -4553,6 +4553,8 @@ dependencies = [
  "vello_common",
  "vello_cpu",
  "vello_hybrid",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
