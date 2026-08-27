@@ -12,6 +12,10 @@ use vello_common::pixmap::Pixmap;
 use vello_cpu::{Glyph, RenderContext, RenderSettings, Resources};
 
 pub fn glyph(c: &mut Criterion) {
+    if !*crate::EXTENDED {
+        return;
+    }
+
     let mut g = c.benchmark_group("glyph");
 
     const WIDTH: u16 = 256;

@@ -16,17 +16,20 @@ use vello_common::pixmap::Pixmap;
 use vello_cpu::fine::{Fine, FineKernel};
 
 pub fn image(c: &mut Criterion) {
-    transform::none(c);
     transform::scale(c);
-    transform::rotate(c);
-
     quality::low(c);
     quality::medium(c);
-    quality::high(c);
 
-    extend::pad(c);
-    extend::repeat(c);
-    extend::reflect(c);
+    if *crate::EXTENDED {
+        transform::none(c);
+        transform::rotate(c);
+
+        quality::high(c);
+
+        extend::pad(c);
+        extend::repeat(c);
+        extend::reflect(c);
+    }
 }
 
 mod extend {

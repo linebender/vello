@@ -15,6 +15,10 @@ use vello_cpu::{RenderContext, Resources};
 
 /// Image scene rendering benchmark.
 pub fn images(c: &mut Criterion) {
+    if !*crate::EXTENDED {
+        return;
+    }
+
     let mut g = c.benchmark_group("images");
 
     let flower_image = load_flower_image();

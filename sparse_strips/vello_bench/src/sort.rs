@@ -5,6 +5,10 @@ use crate::data::get_data_items;
 use criterion::{BenchmarkId, Criterion};
 
 pub fn sort(c: &mut Criterion) {
+    if !*crate::EXTENDED {
+        return;
+    }
+
     let mut g = c.benchmark_group("sort");
     g.sample_size(50);
 
