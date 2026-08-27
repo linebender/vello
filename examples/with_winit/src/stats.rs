@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use vello::kurbo::Line;
 use vello::kurbo::{Affine, PathEl, Rect, Stroke};
 use vello::peniko::{Brush, Color, Fill, color::palette};
-use vello::{AaConfig, Scene, low_level::BumpAllocators};
+use vello::{AaConfig, Scene, low_level::vello_encoding::BumpAllocators};
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
 use std::time::Duration;

@@ -37,7 +37,9 @@ use scenes::{ExampleScene, ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::kurbo::{Affine, Point, Vec2};
 use vello::peniko::{Color, color::palette};
 use vello::util::{RenderContext, RenderSurface};
-use vello::{AaConfig, Renderer, RendererOptions, Scene, low_level::BumpAllocators};
+use vello::{
+    AaConfig, Renderer, RendererOptions, Scene, low_level::vello_encoding::BumpAllocators,
+};
 
 use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoop;

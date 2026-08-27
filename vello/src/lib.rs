@@ -129,8 +129,6 @@ pub mod low_level {
     };
     pub use crate::render::Render;
     pub use crate::shaders::FullShaders;
-    /// Temporary export, used in `with_winit` for stats
-    pub use vello_encoding::BumpAllocators;
 
     pub use vello_encoding;
 }
@@ -149,13 +147,13 @@ pub use vello_encoding::{FontEmbolden, Glyph, NormalizedCoord};
 
 use low_level::ShaderId;
 #[cfg(feature = "wgpu")]
-use low_level::{BumpAllocators, FullShaders, Recording, Render};
+use low_level::{FullShaders, Recording, Render};
 use thiserror::Error;
 
 #[cfg(feature = "wgpu")]
 use debug::DebugLayers;
 #[cfg(feature = "wgpu")]
-use vello_encoding::Resolver;
+use vello_encoding::{BumpAllocators, Resolver};
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
