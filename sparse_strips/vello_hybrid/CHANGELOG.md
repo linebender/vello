@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+### Fixed
+
+- Rectangles drawn through the GPU rect fast path now produce exactly the same bytes as the CPU strip path. The two rasterizers used to round anti-aliased coverage differently (up to one alpha step at fractional edges and corners, more at large coordinates), so pushing a clip (which routes rects through strips) changed pixels the clip didn't even touch. ([#1784][] by [@AdrianEddy][])
+
 ## [0.2.0][] - 2026-08-07
 
 This release has an [MSRV][] of 1.88.
@@ -201,6 +205,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@dipeshbabu]: https://github.com/dipeshbabu
@@ -297,6 +302,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1778]: https://github.com/linebender/vello/pull/1778
 [#1779]: https://github.com/linebender/vello/pull/1779
 [#1781]: https://github.com/linebender/vello/pull/1781
+[#1784]: https://github.com/linebender/vello/pull/1784
 [#1791]: https://github.com/linebender/vello/pull/1791
 [#1792]: https://github.com/linebender/vello/pull/1792
 [#1794]: https://github.com/linebender/vello/pull/1794
