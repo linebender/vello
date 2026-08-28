@@ -17,10 +17,10 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [dependencies]
-naga = { workspace = true, features = ["wgsl-in", "glsl-out"], optional = true }
+naga = { workspace = true, features = ["wgsl-in", "wgsl-out", "glsl-out"], optional = true }
 
 [build-dependencies]
-naga = { workspace = true, features = ["wgsl-in", "glsl-out"], optional = true }
+naga = { workspace = true, features = ["wgsl-in", "wgsl-out", "glsl-out"] }
 # Pinned exactly: the 0.4.1 releases of wesl and its wgsl-* crates require rustc 1.96,
 # newer than our toolchain. The wgsl-*/wesl-macros pins force wesl's own `^0.4`
 # transitive requirements to resolve to 0.4.0 as well.
@@ -30,6 +30,7 @@ wgsl-parse = "=0.4.0"
 wgsl-types = "=0.4.0"
 
 [dev-dependencies]
+naga = { workspace = true, features = ["wgsl-in", "wgsl-out", "glsl-out"] }
 wesl = "=0.4.0"
 
 [features]

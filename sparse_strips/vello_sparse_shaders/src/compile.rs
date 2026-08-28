@@ -1,6 +1,8 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use std::collections::BTreeMap;
+
 use naga::{
     Module, ShaderStage,
     back::glsl::{self, PipelineOptions, Version},
@@ -22,6 +24,7 @@ pub(crate) fn compile_wgsl_shader(
     shader_name: &str,
     vertex_entry: &str,
     fragment_entry: &str,
+    original_global_names: &BTreeMap<String, String>,
 ) -> CompiledGlsl {
     let module = wgsl::parse_str(source).unwrap();
 
@@ -38,8 +41,20 @@ pub(crate) fn compile_wgsl_shader(
     };
 
     CompiledGlsl {
-        vertex: compile_stage(&module, vertex_entry, ShaderStage::Vertex, &options),
-        fragment: compile_stage(&module, fragment_entry, ShaderStage::Fragment, &options),
+        vertex: compile_stage(
+            &module,
+            vertex_entry,
+            ShaderStage::Vertex,
+            &options,
+            original_global_names,
+        ),
+        fragment: compile_stage(
+            &module,
+            fragment_entry,
+            ShaderStage::Fragment,
+            &options,
+            original_global_names,
+        ),
     }
 }
 
@@ -48,6 +63,7 @@ fn compile_stage(
     entry_point: &str,
     shader_stage: ShaderStage,
     options: &glsl::Options,
+    original_global_names: &BTreeMap<String, String>,
 ) -> Stage {
     let mut module = module.clone();
     module
@@ -79,7 +95,9 @@ fn compile_stage(
     let reflection_map = ReflectionMap::new(
         writer.write().expect("failed to write shader stage."),
         &module.global_variables,
+        original_global_names,
     );
+    let source = crate::minify::minify_whitespace(&source, true);
 
     Stage {
         source,
