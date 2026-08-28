@@ -76,7 +76,7 @@ pub fn render_strips(c: &mut Criterion) {
 }
 
 pub fn render_strips_cull(c: &mut Criterion) {
-    if !*crate::EXTENDED {
+    if !crate::EXTENDED {
         return;
     }
 

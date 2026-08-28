@@ -4,10 +4,10 @@ In order to run the integration benchmarks with custom SVGs, you need to add the
 
 If you don't add any SVGs, the benchmarking harness will only use the ghostscript tiger by default.
 
-Run the core benchmarks with `cargo bench`. Set `EXTENDED=1` to include all benchmarks:
+Run the core benchmarks with `cargo bench`. Enable the `extended` feature to include all benchmarks:
 
 ```shell
-EXTENDED=1 cargo bench
+cargo bench --features extended
 ```
 
 You can also provide a filter for the name of the benchmarks you want to run, like

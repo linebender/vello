@@ -17,7 +17,7 @@ pub fn pixmap(c: &mut Criterion) {
         ("translucent", TRANSLUCENT_BLUE.repeat(pixel_count)),
     ];
 
-    if *crate::EXTENDED {
+    if crate::EXTENDED {
         inputs.push(("interleaved", interleaved_pixels(pixel_count)));
         inputs.push(("mixed_lanes", mixed_lane_pixels(pixel_count)));
     }

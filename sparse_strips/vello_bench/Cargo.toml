@@ -21,6 +21,7 @@ smallvec = { workspace = true }
 usvg = { workspace = true }
 
 [features]
+extended = []
 
 [[bench]]
 name = "main"

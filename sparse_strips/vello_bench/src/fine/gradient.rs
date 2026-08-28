@@ -23,7 +23,7 @@ pub fn gradient(c: &mut Criterion) {
     radial::opaque(c);
     sweep::opaque(c);
 
-    if *crate::EXTENDED {
+    if crate::EXTENDED {
         radial::opaque_conical(c);
 
         extend::pad(c);

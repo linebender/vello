@@ -20,7 +20,7 @@ pub fn image(c: &mut Criterion) {
     quality::low(c);
     quality::medium(c);
 
-    if *crate::EXTENDED {
+    if crate::EXTENDED {
         transform::none(c);
         transform::rotate(c);
 

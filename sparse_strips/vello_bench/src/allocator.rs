@@ -16,7 +16,7 @@ fn make_atlas() -> Atlas {
 }
 
 pub fn allocator(c: &mut Criterion) {
-    if !*crate::EXTENDED {
+    if !crate::EXTENDED {
         return;
     }
 

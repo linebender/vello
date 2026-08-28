@@ -15,7 +15,7 @@ use vello_cpu::{RenderContext, Resources};
 
 /// Image scene rendering benchmark.
 pub fn images(c: &mut Criterion) {
-    if !*crate::EXTENDED {
+    if !crate::EXTENDED {
         return;
     }
 

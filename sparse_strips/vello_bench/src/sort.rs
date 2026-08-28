@@ -5,7 +5,7 @@ use crate::data::get_data_items;
 use criterion::{BenchmarkId, Criterion};
 
 pub fn sort(c: &mut Criterion) {
-    if !*crate::EXTENDED {
+    if !crate::EXTENDED {
         return;
     }
 

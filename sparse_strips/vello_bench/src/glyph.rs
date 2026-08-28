@@ -12,7 +12,7 @@ use vello_common::pixmap::Pixmap;
 use vello_cpu::{Glyph, RenderContext, RenderSettings, Resources};
 
 pub fn glyph(c: &mut Criterion) {
-    if !*crate::EXTENDED {
+    if !crate::EXTENDED {
         return;
     }
 
