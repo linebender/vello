@@ -35,6 +35,7 @@ wesl = "=0.4.0"
 
 [features]
 glsl = ["dep:naga"]
+unminified = []
 
 [[bin]]
 name = "vello_sparse_shaders"

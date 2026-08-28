@@ -97,6 +97,7 @@ fn compile_stage(
         &module.global_variables,
         original_global_names,
     );
+    #[cfg(not(feature = "unminified"))]
     let source = crate::minify::minify_whitespace(&source, true);
 
     Stage {

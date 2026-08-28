@@ -35,6 +35,13 @@ cargo run -p vello_sparse_shaders --features glsl
 
 The generated files will be written into the `generated_glsl` folder.
 
+To retain authored identifiers and Naga's readable formatting for debugging, enable the diagnostic
+`unminified` feature as well:
+
+```sh
+cargo run -p vello_sparse_shaders --features glsl,unminified
+```
+
 ## Minimum supported Rust Version (MSRV)
 
 This version of Vello Hybrid Shaders has been verified to compile with **Rust 1.88** and later.
