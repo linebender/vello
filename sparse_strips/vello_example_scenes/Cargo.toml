@@ -12,6 +12,12 @@ workspace = true
 [features]
 default = []
 cpu = ["dep:vello_cpu"]
+webgl_gpu_timing = [
+    "web-sys/ExtDisjointTimerQuery",
+    "web-sys/HtmlCanvasElement",
+    "web-sys/WebGl2RenderingContext",
+    "web-sys/WebGlQuery",
+]
 
 [dependencies]
 bytemuck = { workspace = true, features = [] }

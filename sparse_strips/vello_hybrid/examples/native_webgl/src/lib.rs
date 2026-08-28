@@ -19,7 +19,7 @@ use vello_common::{
 use vello_example_scenes::image::ImageScene;
 use vello_example_scenes::{
     AnyScene,
-    performance::{FrameTiming, PerformancePanel, PerformanceStage, now},
+    performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
 };
 use vello_hybrid::{RenderSettings, Scene};
 use wasm_bindgen::prelude::*;
@@ -28,6 +28,7 @@ use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 struct RendererWrapper {
     renderer: vello_hybrid::WebGlRenderer,
     resources: vello_hybrid::Resources,
+    gpu_timer: Option<WebGlGpuTimer>,
 }
 
 impl RendererWrapper {
@@ -38,6 +39,7 @@ impl RendererWrapper {
         Self {
             renderer,
             resources,
+            gpu_timer: WebGlGpuTimer::new(&canvas),
         }
     }
 }
@@ -81,6 +83,11 @@ impl AppState {
         let current_scene = initial_scene_index(scenes.len());
 
         let renderer_wrapper = RendererWrapper::new(canvas.clone());
+        let timing_note = if renderer_wrapper.gpu_timer.is_some() {
+            "GPU queries are asynchronous and may arrive several frames later"
+        } else {
+            "GPU timing unavailable: EXT_disjoint_timer_query_webgl2 is unsupported"
+        };
 
         let mut app_state = Self {
             scenes,
@@ -107,7 +114,7 @@ impl AppState {
                         color: "#f59e0b",
                     },
                 ],
-                "GPU executes asynchronously and is not timed",
+                timing_note,
             ),
             canvas,
         };
@@ -119,7 +126,12 @@ impl AppState {
         app_state
     }
 
-    fn render(&mut self) -> FrameTiming<2> {
+    fn render(&mut self) -> (FrameTiming<2>, Option<f64>) {
+        let gpu_time = self
+            .renderer_wrapper
+            .gpu_timer
+            .as_mut()
+            .and_then(WebGlGpuTimer::poll);
         let frame_start = now();
         self.scene.reset();
 
@@ -136,6 +148,9 @@ impl AppState {
             height: self.height,
         };
 
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.begin();
+        }
         self.renderer_wrapper
             .renderer
             .render(
@@ -145,18 +160,25 @@ impl AppState {
                 &vello_hybrid::WebGlTextureBindings::new(),
             )
             .unwrap();
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.end();
+        }
         let frame_end = now();
 
-        FrameTiming {
-            stages_ms: [scene_end - frame_start, frame_end - scene_end],
-            total_ms: frame_end - frame_start,
-        }
+        (
+            FrameTiming {
+                stages_ms: [scene_end - frame_start, frame_end - scene_end],
+                total_ms: frame_end - frame_start,
+            },
+            gpu_time,
+        )
     }
 
     fn frame(&mut self, timestamp: f64) {
-        let timing = self.render();
+        let (timing, gpu_time) = self.render();
         let scene = self.current_scene + 1;
         let scene_count = self.scenes.len();
+        self.performance.record_gpu_time(gpu_time);
         self.performance.record(
             timestamp,
             Some(timing),
@@ -174,6 +196,9 @@ impl AppState {
         self.height = height;
 
         self.scene.reset_and_resize(width as u16, height as u16);
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.reset();
+        }
         self.performance.reset();
     }
 
@@ -182,6 +207,9 @@ impl AppState {
         update_page_url(self.current_scene);
         self.update_title();
         self.transform = Affine::IDENTITY;
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.reset();
+        }
         self.performance.reset();
     }
 
@@ -194,6 +222,9 @@ impl AppState {
         update_page_url(self.current_scene);
         self.update_title();
         self.transform = Affine::IDENTITY;
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.reset();
+        }
         self.performance.reset();
     }
 
@@ -568,6 +599,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
     let RendererWrapper {
         mut renderer,
         mut resources,
+        ..
     } = RendererWrapper::new(canvas);
 
     let render_size = vello_hybrid::RenderSize {
