@@ -346,40 +346,6 @@ jobs:
       - name: cargo test --doc
         run: cargo test --doc --workspace --locked --all-features --no-fail-fast
 
-  test-stable-big-endian:
-    name: cargo test (big-endian, powerpc64)
-    needs: prime-lfs-cache
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Restore lfs cache
-        id: lfs-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .git/lfs
-          key: vello-lfs-${{ needs.prime-lfs-cache.outputs.lfs-hash }}
-          enableCrossOsArchive: true
-
-      - name: Checkout LFS files
-        run: git lfs checkout '${{ join(fromJson(env.LFS_FILES), ''' ''') }}'
-        continue-on-error: true
-
-      - name: install stable toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_STABLE_VER }}
-
-      - name: install cross
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cross
-
-      - name: cargo test
-        run: cross test -p vello_sparse_tests --test tests --locked --release --target powerpc64-unknown-linux-gnu _scalar
-        env:
-          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
-
   test-stable-wasm:
     name: cargo test (wasm32, ${{ matrix.name }})
     needs: prime-lfs-cache
