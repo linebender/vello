@@ -2535,8 +2535,8 @@ fn create_texture_inner(
         WebGl2RenderingContext::TEXTURE_WRAP_T,
         WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
     );
-    // All textures only allocate mip level 0.
-    gl.tex_parameteri(target, WebGl2RenderingContext::TEXTURE_MAX_LEVEL, 0);
+    // Do _not_ explicitly set `TEXTURE_MAX_LEVEL` here, see
+    // (TODO) for more information.
 
     texture
 }
