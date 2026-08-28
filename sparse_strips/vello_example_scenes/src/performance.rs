@@ -7,13 +7,123 @@
     reason = "Sample windows are bounded to 120 entries"
 )]
 
+#[cfg(feature = "webgl_gpu_timing")]
+use std::collections::VecDeque;
 use std::fmt::Write as _;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlElement;
+#[cfg(feature = "webgl_gpu_timing")]
+use web_sys::{ExtDisjointTimerQuery, HtmlCanvasElement, WebGl2RenderingContext, WebGlQuery};
 
 const MAX_SAMPLES: usize = 120;
 const PANEL_UPDATE_INTERVAL_MS: f64 = 250.0;
 const SUSPENDED_FRAME_THRESHOLD_MS: f64 = 250.0;
+#[cfg(feature = "webgl_gpu_timing")]
+const MAX_PENDING_GPU_QUERIES: usize = 8;
+
+#[cfg(feature = "webgl_gpu_timing")]
+#[derive(Debug)]
+/// Measures GPU-clock elapsed time for WebGL command ranges without blocking for results.
+///
+/// [`begin`](Self::begin) marks the start of a range in the GPU command stream, and
+/// [`end`](Self::end) marks its end. The result is the time the GPU takes to process the
+/// commands submitted between those markers.
+///
+/// Measurements can include GPU stalls or idle gaps inside the range, but not CPU execution time.
+pub struct WebGlGpuTimer {
+    gl: WebGl2RenderingContext,
+    pending: VecDeque<WebGlQuery>,
+    active: Option<WebGlQuery>,
+}
+
+#[cfg(feature = "webgl_gpu_timing")]
+impl WebGlGpuTimer {
+    pub fn new(canvas: &HtmlCanvasElement) -> Option<Self> {
+        let gl = canvas
+            .get_context("webgl2")
+            .ok()
+            .flatten()?
+            .dyn_into::<WebGl2RenderingContext>()
+            .ok()?;
+        gl.get_extension("EXT_disjoint_timer_query_webgl2")
+            .ok()
+            .flatten()?;
+
+        Some(Self {
+            gl,
+            pending: VecDeque::with_capacity(MAX_PENDING_GPU_QUERIES),
+            active: None,
+        })
+    }
+
+    /// Starts a measurement unless one is active or the pending-result queue is full.
+    pub fn begin(&mut self) {
+        if self.active.is_some() || self.pending.len() == MAX_PENDING_GPU_QUERIES {
+            return;
+        }
+        let Some(query) = self.gl.create_query() else {
+            return;
+        };
+        self.gl
+            .begin_query(ExtDisjointTimerQuery::TIME_ELAPSED_EXT, &query);
+        self.active = Some(query);
+    }
+
+    /// Ends the active measurement and queues it for asynchronous retrieval.
+    pub fn end(&mut self) {
+        let Some(query) = self.active.take() else {
+            return;
+        };
+        self.gl.end_query(ExtDisjointTimerQuery::TIME_ELAPSED_EXT);
+        self.pending.push_back(query);
+    }
+
+    /// Returns the oldest available measurement in milliseconds without waiting for the GPU.
+    ///
+    /// If the GPU timer becomes unreliable, for example after a GPU reset or clock-speed
+    /// change, all pending measurements are discarded because their durations may be incorrect.
+    pub fn poll(&mut self) -> Option<f64> {
+        let disjoint = self
+            .gl
+            .get_parameter(ExtDisjointTimerQuery::GPU_DISJOINT_EXT)
+            .ok()
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        if disjoint {
+            self.clear_pending();
+            return None;
+        }
+
+        let query = self.pending.front()?;
+        let available = self
+            .gl
+            .get_query_parameter(query, WebGl2RenderingContext::QUERY_RESULT_AVAILABLE)
+            .as_bool()
+            .unwrap_or(false);
+        if !available {
+            return None;
+        }
+
+        let query = self.pending.pop_front().unwrap();
+        let duration_ns = self
+            .gl
+            .get_query_parameter(&query, WebGl2RenderingContext::QUERY_RESULT)
+            .as_f64();
+        self.gl.delete_query(Some(&query));
+        duration_ns.map(|duration_ns| duration_ns / 1_000_000.0)
+    }
+
+    /// Discards pending measurements; this must be called outside an active measurement.
+    pub fn reset(&mut self) {
+        self.clear_pending();
+    }
+
+    fn clear_pending(&mut self) {
+        for query in self.pending.drain(..) {
+            self.gl.delete_query(Some(&query));
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct PerformanceStage {
@@ -39,6 +149,7 @@ pub struct PerformancePanel<const N: usize> {
     frame_intervals: Vec<f64>,
     stage_times: [Vec<f64>; N],
     total_times: Vec<f64>,
+    gpu_times: Vec<f64>,
 }
 
 impl<const N: usize> PerformancePanel<N> {
@@ -96,6 +207,16 @@ impl<const N: usize> PerformancePanel<N> {
             frame_intervals: Vec::with_capacity(MAX_SAMPLES),
             stage_times: std::array::from_fn(|_| Vec::with_capacity(MAX_SAMPLES)),
             total_times: Vec::with_capacity(MAX_SAMPLES),
+            gpu_times: Vec::with_capacity(MAX_SAMPLES),
+        }
+    }
+
+    pub fn record_gpu_time(&mut self, duration_ms: Option<f64>) {
+        if let Some(duration_ms) = duration_ms
+            && duration_ms.is_finite()
+            && duration_ms >= 0.0
+        {
+            push_sample(&mut self.gpu_times, duration_ms);
         }
     }
 
@@ -149,6 +270,7 @@ impl<const N: usize> PerformancePanel<N> {
             samples.clear();
         }
         self.total_times.clear();
+        self.gpu_times.clear();
     }
 
     fn update_text(&self, scene: usize, scene_count: usize, width: u32, height: u32) {
@@ -161,6 +283,7 @@ impl<const N: usize> PerformancePanel<N> {
         let stage_stats = std::array::from_fn(|index| {
             SampleStats::from_samples(&self.stage_times[index]).unwrap()
         });
+        let gpu = SampleStats::from_samples(&self.gpu_times);
 
         let html = format_panel_html(&PanelSnapshot {
             backend: self.backend,
@@ -174,6 +297,8 @@ impl<const N: usize> PerformancePanel<N> {
             total: &total,
             stage_stats: &stage_stats,
             sample_count: self.total_times.len(),
+            gpu: gpu.as_ref(),
+            gpu_sample_count: self.gpu_times.len(),
         });
         self.element.set_inner_html(&html);
     }
@@ -191,12 +316,20 @@ struct PanelSnapshot<'a, const N: usize> {
     total: &'a SampleStats,
     stage_stats: &'a [SampleStats; N],
     sample_count: usize,
+    gpu: Option<&'a SampleStats>,
+    gpu_sample_count: usize,
 }
 
 fn format_panel_html<const N: usize>(panel: &PanelSnapshot<'_, N>) -> String {
     let fps = 1_000.0 / panel.frame.average;
-    let timeline_duration = panel.frame.average.max(panel.total.average);
-    let other_percent = (100.0 - 100.0 * panel.total.average / timeline_duration).max(0.0);
+    let timeline_duration = panel
+        .gpu
+        .map_or(panel.frame.average, |gpu| {
+            panel.frame.average.max(gpu.average)
+        })
+        .max(panel.total.average);
+    let other_percent =
+        100.0 * (panel.frame.average - panel.total.average).max(0.0) / timeline_duration;
     let other_average = (panel.frame.average - panel.total.average).max(0.0);
 
     let mut html = String::with_capacity(4096);
@@ -222,6 +355,11 @@ fn format_panel_html<const N: usize>(panel: &PanelSnapshot<'_, N>) -> String {
             stage.label, stage.description,
         )
         .unwrap();
+    }
+    if panel.gpu.is_some() {
+        html.push_str(
+            r#"<span class="vello-perf-tooltip-row"><strong>GPU execution</strong><span>GPU time for rendering, submission, and presentation commands. Results arrive asynchronously and overlap CPU work.</span></span>"#,
+        );
     }
     html.push_str(
         r#"<span class="vello-perf-tooltip-row"><strong>Browser/rAF</strong><span>Browser work, scheduling, and display wait.</span></span>
@@ -251,14 +389,30 @@ fn format_panel_html<const N: usize>(panel: &PanelSnapshot<'_, N>) -> String {
     write!(
         html,
         r#"<div style="width:{other_percent:.3}%;background:rgba(255,255,255,.16)"></div>
+</div>"#,
+    )
+    .unwrap();
+    if let Some(gpu) = panel.gpu {
+        let gpu_percent = 100.0 * gpu.average / timeline_duration;
+        write!(
+            html,
+            r#"<div style="display:flex;justify-content:space-between;margin:6px 0 4px">
+  <span>Average GPU execution</span><strong>{:.2} ms</strong>
 </div>
-<div style="display:grid;grid-template-columns:10px 1fr 58px 58px 58px;column-gap:6px;align-items:center;margin-top:7px">
+<div style="height:10px;overflow:hidden;border:1px solid rgba(255,255,255,.45);border-radius:3px">
+  <div style="width:{gpu_percent:.3}%;height:100%;background:#a855f7"></div>
+</div>"#,
+            gpu.average,
+        )
+        .unwrap();
+    }
+    html.push_str(
+        r#"<div style="display:grid;grid-template-columns:10px 1fr 58px 58px 58px;column-gap:6px;align-items:center;margin-top:7px">
   <span></span><span style="opacity:.7">Stage (ms)</span>
   <span style="text-align:right;opacity:.7">avg</span>
   <span style="text-align:right;opacity:.7">p95</span>
   <span style="text-align:right;opacity:.7">max</span>"#,
-    )
-    .unwrap();
+    );
     for (stage, stats) in panel.stages.iter().zip(panel.stage_stats) {
         write!(
             html,
@@ -276,14 +430,54 @@ fn format_panel_html<const N: usize>(panel: &PanelSnapshot<'_, N>) -> String {
         r#"<span style="width:8px;height:8px;background:rgba(255,255,255,.35);border-radius:2px"></span>
   <span>Browser/rAF</span>
   <span style="text-align:right">{other_average:.2}</span>
-  <span></span><span></span>
-</div>
+  <span></span><span></span>"#,
+    )
+    .unwrap();
+    if let Some(gpu) = panel.gpu {
+        write!(
+            html,
+            r#"<span style="width:8px;height:8px;background:#a855f7;border-radius:2px"></span>
+  <span>GPU execution</span>
+  <span style="text-align:right">{:.2}</span>
+  <span style="text-align:right">{:.2}</span>
+  <span style="text-align:right">{:.2}</span>"#,
+            gpu.average, gpu.p95, gpu.max,
+        )
+        .unwrap();
+    }
+    write!(
+        html,
+        r#"</div>
 <div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:7px;border-top:1px solid rgba(255,255,255,.25)">
   <strong>Full CPU render</strong><strong>{:.2} ms avg</strong>
-</div>
-<div style="margin-top:3px;opacity:.65">{} samples</div>
+</div>"#,
+        panel.total.average,
+    )
+    .unwrap();
+    if let Some(gpu) = panel.gpu {
+        write!(
+            html,
+            r#"<div style="display:flex;justify-content:space-between;margin-top:3px">
+  <strong>Full GPU execution</strong><strong>{:.2} ms avg</strong>
+</div>"#,
+            gpu.average,
+        )
+        .unwrap();
+    }
+    write!(
+        html,
+        r#"<div style="margin-top:3px;opacity:.65">{} CPU samples"#,
+        panel.sample_count,
+    )
+    .unwrap();
+    if panel.gpu.is_some() {
+        write!(html, " · {} GPU samples", panel.gpu_sample_count).unwrap();
+    }
+    write!(
+        html,
+        r#"</div>
 <div style="opacity:.65">{}</div>"#,
-        panel.total.average, panel.sample_count, panel.timing_note,
+        panel.timing_note,
     )
     .unwrap();
     html

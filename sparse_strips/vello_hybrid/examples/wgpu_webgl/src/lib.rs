@@ -9,8 +9,7 @@
 )]
 #![cfg(target_arch = "wasm32")]
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 use vello_common::{
     fearless_simd::Level,
     kurbo::{Affine, Point},
@@ -19,7 +18,7 @@ use vello_common::{
 use vello_example_scenes::{
     AnyScene,
     image::ImageScene,
-    performance::{FrameTiming, PerformancePanel, PerformanceStage, now},
+    performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
 };
 use vello_hybrid::{Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
 use wasm_bindgen::prelude::*;
@@ -44,6 +43,7 @@ struct RendererWrapper {
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
     depth_texture_view: wgpu::TextureView,
+    gpu_timer: Option<WebGlGpuTimer>,
 }
 
 impl RendererWrapper {
@@ -119,6 +119,7 @@ impl RendererWrapper {
             queue,
             surface,
             depth_texture_view,
+            gpu_timer: WebGlGpuTimer::new(&canvas),
         }
     }
 
@@ -138,6 +139,9 @@ impl RendererWrapper {
             &self.device,
             &vello_hybrid::RenderSize { width, height },
         );
+        if let Some(gpu_timer) = &mut self.gpu_timer {
+            gpu_timer.reset();
+        }
     }
 }
 
@@ -163,6 +167,11 @@ impl AppState {
         let current_scene = initial_scene_index(scenes.len());
 
         let renderer_wrapper = RendererWrapper::new(canvas.clone()).await;
+        let timing_note = if renderer_wrapper.gpu_timer.is_some() {
+            "GPU queries are asynchronous and may arrive several frames later"
+        } else {
+            "GPU timing unavailable: EXT_disjoint_timer_query_webgl2 is unsupported"
+        };
 
         let mut app_state = Self {
             scenes,
@@ -193,7 +202,7 @@ impl AppState {
                         color: "#3b82f6",
                     },
                 ],
-                "GPU executes asynchronously and is not timed",
+                timing_note,
             ),
             canvas,
         };
@@ -206,7 +215,12 @@ impl AppState {
         app_state
     }
 
-    fn render(&mut self) -> Option<FrameTiming<3>> {
+    fn render(&mut self) -> (Option<FrameTiming<3>>, Option<f64>) {
+        let gpu_time = self
+            .renderer_wrapper
+            .gpu_timer
+            .as_mut()
+            .and_then(WebGlGpuTimer::poll);
         let frame_start = now();
         self.scene.reset();
 
@@ -229,7 +243,7 @@ impl AppState {
             | CurrentSurfaceTexture::Timeout
             | CurrentSurfaceTexture::Outdated
             | CurrentSurfaceTexture::Suboptimal(_) => {
-                return None;
+                return (None, gpu_time);
             }
             CurrentSurfaceTexture::Lost => panic!("Surface was lost"),
             CurrentSurfaceTexture::Validation => {
@@ -245,6 +259,9 @@ impl AppState {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.begin();
+        }
         self.renderer_wrapper
             .renderer
             .render(
@@ -263,22 +280,29 @@ impl AppState {
 
         self.renderer_wrapper.queue.submit([encoder.finish()]);
         surface_texture.present();
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.end();
+        }
         let frame_end = now();
 
-        Some(FrameTiming {
-            stages_ms: [
-                scene_end - frame_start,
-                render_end - scene_end,
-                frame_end - render_end,
-            ],
-            total_ms: frame_end - frame_start,
-        })
+        (
+            Some(FrameTiming {
+                stages_ms: [
+                    scene_end - frame_start,
+                    render_end - scene_end,
+                    frame_end - render_end,
+                ],
+                total_ms: frame_end - frame_start,
+            }),
+            gpu_time,
+        )
     }
 
     fn frame(&mut self, timestamp: f64) {
-        let timing = self.render();
+        let (timing, gpu_time) = self.render();
         let scene = self.current_scene + 1;
         let scene_count = self.scenes.len();
+        self.performance.record_gpu_time(gpu_time);
         self.performance.record(
             timestamp,
             timing,
@@ -305,6 +329,9 @@ impl AppState {
         update_page_url(self.current_scene);
         self.update_title();
         self.transform = Affine::IDENTITY;
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.reset();
+        }
         self.performance.reset();
     }
 
@@ -317,6 +344,9 @@ impl AppState {
         update_page_url(self.current_scene);
         self.update_title();
         self.transform = Affine::IDENTITY;
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.reset();
+        }
         self.performance.reset();
     }
 
@@ -678,6 +708,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         queue,
         surface,
         depth_texture_view,
+        ..
     } = RendererWrapper::new(canvas).await;
 
     let render_size = vello_hybrid::RenderSize {
