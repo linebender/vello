@@ -4,8 +4,9 @@
 //! Simple example.
 
 use anyhow::Result;
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 use std::sync::Arc;
-use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
+use vello::kurbo::{Affine, BezPath, Circle, Ellipse, Line, RoundedRect, Shape, Stroke};
 use vello::peniko::Color;
 use vello::peniko::color::palette;
 use vello::util::{RenderContext, RenderSurface};
