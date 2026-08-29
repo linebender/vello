@@ -65,6 +65,7 @@ extern crate std;
 
 pub mod blurred_rounded_rect;
 pub mod clip;
+pub mod composite;
 pub mod encode;
 pub mod filter;
 pub mod filter_effects;
@@ -94,6 +95,7 @@ pub mod transforms;
 pub mod util;
 pub mod viewport;
 
+pub use composite::CompositeMode;
 pub use fearless_simd;
 pub use peniko;
 pub use peniko::color;

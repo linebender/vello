@@ -22,7 +22,8 @@ use crate::draw::ExternalTextureRun;
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
 use crate::{
-    ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
+    ClearSettings, CompositeMode, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize,
+    Resources,
     blend::{BlendStrip, GpuBlendInstance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
@@ -274,7 +275,7 @@ impl Renderer {
         view: &TextureView,
         depth_view: Option<&TextureView>,
         texture_bindings: &TextureBindings,
-        clear: ClearSettings<'_>,
+        composite_mode: CompositeMode<'_>,
     ) -> Result<(), RenderError> {
         #[cfg(feature = "text")]
         {
@@ -317,7 +318,7 @@ impl Renderer {
             depth_view,
             &resources.image_cache,
             &scene.encoded_paints,
-            clear,
+            composite_mode,
             RootTarget::UserSurface,
             texture_bindings,
         );
@@ -415,7 +416,7 @@ impl Renderer {
             None,
             &dummy_image_cache,
             encoded_paints,
-            ClearSettings::DontClear,
+            CompositeMode::Preserve,
             RootTarget::AtlasLayer,
             texture_bindings,
         );
@@ -459,7 +460,7 @@ impl Renderer {
         depth_view: Option<&TextureView>,
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
-        clear: ClearSettings<'_>,
+        composite_mode: CompositeMode<'_>,
         root_output_target: RootTarget,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
@@ -517,7 +518,7 @@ impl Renderer {
             root_load_op: wgpu::LoadOp::Load,
         };
 
-        ctx.init_root_clear(clear, root_output_target);
+        ctx.init_root_clear(composite_mode, root_output_target);
 
         crate::schedule::execute(
             &mut ctx,
@@ -2745,11 +2746,13 @@ struct RendererContext<'a> {
 }
 
 impl RendererContext<'_> {
-    fn init_root_clear(&mut self, clear: ClearSettings<'_>, root_target: RootTarget) {
-        self.root_load_op = match clear {
-            ClearSettings::DontClear => wgpu::LoadOp::Load,
-            ClearSettings::Viewport { color } => wgpu::LoadOp::Clear(clear_color(color)),
-            ClearSettings::Rects { .. } => {
+    fn init_root_clear(&mut self, composite_mode: CompositeMode<'_>, root_target: RootTarget) {
+        self.root_load_op = match composite_mode {
+            CompositeMode::Preserve => wgpu::LoadOp::Load,
+            CompositeMode::Clear(ClearSettings::Viewport { color }) => {
+                wgpu::LoadOp::Clear(clear_color(color))
+            }
+            CompositeMode::Clear(clear @ ClearSettings::Rects { .. }) => {
                 self.clear_pass_inner(DrawPassTarget::Root(root_target), clear);
 
                 wgpu::LoadOp::Load
@@ -3143,16 +3146,13 @@ impl RendererContext<'_> {
     }
 
     fn clear_pass_inner(&mut self, target: DrawPassTarget, settings: ClearSettings<'_>) {
-        let Some(color) = settings.clear_color() else {
-            return;
-        };
+        let color = settings.clear_color();
 
         let view = match target {
             DrawPassTarget::Root(_) => self.view,
             DrawPassTarget::Layer(target) => self.programs.resources.layer_view(target),
         };
         let rects = match settings {
-            ClearSettings::DontClear => unreachable!(),
             ClearSettings::Viewport { .. } => {
                 Self::clear_full_target(self.encoder, view, clear_color(color));
 

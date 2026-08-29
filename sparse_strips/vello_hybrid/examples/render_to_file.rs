@@ -103,7 +103,7 @@ async fn run() {
             &texture_view,
             Some(&depth_texture_view),
             &vello_hybrid::TextureBindings::new(),
-            vello_hybrid::ClearSettings::default(),
+            vello_hybrid::CompositeMode::Clear(vello_hybrid::ClearSettings::default()),
         )
         .unwrap();
 

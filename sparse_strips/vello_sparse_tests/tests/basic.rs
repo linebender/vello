@@ -519,7 +519,7 @@ fn implicit_subpaths(ctx: &mut impl Renderer) {
 /// This demonstrates the glyph caching workflow:
 /// 1. Create a small `RenderContext` sized for a single glyph
 /// 2. Render the glyph into that context
-/// 3. Render it with `CompositeMode::SrcOver` and an offset into a larger spritesheet
+/// 3. Render it with `CompositeMode::Preserve` and an offset into a larger spritesheet
 #[test]
 fn render_src_over_with_offset() {
     let settings = RenderSettings {
@@ -567,7 +567,7 @@ fn render_src_over_with_offset() {
             &mut glyph_resources,
             RasterizerSettings {
                 render_mode: RenderMode::OptimizeQuality,
-                composite_mode: CompositeMode::SrcOver,
+                composite_mode: CompositeMode::Preserve,
                 offset: (dst_x, dst_y),
                 ..Default::default()
             },

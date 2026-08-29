@@ -36,8 +36,6 @@ pub(crate) const IMAGE_PADDING: u16 = 0;
 /// Controls how the output target is cleared before drawing.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ClearSettings<'a> {
-    /// Do not clear the target.
-    DontClear,
     /// Clear the complete viewport to `color`.
     Viewport {
         /// The clear color.
@@ -53,13 +51,15 @@ pub enum ClearSettings<'a> {
 }
 
 impl ClearSettings<'_> {
-    pub(crate) fn clear_color(self) -> Option<AlphaColor<Srgb>> {
+    pub(crate) fn clear_color(self) -> AlphaColor<Srgb> {
         match self {
-            Self::DontClear => None,
-            Self::Viewport { color } | Self::Rects { color, .. } => Some(color),
+            Self::Viewport { color } | Self::Rects { color, .. } => color,
         }
     }
 }
+
+/// Controls whether existing target contents are preserved or cleared before drawing.
+pub type CompositeMode<'a> = vello_common::CompositeMode<ClearSettings<'a>>;
 
 impl Default for ClearSettings<'_> {
     fn default() -> Self {

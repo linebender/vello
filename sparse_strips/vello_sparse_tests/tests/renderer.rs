@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glifo::GlyphRunBackend;
-use vello_common::color::AlphaColor;
+use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
@@ -14,11 +14,12 @@ use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{
-    CompositeMode, Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources,
+    CompositeMode as CpuCompositeMode, Level, RasterizerSettings, RenderContext, RenderMode,
+    RenderSettings, Resources,
 };
 use vello_hybrid::{
-    ClearSettings, RectU16, RenderSettings as HybridRenderSettings, Resources as HybridResources,
-    Scene, TextureId,
+    ClearSettings, CompositeMode as HybridCompositeMode, RectU16,
+    RenderSettings as HybridRenderSettings, Resources as HybridResources, Scene, TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -87,7 +88,7 @@ pub(crate) trait Renderer: Sized {
     fn set_filter_effect(&mut self, filter: Filter);
     fn reset_filter_effect(&mut self);
     fn reset(&mut self);
-    fn set_clear(&mut self, clear: ClearSettings<'static>);
+    fn set_clear(&mut self, clear: HybridCompositeMode<'static>);
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
@@ -101,7 +102,7 @@ pub(crate) struct CpuRenderer {
     resources: Resources,
     render_mode: RenderMode,
     target: Pixmap,
-    clear: ClearSettings<'static>,
+    clear: HybridCompositeMode<'static>,
 }
 
 impl Renderer for CpuRenderer {
@@ -120,7 +121,7 @@ impl Renderer for CpuRenderer {
             resources: Resources::new(),
             render_mode,
             target: Pixmap::new(width, height),
-            clear: ClearSettings::default(),
+            clear: HybridCompositeMode::Clear(ClearSettings::default()),
         }
     }
 
@@ -248,21 +249,20 @@ impl Renderer for CpuRenderer {
         self.ctx.reset();
     }
 
-    fn set_clear(&mut self, clear: ClearSettings<'static>) {
+    fn set_clear(&mut self, clear: HybridCompositeMode<'static>) {
         self.clear = clear;
     }
 
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
-        apply_clear(&mut self.target, self.clear);
-        // We still want to exercise the `Replace` path for the common case since it's
-        // the default, so use it whenever possible.
         let composite_mode = match self.clear {
-            ClearSettings::Viewport { color } if color == AlphaColor::TRANSPARENT => {
-                CompositeMode::Replace
+            HybridCompositeMode::Preserve => CpuCompositeMode::Preserve,
+            HybridCompositeMode::Clear(ClearSettings::Viewport { color }) => {
+                CpuCompositeMode::Clear(color)
             }
-            ClearSettings::DontClear
-            | ClearSettings::Viewport { .. }
-            | ClearSettings::Rects { .. } => CompositeMode::SrcOver,
+            HybridCompositeMode::Clear(ClearSettings::Rects { color, rects }) => {
+                apply_rect_clear(&mut self.target, color, rects);
+                CpuCompositeMode::Preserve
+            }
         };
 
         self.ctx.render_with(
@@ -311,7 +311,7 @@ pub(crate) struct HybridRenderer {
     renderer: vello_hybrid::Renderer,
     external_textures: HashMap<TextureId, wgpu::TextureView>,
     next_external_texture_id: u64,
-    clear: ClearSettings<'static>,
+    clear: HybridCompositeMode<'static>,
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
@@ -384,7 +384,7 @@ impl HybridRenderer {
             renderer,
             external_textures: HashMap::new(),
             next_external_texture_id: 1,
-            clear: ClearSettings::default(),
+            clear: HybridCompositeMode::Clear(ClearSettings::default()),
         }
     }
 
@@ -569,7 +569,7 @@ impl Renderer for HybridRenderer {
         self.scene.reset();
     }
 
-    fn set_clear(&mut self, clear: ClearSettings<'static>) {
+    fn set_clear(&mut self, clear: HybridCompositeMode<'static>) {
         self.clear = clear;
     }
 
@@ -756,7 +756,7 @@ pub(crate) struct HybridRenderer {
     gl: WebGl2RenderingContext,
     external_textures: vello_hybrid::WebGlTextureBindings,
     next_external_texture_id: u64,
-    clear: ClearSettings<'static>,
+    clear: HybridCompositeMode<'static>,
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -829,7 +829,7 @@ impl Renderer for HybridRenderer {
             gl,
             external_textures: vello_hybrid::WebGlTextureBindings::new(),
             next_external_texture_id: 1,
-            clear: ClearSettings::default(),
+            clear: HybridCompositeMode::Clear(ClearSettings::default()),
         }
     }
 
@@ -955,7 +955,7 @@ impl Renderer for HybridRenderer {
         self.scene.reset();
     }
 
-    fn set_clear(&mut self, clear: ClearSettings<'static>) {
+    fn set_clear(&mut self, clear: HybridCompositeMode<'static>) {
         self.clear = clear;
     }
 
@@ -1072,31 +1072,22 @@ impl Renderer for HybridRenderer {
     }
 }
 
-// For now, we simulate `ClearSettings` for Vello CPU so that we can use it
-// for the snapshot reference images.
-fn apply_clear(pixmap: &mut Pixmap, clear: ClearSettings<'_>) {
-    match clear {
-        ClearSettings::DontClear => {}
-        ClearSettings::Viewport { color } => {
-            pixmap.data_mut().fill(color.premultiply().to_rgba8());
-        }
-        ClearSettings::Rects { color, rects } => {
-            let color = color.premultiply().to_rgba8();
-            let width = usize::from(pixmap.width());
-            let bounds = RectU16::new(0, 0, pixmap.width(), pixmap.height());
-            let data = pixmap.data_mut();
+// Vello CPU does not expose rectangle clears, so simulate them for shared snapshot tests.
+fn apply_rect_clear(pixmap: &mut Pixmap, color: AlphaColor<Srgb>, rects: &[RectU16]) {
+    let color = color.premultiply().to_rgba8();
+    let width = usize::from(pixmap.width());
+    let bounds = RectU16::new(0, 0, pixmap.width(), pixmap.height());
+    let data = pixmap.data_mut();
 
-            for rect in rects
-                .iter()
-                .map(|rect| rect.intersect(bounds))
-                .filter(|rect| !rect.is_empty())
-            {
-                for y in usize::from(rect.y0)..usize::from(rect.y1) {
-                    let start = y * width + usize::from(rect.x0);
-                    let end = y * width + usize::from(rect.x1);
-                    data[start..end].fill(color);
-                }
-            }
+    for rect in rects
+        .iter()
+        .map(|rect| rect.intersect(bounds))
+        .filter(|rect| !rect.is_empty())
+    {
+        for y in usize::from(rect.y0)..usize::from(rect.y1) {
+            let start = y * width + usize::from(rect.x0);
+            let end = y * width + usize::from(rect.x1);
+            data[start..end].fill(color);
         }
     }
 }

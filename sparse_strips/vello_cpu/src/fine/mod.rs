@@ -28,6 +28,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
+use vello_common::CompositeMode;
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
@@ -458,7 +459,7 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
     region: &mut Region<'_>,
     bucketer: &CommandBucketer,
     resources: FineResources<'_>,
-    unpack_dest: bool,
+    composite_mode: CompositeMode<PremulColor>,
 ) {
     let scene_y = region.row_idx as u16 * Tile::HEIGHT;
     let row = &bucketer.rows()[region.row_idx];
@@ -478,7 +479,7 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
     }
 
     // Clear any regions in the fine buffer that haven't been filled with an opaque fill.
-    fine.init_uncovered_range(span, region, unpack_dest, depth);
+    fine.init_uncovered_range(span, region, composite_mode, depth);
 
     // Render the main commands back-to-front, with depth-buffer read.
     for cmd in &row.render_cmds {
@@ -557,25 +558,33 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     /// Initialize every range in the buffer that has not been filled yet
     /// with a solid paint.
     ///
-    /// In case [`ComositeMode::SrcOver`] was chosen, it will be initialized with
-    /// the pixels from the user-supplied pixmap. Otherwise, the range will simply be zeroed.
+    /// Existing target pixels are unpacked for [`CompositeMode::Preserve`]. For
+    /// [`CompositeMode::Clear`], the range is initialized with the supplied color.
     fn init_uncovered_range(
         &mut self,
         scratch_span: Span,
         region: &mut Region<'_>,
-        use_src_over: bool,
+        composite_mode: CompositeMode<PremulColor>,
         depth: &DepthBuffer,
     ) {
+        let clear_color = match composite_mode {
+            CompositeMode::Preserve => None,
+            CompositeMode::Clear(color) => Some(T::extract_color(color)),
+        };
+
         depth.for_each_unset_run(scratch_span, |span| {
             let x = span.pixel_x();
             let end = span.pixel_end();
+            let range = Self::scratch_range(Span::new(x, end - x));
 
-            if use_src_over {
-                let mut region = region.sub_span(x, end - x);
-                self.unpack(x, &mut region);
-            } else {
-                self.blend_buffers[0][Self::scratch_range(Span::new(x, end - x))]
-                    .fill(T::Numeric::ZERO);
+            match clear_color {
+                Some(color) => {
+                    T::copy_solid(self.simd, &mut self.blend_buffers[0][range], color);
+                }
+                None => {
+                    let mut region = region.sub_span(x, end - x);
+                    self.unpack(x, &mut region);
+                }
             }
         });
     }

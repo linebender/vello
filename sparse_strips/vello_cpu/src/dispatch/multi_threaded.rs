@@ -25,13 +25,14 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
+use vello_common::CompositeMode as CommonCompositeMode;
 use vello_common::clip::ClipContext;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, Paint};
+use vello_common::paint::{ImageResolver, Paint, PremulColor};
 use vello_common::pixmap::PixmapMut;
 use vello_common::record::{CommandRecorder, LayerClip, LayerProps, PoppedLayer};
 use vello_common::strip::Strip;
@@ -398,19 +399,26 @@ impl MultiThreadedDispatcher {
         let mut bucketer = self.bucketer.lock().unwrap();
         let filters = FilterContext::new(0);
         bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
-        bucketer.bucket_commands(
+        let (composite_mode, isolate_root) = match settings.composite_mode {
+            CompositeMode::Preserve => (CommonCompositeMode::Preserve, false),
+            CompositeMode::Clear(color) => (
+                CommonCompositeMode::Clear(PremulColor::from_alpha_color(color)),
+                self.recorder.root_is_blend_target,
+            ),
+        };
+        bucketer.bucket_root_commands(
             &self.recorder.nodes,
             &self.recorder.draws,
             &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,
             &filters,
+            isolate_root,
         );
 
         let alpha_slots = self.alpha_storage.take();
         {
             let alpha_buffers = alpha_slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
-            let use_src_over = settings.composite_mode == CompositeMode::SrcOver;
             let resources = FineResources {
                 alpha_buffers: &alpha_buffers,
                 encoded_paints,
@@ -447,7 +455,7 @@ impl MultiThreadedDispatcher {
                         region,
                         &bucketer,
                         resources,
-                        use_src_over,
+                        composite_mode,
                     );
                 });
             });

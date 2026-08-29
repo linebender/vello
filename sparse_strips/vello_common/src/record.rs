@@ -47,6 +47,11 @@ pub trait Drawable {
     /// Return the **tile-aligned** bounding box of the given object, if it
     /// has one.
     fn bbox(&self, strips: &[Strip]) -> Option<RectU16>;
+
+    /// Return the blend mode applied directly by this draw, if any.
+    fn blend_mode(&self) -> Option<&BlendMode> {
+        None
+    }
 }
 
 /// A node in the recorded render graph.
@@ -421,6 +426,14 @@ impl<D: Drawable> CommandRecorder<D> {
     /// Push a draw command.
     #[inline]
     pub fn push_draw(&mut self, draw: D, strips: &[Strip]) {
+        if self.active_layer.is_none()
+            && draw
+                .blend_mode()
+                .is_some_and(|blend_mode| *blend_mode != BlendMode::default())
+        {
+            self.root_is_blend_target = true;
+        }
+
         self.record_bbox(|| draw.bbox(strips));
         let draw_idx = self.draws.len() as u32;
         self.draws.push(draw);
@@ -474,6 +487,19 @@ mod tests {
     impl Drawable for EmptyDraw {
         fn bbox(&self, _strips: &[Strip]) -> Option<RectU16> {
             None
+        }
+    }
+
+    #[derive(Debug)]
+    struct BlendedDraw(BlendMode);
+
+    impl Drawable for BlendedDraw {
+        fn bbox(&self, _strips: &[Strip]) -> Option<RectU16> {
+            Some(RectU16::new(0, 0, 64, 4))
+        }
+
+        fn blend_mode(&self) -> Option<&BlendMode> {
+            Some(&self.0)
         }
     }
 
@@ -679,6 +705,22 @@ mod tests {
         recorder.pop_layer();
         recorder.push_layer(blended_layer_props(), None);
 
+        assert!(recorder.root_is_blend_target);
+    }
+
+    #[test]
+    fn draw_blend_metadata_distinguishes_root_and_nested_targets() {
+        let mut recorder = CommandRecorder::<BlendedDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
+
+        recorder.push_draw(BlendedDraw(BlendMode::default()), &[]);
+        assert!(!recorder.root_is_blend_target);
+
+        recorder.push_layer(layer_props(), None);
+        recorder.push_draw(BlendedDraw(Mix::Multiply.into()), &[]);
+        assert!(!recorder.root_is_blend_target);
+        recorder.pop_layer();
+
+        recorder.push_draw(BlendedDraw(Mix::Multiply.into()), &[]);
         assert!(recorder.root_is_blend_target);
     }
 

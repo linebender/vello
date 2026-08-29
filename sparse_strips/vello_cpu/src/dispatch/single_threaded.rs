@@ -12,12 +12,14 @@ use crate::record::RecordedFill;
 use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use core::cell::RefCell;
+use vello_common::CompositeMode as CommonCompositeMode;
+use vello_common::color::AlphaColor;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, Paint};
+use vello_common::paint::{ImageResolver, Paint, PremulColor};
 use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::record::{
     CommandRecorder, LayerClip, LayerProps, Node, PoppedLayer, RecordedLayerKind,
@@ -109,7 +111,13 @@ impl SingleThreadedDispatcher {
         image_resolver: &dyn ImageResolver,
     ) {
         let filters = self.rasterize_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
-        let use_src_over = settings.composite_mode == CompositeMode::SrcOver;
+        let (composite_mode, isolate_root) = match settings.composite_mode {
+            CompositeMode::Preserve => (CommonCompositeMode::Preserve, false),
+            CompositeMode::Clear(color) => (
+                CommonCompositeMode::Clear(PremulColor::from_alpha_color(color)),
+                self.recorder.root_is_blend_target,
+            ),
+        };
         let params = FineRenderParams {
             scene_size: (scene_width, scene_height),
             target_offset: settings.offset,
@@ -122,7 +130,8 @@ impl SingleThreadedDispatcher {
             &filters,
             target,
             params,
-            use_src_over,
+            composite_mode,
+            isolate_root,
             encoded_paints,
             image_resolver,
         );
@@ -136,19 +145,21 @@ impl SingleThreadedDispatcher {
         filter_ctx: &FilterContext,
         mut target: PixmapMut<'_>,
         params: FineRenderParams,
-        use_src_over: bool,
+        composite_mode: CommonCompositeMode<PremulColor>,
+        isolate_root: bool,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
         let mut bucketer = self.bucketer.borrow_mut();
         bucketer.reset(viewport);
-        bucketer.bucket_commands(
+        bucketer.bucket_root_commands(
             cmds,
             &self.recorder.draws,
             &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,
             filter_ctx,
+            isolate_root,
         );
 
         let alpha_buffers = &[self.strip_storage.alphas.as_slice()];
@@ -164,7 +175,7 @@ impl SingleThreadedDispatcher {
             params.target_offset,
             bucketer.rows().len(),
         );
-        Self::rasterize_target::<S, F>(simd, &bucketer, resources, &mut regions, use_src_over);
+        Self::rasterize_target::<S, F>(simd, &bucketer, resources, &mut regions, composite_mode);
     }
 
     fn rasterize_target<S: Simd, F: FineKernel<S>>(
@@ -172,7 +183,7 @@ impl SingleThreadedDispatcher {
         bucketer: &CommandBucketer,
         resources: FineResources<'_>,
         regions: &mut Regions<'_>,
-        use_src_over: bool,
+        composite_mode: CommonCompositeMode<PremulColor>,
     ) {
         // TODO: Reuse fine and depth buffer across targets?
         let mut fine = Fine::<S, F>::new(simd, bucketer.width());
@@ -184,7 +195,7 @@ impl SingleThreadedDispatcher {
                 region,
                 bucketer,
                 resources,
-                use_src_over,
+                composite_mode,
             );
         });
     }
@@ -246,6 +257,7 @@ impl SingleThreadedDispatcher {
                 &filter_ctx,
                 (&mut pixmap).into(),
                 params,
+                CommonCompositeMode::Clear(PremulColor::from_alpha_color(AlphaColor::TRANSPARENT)),
                 false,
                 encoded_paints,
                 image_resolver,

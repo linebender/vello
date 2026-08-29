@@ -182,7 +182,7 @@ impl Resources {
                     &mut Self::default(),
                     RasterizerSettings {
                         render_mode,
-                        composite_mode: CompositeMode::SrcOver,
+                        composite_mode: CompositeMode::Preserve,
                         ..Default::default()
                     },
                 );

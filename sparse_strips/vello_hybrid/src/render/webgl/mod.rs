@@ -28,7 +28,8 @@ use crate::draw::ExternalTextureRun;
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
 use crate::{
-    ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
+    ClearSettings, CompositeMode, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize,
+    Resources,
     blend::{BlendStrip, GpuBlendInstance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
@@ -418,7 +419,7 @@ impl WebGlRenderer {
         resources: &mut Resources,
         render_size: &RenderSize,
         texture_bindings: &WebGlTextureBindings,
-        clear: ClearSettings<'_>,
+        composite_mode: CompositeMode<'_>,
     ) -> Result<(), RenderError> {
         debug_assert_eq!(
             RenderSize {
@@ -459,7 +460,7 @@ impl WebGlRenderer {
             scene,
             &resources.image_cache,
             render_size,
-            clear,
+            composite_mode,
             RootTarget::UserSurface,
             texture_bindings,
         )?;
@@ -550,7 +551,7 @@ impl WebGlRenderer {
             scene,
             &dummy_image_cache,
             &atlas_render_size,
-            ClearSettings::DontClear,
+            CompositeMode::Preserve,
             RootTarget::AtlasLayer,
             texture_bindings,
         );
@@ -589,7 +590,7 @@ impl WebGlRenderer {
         scene: &Scene,
         image_cache: &ImageCache,
         render_size: &RenderSize,
-        clear: ClearSettings<'_>,
+        composite_mode: CompositeMode<'_>,
         root_output_target: RootTarget,
         texture_bindings: &WebGlTextureBindings,
     ) -> Result<(), RenderError> {
@@ -646,7 +647,9 @@ impl WebGlRenderer {
             scratch_buffers: &mut self.scratch_buffers,
             use_depth_buffer: self.use_depth_buffer,
         };
-        ctx.clear_pass_inner(DrawPassTarget::Root(root_output_target), clear);
+        if let CompositeMode::Clear(clear) = composite_mode {
+            ctx.clear_pass_inner(DrawPassTarget::Root(root_output_target), clear);
+        }
         crate::schedule::execute(
             &mut ctx,
             &mut self.schedule_storage,
@@ -3344,9 +3347,7 @@ impl WebGlRendererContext<'_> {
     }
 
     fn clear_pass_inner(&self, target: DrawPassTarget, settings: ClearSettings<'_>) {
-        let Some(color) = settings.clear_color() else {
-            return;
-        };
+        let color = settings.clear_color();
 
         let negate_ndc = target.negate_ndc();
         let (width, height) = match target {
@@ -3374,7 +3375,6 @@ impl WebGlRendererContext<'_> {
         self.gl.clear_color(r, g, b, a);
 
         match settings {
-            ClearSettings::DontClear => unreachable!(),
             ClearSettings::Viewport { .. } => {
                 self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
                 self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);

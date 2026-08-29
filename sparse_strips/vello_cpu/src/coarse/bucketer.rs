@@ -367,6 +367,33 @@ impl CommandBucketer {
         }
     }
 
+    /// Bucket the root command stream, optionally isolating it from the initialized target.
+    pub(crate) fn bucket_root_commands(
+        &mut self,
+        nodes: &[Node],
+        draws: &[RecordedFill],
+        layers: &[RecordedLayer],
+        strips: &[Strip],
+        encoded_paints: &[EncodedPaint],
+        filter_ctx: &FilterContext,
+        isolate: bool,
+    ) {
+        if isolate {
+            self.push_layer(&LayerProps {
+                blend_mode: BlendMode::default(),
+                opacity: 1.0,
+                mask: None,
+                clip_path: None,
+            });
+        }
+
+        self.bucket_commands(nodes, draws, layers, strips, encoded_paints, filter_ctx);
+
+        if isolate {
+            self.pop_layer(strips);
+        }
+    }
+
     pub(crate) fn push_layer(&mut self, props: &LayerProps) {
         let parent_bbox = *self.clip_bboxes.last().unwrap();
         let bbox = props
