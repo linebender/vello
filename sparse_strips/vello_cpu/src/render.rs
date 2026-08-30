@@ -485,7 +485,7 @@ impl RenderContext {
         });
 
         let blend_mode = blend_mode.unwrap_or_default();
-        let opacity = opacity.unwrap_or(1.0);
+        let opacity = opacity.unwrap_or(1.0).clamp(0.0, 1.0);
         let layer_transform = self
             .root_transforms
             .effective_path_transform(self.transforms());
