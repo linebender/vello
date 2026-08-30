@@ -144,6 +144,12 @@ pub(crate) fn get_ctx_with_depth_buffer<T: Renderer>(
                 .expect("wasm simd128 should be available"),
         ),
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        "sse2" => Level::Sse2(
+            Level::try_detect()
+                .and_then(Level::as_sse2)
+                .expect("SSE2 should be available"),
+        ),
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         "sse42" => {
             if std::arch::is_x86_feature_detected!("sse4.2") {
                 Level::Sse4_2(unsafe { fearless_simd::Sse4_2::assume_supported() })
@@ -161,6 +167,12 @@ pub(crate) fn get_ctx_with_depth_buffer<T: Renderer>(
                 panic!("avx2 or fma feature not detected");
             }
         }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        "avx512" => Level::Avx512(
+            Level::try_detect()
+                .and_then(Level::as_avx512)
+                .expect("Ice Lake AVX-512 should be available"),
+        ),
         "fallback" => Level::fallback(),
         _ => panic!("unknown level: {level}"),
     };

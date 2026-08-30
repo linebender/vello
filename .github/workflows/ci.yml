@@ -346,6 +346,56 @@ jobs:
       - name: cargo test --doc
         run: cargo test --doc --workspace --locked --all-features --no-fail-fast
 
+  test-avx512:
+    # Since GitHub runners don't support AVX-512, we need to run the tests with Intel SDE. This
+    # setup mirrors https://github.com/linebender/fearless_simd/blob/30c7f38cd545b20ec98624bbf62d1357cd8814e3/.github/workflows/ci.yml#L222
+    name: vello_sparse_tests (AVX-512)
+    needs: prime-lfs-cache
+    runs-on: ubuntu-latest
+    env:
+      CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+      CARGO_TEST_ARGS: -p vello_sparse_tests --locked --release --test tests
+      SDE_PKG: sde-external-10.8.0-2026-03-15
+      SDE_SHA256: 50b320cd226acef7a491f5b321fc1be3c3c7984f9e27a456e64894b5b0979dd3
+      VELLO_TEST_AVX512: "true"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Restore lfs cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .git/lfs
+          key: vello-lfs-${{ needs.prime-lfs-cache.outputs.lfs-hash }}
+
+      - name: Checkout LFS files
+        run: git lfs checkout '${{ join(fromJson(env.LFS_FILES), ''' ''') }}'
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
+
+      - name: install Intel Software Development Emulator
+        run: |
+          curl -fsSL -o "${SDE_PKG}-lin.tar.xz" "https://github.com/Shnatsel/intel-sde-mirror/releases/download/sde-${SDE_PKG#sde-external-}/${SDE_PKG}-lin.tar.xz"
+          if ! echo "${SDE_SHA256}  ${SDE_PKG}-lin.tar.xz" | sha256sum -c -; then
+            echo "SDE archive checksum verification failed" >&2
+            exit 1
+          fi
+          tar -Jxf "${SDE_PKG}-lin.tar.xz"
+
+      # Building under SDE would be very slow.
+      - name: build tests
+        run: cargo test --no-run $CARGO_TEST_ARGS
+
+      - name: run vello_sparse_tests with AVX-512
+        run: ${SDE_PKG}-lin/sde64 -icl -- cargo test $CARGO_TEST_ARGS avx512
+
   test-stable-wasm:
     name: cargo test (wasm32, ${{ matrix.name }})
     needs: prime-lfs-cache
