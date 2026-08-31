@@ -89,6 +89,7 @@ pub mod render_state;
 pub mod simd;
 pub mod strip;
 pub mod strip_generator;
+pub mod target;
 pub mod tile;
 pub mod transforms;
 pub mod util;
@@ -98,6 +99,7 @@ pub use fearless_simd;
 pub use peniko;
 pub use peniko::color;
 pub use peniko::kurbo;
+pub use target::TargetInit;
 
 /// A handle to an external, user-provided texture.
 ///
