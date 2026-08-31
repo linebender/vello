@@ -18,7 +18,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::draw::ExternalTextureRun;
+use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
 use crate::{
@@ -1035,9 +1035,9 @@ struct GpuResources {
     atlas_size: (u16, u16),
     /// Number of real atlas layers currently exposed by the texture view.
     atlas_layer_count: u32,
-    /// Bind group for paint sources: an atlas textures as texture array plus an external texture.
+    /// Bind group for paint sources: an atlas texture array plus four external texture slots.
     atlas_bind_group: BindGroup,
-    /// Transparent 1x1 placeholder texture in case no external texture is bound by the user.
+    /// Transparent 1x1 placeholder used for unoccupied external texture slots.
     placeholder_external_texture_view: TextureView,
     /// Texture for encoded paints
     encoded_paints_texture: Texture,
@@ -1161,31 +1161,36 @@ impl Programs {
                 ],
             });
 
+        let external_texture_layout_entry = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let paint_source_layout_entries = [
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            external_texture_layout_entry(1),
+            external_texture_layout_entry(2),
+            external_texture_layout_entry(3),
+            external_texture_layout_entry(4),
+        ];
         let atlas_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Paint Source Bind Group Layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2Array,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                ],
+                entries: &paint_source_layout_entries,
             });
 
         let encoded_paints_bind_group_layout =
@@ -1695,7 +1700,7 @@ impl Programs {
             device,
             &atlas_bind_group_layout,
             &atlas_texture_array_view,
-            &placeholder_external_texture_view,
+            [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
         );
 
         // Create a 1x1 stub atlas texture array for use during render_to_atlas.
@@ -1707,7 +1712,7 @@ impl Programs {
             device,
             &atlas_bind_group_layout,
             &stub_atlas_view,
-            &placeholder_external_texture_view,
+            [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
         );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
@@ -2126,7 +2131,7 @@ impl Programs {
         device: &Device,
         atlas_bind_group_layout: &BindGroupLayout,
         atlas_texture_array_view: &TextureView,
-        external_texture_view: &TextureView,
+        external_texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
         let entries = [
             wgpu::BindGroupEntry {
@@ -2135,7 +2140,19 @@ impl Programs {
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::TextureView(external_texture_view),
+                resource: wgpu::BindingResource::TextureView(external_texture_views[0]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(external_texture_views[1]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(external_texture_views[2]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(external_texture_views[3]),
             },
         ];
         device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2474,7 +2491,7 @@ impl Programs {
                     device,
                     atlas_bind_group_layout,
                     &new_atlas_texture_array_view,
-                    &resources.placeholder_external_texture_view,
+                    [&resources.placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
                 );
                 resources.atlas_texture_array_view = new_atlas_texture_array_view;
                 resources.atlas_bind_group = new_atlas_bind_group;
@@ -2505,7 +2522,7 @@ impl Programs {
                 device,
                 atlas_bind_group_layout,
                 &new_atlas_texture_array_view,
-                &resources.placeholder_external_texture_view,
+                [&resources.placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
             );
 
             // Replace the old resources
@@ -2519,13 +2536,13 @@ impl Programs {
     fn create_external_paint_source_bind_group(
         &self,
         device: &Device,
-        external_texture_view: &TextureView,
+        external_texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
         Self::create_paint_source_bind_group(
             device,
             &self.atlas_bind_group_layout,
             &self.resources.atlas_texture_array_view,
-            external_texture_view,
+            external_texture_views,
         )
     }
 
@@ -2748,25 +2765,31 @@ struct RendererContext<'a> {
     view: &'a TextureView,
     depth_view: Option<&'a TextureView>,
     texture_bindings: &'a TextureBindings,
-    external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
+    external_paint_source_bind_groups: HashMap<ExternalTextureBindings, BindGroup>,
     scratch_buffers: &'a mut ScratchBuffers,
 }
 
 impl RendererContext<'_> {
-    fn external_paint_source_bind_group_for_texture(
+    fn external_paint_source_bind_group_for_textures(
         &mut self,
-        texture_id: TextureId,
+        bindings: ExternalTextureBindings,
     ) -> &BindGroup {
-        match self.external_paint_source_bind_groups.entry(texture_id) {
+        match self.external_paint_source_bind_groups.entry(bindings) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let texture_view = self
-                    .texture_bindings
-                    .get(texture_id)
-                    .expect("external texture bindings were validated during paint preparation");
+                let texture_views = bindings.as_array().map(|texture_id| {
+                    texture_id.map_or(
+                        &self.programs.resources.placeholder_external_texture_view,
+                        |texture_id| {
+                            self.texture_bindings.get(texture_id).expect(
+                                "external texture bindings were validated during paint preparation",
+                            )
+                        },
+                    )
+                });
                 let bind_group = self
                     .programs
-                    .create_external_paint_source_bind_group(self.device, texture_view);
+                    .create_external_paint_source_bind_group(self.device, texture_views);
                 entry.insert(bind_group)
             }
         }
@@ -2792,7 +2815,7 @@ impl RendererContext<'_> {
         // Create bind groups for all external textures passed in by the user that are used this
         // pass.
         for run in external_texture_runs {
-            self.external_paint_source_bind_group_for_texture(run.texture_id);
+            self.external_paint_source_bind_group_for_textures(run.bindings);
         }
 
         self.programs
@@ -2899,7 +2922,7 @@ impl RendererContext<'_> {
             for (i, run) in external_texture_runs.iter().enumerate() {
                 let paint_source_bind_group = self
                     .external_paint_source_bind_groups
-                    .get(&run.texture_id)
+                    .get(&run.bindings)
                     .unwrap();
                 render_pass.set_bind_group(1, paint_source_bind_group, &[]);
                 let start = u32::try_from(run.strips_start).unwrap();

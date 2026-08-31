@@ -73,8 +73,9 @@ const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3u;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4u;
 const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5u;
 
-// Paint texture index mask (extracts lower 26 bits from paint field).
-const PAINT_TEXTURE_INDEX_MASK: u32 = 0x03FFFFFFu;
+// 24 bits for paint indices.
+const PAINT_TEXTURE_INDEX_MASK: u32 = 0x00FFFFFFu;
+const EXTERNAL_TEXTURE_SLOT_SHIFT: u32 = 24u;
 
 const RECT_STRIP_FLAG: u32 = 0x80000000u;
 
@@ -129,7 +130,8 @@ struct Config {
 //       - Bits 26-28: `paint_type` (0 = solid, 1 = image, 2 = linear_gradient, 3 = radial_gradient, 4 = sweep_gradient)
 //       - Bits 0-25:
 //         - If paint_type = 0: unused
-//         - If paint_type >= 1: `paint_texture_idx`
+//         - Bits 0-23: `paint_texture_idx` for every non-solid paint
+//         - Bits 24-25: external texture slot for external images; unused otherwise
 //
 //     When color_source = 1 (COLOR_SOURCE_LAYER):
 //       - Bits 0-7: opacity (0-255)
@@ -223,7 +225,16 @@ var<uniform> config: Config;
 var atlas_texture_array: texture_2d_array<f32>;
 
 @group(1) @binding(1)
-var external_texture: texture_2d<f32>;
+var external_texture_0: texture_2d<f32>;
+
+@group(1) @binding(2)
+var external_texture_1: texture_2d<f32>;
+
+@group(1) @binding(3)
+var external_texture_2: texture_2d<f32>;
+
+@group(1) @binding(4)
+var external_texture_3: texture_2d<f32>;
 
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
@@ -421,14 +432,42 @@ fn fs_main(
 
             var sample_color: vec4<f32>;
             if image_source_kind == IMAGE_SOURCE_EXTERNAL {
+                let external_texture_slot =
+                    (paint_and_rect_flag >> EXTERNAL_TEXTURE_SLOT_SHIFT) & 0x3u;
                 let final_xy = image_offset + extended_xy;
-                sample_color = sample_external_image(
-                    external_texture,
-                    image_quality,
-                    final_xy,
-                    image_offset,
-                    image_size,
-                );
+                if external_texture_slot == 0u {
+                    sample_color = sample_external_image(
+                        external_texture_0,
+                        image_quality,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                } else if external_texture_slot == 1u {
+                    sample_color = sample_external_image(
+                        external_texture_1,
+                        image_quality,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                } else if external_texture_slot == 2u {
+                    sample_color = sample_external_image(
+                        external_texture_2,
+                        image_quality,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                } else {
+                    sample_color = sample_external_image(
+                        external_texture_3,
+                        image_quality,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                }
             } else if image_quality == IMAGE_QUALITY_HIGH {
                 let final_xy = image_offset + extended_xy;
                 sample_color = bicubic_sample(

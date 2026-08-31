@@ -24,7 +24,7 @@ only break in edge cases, and some of them are also only related to conversions 
 pub(crate) mod probe;
 pub(crate) mod resource;
 
-use crate::draw::ExternalTextureRun;
+use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
 use crate::{
@@ -90,8 +90,8 @@ const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(G
     transform: [0.0; 6],
 });
 
-/// Texture unit the strip program samples external textures from.
-const EXTERNAL_TEXTURE_UNIT: u32 = 5;
+/// First texture unit from which the strip program samples external textures.
+const EXTERNAL_TEXTURE_UNIT_START: u32 = 5;
 
 /// Query the WebGL context for the max texture size.
 fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> u32 {
@@ -1138,8 +1138,8 @@ struct StripUniforms {
     encoded_paints_texture_vs: WebGlUniformLocation,
     /// Gradient texture location.
     gradient_texture: WebGlUniformLocation,
-    /// External texture location.
-    external_texture: WebGlUniformLocation,
+    /// External texture locations, indexed by shader slot.
+    external_textures: [WebGlUniformLocation; EXTERNAL_TEXTURE_SLOT_COUNT],
 }
 
 /// Contains all WebGL resources needed for rendering.
@@ -1167,7 +1167,7 @@ pub(crate) struct WebGlResources {
     encoded_paints_texture_height: u32,
     /// Gradient texture for gradient ramp data.
     gradient_texture: Texture,
-    /// Placeholder texture bound to the strip shader's `external_texture` sampler.
+    /// Placeholder texture bound to unoccupied external texture slots.
     placeholder_external_texture: Texture,
     /// Height of gradient texture.
     gradient_texture_height: u32,
@@ -2340,7 +2340,12 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> StripUn
     let encoded_paints_texture_fs_name = render::fragment::ENCODED_PAINTS_TEXTURE;
     let encoded_paints_texture_vs_name = render::vertex::ENCODED_PAINTS_TEXTURE;
     let gradient_texture_name = render::fragment::GRADIENT_TEXTURE;
-    let external_texture_name = render::fragment::EXTERNAL_TEXTURE;
+    let external_texture_names = [
+        render::fragment::EXTERNAL_TEXTURE_0,
+        render::fragment::EXTERNAL_TEXTURE_1,
+        render::fragment::EXTERNAL_TEXTURE_2,
+        render::fragment::EXTERNAL_TEXTURE_3,
+    ];
 
     StripUniforms {
         config_vs_block_index,
@@ -2363,9 +2368,8 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> StripUn
         gradient_texture: gl
             .get_uniform_location(program, gradient_texture_name)
             .unwrap(),
-        external_texture: gl
-            .get_uniform_location(program, external_texture_name)
-            .unwrap(),
+        external_textures: external_texture_names
+            .map(|name| gl.get_uniform_location(program, name).unwrap()),
     }
 }
 
@@ -2901,14 +2905,10 @@ impl WebGlRendererContext<'_> {
                 let end = external_texture_runs
                     .get(i + 1)
                     .map_or(count, |next| i32::try_from(next.strips_start).unwrap());
-                let texture = self
-                    .texture_bindings
-                    .get(run.texture_id)
-                    .expect("external texture bindings were validated during paint preparation");
-                self.bind_external_texture(Some(texture));
+                self.bind_external_textures(&run.bindings);
                 self.draw_strip_range(first_instance + start, end - start);
             }
-            self.bind_external_texture(None);
+            self.bind_external_textures(&ExternalTextureBindings::EMPTY);
         }
 
         self.set_strip_attrib_offset(0);
@@ -2927,15 +2927,21 @@ impl WebGlRendererContext<'_> {
         self.draw_instanced_quads(count);
     }
 
-    /// Bind `texture`, or the placeholder when `None`, as the texture sampled by paints with an
-    /// external image source.
-    fn bind_external_texture(&self, texture: Option<&WebGlTexture>) {
-        self.gl
-            .active_texture(WebGl2RenderingContext::TEXTURE0 + EXTERNAL_TEXTURE_UNIT);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(texture.unwrap_or(&self.programs.resources.placeholder_external_texture)),
-        );
+    /// Bind the external texture slots.
+    fn bind_external_textures(&self, bindings: &ExternalTextureBindings) {
+        for (slot, texture_id) in bindings.as_array().into_iter().enumerate() {
+            self.gl.active_texture(
+                WebGl2RenderingContext::TEXTURE0
+                    + EXTERNAL_TEXTURE_UNIT_START
+                    + u32::try_from(slot).unwrap(),
+            );
+            let texture: &WebGlTexture = match texture_id {
+                Some(texture_id) => self.texture_bindings.get(texture_id).unwrap(),
+                None => &self.programs.resources.placeholder_external_texture,
+            };
+            self.gl
+                .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(texture));
+        }
     }
 
     /// Point the strip vertex attributes at the instance at `first_instance`.
@@ -3074,11 +3080,19 @@ impl WebGlRendererContext<'_> {
 
         // External textures are rebound per run while drawing. Start from the placeholder so the
         // sampler is valid for draws that don't reference one.
-        self.bind_external_texture(None);
-        self.gl.uniform1i(
-            Some(&self.programs.strip_uniforms.external_texture),
-            EXTERNAL_TEXTURE_UNIT as i32,
-        );
+        self.bind_external_textures(&ExternalTextureBindings::EMPTY);
+        for (slot, uniform) in self
+            .programs
+            .strip_uniforms
+            .external_textures
+            .iter()
+            .enumerate()
+        {
+            self.gl.uniform1i(
+                Some(uniform),
+                i32::try_from(EXTERNAL_TEXTURE_UNIT_START).unwrap() + i32::try_from(slot).unwrap(),
+            );
+        }
 
         // TODO: Today, we only support early-z rejection on the final view. If we wanted to support
         // intermediate layers, we would require separate depth buffers for each target. We can explore
