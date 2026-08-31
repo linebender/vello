@@ -4,7 +4,7 @@
 use crate::render::webgl::resource::Framebuffer;
 use crate::render::webgl::{
     WebGlStateConfig, WebGlStateGuard, WebGlTextureBindings, create_framebuffer_for_texture,
-    create_texture,
+    create_texture_storage,
 };
 use crate::target::RootTarget;
 use crate::{RenderError, RenderSize, Scene, WebGlRenderer};
@@ -93,41 +93,34 @@ impl WebGlRenderer {
             height: u32::from(height),
         };
 
-        let probe_texture = create_texture(
+        let probe_texture = create_texture_storage(
             &self.gl,
+            WebGl2RenderingContext::RGBA8,
+            render_size.width,
+            render_size.height,
             WebGl2RenderingContext::NEAREST,
             WebGl2RenderingContext::NEAREST,
         );
-        self.gl
-            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-                WebGl2RenderingContext::TEXTURE_2D,
-                0,
-                WebGl2RenderingContext::RGBA8 as i32,
-                render_size.width as i32,
-                render_size.height as i32,
-                0,
-                WebGl2RenderingContext::RGBA,
-                WebGl2RenderingContext::UNSIGNED_BYTE,
-                None,
-            )
-            .unwrap();
         let probe_framebuffer = create_framebuffer_for_texture(&self.gl, &probe_texture);
 
         let probe_image = vello_common::probe::probe_image_pixmap();
-        let probe_image_texture = create_texture(
+        let probe_image_texture = create_texture_storage(
             &self.gl,
+            WebGl2RenderingContext::RGBA8,
+            u32::from(probe_image.width()),
+            u32::from(probe_image.height()),
             WebGl2RenderingContext::NEAREST,
             WebGl2RenderingContext::NEAREST,
         );
 
         self.gl
-            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+            .tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
                 WebGl2RenderingContext::TEXTURE_2D,
                 0,
-                WebGl2RenderingContext::RGBA8 as i32,
+                0,
+                0,
                 i32::from(probe_image.width()),
                 i32::from(probe_image.height()),
-                0,
                 WebGl2RenderingContext::RGBA,
                 WebGl2RenderingContext::UNSIGNED_BYTE,
                 Some(probe_image.data_as_u8_slice()),
