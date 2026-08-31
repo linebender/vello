@@ -134,25 +134,36 @@ pub(crate) fn u8_to_f32<S: Simd>(val: u8x16<S>) -> f32x16<S> {
     let simd = val.simd;
     let zeroes = u8x16::splat(simd, 0);
 
-    let zip1 = simd.zip_high_u8x16(val, zeroes);
-    let zip2 = simd.zip_low_u8x16(val, zeroes);
+    #[cfg(target_endian = "little")]
+    let (p1, p2, p3, p4) = {
+        let lo = simd.zip_low_u8x16(val, zeroes);
+        let hi = simd.zip_high_u8x16(val, zeroes);
 
-    let p1 = simd
-        .zip_low_u8x16(zip2, zeroes)
-        .bitcast::<u32x4<S>>()
-        .to_float::<f32x4<S>>();
-    let p2 = simd
-        .zip_high_u8x16(zip2, zeroes)
-        .bitcast::<u32x4<S>>()
-        .to_float::<f32x4<S>>();
-    let p3 = simd
-        .zip_low_u8x16(zip1, zeroes)
-        .bitcast::<u32x4<S>>()
-        .to_float::<f32x4<S>>();
-    let p4 = simd
-        .zip_high_u8x16(zip1, zeroes)
-        .bitcast::<u32x4<S>>()
-        .to_float::<f32x4<S>>();
+        (
+            simd.zip_low_u8x16(lo, zeroes),
+            simd.zip_high_u8x16(lo, zeroes),
+            simd.zip_low_u8x16(hi, zeroes),
+            simd.zip_high_u8x16(hi, zeroes),
+        )
+    };
+
+    #[cfg(target_endian = "big")]
+    let (p1, p2, p3, p4) = {
+        let lo = simd.zip_low_u8x16(zeroes, val);
+        let hi = simd.zip_high_u8x16(zeroes, val);
+
+        (
+            simd.zip_low_u8x16(zeroes, lo),
+            simd.zip_high_u8x16(zeroes, lo),
+            simd.zip_low_u8x16(zeroes, hi),
+            simd.zip_high_u8x16(zeroes, hi),
+        )
+    };
+
+    let p1 = p1.bitcast::<u32x4<S>>().to_float::<f32x4<S>>();
+    let p2 = p2.bitcast::<u32x4<S>>().to_float::<f32x4<S>>();
+    let p3 = p3.bitcast::<u32x4<S>>().to_float::<f32x4<S>>();
+    let p4 = p4.bitcast::<u32x4<S>>().to_float::<f32x4<S>>();
 
     simd.combine_f32x8(simd.combine_f32x4(p1, p2), simd.combine_f32x4(p3, p4))
 }

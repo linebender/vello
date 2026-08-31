@@ -31,9 +31,23 @@ pub fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
     let (p1, p2) = simd.split_u8x32(x8_1);
     let (p3, p4) = simd.split_u8x32(x8_2);
 
-    let uzp1 = simd.unzip_low_u8x16(p1, p2);
-    let uzp2 = simd.unzip_low_u8x16(p3, p4);
-    simd.unzip_low_u8x16(uzp1, uzp2)
+    #[cfg(target_endian = "little")]
+    let result = {
+        let uzp1 = simd.unzip_low_u8x16(p1, p2);
+        let uzp2 = simd.unzip_low_u8x16(p3, p4);
+
+        simd.unzip_low_u8x16(uzp1, uzp2)
+    };
+
+    #[cfg(target_endian = "big")]
+    let result = {
+        let uzp1 = simd.unzip_high_u8x16(p1, p2);
+        let uzp2 = simd.unzip_high_u8x16(p3, p4);
+
+        simd.unzip_high_u8x16(uzp1, uzp2)
+    };
+
+    result
 }
 
 /// A trait for implementing a fast approximal division by 255 for integers.
