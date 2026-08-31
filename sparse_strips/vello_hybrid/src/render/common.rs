@@ -37,8 +37,6 @@ pub(crate) const IMAGE_PADDING: u16 = 0;
 pub(crate) struct DeviceLimits {
     /// Maximum width or height of a two-dimensional texture.
     pub(crate) max_texture_dimension_2d: u16,
-    /// Maximum number of layers in an image atlas texture array.
-    pub(crate) max_texture_array_layers: u16,
 }
 
 impl DeviceLimits {
@@ -119,8 +117,6 @@ impl MemorySettings {
             .clamp(1, device_limits.max_texture_dimension_2d)
             .into();
 
-        let supported_max_atlases = usize::from(device_limits.max_texture_array_layers);
-        image_atlas_config.max_atlases = image_atlas_config.max_atlases.min(supported_max_atlases);
         image_atlas_config.initial_atlas_count = image_atlas_config
             .initial_atlas_count
             .min(image_atlas_config.max_atlases);
@@ -198,15 +194,14 @@ mod tests {
     use vello_common::multi_atlas::AtlasConfig;
     use vello_common::record::CommandRecorder;
 
-    fn device_limits(max_texture_dimension_2d: u16, max_texture_array_layers: u16) -> DeviceLimits {
+    fn device_limits(max_texture_dimension_2d: u16) -> DeviceLimits {
         DeviceLimits {
             max_texture_dimension_2d,
-            max_texture_array_layers,
         }
     }
 
     #[test]
-    fn normalize_memory_settings_clamps_atlas_config_to_backend_limits() {
+    fn normalize_memory_settings_clamps_atlas_dimensions_to_backend_limits() {
         let mut settings = MemorySettings {
             image_atlas_config: AtlasConfig {
                 initial_atlas_count: 8,
@@ -217,24 +212,18 @@ mod tests {
             ..Default::default()
         };
 
-        settings.normalize(&device_limits(4096, 4));
+        settings.normalize(&device_limits(4096));
 
         let config = settings.image_atlas_config;
-        assert_eq!(config.initial_atlas_count, 4);
-        assert_eq!(config.max_atlases, 4);
+        assert_eq!(config.initial_atlas_count, 8);
+        assert_eq!(config.max_atlases, 16);
         assert_eq!(config.atlas_size, (4096, 2048));
     }
 
     #[test]
     fn resource_texture_dimension_is_capped_at_4k() {
-        assert_eq!(
-            device_limits(16384, 256).resource_texture_dimension_2d(),
-            4096
-        );
-        assert_eq!(
-            device_limits(2048, 256).resource_texture_dimension_2d(),
-            2048
-        );
+        assert_eq!(device_limits(16384).resource_texture_dimension_2d(), 4096);
+        assert_eq!(device_limits(2048).resource_texture_dimension_2d(), 2048);
     }
 
     #[test]
@@ -248,29 +237,12 @@ mod tests {
             ..Default::default()
         };
 
-        settings.normalize(&device_limits(4096, 8));
+        settings.normalize(&device_limits(4096));
 
         let config = settings.image_atlas_config;
         assert_eq!(config.initial_atlas_count, 0);
         assert_eq!(config.max_atlases, 8);
         assert_eq!(config.atlas_size, (1, 1));
-    }
-
-    #[test]
-    fn normalize_memory_settings_caps_atlas_count_to_backend_limit() {
-        let mut settings = MemorySettings {
-            image_atlas_config: AtlasConfig {
-                initial_atlas_count: 8,
-                max_atlases: 8,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        settings.normalize(&device_limits(4096, 1));
-
-        assert_eq!(settings.image_atlas_config.initial_atlas_count, 1);
-        assert_eq!(settings.image_atlas_config.max_atlases, 1);
     }
 
     #[test]
@@ -284,7 +256,7 @@ mod tests {
             ..Default::default()
         };
 
-        settings.normalize(&device_limits(8192, 256));
+        settings.normalize(&device_limits(8192));
 
         assert_eq!(
             settings.layers_config.min_texture_size,
@@ -307,7 +279,7 @@ mod tests {
             ..Default::default()
         };
 
-        settings.normalize(&device_limits(768, 256));
+        settings.normalize(&device_limits(768));
 
         assert_eq!(
             settings.layers_config.min_texture_size,
@@ -494,8 +466,7 @@ impl GpuEncodedPaint {
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuEncodedImage {
-    /// Packed rendering quality, extend modes, and atlas index.
-    /// Bits 6-13: `atlas_index` (8 bits, supports up to 256 atlases)
+    /// Packed rendering quality and extend modes.
     /// Bits 4-5: `extend_y` (2 bits)
     /// Bits 2-3: `extend_x` (2 bits)  
     /// Bits 0-1: `quality` (2 bits)
@@ -643,29 +614,16 @@ pub(crate) fn pack_image_offset(x: u16, y: u16) -> u32 {
     ((x as u32) << 16) | (y as u32)
 }
 
-/// Pack image `quality`, extend modes, `atlas_index`, and source type into a single u32.
-/// `is_external`: stored in bit 14
-/// `atlas_index`: stored in bits 6-13 (8 bits, supports up to 256 atlases)
+/// Pack image `quality` and extend modes into a single u32.
 /// `extend_y`: stored in bits 4-5 (2 bits)
 /// `extend_x`: stored in bits 2-3 (2 bits)
 /// `quality`: stored in bits 0-1 (2 bits)
 #[inline(always)]
-pub(crate) fn pack_image_params(
-    quality: u32,
-    extend_x: u32,
-    extend_y: u32,
-    atlas_index: u32,
-    is_external: bool,
-) -> u32 {
+pub(crate) fn pack_image_params(quality: u32, extend_x: u32, extend_y: u32) -> u32 {
     debug_assert!(extend_x <= 3, "extend_x must be 0-3 (2 bits)");
     debug_assert!(extend_y <= 3, "extend_y must be 0-3 (2 bits)");
     debug_assert!(quality <= 3, "quality must be 0-3 (2 bits)");
-    debug_assert!(atlas_index <= 255, "atlas_index must be 0-255 (8 bits)");
-    (u32::from(is_external) << 14)
-        | (atlas_index << 6)
-        | (extend_y << 4)
-        | (extend_x << 2)
-        | quality
+    (extend_y << 4) | (extend_x << 2) | quality
 }
 
 /// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.

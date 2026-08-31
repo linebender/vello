@@ -128,6 +128,9 @@ pub enum RenderError {
     /// A draw referenced a [`TextureId`] that was not provided at render time.
     #[error("Missing texture binding for {0:?}")]
     MissingTextureBinding(TextureId),
+    /// A texture binding aliases the active render target.
+    #[error("Texture binding {0:?} aliases the active render target")]
+    TextureFeedbackLoop(TextureId),
     /// An intermediate texture allocation failed.
     #[error(transparent)]
     IntermediateTexture(#[from] IntermediateTextureError),

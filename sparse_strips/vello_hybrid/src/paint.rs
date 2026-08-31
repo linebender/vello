@@ -6,6 +6,8 @@
 use crate::util::pack_u16_pair;
 use vello_common::TextureId;
 use vello_common::encode::{EncodedKind, EncodedPaint};
+use vello_common::image_cache::ImageCache;
+use vello_common::multi_atlas::AtlasId;
 use vello_common::paint::{ImageSource, Paint};
 
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
@@ -24,6 +26,15 @@ const PAINT_TYPE_SHIFT: u32 = 26;
 pub(crate) const EXTERNAL_TEXTURE_SLOT_SHIFT: u32 = 24;
 const PAINT_TEXTURE_INDEX_MASK: u32 = (1 << EXTERNAL_TEXTURE_SLOT_SHIFT) - 1;
 
+/// Texture sampled by an image paint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum TextureSourceId {
+    /// A renderer-owned image atlas.
+    Atlas(AtlasId),
+    /// A texture supplied through the render-time bindings.
+    External(TextureId),
+}
+
 /// Shader-ready paint metadata for a strip.
 #[derive(Clone, Copy)]
 pub(crate) struct PackedPaint {
@@ -31,8 +42,8 @@ pub(crate) struct PackedPaint {
     payload: PaintPayload,
     /// Packed paint kind, source, and data offset.
     pub(crate) paint: u32,
-    /// External texture required by this paint, if any.
-    pub(crate) external_texture_id: Option<TextureId>,
+    /// Texture required by this paint, if any.
+    pub(crate) texture_source: Option<TextureSourceId>,
     /// Whether the paint is fully opaque.
     pub(crate) opaque: bool,
 }
@@ -62,6 +73,8 @@ pub(crate) struct PaintResolver<'a> {
     encoded: &'a [EncodedPaint],
     /// GPU data offset corresponding to each encoded paint.
     gpu_offsets: &'a [u32],
+    /// Resolves internal images to their atlas textures.
+    image_cache: Option<&'a ImageCache>,
 }
 
 impl<'a> PaintResolver<'a> {
@@ -69,7 +82,14 @@ impl<'a> PaintResolver<'a> {
         Self {
             encoded,
             gpu_offsets,
+            image_cache: None,
         }
+    }
+
+    /// Add the image cache needed to resolve internal image paints.
+    pub(crate) fn with_image_cache(mut self, image_cache: &'a ImageCache) -> Self {
+        self.image_cache = Some(image_cache);
+        self
     }
 
     #[inline]
@@ -79,7 +99,7 @@ impl<'a> PaintResolver<'a> {
                 payload: PaintPayload::Solid(color.as_premul_rgba8().to_u32()),
                 paint: (COLOR_SOURCE_PAYLOAD << COLOR_SOURCE_SHIFT)
                     | (PAINT_TYPE_SOLID << PAINT_TYPE_SHIFT),
-                external_texture_id: None,
+                texture_source: None,
                 opaque: color.is_opaque(),
             },
             Paint::Indexed(indexed_paint) => {
@@ -87,10 +107,18 @@ impl<'a> PaintResolver<'a> {
                 let gpu_offset = self.gpu_offsets[paint_id];
                 let encoded_paint = &self.encoded[paint_id];
 
-                let (paint_type, external_texture_id) = match encoded_paint {
+                let (paint_type, texture_source) = match encoded_paint {
                     EncodedPaint::Image(encoded_image) => match &encoded_image.source {
-                        ImageSource::ExternalTexture { id, .. } => (PAINT_TYPE_IMAGE, Some(*id)),
-                        ImageSource::OpaqueId { .. } => (PAINT_TYPE_IMAGE, None),
+                        ImageSource::ExternalTexture { id, .. } => {
+                            (PAINT_TYPE_IMAGE, Some(TextureSourceId::External(*id)))
+                        }
+                        ImageSource::OpaqueId { id, .. } => {
+                            let image_resource = self.image_cache.unwrap().get(*id).unwrap();
+                            (
+                                PAINT_TYPE_IMAGE,
+                                Some(TextureSourceId::Atlas(image_resource.atlas_id)),
+                            )
+                        }
                         ImageSource::Pixmap(_) => unimplemented!("Unsupported image source"),
                     },
                     EncodedPaint::Gradient(gradient) => {
@@ -113,7 +141,7 @@ impl<'a> PaintResolver<'a> {
                     paint: (COLOR_SOURCE_PAYLOAD << COLOR_SOURCE_SHIFT)
                         | (paint_type << PAINT_TYPE_SHIFT)
                         | (gpu_offset & PAINT_TEXTURE_INDEX_MASK),
-                    external_texture_id,
+                    texture_source,
                     opaque: !encoded_paint.may_have_transparency(),
                 }
             }
