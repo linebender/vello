@@ -16,8 +16,7 @@ use vello_common::peniko::{Fill, Gradient};
 use vello_cpu::color::palette::css::BLACK;
 use vello_cpu::peniko::LinearGradientPosition;
 use vello_cpu::{
-    CompositeMode, Glyph, Level, Pixmap, RasterizerSettings, RenderContext, RenderMode,
-    RenderSettings,
+    Glyph, Level, Pixmap, RasterizerSettings, RenderContext, RenderMode, RenderSettings, TargetInit,
 };
 use vello_dev_macros::vello_test;
 
@@ -519,7 +518,7 @@ fn implicit_subpaths(ctx: &mut impl Renderer) {
 /// This demonstrates the glyph caching workflow:
 /// 1. Create a small `RenderContext` sized for a single glyph
 /// 2. Render the glyph into that context
-/// 3. Render it with `CompositeMode::SrcOver` and an offset into a larger spritesheet
+/// 3. Render it with `TargetInit::SrcOver` and an offset into a larger spritesheet
 #[test]
 fn render_src_over_with_offset() {
     let settings = RenderSettings {
@@ -567,7 +566,7 @@ fn render_src_over_with_offset() {
             &mut glyph_resources,
             RasterizerSettings {
                 render_mode: RenderMode::OptimizeQuality,
-                composite_mode: CompositeMode::SrcOver,
+                target_init: TargetInit::SrcOver,
                 offset: (dst_x, dst_y),
                 ..Default::default()
             },
