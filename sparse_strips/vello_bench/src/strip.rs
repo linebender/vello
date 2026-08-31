@@ -76,6 +76,10 @@ pub fn render_strips(c: &mut Criterion) {
 }
 
 pub fn render_strips_cull(c: &mut Criterion) {
+    if !crate::EXTENDED {
+        return;
+    }
+
     let mut g_cull = c.benchmark_group("render_strips_culled50");
     g_cull.sample_size(50);
 

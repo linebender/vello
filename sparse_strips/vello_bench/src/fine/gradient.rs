@@ -21,15 +21,18 @@ use vello_dev_macros::vello_bench;
 pub fn gradient(c: &mut Criterion) {
     linear::opaque(c);
     radial::opaque(c);
-    radial::opaque_conical(c);
     sweep::opaque(c);
 
-    extend::pad(c);
-    extend::repeat(c);
-    extend::reflect(c);
+    if crate::EXTENDED {
+        radial::opaque_conical(c);
 
-    many_stops(c);
-    transparent(c);
+        extend::pad(c);
+        extend::repeat(c);
+        extend::reflect(c);
+
+        many_stops(c);
+        transparent(c);
+    }
 }
 
 #[vello_bench]

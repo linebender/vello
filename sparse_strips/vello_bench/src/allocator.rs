@@ -16,6 +16,10 @@ fn make_atlas() -> Atlas {
 }
 
 pub fn allocator(c: &mut Criterion) {
+    if !crate::EXTENDED {
+        return;
+    }
+
     allocate_varied(c);
     allocate_until_full(c);
     alloc_dealloc_churn(c);

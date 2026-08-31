@@ -12,12 +12,15 @@ const TRANSLUCENT_BLUE: [u8; 4] = [0, 0, 255, 128];
 
 pub fn pixmap(c: &mut Criterion) {
     let pixel_count = usize::from(WIDTH) * usize::from(HEIGHT);
-    let inputs = [
+    let mut inputs = vec![
         ("opaque", OPAQUE_BLUE.repeat(pixel_count)),
         ("translucent", TRANSLUCENT_BLUE.repeat(pixel_count)),
-        ("interleaved", interleaved_pixels(pixel_count)),
-        ("mixed_lanes", mixed_lane_pixels(pixel_count)),
     ];
+
+    if crate::EXTENDED {
+        inputs.push(("interleaved", interleaved_pixels(pixel_count)));
+        inputs.push(("mixed_lanes", mixed_lane_pixels(pixel_count)));
+    }
 
     let mut group = c.benchmark_group("pixmap/premultiply");
     for (name, rgba) in &inputs {
@@ -38,17 +41,20 @@ pub fn pixmap(c: &mut Criterion) {
     }
     group.finish();
 
-    let pixmaps = inputs.map(|(name, rgba)| {
-        (
-            name,
-            Pixmap::from_parts(
-                rgba,
-                WIDTH,
-                HEIGHT,
-                PixelMetadata::new(ImageAlphaType::Alpha, true),
-            ),
-        )
-    });
+    let pixmaps = inputs
+        .into_iter()
+        .map(|(name, rgba)| {
+            (
+                name,
+                Pixmap::from_parts(
+                    rgba,
+                    WIDTH,
+                    HEIGHT,
+                    PixelMetadata::new(ImageAlphaType::Alpha, true),
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
 
     let mut group = c.benchmark_group("pixmap/unpremultiply");
     for (name, pixmap) in &pixmaps {
