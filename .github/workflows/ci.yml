@@ -8,6 +8,7 @@ env:
   # If the compilation fails, then the version specified here needs to be bumped up to reality.
   # Be sure to also update the rust-version property in the workspace Cargo.toml file,
   # plus all the README.md files of the affected packages.
+  # Remove the MSRV jobs' single-use-lifetimes allowance once this is at least 1.97.
   RUST_MIN_VER: "1.89"
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
@@ -517,6 +518,8 @@ jobs:
   check-msrv:
     name: cargo check (msrv)
     runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: '-A single-use-lifetimes'
     strategy:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
@@ -553,6 +556,8 @@ jobs:
   check-msrv-wasm:
     name: cargo check (msrv) (wasm32)
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: '-A single-use-lifetimes'
     steps:
       - uses: actions/checkout@v6
 
