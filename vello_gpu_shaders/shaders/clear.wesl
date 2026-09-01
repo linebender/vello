@@ -3,17 +3,26 @@
 
 import package::helpers::geometry::{pixel_to_ndc, quad_corner};
 
+struct ClearVertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) @interpolate(flat) color: vec4<f32>,
+}
+
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
     @location(0) origin: vec2<u32>,
     @location(1) size: vec2<u32>,
     @location(2) target_size: vec2<u32>,
-) -> @builtin(position) vec4<f32> {
+    @location(3) color: u32,
+) -> ClearVertexOutput {
     let corner = quad_corner(vertex_index);
     let pixel = vec2<f32>(origin) + corner * vec2<f32>(size);
     let ndc = pixel_to_ndc(pixel, vec2<f32>(target_size));
-    return vec4<f32>(ndc, 0.0, 1.0);
+    return ClearVertexOutput(
+        vec4<f32>(ndc, 0.0, 1.0),
+        unpack4x8unorm(color),
+    );
 }
 
 // This vertex shader is used for clearing atlas regions.
@@ -36,7 +45,11 @@ fn vs_main_fullscreen(
 }
 
 @fragment
-fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    // Clear with transparent pixels
+fn fs_main(@location(0) @interpolate(flat) color: vec4<f32>) -> @location(0) vec4<f32> {
+    return color;
+}
+
+@fragment
+fn fs_transparent(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
-} 
+}
