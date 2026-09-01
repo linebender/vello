@@ -42,7 +42,7 @@ version = "0.10.0"
 edition = "2024"
 # Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml, with the relevant README.md files
 # and with the MSRV in the `Unreleased` section of CHANGELOG.md.
-rust-version = "1.88"
+rust-version = "1.89"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/linebender/vello"
 
@@ -118,7 +118,7 @@ rayon = { version = "1.12.0" }
 thread_local = "1.1.9"
 crossbeam-channel = "0.5.15"
 ordered-channel = { version = "1.2.0", features = ["crossbeam-channel"] }
-fearless_simd = { version = "0.4.0", default-features = false }
+fearless_simd = { version = "0.7.0", default-features = false }
 
 # Unlike the other crates, please do not update these before a release
 # unless absolutely necessary.

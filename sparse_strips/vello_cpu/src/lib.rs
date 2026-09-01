@@ -158,7 +158,7 @@ mod filter;
 mod record;
 #[cfg(feature = "text")]
 mod text;
-#[cfg(all(feature = "text", feature = "std", debug_assertions))]
+#[cfg(all(feature = "text", feature = "std", debug_assertions, not(doc)))]
 mod text_debug;
 mod util;
 

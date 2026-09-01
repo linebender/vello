@@ -3,10 +3,10 @@
 
 use crate::peniko::ImageQuality;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
+use vello_common::fearless_simd::{f32x4, prelude::*, u8x32};
 use vello_common::math::FloatExt;
 use vello_common::tile::Tile;
-use vello_common::util::Div255Ext;
+use vello_common::util::{narrow, normalized_mul_u8};
 
 pub(crate) mod scalar {
     /// Perform an approximate division by 255.
@@ -71,8 +71,7 @@ pub(crate) trait NormalizedMulExt {
 impl<S: Simd> NormalizedMulExt for u8x32<S> {
     #[inline(always)]
     fn normalized_mul(self, other: Self) -> Self {
-        let divided = (self.simd.widen_u8x32(self) * other.simd.widen_u8x32(other)).div_255();
-        self.simd.narrow_u16x32(divided)
+        narrow(normalized_mul_u8(self, other))
     }
 }
 

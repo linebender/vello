@@ -478,7 +478,7 @@ impl Tiles {
     pub fn sort_tiles(&mut self) {
         self.sorted = true;
         // To enable auto-vectorization.
-        self.level.dispatch(|_| self.tile_buf.sort_unstable());
+        dispatch!(self.level, _ => self.tile_buf.sort_unstable());
     }
 
     /// Get the tile at a certain index.
@@ -636,11 +636,8 @@ impl Tiles {
                     let current = f32x4::from_slice(s, target_row);
 
                     // See comment below on the double counting risk!
-                    let double_count = if at_top_of_tile {
-                        f_dir_v
-                    } else {
-                        f32x4::splat(s, 0.0)
-                    };
+                    let double_count =
+                        mask32x4::splat(s, at_top_of_tile).select(f_dir_v, f32x4::splat(s, 0.0));
                     let next = fractional_coverage.mul_add(f_dir_v, current - double_count);
                     next.store_slice(target_row);
                 }
@@ -789,11 +786,8 @@ impl Tiles {
                                     let target_row = &mut self.windings.partial[y_idx as usize];
                                     let current = f32x4::from_slice(s, target_row);
 
-                                    let double_count = if crosses_top {
-                                        f_dir_v
-                                    } else {
-                                        f32x4::splat(s, 0.0)
-                                    };
+                                    let double_count = mask32x4::splat(s, crosses_top)
+                                        .select(f_dir_v, f32x4::splat(s, 0.0));
                                     let next = fractional_coverage
                                         .mul_add(f_dir_v, current - double_count);
                                     next.store_slice(target_row);
