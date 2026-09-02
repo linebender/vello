@@ -6,7 +6,7 @@ We are developing a new implementation for Vello that aims to:
 - Mitigate some performance cliffs.
 - Handle a wider range of memory conditions (e.g., when less memory is available).
 
-This folder is being used to develop this implementation and is **not yet suitable for production use**. Our plan is to move the packages in this folder to the top level of the repository once they are ready for use.
+The renderer crates are grouped in the repository's [`renderers`](../renderers) directory. This directory contains their shared implementation, tests, examples, benchmarks, and development tooling.
 
 This implementation is based on the **sparse rendering approach** outlined by Raph Levien (@raphlinus) in  
 [*Potato: a hybrid CPU/GPU 2D renderer design*](https://docs.google.com/document/d/1gEqf7ehTzd89Djf_VpkL0B_Fb15e0w5fuv_UzyacAPU/edit).  
@@ -14,14 +14,15 @@ It leverages **efficient tiling, sorting, and sparse strip allocation** to optim
 
 ## Overview
 
-This directory contains the core crates for the Vello rendering. Each crate serves a distinct role in the architecture, allowing modular development and easier maintenance.
+The Sparse Strips architecture has two renderers:
 
-### Crates
+- **[`vello_cpu`](../renderers/vello_cpu)** – Implements a CPU-based renderer optimized for multithreading and SIMD.
+- **[`vello_hybrid`](../renderers/vello_hybrid)** – Implements a hybrid CPU/GPU renderer, balancing workload between CPU and GPU.
+
+The principal support crates remaining in this directory are:
 
 - **`vello_common`** – Provides shared data structures and utilities for rendering.
-- **`vello_cpu`** – Implements a CPU-based renderer optimized for multithreading and SIMD.
-- **`vello_hybrid`** – A hybrid CPU/GPU renderer, balancing workload between CPU and GPU.
-- **`vello_sparse_shaders`** – Provide compilation of wgsl to glsl to support the WebGL `vello_hybrid` backend.
+- **`vello_sparse_shaders`** – Provides WGSL-to-GLSL compilation for the WebGL `vello_hybrid` backend.
 
 ## Development Status
 

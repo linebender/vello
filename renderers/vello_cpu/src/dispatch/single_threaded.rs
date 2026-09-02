@@ -519,7 +519,8 @@ impl Dispatcher for SingleThreadedDispatcher {
 fn save_filtered_layer_debug(pixmap: &Pixmap, layer_id: usize) {
     use std::path::PathBuf;
 
-    let diffs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs");
+    let diffs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../sparse_strips/vello_sparse_tests/diffs");
     let _ = std::fs::create_dir_all(&diffs_path);
     let filename = diffs_path.join(alloc::format!("filtered_layer_{layer_id}.png"));
 

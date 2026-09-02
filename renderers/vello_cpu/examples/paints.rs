@@ -116,7 +116,7 @@ fn pattern() -> Image {
     // by rendering your own pixmap or converting for example a png image into
     // one.
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../vello_sparse_tests/tests/assets/rgb_image_2x2.png");
+        .join("../../sparse_strips/vello_sparse_tests/tests/assets/rgb_image_2x2.png");
     let file = std::fs::read(path).unwrap();
     let pixmap = Pixmap::from_png(Cursor::new(file)).unwrap();
 
