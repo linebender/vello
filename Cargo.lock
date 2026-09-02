@@ -4656,7 +4656,6 @@ dependencies = [
 name = "vello_toy"
 version = "0.0.0"
 dependencies = [
- "bytemuck",
  "clap",
  "image",
  "svg",

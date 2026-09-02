@@ -11,8 +11,8 @@ use crate::kurbo::common::FloatFuncs as _;
 use crate::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape};
 use crate::paint::{Image, ImageSource, PaintType};
 use crate::peniko::{
-    BlendMode, ColorStop, ColorStops, Compose, Extend, Gradient, ImageQuality, ImageSampler,
-    LinearGradientPosition, Mix,
+    BlendMode, ColorStop, ColorStops, Compose, Extend, Gradient, ImageAlphaType, ImageQuality,
+    ImageSampler, LinearGradientPosition, Mix,
 };
 use crate::pixmap::Pixmap;
 use alloc::vec::Vec;
@@ -207,7 +207,7 @@ impl ProbeImage {
         Self {
             width: pixmap.width(),
             height: pixmap.height(),
-            data: bytemuck::cast_slice(&pixmap.take_unpremultiplied()).to_vec(),
+            data: pixmap.take_rgba8(ImageAlphaType::Alpha),
         }
     }
 }
