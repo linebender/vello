@@ -2340,6 +2340,7 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> StripUn
     let encoded_paints_texture_fs_name = render::fragment::ENCODED_PAINTS_TEXTURE;
     let encoded_paints_texture_vs_name = render::vertex::ENCODED_PAINTS_TEXTURE;
     let gradient_texture_name = render::fragment::GRADIENT_TEXTURE;
+    // TODO: Change it so this is based on `EXTERNAL_TEXTURE_SLOT_COUNT`.
     let external_texture_names = [
         render::fragment::EXTERNAL_TEXTURE_0,
         render::fragment::EXTERNAL_TEXTURE_1,
