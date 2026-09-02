@@ -468,18 +468,20 @@ impl ExternalTextureBindings {
     /// Returns `None` when all four slots are occupied by other textures.
     #[inline]
     fn get_or_insert(&mut self, texture_id: TextureId) -> Option<u8> {
-        if let Some(slot) = self
-            .texture_ids
-            .iter()
-            .position(|candidate| *candidate == Some(texture_id))
-        {
-            return Some(u8::try_from(slot).unwrap());
+        // This iteration order assumes slots are assigned without leaving "holes" in-between,
+        // i.e. if we hit `None`, any later slot is also guaranteed to be `None`.
+        for (slot, candidate) in self.texture_ids.iter_mut().enumerate() {
+            match *candidate {
+                Some(id) if id == texture_id => return Some(u8::try_from(slot).unwrap()),
+                None => {
+                    *candidate = Some(texture_id);
+                    return Some(u8::try_from(slot).unwrap());
+                }
+                _ => {}
+            }
         }
 
-        let slot = self.texture_ids.iter().position(Option::is_none)?;
-        self.texture_ids[slot] = Some(texture_id);
-
-        Some(u8::try_from(slot).unwrap())
+        None
     }
 
     #[inline]
