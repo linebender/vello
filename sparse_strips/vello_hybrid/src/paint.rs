@@ -21,7 +21,8 @@ const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5;
 // See the layout information in `render.wesl`.
 pub(crate) const COLOR_SOURCE_SHIFT: u32 = 29;
 const PAINT_TYPE_SHIFT: u32 = 26;
-const PAINT_TEXTURE_INDEX_MASK: u32 = (1 << PAINT_TYPE_SHIFT) - 1;
+pub(crate) const EXTERNAL_TEXTURE_SLOT_SHIFT: u32 = 24;
+const PAINT_TEXTURE_INDEX_MASK: u32 = (1 << EXTERNAL_TEXTURE_SLOT_SHIFT) - 1;
 
 /// Shader-ready paint metadata for a strip.
 #[derive(Clone, Copy)]
@@ -103,6 +104,10 @@ impl<'a> PaintResolver<'a> {
                     EncodedPaint::BlurredRoundedRect(_) => (PAINT_TYPE_BLURRED_ROUNDED_RECT, None),
                 };
 
+                debug_assert!(
+                    gpu_offset <= PAINT_TEXTURE_INDEX_MASK,
+                    "paint offsets fit in 24 bits because resource textures are capped at 4096×4096"
+                );
                 PackedPaint {
                     payload: PaintPayload::Position,
                     paint: (COLOR_SOURCE_PAYLOAD << COLOR_SOURCE_SHIFT)
