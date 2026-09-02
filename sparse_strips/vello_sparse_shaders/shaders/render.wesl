@@ -150,10 +150,10 @@ struct Config {
 // ├── paint_type = 3 (PAINT_TYPE_RADIAL_GRADIENT) - Radial gradient (with kind discriminator)
 // ├── paint_type = 4 (PAINT_TYPE_SWEEP_GRADIENT) - Sweep gradient rendering
 //     ├── payload = [x, y] scene coordinates (packed as u16s)
-//     └── bits 0-25 = paint_texture_idx
+//     └── bits 0-23 = paint_texture_idx
 // └── paint_type = 5 (PAINT_TYPE_BLURRED_ROUNDED_RECT) - Analytic blurred rounded rectangle
 //     ├── payload = [x, y] scene coordinates (packed as u16s)
-//     └── bits 0-25 = paint_texture_idx
+//     └── bits 0-23 = paint_texture_idx
 //
 // color_source = 1 (COLOR_SOURCE_LAYER) - Use rendered layer texture
 // ├── payload = [x, y] source layer texture origin (packed as u16s)
