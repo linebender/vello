@@ -89,7 +89,7 @@ assert_eq!(&result, expected_render);
 ```
 
 See the
-[examples](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
+[examples](https://github.com/linebender/vello/tree/main/renderers/vello_cpu/examples)
 for more complete demonstrations of Vello CPU's API.
 
 ## Features

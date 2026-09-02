@@ -143,7 +143,7 @@ This release has an [MSRV][] of 1.88.
 - Upgraded Hashbrown to v0.16.1. ([#1354][] by [@waywardmonkeys][])
 - Optimized image rendering for axis-aligned images. ([#1335][] by [@grebmeg][])
 
-See also the [vello_hybrid 0.0.6](../vello_hybrid/CHANGELOG.md#006---2026-01-15) and [vello_common 0.0.6](../vello_common/CHANGELOG.md#006---2026-01-15) releases.
+See also the [vello_hybrid 0.0.6](../vello_hybrid/CHANGELOG.md#006---2026-01-15) and [vello_common 0.0.6](../../sparse_strips/vello_common/CHANGELOG.md#006---2026-01-15) releases.
 
 ## [0.0.5][] - 2026-01-08
 
@@ -174,7 +174,7 @@ This release has an [MSRV][] of 1.88.
 - Filter effects currently support only single-primitive filters; filter graphs with multiple chained primitives are not yet supported.
 - Multithreaded rendering is not supported for filter effects; filters are only applied in single-threaded mode.
 
-See also the [vello_hybrid 0.0.5](../vello_hybrid/CHANGELOG.md#005---2026-01-08) and [vello_common 0.0.5](../vello_common/CHANGELOG.md#005---2026-01-08) releases.
+See also the [vello_hybrid 0.0.5](../vello_hybrid/CHANGELOG.md#005---2026-01-08) and [vello_common 0.0.5](../../sparse_strips/vello_common/CHANGELOG.md#005---2026-01-08) releases.
 
 ## [0.0.4][] - 2025-10-17
 
@@ -182,7 +182,7 @@ This release has an [MSRV][] of 1.86.
 
 No changelog was kept for this release.
 
-See also the [vello_hybrid 0.0.4](../vello_hybrid/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
+See also the [vello_hybrid 0.0.4](../vello_hybrid/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../../sparse_strips/vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
 ## [0.0.3][] - 2025-10-04
 
@@ -190,7 +190,7 @@ This release has an [MSRV][] of 1.86.
 
 No changelog was kept for this release.
 
-See also the [vello_common 0.0.3](../vello_common/CHANGELOG.md#003---2025-10-04) release.
+See also the [vello_common 0.0.3](../../sparse_strips/vello_common/CHANGELOG.md#003---2025-10-04) release.
 
 ## [0.0.2][] - 2025-09-22
 
@@ -198,7 +198,7 @@ This release has an [MSRV][] of 1.85.
 
 No changelog was kept for this release.
 
-See also the [vello_common 0.0.2](../vello_common/CHANGELOG.md#002---2025-09-22) release.
+See also the [vello_common 0.0.2](../../sparse_strips/vello_common/CHANGELOG.md#002---2025-09-22) release.
 
 ## [0.0.1][] - 2025-05-10
 
@@ -206,7 +206,7 @@ This release has an [MSRV][] of 1.85.
 
 This is the initial release. No changelog was kept for this release.
 
-See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10) release.
+See also the [vello_common 0.0.1](../../sparse_strips/vello_common/CHANGELOG.md#001---2025-05-10) release.
 
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164

@@ -181,7 +181,7 @@ This release has an [MSRV][] of 1.88.
 - Upgraded Skrifa to v0.40.0. ([#1353][] by [@waywardmonkeys][])
 - Upgraded Hashbrown to v0.16.1. ([#1354][] by [@waywardmonkeys][])
 
-See also the [vello_cpu 0.0.6](../vello_cpu/CHANGELOG.md#006---2026-01-15) and [vello_common 0.0.6](../vello_common/CHANGELOG.md#006---2026-01-15) releases.
+See also the [vello_cpu 0.0.6](../vello_cpu/CHANGELOG.md#006---2026-01-15) and [vello_common 0.0.6](../../sparse_strips/vello_common/CHANGELOG.md#006---2026-01-15) releases.
 
 ## [0.0.5][] - 2026-01-08
 
@@ -191,7 +191,7 @@ This release has an [MSRV][] of 1.88.
 
 - The `Scene` now contains a `push_clip_path` and `pop_clip_path` method for performing non-isolated clipping. ([#1203][] by [@LaurenzV])
 
-See also the [vello_cpu 0.0.5](../vello_cpu/CHANGELOG.md#005---2026-01-08) and [vello_common 0.0.5](../vello_common/CHANGELOG.md#005---2026-01-08) releases.
+See also the [vello_cpu 0.0.5](../vello_cpu/CHANGELOG.md#005---2026-01-08) and [vello_common 0.0.5](../../sparse_strips/vello_common/CHANGELOG.md#005---2026-01-08) releases.
 
 ## [0.0.4][] - 2025-10-17
 
@@ -199,7 +199,7 @@ This release has an [MSRV][] of 1.86.
 
 This is the initial release. No changelog was kept for this release.
 
-See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
+See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../../sparse_strips/vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164

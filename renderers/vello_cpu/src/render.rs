@@ -517,7 +517,7 @@ impl RenderContext {
 
     /// Push a new clip layer.
     ///
-    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
+    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/renderers/vello_cpu/examples/clipping.rs)
     /// example for how this method differs from `push_clip_path`.
     pub fn push_clip_layer(&mut self, path: &BezPath) {
         self.push_layer(Some(path), None, None, None, None);
@@ -537,7 +537,7 @@ impl RenderContext {
     /// render context. The mask will not be affected by the current transform
     /// in place.
     ///
-    /// See the explanation in the [masking](https://github.com/linebender/vello/tree/main/sparse_strips/masking/examples)
+    /// See the explanation in the [masking](https://github.com/linebender/vello/tree/main/renderers/vello_cpu/examples/masking.rs)
     /// example for how this method differs from `set_mask`.
     pub fn push_mask_layer(&mut self, mask: Mask) {
         self.push_layer(None, None, None, Some(mask), None);
@@ -655,7 +655,7 @@ impl RenderContext {
     /// have the same dimensions as the render context. The mask will not be
     /// affected by the current transform in place.
     ///
-    /// See the explanation in the [masking](https://github.com/linebender/vello/tree/main/sparse_strips/masking/examples)
+    /// See the explanation in the [masking](https://github.com/linebender/vello/tree/main/renderers/vello_cpu/examples/masking.rs)
     /// example for how this method differs from `push_mask_layer`.
     pub fn set_mask(&mut self, mask: Mask) {
         self.mask = Some(mask);
@@ -721,7 +721,7 @@ impl RenderContext {
 
     /// Push a new clip path to the clip stack.
     ///
-    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
+    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/renderers/vello_cpu/examples/clipping.rs)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
         let transform = self.transforms().clip_path_transform();
