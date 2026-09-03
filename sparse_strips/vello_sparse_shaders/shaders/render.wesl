@@ -40,19 +40,11 @@ import package::helpers::gradient::{
 };
 import package::helpers::geometry::{pixel_to_ndc, quad_corner};
 import package::helpers::image::{
-    IMAGE_QUALITY_HIGH,
-    IMAGE_QUALITY_MEDIUM,
-    IMAGE_SOURCE_EXTERNAL,
     TINT_MODE_MULTIPLY,
-    bicubic_sample,
-    bilinear_sample,
-    get_image_atlas_index,
     get_image_extend_modes,
     get_image_offset,
-    get_image_padding,
     get_image_quality,
     get_image_size,
-    get_image_source_kind,
     get_image_transform,
     get_image_translate
 };
@@ -222,18 +214,15 @@ struct VertexOutput {
 var<uniform> config: Config;
 
 @group(1) @binding(0)
-var atlas_texture_array: texture_2d_array<f32>;
-
-@group(1) @binding(1)
 var external_texture_0: texture_2d<f32>;
 
-@group(1) @binding(2)
+@group(1) @binding(1)
 var external_texture_1: texture_2d<f32>;
 
-@group(1) @binding(3)
+@group(1) @binding(2)
 var external_texture_2: texture_2d<f32>;
 
-@group(1) @binding(4)
+@group(1) @binding(3)
 var external_texture_3: texture_2d<f32>;
 
 @group(2) @binding(0)
@@ -410,10 +399,7 @@ fn fs_main(
             let image_offset = get_image_offset(image_texel0);
             let image_size = get_image_size(image_texel0);
             let image_extend_modes = get_image_extend_modes(image_texel0);
-            let image_atlas_index = get_image_atlas_index(image_texel0);
             let image_quality = get_image_quality(image_texel0);
-            let image_source_kind = get_image_source_kind(image_texel0);
-            let image_padding = get_image_padding(image_texel2);
             let packed_tint = image_texel2.y;
             let image_tint = unpack4x8unorm(packed_tint);
             let is_multiply = image_texel2.z == TINT_MODE_MULTIPLY;
@@ -431,72 +417,40 @@ fn fs_main(
             // using GPU-native bilinear sampling
 
             var sample_color: vec4<f32>;
-            if image_source_kind == IMAGE_SOURCE_EXTERNAL {
-                let external_texture_slot =
-                    (paint_and_rect_flag >> EXTERNAL_TEXTURE_SLOT_SHIFT) & 0x3u;
-                let final_xy = image_offset + extended_xy;
-                if external_texture_slot == 0u {
-                    sample_color = sample_external_image(
-                        external_texture_0,
-                        image_quality,
-                        final_xy,
-                        image_offset,
-                        image_size,
-                    );
-                } else if external_texture_slot == 1u {
-                    sample_color = sample_external_image(
-                        external_texture_1,
-                        image_quality,
-                        final_xy,
-                        image_offset,
-                        image_size,
-                    );
-                } else if external_texture_slot == 2u {
-                    sample_color = sample_external_image(
-                        external_texture_2,
-                        image_quality,
-                        final_xy,
-                        image_offset,
-                        image_size,
-                    );
-                } else {
-                    sample_color = sample_external_image(
-                        external_texture_3,
-                        image_quality,
-                        final_xy,
-                        image_offset,
-                        image_size,
-                    );
-                }
-            } else if image_quality == IMAGE_QUALITY_HIGH {
-                let final_xy = image_offset + extended_xy;
-                sample_color = bicubic_sample(
-                    atlas_texture_array,
+            let external_texture_slot =
+                (paint_and_rect_flag >> EXTERNAL_TEXTURE_SLOT_SHIFT) & 0x3u;
+            let final_xy = image_offset + extended_xy;
+            if external_texture_slot == 0u {
+                sample_color = sample_external_image(
+                    external_texture_0,
+                    image_quality,
                     final_xy,
-                    i32(image_atlas_index),
                     image_offset,
                     image_size,
-                    image_extend_modes,
-                    image_padding,
                 );
-            } else if image_quality == IMAGE_QUALITY_MEDIUM {
-                let final_xy = image_offset + extended_xy - vec2(0.5);
-                sample_color = bilinear_sample(
-                    atlas_texture_array,
+            } else if external_texture_slot == 1u {
+                sample_color = sample_external_image(
+                    external_texture_1,
+                    image_quality,
                     final_xy,
-                    i32(image_atlas_index),
                     image_offset,
                     image_size,
-                    image_extend_modes,
-                    image_padding,
+                );
+            } else if external_texture_slot == 2u {
+                sample_color = sample_external_image(
+                    external_texture_2,
+                    image_quality,
+                    final_xy,
+                    image_offset,
+                    image_size,
                 );
             } else {
-                let final_xy = image_offset + extended_xy;
-                sample_color = textureLoad(
-                    atlas_texture_array,
-                    vec2<u32>(final_xy),
-                    i32(image_atlas_index),
-                    0,
+                sample_color = sample_external_image(
+                    external_texture_3,
+                    image_quality,
+                    final_xy,
+                    image_offset,
+                    image_size,
                 );
             }
 

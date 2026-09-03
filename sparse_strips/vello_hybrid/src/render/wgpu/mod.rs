@@ -27,7 +27,7 @@ use crate::{
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
     gradient_cache::GradientRampCache,
-    paint::PaintResolver,
+    paint::{PaintResolver, TextureSourceId},
     render::{
         Config,
         common::{
@@ -184,8 +184,6 @@ impl Renderer {
         let limits = device.limits();
         let device_limits = DeviceLimits {
             max_texture_dimension_2d: u16::try_from(limits.max_texture_dimension_2d)
-                .unwrap_or(u16::MAX),
-            max_texture_array_layers: u16::try_from(limits.max_texture_array_layers)
                 .unwrap_or(u16::MAX),
         };
         settings.memory_settings.normalize(&device_limits);
@@ -360,13 +358,7 @@ impl Renderer {
             label: Some("Render to Atlas Encoder"),
         });
 
-        Programs::maybe_resize_atlas_texture_array(
-            device,
-            &mut encoder,
-            &mut self.programs.resources,
-            &self.programs.atlas_bind_group_layout,
-            atlas_count,
-        );
+        Programs::maybe_create_atlas_textures(device, &mut self.programs.resources, atlas_count);
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
@@ -375,28 +367,7 @@ impl Renderer {
         };
 
         let layer_view =
-            self.programs
-                .resources
-                .atlas_texture_array
-                .create_view(&TextureViewDescriptor {
-                    label: Some("Atlas Layer Render View"),
-                    format: Some(wgpu::TextureFormat::Rgba8Unorm),
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    aspect: wgpu::TextureAspect::All,
-                    base_mip_level: 0,
-                    mip_level_count: Some(1),
-                    base_array_layer: atlas_id.as_u32(),
-                    array_layer_count: Some(1),
-                    usage: None,
-                });
-
-        // Swap in the stub atlas bind group to avoid the read-write conflict:
-        // the real atlas texture is used as the render target (COLOR_TARGET), so it
-        // cannot also be bound as a shader resource (TEXTURE_BINDING) in the same pass.
-        core::mem::swap(
-            &mut self.programs.resources.atlas_bind_group,
-            &mut self.programs.resources.stub_atlas_bind_group,
-        );
+            self.programs.resources.atlas_texture_views[atlas_id.as_u32() as usize].clone();
 
         let encoded_paints = &scene.encoded_paints;
         let dummy_image_cache = self
@@ -418,12 +389,6 @@ impl Renderer {
             texture_bindings,
         );
         self.dummy_image_cache = Some(dummy_image_cache);
-
-        // Restore the real atlas bind group.
-        core::mem::swap(
-            &mut self.programs.resources.atlas_bind_group,
-            &mut self.programs.resources.stub_atlas_bind_group,
-        );
 
         // Submit immediately so the atlas content is committed before subsequent
         // render() calls overwrite the shared alpha/config/paint resources.
@@ -465,7 +430,12 @@ impl Renderer {
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
-        self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
+        self.prepare_gpu_encoded_paints(
+            encoded_paints,
+            image_cache,
+            texture_bindings,
+            view.texture(),
+        )?;
         let required_texture_size = self
             .layers_config
             .required_intermediate_texture_size(&scene.recorder)?;
@@ -478,7 +448,8 @@ impl Renderer {
             .texture_size
             .max(required_texture_size);
         let current_allocations = self.current_allocations();
-        let paint_resolver = PaintResolver::new(encoded_paints, &self.paint_idxs);
+        let paint_resolver =
+            PaintResolver::new(encoded_paints, &self.paint_idxs).with_image_cache(image_cache);
         let schedule = Schedule::try_new(
             &mut self.schedule_storage,
             scene,
@@ -516,7 +487,7 @@ impl Renderer {
             view,
             depth_view,
             texture_bindings,
-            external_paint_source_bind_groups: HashMap::new(),
+            external_texture_bind_groups: HashMap::new(),
             scratch_buffers: &mut self.scratch_buffers,
         };
 
@@ -616,20 +587,19 @@ impl Renderer {
     ) {
         let image_resource = image_cache.get(image_id).expect("Image resource not found");
 
-        Programs::maybe_resize_atlas_texture_array(
+        Programs::maybe_create_atlas_textures(
             device,
-            encoder,
             &mut self.programs.resources,
-            &self.programs.atlas_bind_group_layout,
             image_cache.atlas_count() as u32,
         );
         let offset = offset_override.unwrap_or(image_resource.offset);
-        writer.write_to_atlas_layer(
+        let atlas_texture =
+            &self.programs.resources.atlas_textures[image_resource.atlas_id.as_u32() as usize];
+        writer.write_to_atlas(
             device,
             queue,
             encoder,
-            &self.programs.resources.atlas_texture_array,
-            image_resource.atlas_id.as_u32(),
+            atlas_texture,
             offset,
             writer.width(),
             writer.height(),
@@ -659,13 +629,13 @@ impl Renderer {
         }
     }
 
-    /// Returns a reference to the underlying atlas texture array.
-    ///
-    /// This is a 2D array texture (`TextureViewDimension::D2Array`) containing all
-    /// atlas layers used by the image cache. Each layer holds cached image data
-    /// (e.g., rasterised glyphs) that the renderer samples during draw calls.
-    pub fn atlas_texture(&self) -> &Texture {
-        &self.programs.resources.atlas_texture_array
+    /// Returns an individual image atlas texture.
+    pub fn atlas_texture(&self, atlas_id: AtlasId) -> &Texture {
+        self.programs
+            .resources
+            .atlas_textures
+            .get(atlas_id.as_u32() as usize)
+            .unwrap()
     }
 
     /// Clear a specific region of the atlas texture.
@@ -677,23 +647,8 @@ impl Renderer {
         width: u16,
         height: u16,
     ) {
-        // Create a texture view for the specific atlas layer
         let layer_view =
-            self.programs
-                .resources
-                .atlas_texture_array
-                .create_view(&TextureViewDescriptor {
-                    label: Some("Atlas Layer Clear View"),
-                    format: Some(wgpu::TextureFormat::Rgba8Unorm),
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    aspect: wgpu::TextureAspect::All,
-                    base_mip_level: 0,
-                    mip_level_count: Some(1),
-                    base_array_layer: atlas_id.as_u32(),
-                    array_layer_count: Some(1),
-                    // Inherit usage from the texture
-                    usage: None,
-                });
+            self.programs.resources.atlas_texture_views[atlas_id.as_u32() as usize].clone();
 
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear Atlas Region"),
@@ -731,6 +686,7 @@ impl Renderer {
         encoded_paints: &[EncodedPaint],
         image_cache: &ImageCache,
         texture_bindings: &TextureBindings,
+        render_target_texture: &Texture,
     ) -> Result<(), RenderError> {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
@@ -749,8 +705,12 @@ impl Renderer {
                         ImageSource::ExternalTexture {
                             id, source_region, ..
                         } => {
-                            if texture_bindings.get(*id).is_none() {
-                                return Err(RenderError::MissingTextureBinding(*id));
+                            let texture_view = texture_bindings
+                                .get(*id)
+                                .ok_or(RenderError::MissingTextureBinding(*id))?;
+
+                            if texture_view.texture() == render_target_texture {
+                                return Err(RenderError::TextureFeedbackLoop(*id));
                             }
                             self.encode_external_texture_paint(img, *source_region)
                         }
@@ -798,8 +758,6 @@ impl Renderer {
             image.sampler.quality as u32,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
-            image_resource.atlas_id.as_u32(),
-            false,
         );
         let (tint, tint_mode) = pack_tint(image.tint);
 
@@ -826,8 +784,6 @@ impl Renderer {
             image.sampler.quality as u32,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
-            0,
-            true,
         );
         let (tint, tint_mode) = pack_tint(image.tint);
 
@@ -938,12 +894,12 @@ fn clear_atlas_region(queue: &Queue, renderer: &mut Renderer, rect: &PendingClea
     renderer.atlas_clear_scratch.resize(byte_count, 0);
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
-            texture: renderer.atlas_texture(),
+            texture: renderer.atlas_texture(AtlasId::new(rect.page_index)),
             mip_level: 0,
             origin: wgpu::Origin3d {
                 x: rect.x as u32,
                 y: rect.y as u32,
-                z: rect.page_index,
+                z: 0,
             },
             aspect: wgpu::TextureAspect::All,
         },
@@ -980,8 +936,8 @@ struct Programs {
     encoded_paints_bind_group_layout: BindGroupLayout,
     /// Bind group layout for gradient texture
     gradient_bind_group_layout: BindGroupLayout,
-    /// Bind group layout for atlas textures
-    atlas_bind_group_layout: BindGroupLayout,
+    /// Bind group layout for external textures.
+    external_texture_bind_group_layout: BindGroupLayout,
     /// Bind group layout for filter data texture.
     filter_bind_group_layout: BindGroupLayout,
     /// Filter input layouts.
@@ -1027,18 +983,16 @@ struct GpuResources {
     alphas_texture: Texture,
     /// Maximum width or height of packed resource textures.
     resource_texture_dimension_2d: u32,
-    /// Textures for atlas data (multiple atlases supported)
-    atlas_texture_array: Texture,
-    /// View for atlas texture array
-    atlas_texture_array_view: TextureView,
-    /// Configured dimensions used when promoting the placeholder to a real atlas.
+    /// One 2D texture per image atlas.
+    atlas_textures: Vec<Texture>,
+    /// Default view corresponding to each image atlas texture.
+    atlas_texture_views: Vec<TextureView>,
+    /// Configured atlas dimensions.
     atlas_size: (u16, u16),
-    /// Number of real atlas layers currently exposed by the texture view.
-    atlas_layer_count: u32,
-    /// Bind group for paint sources: an atlas texture array plus four external texture slots.
-    atlas_bind_group: BindGroup,
     /// Transparent 1x1 placeholder used for unoccupied external texture slots.
     placeholder_external_texture_view: TextureView,
+    /// Bind group used when a draw does not sample an external texture.
+    empty_external_texture_bind_group: BindGroup,
     /// Texture for encoded paints
     encoded_paints_texture: Texture,
     /// Bind group for encoded paints
@@ -1057,10 +1011,6 @@ struct GpuResources {
     view_config_buffer: Buffer,
     /// Layer config buffer.
     layer_config_buffer: Buffer,
-
-    /// Placeholder paint-source bind group with a 1x1 dummy atlas texture, used during
-    /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
-    stub_atlas_bind_group: BindGroup,
 
     /// Layer textures by parity.
     layer_textures: [Vec<TextureView>; 2],
@@ -1171,26 +1121,16 @@ impl Programs {
             },
             count: None,
         };
-        let paint_source_layout_entries = [
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2Array,
-                    multisampled: false,
-                },
-                count: None,
-            },
+        let external_texture_layout_entries = [
+            external_texture_layout_entry(0),
             external_texture_layout_entry(1),
             external_texture_layout_entry(2),
             external_texture_layout_entry(3),
-            external_texture_layout_entry(4),
         ];
-        let atlas_bind_group_layout =
+        let external_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Paint Source Bind Group Layout"),
-                entries: &paint_source_layout_entries,
+                label: Some("External Texture Bind Group Layout"),
+                entries: &external_texture_layout_entries,
             });
 
         let encoded_paints_bind_group_layout =
@@ -1238,7 +1178,7 @@ impl Programs {
                 label: Some("Strip Pipeline Layout"),
                 bind_group_layouts: &[
                     Some(&strip_bind_group_layout),
-                    Some(&atlas_bind_group_layout),
+                    Some(&external_texture_bind_group_layout),
                     Some(&encoded_paints_bind_group_layout),
                     Some(&gradient_bind_group_layout),
                 ],
@@ -1688,30 +1628,16 @@ impl Programs {
             ..
         } = image_cache.atlas_manager().config();
         let atlas_size = (*atlas_width, *atlas_height);
-        let atlas_layer_count = *initial_atlas_count as u32;
-        let (atlas_texture_array, atlas_texture_array_view) = if atlas_layer_count == 0 {
-            // Texture arrays cannot have zero layers. Keep a tiny bindable placeholder until the
-            // image cache makes its first real allocation.
-            Self::create_atlas_texture_array(device, 1, 1, 1)
-        } else {
-            Self::create_atlas_texture_array(device, *atlas_width, *atlas_height, atlas_layer_count)
-        };
-        let atlas_bind_group = Self::create_paint_source_bind_group(
+        let atlas_textures: Vec<_> = (0..*initial_atlas_count)
+            .map(|_| Self::create_atlas_texture(device, *atlas_width, *atlas_height))
+            .collect();
+        let atlas_texture_views = atlas_textures
+            .iter()
+            .map(|texture| texture.create_view(&TextureViewDescriptor::default()))
+            .collect();
+        let empty_external_texture_bind_group = Self::create_external_texture_bind_group(
             device,
-            &atlas_bind_group_layout,
-            &atlas_texture_array_view,
-            [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
-        );
-
-        // Create a 1x1 stub atlas texture array for use during render_to_atlas.
-        // This avoids the read-write conflict that occurs when the real atlas is both
-        // a shader input (bind group) and render target in the same pass.
-        let (_stub_atlas_texture, stub_atlas_view) =
-            Self::create_atlas_texture_array(device, 1, 1, 1);
-        let stub_atlas_bind_group = Self::create_paint_source_bind_group(
-            device,
-            &atlas_bind_group_layout,
-            &stub_atlas_view,
+            &external_texture_bind_group_layout,
             [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
         );
 
@@ -1776,13 +1702,11 @@ impl Programs {
             layer_config_buffer,
             alphas_texture,
             resource_texture_dimension_2d,
-            atlas_texture_array,
-            atlas_texture_array_view,
+            atlas_textures,
+            atlas_texture_views,
             atlas_size,
-            atlas_layer_count,
-            atlas_bind_group,
             placeholder_external_texture_view,
-            stub_atlas_bind_group,
+            empty_external_texture_bind_group,
             encoded_paints_texture,
             encoded_paints_bind_group,
             gradient_texture,
@@ -1802,7 +1726,7 @@ impl Programs {
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
-            atlas_bind_group_layout,
+            external_texture_bind_group_layout,
             filter_bind_group_layout,
             filter_pipeline,
             blend_pipeline,
@@ -2017,31 +1941,13 @@ impl Programs {
         })
     }
 
-    fn create_atlas_texture_array(
-        device: &Device,
-        width: u16,
-        height: u16,
-        atlas_count: u32,
-    ) -> (Texture, TextureView) {
-        debug_assert!(
-            atlas_count > 0,
-            "atlas texture arrays must have at least one physical layer"
-        );
-        // In WGPU's GLES backend, heuristics classify a one-layer texture as D2 even when it was
-        // created as D2Array. Allocate at least two physical layers on WASM to keep the backend's
-        // classification consistent with the D2Array view.
-        // See https://github.com/gfx-rs/wgpu/blob/61e5124eb9530d3b3865556a7da4fd320d03ddc5/wgpu-hal/src/gles/mod.rs#L470-L517.
-        #[cfg(target_arch = "wasm32")]
-        let depth_or_array_layers = atlas_count.max(2);
-        #[cfg(not(target_arch = "wasm32"))]
-        let depth_or_array_layers = atlas_count;
-
-        let atlas_texture_array = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Atlas Texture Array"),
+    fn create_atlas_texture(device: &Device, width: u16, height: u16) -> Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Atlas Texture"),
             size: Extent3d {
                 width: u32::from(width),
                 height: u32::from(height),
-                depth_or_array_layers,
+                depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -2052,28 +1958,6 @@ impl Programs {
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
-        });
-
-        let atlas_texture_array_view =
-            Self::create_atlas_texture_array_view(&atlas_texture_array, atlas_count);
-
-        (atlas_texture_array, atlas_texture_array_view)
-    }
-
-    fn create_atlas_texture_array_view(
-        atlas_texture_array: &Texture,
-        atlas_count: u32,
-    ) -> TextureView {
-        atlas_texture_array.create_view(&TextureViewDescriptor {
-            label: Some("Atlas Texture Array View"),
-            format: None,
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            aspect: wgpu::TextureAspect::All,
-            base_mip_level: 0,
-            mip_level_count: None,
-            base_array_layer: 0,
-            array_layer_count: Some(atlas_count),
-            usage: None,
         })
     }
 
@@ -2127,37 +2011,32 @@ impl Programs {
         texture.create_view(&TextureViewDescriptor::default())
     }
 
-    fn create_paint_source_bind_group(
+    fn create_external_texture_bind_group(
         device: &Device,
-        atlas_bind_group_layout: &BindGroupLayout,
-        atlas_texture_array_view: &TextureView,
-        external_texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        external_texture_bind_group_layout: &BindGroupLayout,
+        texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
         let entries = [
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(atlas_texture_array_view),
+                resource: wgpu::BindingResource::TextureView(texture_views[0]),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::TextureView(external_texture_views[0]),
+                resource: wgpu::BindingResource::TextureView(texture_views[1]),
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::TextureView(external_texture_views[1]),
+                resource: wgpu::BindingResource::TextureView(texture_views[2]),
             },
             wgpu::BindGroupEntry {
                 binding: 3,
-                resource: wgpu::BindingResource::TextureView(external_texture_views[2]),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: wgpu::BindingResource::TextureView(external_texture_views[3]),
+                resource: wgpu::BindingResource::TextureView(texture_views[3]),
             },
         ];
         device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Paint Source Bind Group"),
-            layout: atlas_bind_group_layout,
+            label: Some("External Texture Bind Group"),
+            layout: external_texture_bind_group_layout,
             entries: &entries,
         })
     }
@@ -2466,116 +2345,31 @@ impl Programs {
         }
     }
 
-    /// Resize the texture array to accommodate more atlases.
-    fn maybe_resize_atlas_texture_array(
+    /// Create any newly allocated atlas textures.
+    fn maybe_create_atlas_textures(
         device: &Device,
-        encoder: &mut CommandEncoder,
         resources: &mut GpuResources,
-        atlas_bind_group_layout: &BindGroupLayout,
         required_atlas_count: u32,
     ) {
-        let current_atlas_count = resources.atlas_layer_count;
-        if required_atlas_count > current_atlas_count {
-            let (width, height) = resources.atlas_size;
-            let physical_layer_count = resources.atlas_texture_array.size().depth_or_array_layers;
-
-            // WGPU's WebGL backend allocates at least two physical layers to keep the texture
-            // classified as D2Array. Expose an already-allocated layer without replacing the
-            // texture when that spare capacity is available.
-            if current_atlas_count > 0 && required_atlas_count <= physical_layer_count {
-                let new_atlas_texture_array_view = Self::create_atlas_texture_array_view(
-                    &resources.atlas_texture_array,
-                    required_atlas_count,
-                );
-                let new_atlas_bind_group = Self::create_paint_source_bind_group(
-                    device,
-                    atlas_bind_group_layout,
-                    &new_atlas_texture_array_view,
-                    [&resources.placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
-                );
-                resources.atlas_texture_array_view = new_atlas_texture_array_view;
-                resources.atlas_bind_group = new_atlas_bind_group;
-                resources.atlas_layer_count = required_atlas_count;
-                return;
-            }
-
-            // Create new texture array with more layers
-            let (new_atlas_texture_array, new_atlas_texture_array_view) =
-                Self::create_atlas_texture_array(device, width, height, required_atlas_count);
-
-            if current_atlas_count > 0 {
-                // Copy existing atlas data from old texture array to new one. A zero-depth copy is
-                // still validated against the placeholder's 1x1 extent by WGPU, so skip it when
-                // promoting the placeholder.
-                Self::copy_atlas_texture_data(
-                    encoder,
-                    &resources.atlas_texture_array,
-                    &new_atlas_texture_array,
-                    current_atlas_count,
-                    width,
-                    height,
-                );
-            }
-
-            // Update the bind group with the new texture array view
-            let new_atlas_bind_group = Self::create_paint_source_bind_group(
-                device,
-                atlas_bind_group_layout,
-                &new_atlas_texture_array_view,
-                [&resources.placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
-            );
-
-            // Replace the old resources
-            resources.atlas_texture_array = new_atlas_texture_array;
-            resources.atlas_texture_array_view = new_atlas_texture_array_view;
-            resources.atlas_bind_group = new_atlas_bind_group;
-            resources.atlas_layer_count = required_atlas_count;
+        let (width, height) = resources.atlas_size;
+        while resources.atlas_textures.len() < required_atlas_count as usize {
+            let texture = Self::create_atlas_texture(device, width, height);
+            let texture_view = texture.create_view(&TextureViewDescriptor::default());
+            resources.atlas_textures.push(texture);
+            resources.atlas_texture_views.push(texture_view);
         }
     }
 
-    fn create_external_paint_source_bind_group(
+    fn create_run_external_texture_bind_group(
         &self,
         device: &Device,
-        external_texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
-        Self::create_paint_source_bind_group(
+        Self::create_external_texture_bind_group(
             device,
-            &self.atlas_bind_group_layout,
-            &self.resources.atlas_texture_array_view,
-            external_texture_views,
+            &self.external_texture_bind_group_layout,
+            texture_views,
         )
-    }
-
-    /// Copy texture data from the old atlas texture array to a new one.
-    /// This is necessary when resizing the texture array to preserve existing atlas data.
-    fn copy_atlas_texture_data(
-        encoder: &mut CommandEncoder,
-        old_atlas_texture_array: &Texture,
-        new_atlas_texture_array: &Texture,
-        layer_count_to_copy: u32,
-        width: u16,
-        height: u16,
-    ) {
-        // Copy all layers from old texture array to new texture array
-        encoder.copy_texture_to_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: old_atlas_texture_array,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyTextureInfo {
-                texture: new_atlas_texture_array,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            Extent3d {
-                width: u32::from(width),
-                height: u32::from(height),
-                depth_or_array_layers: layer_count_to_copy,
-            },
-        );
     }
 
     /// Upload alpha data to the texture.
@@ -2765,31 +2559,35 @@ struct RendererContext<'a> {
     view: &'a TextureView,
     depth_view: Option<&'a TextureView>,
     texture_bindings: &'a TextureBindings,
-    external_paint_source_bind_groups: HashMap<ExternalTextureBindings, BindGroup>,
+    external_texture_bind_groups: HashMap<ExternalTextureBindings, BindGroup>,
     scratch_buffers: &'a mut ScratchBuffers,
 }
 
 impl RendererContext<'_> {
-    fn external_paint_source_bind_group_for_textures(
+    fn external_texture_bind_group_for_textures(
         &mut self,
         bindings: ExternalTextureBindings,
     ) -> &BindGroup {
-        match self.external_paint_source_bind_groups.entry(bindings) {
+        let atlas_texture_views = &self.programs.resources.atlas_texture_views;
+        let placeholder = &self.programs.resources.placeholder_external_texture_view;
+        let texture_bindings = self.texture_bindings;
+        match self.external_texture_bind_groups.entry(bindings) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let texture_views = bindings.as_array().map(|texture_id| {
-                    texture_id.map_or(
-                        &self.programs.resources.placeholder_external_texture_view,
-                        |texture_id| {
-                            self.texture_bindings.get(texture_id).expect(
-                                "external texture bindings were validated during paint preparation",
-                            )
-                        },
-                    )
+                let texture_sources = bindings.as_array();
+                let texture_views = core::array::from_fn(|slot| match texture_sources[slot] {
+                    Some(TextureSourceId::Atlas(atlas_id)) => {
+                        atlas_texture_views[atlas_id.as_u32() as usize].clone()
+                    }
+                    Some(TextureSourceId::External(texture_id)) => texture_bindings
+                        .get(texture_id)
+                        .expect("external texture binding was validated during paint preparation")
+                        .clone(),
+                    None => placeholder.clone(),
                 });
                 let bind_group = self
                     .programs
-                    .create_external_paint_source_bind_group(self.device, texture_views);
+                    .create_run_external_texture_bind_group(self.device, texture_views.each_ref());
                 entry.insert(bind_group)
             }
         }
@@ -2812,10 +2610,9 @@ impl RendererContext<'_> {
         }
         // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
         // approach would be to re-use buffers or slices of a larger buffer.
-        // Create bind groups for all external textures passed in by the user that are used this
-        // pass.
+        // Create bind groups for all external textures used by this pass.
         for run in external_texture_runs {
-            self.external_paint_source_bind_group_for_textures(run.bindings);
+            self.external_texture_bind_group_for_textures(run.bindings);
         }
 
         self.programs
@@ -2910,21 +2707,25 @@ impl RendererContext<'_> {
 
         let draw_strip_runs = |render_pass: &mut wgpu::RenderPass<'_>, first_instance, count| {
             if external_texture_runs.is_empty() {
-                render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
+                render_pass.set_bind_group(
+                    1,
+                    &self.programs.resources.empty_external_texture_bind_group,
+                    &[],
+                );
                 render_pass.draw(0..4, first_instance..first_instance + count);
 
                 return;
             }
 
-            // Each run is drawn with a different external texture binding. Runs go from
+            // Each run is drawn with different external texture bindings. Runs go from
             // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
             // the strips buffer.
             for (i, run) in external_texture_runs.iter().enumerate() {
-                let paint_source_bind_group = self
-                    .external_paint_source_bind_groups
+                let external_texture_bind_group = self
+                    .external_texture_bind_groups
                     .get(&run.bindings)
                     .unwrap();
-                render_pass.set_bind_group(1, paint_source_bind_group, &[]);
+                render_pass.set_bind_group(1, external_texture_bind_group, &[]);
                 let start = u32::try_from(run.strips_start).unwrap();
                 let end = external_texture_runs
                     .get(i + 1)
@@ -3347,14 +3148,13 @@ pub trait AtlasWriter {
     /// Get the height of the image.
     fn height(&self) -> u16;
 
-    /// Write image data to a specific layer of an atlas texture array at the specified offset.
-    fn write_to_atlas_layer(
+    /// Write image data to an atlas texture at the specified offset.
+    fn write_to_atlas(
         &self,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
         atlas_texture: &Texture,
-        layer: u32,
         offset: [u16; 2],
         width: u16,
         height: u16,
@@ -3371,13 +3171,12 @@ impl AtlasWriter for Texture {
         u16::try_from(self.height()).expect("texture height exceeds the u16 atlas domain")
     }
 
-    fn write_to_atlas_layer(
+    fn write_to_atlas(
         &self,
         _device: &Device,
         _queue: &Queue,
         encoder: &mut CommandEncoder,
         atlas_texture: &Texture,
-        layer: u32,
         offset: [u16; 2],
         width: u16,
         height: u16,
@@ -3395,7 +3194,7 @@ impl AtlasWriter for Texture {
                 origin: wgpu::Origin3d {
                     x: u32::from(offset[0]),
                     y: u32::from(offset[1]),
-                    z: layer,
+                    z: 0,
                 },
                 aspect: wgpu::TextureAspect::All,
             },
@@ -3418,13 +3217,12 @@ impl AtlasWriter for Pixmap {
         self.height()
     }
 
-    fn write_to_atlas_layer(
+    fn write_to_atlas(
         &self,
         _device: &Device,
         queue: &Queue,
         _encoder: &mut CommandEncoder,
         atlas_texture: &Texture,
-        layer: u32,
         offset: [u16; 2],
         width: u16,
         height: u16,
@@ -3438,7 +3236,7 @@ impl AtlasWriter for Pixmap {
                 origin: wgpu::Origin3d {
                     x: u32::from(offset[0]),
                     y: u32::from(offset[1]),
-                    z: layer,
+                    z: 0,
                 },
                 aspect: wgpu::TextureAspect::All,
             },
@@ -3467,26 +3265,17 @@ impl AtlasWriter for Arc<Pixmap> {
         self.as_ref().height()
     }
 
-    fn write_to_atlas_layer(
+    fn write_to_atlas(
         &self,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
         atlas_texture: &Texture,
-        layer: u32,
         offset: [u16; 2],
         width: u16,
         height: u16,
     ) {
-        self.as_ref().write_to_atlas_layer(
-            device,
-            queue,
-            encoder,
-            atlas_texture,
-            layer,
-            offset,
-            width,
-            height,
-        );
+        self.as_ref()
+            .write_to_atlas(device, queue, encoder, atlas_texture, offset, width, height);
     }
 }

@@ -81,7 +81,6 @@ impl WebGlRenderer {
                 framebuffer: true,
                 active_texture: true,
                 texture_2d: true,
-                texture_2d_array: true,
                 pixel_pack_buffer: true,
                 viewport: true,
                 ..Default::default()
@@ -160,6 +159,7 @@ impl WebGlRenderer {
             true,
             RootTarget::AtlasLayer,
             &texture_bindings,
+            Some(&probe_texture),
         );
         let probe_framebuffer = self
             .programs
