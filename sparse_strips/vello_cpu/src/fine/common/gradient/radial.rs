@@ -52,7 +52,7 @@ impl<S: Simd> SimdRadialKind<S> {
 }
 
 impl<S: Simd> SimdGradientKind<S> for SimdRadialKind<S> {
-    #[simd]
+    #[inline(always)]
     fn cur_pos(&self, simd: S, x_pos: f32x8<S>, y_pos: f32x8<S>) -> f32x8<S> {
         match &self.inner {
             SimdRadialKindInner::Radial { bias, scale } => {
