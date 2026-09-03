@@ -31,6 +31,8 @@ struct Arguments {
     skip_multithreaded: bool,
     /// Whether the test should not be run on the GPU (`vello_hybrid`).
     skip_hybrid: bool,
+    /// Whether the test should not be run using the WebGL backend.
+    skip_webgl: bool,
     /// Whether only `vello_hybrid` should run and generate the reference image.
     hybrid_only: bool,
     /// Whether to additionally run `vello_hybrid` with depth buffering disabled.
@@ -60,6 +62,7 @@ impl Default for Arguments {
             skip_cpu: false,
             skip_multithreaded: false,
             skip_hybrid: false,
+            skip_webgl: false,
             hybrid_only: false,
             hybrid_no_depth: false,
             no_ref: false,
@@ -187,6 +190,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         skip_cpu,
         skip_multithreaded,
         mut skip_hybrid,
+        skip_webgl,
         hybrid_only,
         hybrid_no_depth,
         ignore_reason,
@@ -266,7 +270,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     } else {
         empty_snippet.clone()
     };
-    let ignore_hybrid_webgl = if skip_hybrid {
+    let ignore_hybrid_webgl = if skip_hybrid || skip_webgl {
         ignore_snippet.clone()
     } else {
         empty_snippet.clone()
@@ -780,6 +784,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "skip_cpu" => args.skip_cpu = true,
                     "skip_multithreaded" => args.skip_multithreaded = true,
                     "skip_hybrid" => args.skip_hybrid = true,
+                    "skip_webgl" => args.skip_webgl = true,
                     "hybrid_only" => {
                         args.skip_cpu = true;
                         args.hybrid_only = true;

@@ -104,6 +104,7 @@ async fn run() {
             &texture_view,
             Some(&depth_texture_view),
             &vello_hybrid::TextureBindings::new(),
+            vello_hybrid::TargetInit::Clear(vello_hybrid::ClearSettings::default()),
         )
         .unwrap();
 

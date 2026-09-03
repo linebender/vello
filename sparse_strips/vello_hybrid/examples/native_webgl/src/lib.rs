@@ -158,6 +158,7 @@ impl AppState {
                 &mut self.renderer_wrapper.resources,
                 &render_size,
                 &vello_hybrid::WebGlTextureBindings::new(),
+                vello_common::color::AlphaColor::TRANSPARENT,
             )
             .unwrap();
         if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
@@ -612,6 +613,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             &mut resources,
             &render_size,
             &vello_hybrid::WebGlTextureBindings::new(),
+            vello_common::color::AlphaColor::TRANSPARENT,
         )
         .unwrap();
 }

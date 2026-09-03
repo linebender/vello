@@ -6,15 +6,20 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glifo::GlyphRunBackend;
+use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
+use vello_cpu::{
+    Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources,
+    TargetInit as CpuTargetInit,
+};
 use vello_hybrid::{
-    RenderSettings as HybridRenderSettings, Resources as HybridResources, Scene, TextureId,
+    ClearSettings, RectU16, RenderSettings as HybridRenderSettings, Resources as HybridResources,
+    Scene, TargetInit as HybridTargetInit, TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -83,6 +88,7 @@ pub(crate) trait Renderer: Sized {
     fn set_filter_effect(&mut self, filter: Filter);
     fn reset_filter_effect(&mut self);
     fn reset(&mut self);
+    fn set_target_init(&mut self, target_init: HybridTargetInit<'static>);
     fn render(&mut self);
     fn snapshot(&mut self) -> Pixmap;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
@@ -95,6 +101,7 @@ pub(crate) struct CpuRenderer {
     resources: Resources,
     render_mode: RenderMode,
     target: Pixmap,
+    target_init: HybridTargetInit<'static>,
 }
 
 impl Renderer for CpuRenderer {
@@ -113,6 +120,7 @@ impl Renderer for CpuRenderer {
             resources: Resources::new(),
             render_mode,
             target: Pixmap::new(width, height),
+            target_init: HybridTargetInit::Clear(ClearSettings::default()),
         }
     }
 
@@ -240,12 +248,29 @@ impl Renderer for CpuRenderer {
         self.ctx.reset();
     }
 
+    fn set_target_init(&mut self, target_init: HybridTargetInit<'static>) {
+        self.target_init = target_init;
+    }
+
     fn render(&mut self) {
+        let target_init = match self.target_init {
+            HybridTargetInit::SrcOver => CpuTargetInit::SrcOver,
+            HybridTargetInit::Clear(ClearSettings::Viewport { color }) => {
+                CpuTargetInit::Clear(color)
+            }
+            HybridTargetInit::Clear(ClearSettings::Rects { color, rects }) => {
+                apply_rect_clear(&mut self.target, color, rects);
+
+                CpuTargetInit::SrcOver
+            }
+        };
+
         self.ctx.render_with(
             &mut self.target,
             &mut self.resources,
             RasterizerSettings {
                 render_mode: self.render_mode,
+                target_init,
                 ..Default::default()
             },
         );
@@ -284,6 +309,7 @@ pub(crate) struct HybridRenderer {
     renderer: vello_hybrid::Renderer,
     external_textures: HashMap<TextureId, wgpu::TextureView>,
     next_external_texture_id: u64,
+    target_init: HybridTargetInit<'static>,
     gpu_test_guard: Option<std::sync::MutexGuard<'static, ()>>,
 }
 
@@ -357,6 +383,7 @@ impl HybridRenderer {
             renderer,
             external_textures: HashMap::new(),
             next_external_texture_id: 1,
+            target_init: HybridTargetInit::Clear(ClearSettings::default()),
             gpu_test_guard: None,
         }
     }
@@ -548,6 +575,10 @@ impl Renderer for HybridRenderer {
         self.scene.reset();
     }
 
+    fn set_target_init(&mut self, target_init: HybridTargetInit<'static>) {
+        self.target_init = target_init;
+    }
+
     fn render(&mut self) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
@@ -587,6 +618,7 @@ impl Renderer for HybridRenderer {
                 &self.texture_view,
                 self.depth_texture_view.as_ref(),
                 &texture_bindings,
+                self.target_init,
             )
             .unwrap();
 
@@ -735,6 +767,7 @@ pub(crate) struct HybridRenderer {
     gl: WebGl2RenderingContext,
     external_textures: vello_hybrid::WebGlTextureBindings,
     next_external_texture_id: u64,
+    clear_color: AlphaColor<Srgb>,
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -807,6 +840,7 @@ impl Renderer for HybridRenderer {
             gl,
             external_textures: vello_hybrid::WebGlTextureBindings::new(),
             next_external_texture_id: 1,
+            clear_color: AlphaColor::TRANSPARENT,
         }
     }
 
@@ -932,6 +966,15 @@ impl Renderer for HybridRenderer {
         self.scene.reset();
     }
 
+    fn set_target_init(&mut self, target_init: HybridTargetInit<'static>) {
+        self.clear_color = match target_init {
+            HybridTargetInit::Clear(ClearSettings::Viewport { color }) => color,
+            HybridTargetInit::SrcOver | HybridTargetInit::Clear(ClearSettings::Rects { .. }) => {
+                panic!("WebGL only supports clearing the complete viewport")
+            }
+        };
+    }
+
     fn render(&mut self) {
         let width = self.scene.width();
         let height = self.scene.height();
@@ -946,11 +989,14 @@ impl Renderer for HybridRenderer {
                 &mut self.resources,
                 &render_size,
                 &self.external_textures,
+                self.clear_color,
             )
             .unwrap();
     }
 
     fn snapshot(&mut self) -> Pixmap {
+        use vello_common::peniko::ImageAlphaType;
+        use vello_common::pixmap::PixelMetadata;
         use web_sys::WebGl2RenderingContext;
 
         let width = self.scene.width();
@@ -976,10 +1022,12 @@ impl Renderer for HybridRenderer {
             a[y * row_bytes..(y + 1) * row_bytes].swap_with_slice(&mut b[..row_bytes]);
         }
 
-        let mut pixmap = Pixmap::new(width, height);
-        let pixmap_data = pixmap.data_as_u8_slice_mut();
-        pixmap_data.copy_from_slice(&pixels);
-        pixmap
+        Pixmap::from_parts(
+            pixels,
+            width,
+            height,
+            PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, true),
+        )
     }
 
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId {
@@ -1039,5 +1087,26 @@ impl Renderer for HybridRenderer {
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         self.upload_image(&pixmap)
+    }
+}
+
+// Vello CPU does not expose rectangle clears (because it would be pretty inefficient),
+// so we simulate them here for the snapshot tests.
+fn apply_rect_clear(pixmap: &mut Pixmap, color: AlphaColor<Srgb>, rects: &[RectU16]) {
+    let color = color.premultiply().to_rgba8();
+    let width = usize::from(pixmap.width());
+    let bounds = RectU16::new(0, 0, pixmap.width(), pixmap.height());
+    let data = pixmap.data_mut();
+
+    for rect in rects
+        .iter()
+        .map(|rect| rect.intersect(bounds))
+        .filter(|rect| !rect.is_empty())
+    {
+        for y in usize::from(rect.y0)..usize::from(rect.y1) {
+            let start = y * width + usize::from(rect.x0);
+            let end = y * width + usize::from(rect.x1);
+            data[start..end].fill(color);
+        }
     }
 }
