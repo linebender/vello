@@ -1863,6 +1863,7 @@ impl WebGlPrograms {
             WebGl2RenderingContext::FRAMEBUFFER,
             self.resources.view_framebuffer_override.as_deref(),
         );
+        gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         gl.clear_color(0.0, 0.0, 0.0, 0.0);
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
@@ -1928,11 +1929,6 @@ pub(crate) struct WebGlStateGuard {
     original_active_texture: Option<u32>,
     original_texture_2d: Option<WebGlTexture>,
     original_pixel_pack_buffer: Option<WebGlBuffer>,
-    blend_enabled: bool,
-    scissor_enabled: bool,
-    depth_test_enabled: bool,
-    depth_mask: bool,
-    viewport: [i32; 4],
 }
 
 impl WebGlStateGuard {
@@ -1981,41 +1977,6 @@ impl WebGlStateGuard {
             None
         };
 
-        let blend_enabled = config.blend && gl.is_enabled(WebGl2RenderingContext::BLEND);
-
-        // Save current scissor test state if requested
-        let scissor_enabled = config.scissor && gl.is_enabled(WebGl2RenderingContext::SCISSOR_TEST);
-
-        let depth_test_enabled =
-            config.depth_test && gl.is_enabled(WebGl2RenderingContext::DEPTH_TEST);
-
-        let depth_mask = if config.depth_mask {
-            gl.get_parameter(WebGl2RenderingContext::DEPTH_WRITEMASK)
-                .unwrap()
-                .as_bool()
-                .unwrap()
-        } else {
-            false
-        };
-
-        // Save current viewport if requested
-        let viewport = if config.viewport {
-            let viewport_js = gl
-                .get_parameter(WebGl2RenderingContext::VIEWPORT)
-                .unwrap()
-                .dyn_into::<js_sys::Int32Array>()
-                .unwrap();
-            let viewport_vec = viewport_js.to_vec();
-            [
-                viewport_vec[0],
-                viewport_vec[1],
-                viewport_vec[2],
-                viewport_vec[3],
-            ]
-        } else {
-            [0, 0, 0, 0]
-        };
-
         Self {
             gl: gl.clone(),
             config,
@@ -2024,11 +1985,6 @@ impl WebGlStateGuard {
             original_active_texture,
             original_texture_2d,
             original_pixel_pack_buffer,
-            blend_enabled,
-            scissor_enabled,
-            depth_test_enabled,
-            depth_mask,
-            viewport,
         }
     }
 
@@ -2038,8 +1994,6 @@ impl WebGlStateGuard {
             gl,
             WebGlStateConfig {
                 framebuffer: true,
-                scissor: true,
-                viewport: true,
                 ..Default::default()
             },
         )
@@ -2056,65 +2010,12 @@ impl WebGlStateGuard {
             },
         )
     }
-
-    /// Create a state guard for an intermediate render pass.
-    fn for_intermediate_pass(gl: &WebGl2RenderingContext) -> Self {
-        Self::with_config(
-            gl,
-            WebGlStateConfig {
-                blend: true,
-                scissor: true,
-                depth_test: true,
-                depth_mask: true,
-                ..Default::default()
-            },
-        )
-    }
 }
 
 impl Drop for WebGlStateGuard {
     /// Restore WebGL state when the guard goes out of scope.
     /// Only restores state that was configured to be saved.
     fn drop(&mut self) {
-        if self.config.blend {
-            if self.blend_enabled {
-                self.gl.enable(WebGl2RenderingContext::BLEND);
-            } else {
-                self.gl.disable(WebGl2RenderingContext::BLEND);
-            }
-        }
-
-        // Restore scissor test state if it was saved
-        if self.config.scissor {
-            if self.scissor_enabled {
-                self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-            } else {
-                self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
-            }
-        }
-
-        if self.config.depth_test {
-            if self.depth_test_enabled {
-                self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
-            } else {
-                self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
-            }
-        }
-
-        if self.config.depth_mask {
-            self.gl.depth_mask(self.depth_mask);
-        }
-
-        // Restore viewport if it was saved
-        if self.config.viewport {
-            self.gl.viewport(
-                self.viewport[0],
-                self.viewport[1],
-                self.viewport[2],
-                self.viewport[3],
-            );
-        }
-
         // Restore original framebuffer if it was saved
         if self.config.framebuffer {
             self.gl.bind_framebuffer(
@@ -2165,16 +2066,6 @@ pub(crate) struct WebGlStateConfig {
     pub(crate) texture_2d: bool,
     /// Save/restore pixel pack buffer binding (`PIXEL_PACK_BUFFER_BINDING`)
     pub(crate) pixel_pack_buffer: bool,
-    /// Save/restore blending state
-    pub(crate) blend: bool,
-    /// Save/restore scissor test state
-    pub(crate) scissor: bool,
-    /// Save/restore depth test state
-    pub(crate) depth_test: bool,
-    /// Save/restore the depth write mask
-    pub(crate) depth_mask: bool,
-    /// Save/restore viewport
-    pub(crate) viewport: bool,
 }
 
 /// Get the  uniform locations for the `render_strips` program.
@@ -2937,6 +2828,7 @@ impl WebGlRendererContext<'_> {
 
         if enable_opaque {
             self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_mask(true);
             self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
 
             // Clear depth buffer on first use per frame.
@@ -2948,6 +2840,7 @@ impl WebGlRendererContext<'_> {
 
             // Opaque pass: front-to-back, depth test ON, depth write ON, blend OFF.
             if opaque_count > 0 {
+                self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
                 self.gl.depth_mask(true);
                 self.gl.disable(WebGl2RenderingContext::BLEND);
                 self.draw_strips(external_texture_runs, 0, opaque_count);
@@ -2955,6 +2848,7 @@ impl WebGlRendererContext<'_> {
 
             // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
             if alpha_count > 0 {
+                self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
                 self.gl.depth_mask(false);
                 self.gl.enable(WebGl2RenderingContext::BLEND);
                 self.draw_strips(external_texture_runs, opaque_count, alpha_count);
@@ -2970,6 +2864,8 @@ impl WebGlRendererContext<'_> {
                 opaque_count, 0,
                 "opaque strips require the final view's depth attachment"
             );
+            self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_mask(false);
             self.gl.enable(WebGl2RenderingContext::BLEND);
             self.draw_strips(external_texture_runs, 0, opaque_count + alpha_count);
         }
@@ -2988,7 +2884,6 @@ impl WebGlRendererContext<'_> {
         blend_strips: &[BlendStrip],
         bindings: BlendPassBindings,
     ) {
-        let _state_guard = WebGlStateGuard::for_intermediate_pass(self.gl);
         let texture_size = self.texture_size();
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
@@ -3074,6 +2969,10 @@ impl WebGlRendererContext<'_> {
         self.programs
             .upload_copy_instances(self.gl, &self.scratch_buffers.copy_instances);
 
+        self.gl.disable(WebGl2RenderingContext::BLEND);
+        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+        self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+        self.gl.depth_mask(false);
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(self.programs.resources.layer_framebuffer(bindings.target())),
@@ -3102,14 +3001,12 @@ impl WebGlRendererContext<'_> {
     }
 
     fn filter_pass_inner(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings) {
-        let _state_guard = WebGlStateGuard::for_intermediate_pass(self.gl);
-        self.gl.disable(WebGl2RenderingContext::BLEND);
-        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
-        self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
-        self.gl.depth_mask(false);
-
         if let Some(copy_pass) = plan.copy_pass() {
             self.programs.upload_copy_instances(self.gl, copy_pass);
+            self.gl.disable(WebGl2RenderingContext::BLEND);
+            self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+            self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_mask(false);
             self.gl
                 .bind_vertex_array(Some(&self.programs.resources.copy_vao));
             self.gl.use_program(Some(&self.programs.copy_program));
@@ -3171,6 +3068,10 @@ impl WebGlRendererContext<'_> {
         input: LayerTextureId,
         output: LayerTextureId,
     ) {
+        self.gl.disable(WebGl2RenderingContext::BLEND);
+        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+        self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+        self.gl.depth_mask(false);
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(self.programs.resources.layer_framebuffer(output)),
