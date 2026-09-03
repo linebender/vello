@@ -653,7 +653,7 @@ pub(crate) fn maybe_warn_about_webgl_feature_conflict() {
         && wgpu::Backends::all().contains(wgpu::Backends::GL)
     {
         log::warn!(
-            r#"Both WebGL and wgpu with the \"webgl\" feature are enabled.
+            r#"Both WebGL and wgpu with the "webgl" feature are enabled.
 For optimal performance and binary size on web targets, use only the dedicated WebGL renderer."#
         );
     }
