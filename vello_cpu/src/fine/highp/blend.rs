@@ -3,6 +3,7 @@
 
 use crate::peniko::{BlendMode, Mix};
 use crate::util::Premultiply;
+use fearless_simd_macros::simd;
 use vello_common::fearless_simd::*;
 
 #[derive(Copy, Clone)]
@@ -23,11 +24,9 @@ impl<S: Simd> Channels<S> {
     }
 }
 
+#[simd]
 pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) -> f32x16<S> {
-    src_c.simd.vectorize(
-        #[inline(always)]
-        || mix_inner(src_c, bg, blend_mode),
-    )
+    mix_inner(src_c, bg, blend_mode)
 }
 
 #[inline(always)]

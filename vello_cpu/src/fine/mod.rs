@@ -28,6 +28,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
+use fearless_simd_macros::simd;
 use vello_common::TargetInit;
 use vello_common::color::AlphaColor;
 use vello_common::encode::{
@@ -275,15 +276,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ///
     /// Returns a painter that can render linear, radial, or sweep gradients based on
     /// pre-computed t values (gradient interpolation parameters).
+    #[simd]
     fn gradient_painter<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
         t_vals: &'a [f32],
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || GradientPainter::new(simd, gradient, t_vals),
-        )
+        GradientPainter::new(simd, gradient, t_vals)
     }
 
     /// Create a painter for rendering gradients with undefined region support.
@@ -293,20 +292,19 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ///
     /// This is intentionally a duplicate of the default [`FineKernel::gradient_painter`]
     /// implementation--the `U8Kernel` overrides that method, but not this one.
+    #[simd]
     fn gradient_painter_with_undefined<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
         t_vals: &'a [f32],
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || GradientPainter::new(simd, gradient, t_vals),
-        )
+        GradientPainter::new(simd, gradient, t_vals)
     }
     /// Create a painter for rendering axis-aligned nearest-neighbor images.
     ///
     /// Optimized painter for images with `Low` quality and no skewing component in their
     /// transform. This is the fastest image rendering path.
+    #[simd]
     fn plain_nn_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -314,16 +312,14 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: f64,
         start_y: f64,
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || PlainNNImagePainter::new(simd, image, pixmap, start_x, start_y),
-        )
+        PlainNNImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
 
     /// Create a painter for rendering nearest-neighbor images with transforms.
     ///
     /// Similar to `plain_nn_image_painter`, but supports arbitrary affine transforms
     /// including skewing and rotation.
+    #[simd]
     fn nn_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -331,15 +327,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: f64,
         start_y: f64,
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || NNImagePainter::new(simd, image, pixmap, start_x, start_y),
-        )
+        NNImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
 
     /// Create a painter for rendering images with `Medium` quality filtering.
     ///
     /// Uses bilinear filtering for smoother appearance than nearest-neighbor.
+    #[simd]
     fn medium_quality_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -347,15 +341,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: f64,
         start_y: f64,
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || FilteredImagePainter::<S, 1>::new(simd, image, pixmap, start_x, start_y),
-        )
+        FilteredImagePainter::<S, 1>::new(simd, image, pixmap, start_x, start_y)
     }
 
     /// Create a painter for rendering axis-aligned images with `Medium` quality filtering.
     ///
     /// Optimized painter for images with bilinear filtering and no skewing component.
+    #[simd]
     fn plain_medium_quality_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -363,15 +355,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: f64,
         start_y: f64,
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || FilteredImagePainter::<S, 1>::new(simd, image, pixmap, start_x, start_y),
-        )
+        FilteredImagePainter::<S, 1>::new(simd, image, pixmap, start_x, start_y)
     }
 
     /// Create a painter for rendering images with `High` quality filtering.
     ///
     /// Uses high-quality filtering for the best visual appearance.
+    #[simd]
     fn high_quality_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -379,26 +369,21 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: f64,
         start_y: f64,
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || FilteredImagePainter::<S, 2>::new(simd, image, pixmap, start_x, start_y),
-        )
+        FilteredImagePainter::<S, 2>::new(simd, image, pixmap, start_x, start_y)
     }
 
     /// Create a painter for rendering blurred rounded rectangles.
     ///
     /// Efficiently renders rounded rectangles with gaussian blur applied,
     /// computing the blur analytically rather than as a post-process.
+    #[simd]
     fn blurred_rounded_rectangle_painter(
         simd: S,
         rect: &EncodedBlurredRoundedRectangle,
         start_x: f64,
         start_y: f64,
     ) -> impl Painter {
-        simd.vectorize(
-            #[inline(always)]
-            || BlurredRoundedRectFiller::new(simd, rect, start_x, start_y),
-        )
+        BlurredRoundedRectFiller::new(simd, rect, start_x, start_y)
     }
     /// Apply a mask to the destination buffer.
     ///
@@ -456,6 +441,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     );
 
     /// Fill a row scratch span with a solid color, optionally modulated by per-pixel alphas.
+    #[inline(always)]
     fn fill_solid(simd: S, dest: &mut [Self::Numeric], color: PremulColor, alphas: Option<&[u8]>) {
         let color = Self::extract_color(color);
 
@@ -886,6 +872,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         }
     }
 
+    #[inline(always)]
     fn solid_fill(
         &mut self,
         span: TileAlignedSpan,
@@ -925,6 +912,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         );
     }
 
+    #[inline(never)]
     fn indexed_fill(
         &mut self,
         span: TileAlignedSpan,

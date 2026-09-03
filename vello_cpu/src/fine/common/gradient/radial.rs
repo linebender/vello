@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::common::gradient::SimdGradientKind;
+use fearless_simd_macros::simd;
 use vello_common::encode::{FocalData, RadialKind};
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8};
 
@@ -25,32 +26,28 @@ pub(crate) struct SimdRadialKind<S: Simd> {
 }
 
 impl<S: Simd> SimdRadialKind<S> {
+    #[simd]
     pub(crate) fn new(simd: S, kind: &RadialKind) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let inner = match kind {
-                    RadialKind::Radial { bias, scale } => SimdRadialKindInner::Radial {
-                        bias: f32x8::splat(simd, *bias),
-                        scale: f32x8::splat(simd, *scale),
-                    },
-                    RadialKind::Strip { scaled_r0_squared } => SimdRadialKindInner::Strip {
-                        scaled_r0_squared: f32x8::splat(simd, *scaled_r0_squared),
-                    },
-                    RadialKind::Focal {
-                        focal_data,
-                        fp0,
-                        fp1,
-                    } => SimdRadialKindInner::Focal {
-                        fp0: f32x8::splat(simd, *fp0),
-                        fp1: f32x8::splat(simd, *fp1),
-                        focal_data: *focal_data,
-                    },
-                };
-
-                Self { inner }
+        let inner = match kind {
+            RadialKind::Radial { bias, scale } => SimdRadialKindInner::Radial {
+                bias: f32x8::splat(simd, *bias),
+                scale: f32x8::splat(simd, *scale),
             },
-        )
+            RadialKind::Strip { scaled_r0_squared } => SimdRadialKindInner::Strip {
+                scaled_r0_squared: f32x8::splat(simd, *scaled_r0_squared),
+            },
+            RadialKind::Focal {
+                focal_data,
+                fp0,
+                fp1,
+            } => SimdRadialKindInner::Focal {
+                fp0: f32x8::splat(simd, *fp0),
+                fp1: f32x8::splat(simd, *fp1),
+                focal_data: *focal_data,
+            },
+        };
+
+        Self { inner }
     }
 }
 

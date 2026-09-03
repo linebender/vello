@@ -3,6 +3,7 @@
 
 use crate::fine::Splat4thExt;
 use crate::peniko::{BlendMode, Compose};
+use fearless_simd_macros::simd;
 use vello_common::fearless_simd::*;
 
 pub(crate) trait ComposeExt {
@@ -16,6 +17,7 @@ pub(crate) trait ComposeExt {
 }
 
 impl ComposeExt for BlendMode {
+    #[simd]
     fn compose<S: Simd>(
         &self,
         simd: S,
@@ -23,10 +25,7 @@ impl ComposeExt for BlendMode {
         bg_c: f32x16<S>,
         alpha_mask: Option<f32x16<S>>,
     ) -> f32x16<S> {
-        simd.vectorize(
-            #[inline(always)]
-            || compose_inner(*self, simd, src_c, bg_c, alpha_mask),
-        )
+        compose_inner(*self, simd, src_c, bg_c, alpha_mask)
     }
 }
 
