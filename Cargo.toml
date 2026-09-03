@@ -130,7 +130,7 @@ web-sys = "0.3.91"
 
 vello_common = { version = "0.2.0", path = "sparse_strips/vello_common", default-features = false }
 vello_cpu = { version = "0.2.0", path = "sparse_strips/vello_cpu" }
-vello_hybrid = { version = "0.2.0", path = "sparse_strips/vello_hybrid" }
+vello_hybrid = { version = "0.2.0", path = "sparse_strips/vello_hybrid", default-features = false }
 vello_sparse_shaders = { version = "0.2.0", path = "sparse_strips/vello_sparse_shaders" }
 glifo = { version = "0.3.0", path = "glifo", default-features = false }
 vello_example_scenes = { path = "sparse_strips/vello_example_scenes" }

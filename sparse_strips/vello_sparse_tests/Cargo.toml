@@ -22,7 +22,7 @@ path = "src/regenerate_probe_reference.rs"
 glifo = { workspace = true }
 vello_common = { workspace = true, features = ["std", "probe"] }
 vello_cpu = { workspace = true, features = ["multithreading", "std", "f32_pipeline"] }
-vello_hybrid = { workspace = true }
+vello_hybrid = { workspace = true, features = ["text", "wgpu", "wgpu_default"] }
 fearless_simd = { workspace = true, features = [
     "force_support_fallback", # We require the `force_support_callback` feature to test the fallback path.
 ] }
