@@ -20,6 +20,7 @@ targets = []
 bytemuck = { workspace = true, features = ["derive", "extern_crate_alloc"] }
 peniko = { workspace = true, features = ["bytemuck"] }
 fearless_simd = { workspace = true }
+fearless_simd_macros = { workspace = true }
 png = { workspace = true, optional = true }
 roxmltree = { version = "0.20.0", optional = true }
 smallvec = { workspace = true }

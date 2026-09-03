@@ -3,14 +3,13 @@
 
 use crate::fine::{Splat4thExt, highp, u8_to_f32};
 use crate::peniko::{BlendMode, Mix};
+use fearless_simd_macros::simd;
 use vello_common::fearless_simd::*;
 use vello_common::util::{Div255Ext, f32_to_u8, normalized_mul_u8, saturating_narrow, widen};
 
+#[simd]
 pub(crate) fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32<S> {
-    src_c.simd.vectorize(
-        #[inline(always)]
-        || mix_inner(src_c, bg_c, blend_mode),
-    )
+    mix_inner(src_c, bg_c, blend_mode)
 }
 
 #[inline(always)]
