@@ -168,7 +168,7 @@ pub mod fine;
 pub mod region;
 
 pub use render::{
-    CompositeMode, PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources,
+    PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources, TargetInit,
 };
 // Note: The first one is not something that should be
 // exposed, but is currently needed by vello_sparse_tests.

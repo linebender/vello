@@ -13,8 +13,8 @@
 
 use crate::render::{ATLAS_IMAGE_ID_BASE, DEFAULT_GLYPH_ATLAS_SIZE};
 use crate::{
-    CompositeMode, Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderContext,
-    RenderMode, RenderSettings, Resources, color, kurbo, peniko,
+    Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderContext, RenderMode,
+    RenderSettings, Resources, TargetInit, color, kurbo, peniko,
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -182,7 +182,7 @@ impl Resources {
                     &mut Self::default(),
                     RasterizerSettings {
                         render_mode,
-                        composite_mode: CompositeMode::SrcOver,
+                        target_init: TargetInit::SrcOver,
                         ..Default::default()
                     },
                 );
