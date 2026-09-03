@@ -2393,24 +2393,27 @@ fn create_texture_inner(
         WebGl2RenderingContext::TEXTURE_WRAP_T,
         WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
     );
-    // All textures only allocate mip level 0.
+
+    // Strictly speaking this shouldn't be necessary since all our textures are created
+    // as immutable texture, but it seems like there exist drivers that have a bug here
+    // (https://stackoverflow.com/questions/13859061/does-an-immutable-texture-need-a-gl-texture-max-level).
+    // Also keep in mind the following bug: https://issues.chromium.org/issues/355605685
+    // We must ensure to never use mutable storage when changing this parameter.
     gl.tex_parameteri(target, WebGl2RenderingContext::TEXTURE_MAX_LEVEL, 0);
 
     texture
 }
 
-/// Create a zero-initialized data texture backed by immutable storage (`texStorage2D`).
-fn create_data_texture_storage(
+/// Create a texture backed by immutable storage (`texStorage2D`).
+pub(crate) fn create_texture_storage(
     gl: &WebGl2RenderingContext,
     internal_format: u32,
     width: u32,
     height: u32,
+    min_filter: u32,
+    mag_filter: u32,
 ) -> Texture {
-    let texture = create_texture(
-        gl,
-        WebGl2RenderingContext::NEAREST,
-        WebGl2RenderingContext::NEAREST,
-    );
+    let texture = create_texture(gl, min_filter, mag_filter);
     // `create_texture` leaves the new texture bound on the active texture unit.
     // Prefer `texStorage2D` over `texImage2D` for potentially better performance; see
     // <https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_texstorage_to_create_textures>.
@@ -2422,6 +2425,23 @@ fn create_data_texture_storage(
         height as i32,
     );
     texture
+}
+
+/// Create a zero-initialized data texture backed by immutable storage (`texStorage2D`).
+fn create_data_texture_storage(
+    gl: &WebGl2RenderingContext,
+    internal_format: u32,
+    width: u32,
+    height: u32,
+) -> Texture {
+    create_texture_storage(
+        gl,
+        internal_format,
+        width,
+        height,
+        WebGl2RenderingContext::NEAREST,
+        WebGl2RenderingContext::NEAREST,
+    )
 }
 
 /// Create a 1x1 RGBA32UI placeholder texture.
@@ -2581,23 +2601,14 @@ fn create_intermediate_texture(
     gl: &WebGl2RenderingContext,
     size: SizeU16,
 ) -> WebGlIntermediateTexture {
-    let texture = create_texture(
+    let texture = create_texture_storage(
         gl,
+        WebGl2RenderingContext::RGBA8,
+        u32::from(size.width()),
+        u32::from(size.height()),
         WebGl2RenderingContext::LINEAR,
         WebGl2RenderingContext::LINEAR,
     );
-    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-        WebGl2RenderingContext::TEXTURE_2D,
-        0,
-        WebGl2RenderingContext::RGBA8 as i32,
-        i32::from(size.width()),
-        i32::from(size.height()),
-        0,
-        WebGl2RenderingContext::RGBA,
-        WebGl2RenderingContext::UNSIGNED_BYTE,
-        None,
-    )
-    .unwrap();
     let framebuffer = create_framebuffer_for_texture(gl, &texture);
     WebGlIntermediateTexture {
         texture,
@@ -2611,26 +2622,14 @@ pub(crate) fn create_atlas_texture(
     width: u16,
     height: u16,
 ) -> Texture {
-    let atlas_texture = create_texture(
+    create_texture_storage(
         gl,
+        WebGl2RenderingContext::RGBA8,
+        u32::from(width),
+        u32::from(height),
         WebGl2RenderingContext::NEAREST,
         WebGl2RenderingContext::NEAREST,
-    );
-
-    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-        WebGl2RenderingContext::TEXTURE_2D,
-        0,
-        WebGl2RenderingContext::RGBA8 as i32,
-        width as i32,
-        height as i32,
-        0,
-        WebGl2RenderingContext::RGBA,
-        WebGl2RenderingContext::UNSIGNED_BYTE,
-        None,
     )
-    .unwrap();
-
-    atlas_texture
 }
 
 /// Create a framebuffer for a texture.
