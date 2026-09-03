@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::peniko::ImageQuality;
+use fearless_simd_macros::simd;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{f32x4, prelude::*, u8x32};
 use vello_common::math::FloatExt;
@@ -64,13 +65,13 @@ pub(crate) mod scalar {
     }
 }
 
-pub(crate) trait NormalizedMulExt {
-    fn normalized_mul(self, other: Self) -> Self;
+pub(crate) trait NormalizedMulExt<S: Simd> {
+    fn normalized_mul(self, simd: S, other: Self) -> Self;
 }
 
-impl<S: Simd> NormalizedMulExt for u8x32<S> {
-    #[inline(always)]
-    fn normalized_mul(self, other: Self) -> Self {
+impl<S: Simd> NormalizedMulExt<S> for u8x32<S> {
+    #[simd]
+    fn normalized_mul(self, simd: S, other: Self) -> Self {
         narrow(normalized_mul_u8(self, other))
     }
 }
@@ -90,24 +91,23 @@ impl EncodedImageExt for EncodedImage {
     }
 }
 
-pub(crate) trait Premultiply {
-    fn premultiply(self, alphas: Self) -> Self;
-    fn unpremultiply(self, alphas: Self) -> Self;
+pub(crate) trait Premultiply<S: Simd> {
+    fn premultiply(self, simd: S, alphas: Self) -> Self;
+    fn unpremultiply(self, simd: S, alphas: Self) -> Self;
 }
 
-impl<S: Simd> Premultiply for f32x4<S> {
-    #[inline(always)]
-    fn premultiply(self, alphas: Self) -> Self {
+impl<S: Simd> Premultiply<S> for f32x4<S> {
+    #[simd]
+    fn premultiply(self, simd: S, alphas: Self) -> Self {
         self * alphas
     }
 
-    #[inline(always)]
-    fn unpremultiply(self, alphas: Self) -> Self {
-        let zero = Self::splat(alphas.simd, 0.0);
+    #[simd]
+    fn unpremultiply(self, simd: S, alphas: Self) -> Self {
+        let zero = Self::splat(simd, 0.0);
         let divided = self / alphas;
 
-        self.simd
-            .select_f32x4(self.simd.simd_eq_f32x4(alphas, zero), zero, divided)
+        simd.select_f32x4(simd.simd_eq_f32x4(alphas, zero), zero, divided)
     }
 }
 

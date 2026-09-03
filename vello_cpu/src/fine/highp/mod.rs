@@ -19,6 +19,7 @@ use crate::fine::FineKernel;
 use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt};
 use crate::peniko::BlendMode;
 use crate::region::Region;
+use fearless_simd_macros::simd;
 use vello_common::fearless_simd::*;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
@@ -65,38 +66,30 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     ///
     /// Efficiently broadcasts a single RGBA color across all pixels in the destination.
     #[inline(never)]
+    #[simd]
     fn copy_solid(simd: S, dest: &mut [Self::Numeric], src: [Self::Numeric; 4]) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let color = f32x16::block_splat(src.simd_into(simd));
+        let color = f32x16::block_splat(src.simd_into(simd));
 
-                for el in dest.chunks_exact_mut(16) {
-                    color.store_slice(el);
-                }
-            },
-        );
+        for el in dest.chunks_exact_mut(16) {
+            color.store_slice(el);
+        }
     }
 
     /// Applies per-pixel mask values to a buffer by multiplying each component.
     ///
     /// Used for anti-aliasing and clipping effects. Each pixel is multiplied by
     /// its corresponding mask value (already normalized to [0.0, 1.0]).
+    #[simd]
     fn apply_mask(
         simd: S,
         dest: &mut [Self::Numeric],
         mut src: impl Iterator<Item = Self::NumericVec>,
     ) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                for el in dest.chunks_exact_mut(16) {
-                    let loaded = f32x16::from_slice(simd, el);
-                    let mulled = loaded * src.next().unwrap();
-                    mulled.store_slice(el);
-                }
-            },
-        );
+        for el in dest.chunks_exact_mut(16) {
+            let loaded = f32x16::from_slice(simd, el);
+            let mulled = loaded * src.next().unwrap();
+            mulled.store_slice(el);
+        }
     }
 
     /// Applies a painter's output to the destination buffer.
@@ -107,34 +100,29 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         painter.paint_f32(dest);
     }
 
+    #[simd]
     fn apply_tint(simd: S, dest: &mut [Self::Numeric], tint: &Tint) {
         let premul = tint.color.premultiply();
         let [r, g, b, a] = premul.components;
+        let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
 
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
-
-                match tint.mode {
-                    TintMode::AlphaMask => {
-                        for chunk in dest.chunks_exact_mut(16) {
-                            let pixel = f32x16::from_slice(simd, chunk);
-                            let alphas = pixel.splat_4th();
-                            let tinted = tint_v * alphas;
-                            tinted.store_slice(chunk);
-                        }
-                    }
-                    TintMode::Multiply => {
-                        for chunk in dest.chunks_exact_mut(16) {
-                            let pixel = f32x16::from_slice(simd, chunk);
-                            let tinted = pixel * tint_v;
-                            tinted.store_slice(chunk);
-                        }
-                    }
+        match tint.mode {
+            TintMode::AlphaMask => {
+                for chunk in dest.chunks_exact_mut(16) {
+                    let pixel = f32x16::from_slice(simd, chunk);
+                    let alphas = pixel.splat_4th();
+                    let tinted = tint_v * alphas;
+                    tinted.store_slice(chunk);
                 }
-            },
-        );
+            }
+            TintMode::Multiply => {
+                for chunk in dest.chunks_exact_mut(16) {
+                    let pixel = f32x16::from_slice(simd, chunk);
+                    let tinted = pixel * tint_v;
+                    tinted.store_slice(chunk);
+                }
+            }
+        }
     }
 
     /// Composites a solid color onto a buffer using alpha blending.
@@ -310,75 +298,61 @@ mod fill {
     use crate::fine::highp::compose::ComposeExt;
     use crate::peniko::BlendMode;
 
+    use fearless_simd_macros::simd;
     use vello_common::fearless_simd::*;
 
-    // IMPORTANT: The inlining attributes (#[inline(always)], #[inline(never)]) in this
-    // module have been carefully tuned through benchmarking. Changing them can cause
-    // significant performance regressions.
+    // IMPORTANT: The SIMD boundaries in this module are performance-sensitive and should be
+    // changed only with benchmarking.
 
     /// Composites a solid color onto a buffer using alpha blending.
     ///
     /// Uses the "over" operator: `result = src + bg * (1 - src_alpha)`
-    #[inline(always)]
+    #[simd]
     pub(super) fn alpha_composite_solid<S: Simd>(s: S, dest: &mut [f32], src: [f32; 4]) {
-        s.vectorize(
-            #[inline(always)]
-            || {
-                let one_minus_alpha = 1.0 - f32x16::block_splat(f32x4::splat(s, src[3]));
-                let src_c = f32x16::block_splat(f32x4::simd_from(s, src));
+        let one_minus_alpha = 1.0 - f32x16::block_splat(f32x4::splat(s, src[3]));
+        let src_c = f32x16::block_splat(f32x4::simd_from(s, src));
 
-                for next_dest in dest.chunks_exact_mut(16) {
-                    alpha_composite_inner(s, next_dest, src_c, one_minus_alpha);
-                }
-            },
-        );
+        for next_dest in dest.chunks_exact_mut(16) {
+            alpha_composite_inner(s, next_dest, src_c, one_minus_alpha);
+        }
     }
 
     /// Composites a buffer of colors onto another buffer using alpha blending.
     ///
     /// Each source pixel is composited individually based on its alpha channel.
-    #[inline(always)]
+    #[simd]
     pub(super) fn alpha_composite_arbitrary<S: Simd, T: Iterator<Item = f32x16<S>>>(
         simd: S,
         dest: &mut [f32],
         src: T,
     ) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
-                    let one_minus_alpha = 1.0 - next_src.splat_4th();
-                    alpha_composite_inner(simd, next_dest, next_src, one_minus_alpha);
-                }
-            },
-        );
+        for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
+            let one_minus_alpha = 1.0 - next_src.splat_4th();
+            alpha_composite_inner(simd, next_dest, next_src, one_minus_alpha);
+        }
     }
 
     /// Applies blend mode compositing to a buffer without per-pixel masks.
+    #[simd]
     pub(super) fn blend<S: Simd, T: Iterator<Item = f32x16<S>>>(
         simd: S,
         dest: &mut [f32],
         src: T,
         blend_mode: BlendMode,
     ) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
-                    let bg_v = f32x16::from_slice(simd, next_dest);
-                    let src_c = blend::mix(next_src, bg_v, blend_mode);
-                    let res = blend_mode.compose(simd, src_c, bg_v, None);
-                    res.store_slice(next_dest);
-                }
-            },
-        );
+        for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
+            let bg_v = f32x16::from_slice(simd, next_dest);
+            let src_c = blend::mix(simd, next_src, bg_v, blend_mode);
+            let res = blend_mode.compose(simd, src_c, bg_v, None);
+            res.store_slice(next_dest);
+        }
     }
 
     /// Performs the core alpha compositing calculation.
     ///
     /// Formula: `result = src + bg * (1 - src_alpha)`
     /// This implements the Porter-Duff "source over" operator using FMA for efficiency.
-    #[inline(always)]
+    #[simd]
     fn alpha_composite_inner<S: Simd>(
         s: S,
         dest: &mut [f32],
@@ -401,57 +375,48 @@ mod alpha_fill {
     use crate::fine::highp::compose::ComposeExt;
     use crate::fine::highp::{blend, extract_masks};
     use crate::peniko::BlendMode;
+    use fearless_simd_macros::simd;
     use vello_common::fearless_simd::*;
 
     /// Composites a solid color with per-pixel alpha masks.
     ///
     /// Combines source alpha with mask values: `effective_alpha = src_alpha * mask`
-    #[inline(always)]
+    #[simd]
     pub(super) fn alpha_composite_solid<S: Simd>(
         s: S,
         dest: &mut [f32],
         src: [f32; 4],
         alphas: impl Iterator<Item = [u8; 4]>,
     ) {
-        s.vectorize(
-            #[inline(always)]
-            || {
-                let src_a = f32x16::splat(s, src[3]);
-                let src_c = f32x16::block_splat(src.simd_into(s));
-                let one = f32x16::splat(s, 1.0);
+        let src_a = f32x16::splat(s, src[3]);
+        let src_c = f32x16::block_splat(src.simd_into(s));
+        let one = f32x16::splat(s, 1.0);
 
-                for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas) {
-                    alpha_composite_inner(s, next_dest, &next_mask, src_c, src_a, one);
-                }
-            },
-        );
+        for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas) {
+            alpha_composite_inner(s, next_dest, &next_mask, src_c, src_a, one);
+        }
     }
 
     /// Composites a buffer of colors with per-pixel alpha masks.
     ///
     /// Each pixel's source alpha is modulated by its corresponding mask value.
+    #[simd]
     pub(super) fn alpha_composite_arbitrary<S: Simd, T: Iterator<Item = f32x16<S>>>(
         simd: S,
         dest: &mut [f32],
         src: T,
         alphas: impl Iterator<Item = [u8; 4]>,
     ) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let one = f32x16::splat(simd, 1.0);
+        let one = f32x16::splat(simd, 1.0);
 
-                for ((next_dest, next_mask), next_src) in
-                    dest.chunks_exact_mut(16).zip(alphas).zip(src)
-                {
-                    let src_a = next_src.splat_4th();
-                    alpha_composite_inner(simd, next_dest, &next_mask, next_src, src_a, one);
-                }
-            },
-        );
+        for ((next_dest, next_mask), next_src) in dest.chunks_exact_mut(16).zip(alphas).zip(src) {
+            let src_a = next_src.splat_4th();
+            alpha_composite_inner(simd, next_dest, &next_mask, next_src, src_a, one);
+        }
     }
 
     /// Applies blend mode compositing with per-pixel alpha masks.
+    #[simd]
     pub(super) fn blend<S: Simd, T: Iterator<Item = f32x16<S>>>(
         simd: S,
         dest: &mut [f32],
@@ -459,20 +424,13 @@ mod alpha_fill {
         alphas: impl Iterator<Item = [u8; 4]>,
         blend_mode: BlendMode,
     ) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                for ((next_dest, next_mask), next_src) in
-                    dest.chunks_exact_mut(16).zip(alphas).zip(src)
-                {
-                    let masks = extract_masks(simd, &next_mask);
-                    let bg = f32x16::from_slice(simd, next_dest);
-                    let src_c = blend::mix(next_src, bg, blend_mode);
-                    let res = blend_mode.compose(simd, src_c, bg, Some(masks));
-                    res.store_slice(next_dest);
-                }
-            },
-        );
+        for ((next_dest, next_mask), next_src) in dest.chunks_exact_mut(16).zip(alphas).zip(src) {
+            let masks = extract_masks(simd, &next_mask);
+            let bg = f32x16::from_slice(simd, next_dest);
+            let src_c = blend::mix(simd, next_src, bg, blend_mode);
+            let res = blend_mode.compose(simd, src_c, bg, Some(masks));
+            res.store_slice(next_dest);
+        }
     }
 
     /// Performs alpha compositing with mask modulation.
@@ -480,7 +438,7 @@ mod alpha_fill {
     /// Formula: `result = src * mask + bg * (1 - src_alpha * mask)`
     /// The mask value modulates both the source contribution and the inverse alpha.
     /// Uses FMA instructions for optimal performance.
-    #[inline(always)]
+    #[simd]
     fn alpha_composite_inner<S: Simd>(
         s: S,
         dest: &mut [f32],
@@ -506,7 +464,7 @@ mod alpha_fill {
 ///
 /// Input: [m0, m1, m2, m3] (as u8, 0-255)
 /// Output: [m0/255, m0/255, m0/255, m0/255, m1/255, ..., m3/255] (as f32, 16 elements)
-#[inline(always)]
+#[simd]
 fn extract_masks<S: Simd>(simd: S, masks: &[u8; 4]) -> f32x16<S> {
     let mut base_mask = [
         masks[0] as f32,

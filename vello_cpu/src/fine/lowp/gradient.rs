@@ -3,6 +3,7 @@
 
 use crate::peniko;
 use core::slice::ChunksExact;
+use fearless_simd_macros::simd;
 use vello_common::encode::EncodedGradient;
 use vello_common::fearless_simd::*;
 
@@ -19,22 +20,18 @@ pub(crate) struct GradientPainter<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> GradientPainter<'a, S> {
+    #[simd]
     pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let lut = gradient.u8_lut(simd);
-                let scale_factor = f32x16::splat(simd, lut.scale_factor());
+        let lut = gradient.u8_lut(simd);
+        let scale_factor = f32x16::splat(simd, lut.scale_factor());
 
-                Self {
-                    gradient,
-                    scale_factor,
-                    lut: lut.lut(),
-                    t_vals: t_vals.chunks_exact(16),
-                    simd,
-                }
-            },
-        )
+        Self {
+            gradient,
+            scale_factor,
+            lut: lut.lut(),
+            t_vals: t_vals.chunks_exact(16),
+            simd,
+        }
     }
 }
 
@@ -45,7 +42,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
     fn next(&mut self) -> Option<Self::Item> {
         let extend = self.gradient.extend;
         let pos = f32x16::from_slice(self.simd, self.t_vals.next()?);
-        let t_vals = apply_extend(pos, extend);
+        let t_vals = apply_extend(self.simd, pos, extend);
         let indices = (t_vals * self.scale_factor).to_int::<u32x16<S>>();
 
         let mut vals = [0_u8; 64];
@@ -75,8 +72,8 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
 }
 
 // TODO: Maybe delete this method and use `apply_extend` from highp by splitting into two f32x8.
-#[inline(always)]
-pub(crate) fn apply_extend<S: Simd>(val: f32x16<S>, extend: peniko::Extend) -> f32x16<S> {
+#[simd]
+pub(crate) fn apply_extend<S: Simd>(simd: S, val: f32x16<S>, extend: peniko::Extend) -> f32x16<S> {
     match extend {
         peniko::Extend::Pad => val.max(0.0).min(1.0),
         peniko::Extend::Repeat => (val - val.floor()).fract(),
