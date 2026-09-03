@@ -3,6 +3,7 @@
 
 use crate::fine::common::gradient::SimdGradientKind;
 use core::f32::consts::PI;
+use fearless_simd_macros::simd;
 use vello_common::encode::SweepKind;
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8};
 
@@ -14,28 +15,26 @@ pub(crate) struct SimdSweepKind<S: Simd> {
 }
 
 impl<S: Simd> SimdSweepKind<S> {
+    #[simd]
     pub(crate) fn new(simd: S, kind: &SweepKind) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || Self {
-                start_angle: f32x8::splat(simd, kind.start_angle),
-                inv_angle_delta: f32x8::splat(simd, kind.inv_angle_delta),
-                simd,
-            },
-        )
+        Self {
+            start_angle: f32x8::splat(simd, kind.start_angle),
+            inv_angle_delta: f32x8::splat(simd, kind.inv_angle_delta),
+            simd,
+        }
     }
 }
 
 impl<S: Simd> SimdGradientKind<S> for SimdSweepKind<S> {
-    #[inline(always)]
-    fn cur_pos(&self, x_pos: f32x8<S>, y_pos: f32x8<S>) -> f32x8<S> {
+    #[simd]
+    fn cur_pos(&self, _simd: S, x_pos: f32x8<S>, y_pos: f32x8<S>) -> f32x8<S> {
         let angle = x_y_to_unit_angle(self.simd, x_pos, y_pos) * f32x8::splat(self.simd, 2.0 * PI);
 
         (angle - self.start_angle) * self.inv_angle_delta
     }
 }
 
-#[inline(always)]
+#[simd]
 fn x_y_to_unit_angle<S: Simd>(simd: S, x: f32x8<S>, y: f32x8<S>) -> f32x8<S> {
     let c0 = f32x8::splat(simd, 0.0);
     let c1 = f32x8::splat(simd, 1.0);

@@ -28,6 +28,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
+use fearless_simd_macros::simd;
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
@@ -102,15 +103,15 @@ impl<S: Simd> NumericVec<S> for f32x16<S> {
         val
     }
 
-    #[inline(always)]
+    #[simd]
     fn from_u8(simd: S, val: u8x16<S>) -> Self {
-        let converted = u8_to_f32(val);
+        let converted = u8_to_f32(simd, val);
         converted * Self::splat(simd, 1.0 / 255.0)
     }
 }
 
 impl<S: Simd> NumericVec<S> for u8x16<S> {
-    #[inline(always)]
+    #[simd]
     fn from_f32(simd: S, val: f32x16<S>) -> Self {
         let v1 = f32x16::splat(simd, 255.0);
         let v2 = f32x16::splat(simd, 0.5);
@@ -129,9 +130,8 @@ impl<S: Simd> NumericVec<S> for u8x16<S> {
 ///
 /// This function efficiently converts 16 u8 values to their f32 equivalents using SIMD operations,
 /// preserving the values without normalization (i.e., 255 becomes 255.0, not 1.0).
-#[inline(always)]
-pub(crate) fn u8_to_f32<S: Simd>(val: u8x16<S>) -> f32x16<S> {
-    let simd = val.simd;
+#[simd]
+pub(crate) fn u8_to_f32<S: Simd>(simd: S, val: u8x16<S>) -> f32x16<S> {
     let zeroes = u8x16::splat(simd, 0);
 
     #[cfg(target_endian = "little")]
@@ -187,12 +187,12 @@ pub trait CompositeType<N: Numeric, S: Simd>: Copy + Clone + Send + Sync {
 impl<S: Simd> CompositeType<f32, S> for f32x16<S> {
     const LENGTH: usize = 16;
 
-    #[inline(always)]
+    #[simd]
     fn from_slice(simd: S, slice: &[f32]) -> Self {
         <Self as SimdBase<_>>::from_slice(simd, slice)
     }
 
-    #[inline(always)]
+    #[simd]
     fn from_color(simd: S, color: [f32; 4]) -> Self {
         Self::block_splat(f32x4::from_slice(simd, &color[..]))
     }
@@ -201,12 +201,12 @@ impl<S: Simd> CompositeType<f32, S> for f32x16<S> {
 impl<S: Simd> CompositeType<u8, S> for u8x32<S> {
     const LENGTH: usize = 32;
 
-    #[inline(always)]
+    #[simd]
     fn from_slice(simd: S, slice: &[u8]) -> Self {
         <Self as SimdBase<_>>::from_slice(simd, slice)
     }
 
-    #[inline(always)]
+    #[simd]
     fn from_color(simd: S, color: [u8; 4]) -> Self {
         u32x8::block_splat(u32x4::splat(simd, u32::from_ne_bytes(color))).to_bytes()
     }
@@ -271,15 +271,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ///
     /// Returns a painter that can render linear, radial, or sweep gradients based on
     /// pre-computed t values (gradient interpolation parameters).
+    #[simd]
     fn gradient_painter<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
         t_vals: &'a [f32],
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || GradientPainter::new(simd, gradient, t_vals),
-        )
+        GradientPainter::new(simd, gradient, t_vals)
     }
 
     /// Create a painter for rendering gradients with undefined region support.
@@ -289,20 +287,19 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ///
     /// This is intentionally a duplicate of the default [`FineKernel::gradient_painter`]
     /// implementation--the `U8Kernel` overrides that method, but not this one.
+    #[simd]
     fn gradient_painter_with_undefined<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
         t_vals: &'a [f32],
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || GradientPainter::new(simd, gradient, t_vals),
-        )
+        GradientPainter::new(simd, gradient, t_vals)
     }
     /// Create a painter for rendering axis-aligned nearest-neighbor images.
     ///
     /// Optimized painter for images with `Low` quality and no skewing component in their
     /// transform. This is the fastest image rendering path.
+    #[simd]
     fn plain_nn_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -310,16 +307,14 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: f64,
         start_y: f64,
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || PlainNNImagePainter::new(simd, image, pixmap, start_x, start_y),
-        )
+        PlainNNImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
 
     /// Create a painter for rendering nearest-neighbor images with transforms.
     ///
     /// Similar to `plain_nn_image_painter`, but supports arbitrary affine transforms
     /// including skewing and rotation.
+    #[simd]
     fn nn_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -327,15 +322,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: f64,
         start_y: f64,
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || NNImagePainter::new(simd, image, pixmap, start_x, start_y),
-        )
+        NNImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
 
     /// Create a painter for rendering images with `Medium` quality filtering.
     ///
     /// Uses bilinear filtering for smoother appearance than nearest-neighbor.
+    #[simd]
     fn medium_quality_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -343,15 +336,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: f64,
         start_y: f64,
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || FilteredImagePainter::<S, 1>::new(simd, image, pixmap, start_x, start_y),
-        )
+        FilteredImagePainter::<S, 1>::new(simd, image, pixmap, start_x, start_y)
     }
 
     /// Create a painter for rendering axis-aligned images with `Medium` quality filtering.
     ///
     /// Optimized painter for images with bilinear filtering and no skewing component.
+    #[simd]
     fn plain_medium_quality_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -359,15 +350,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: f64,
         start_y: f64,
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || FilteredImagePainter::<S, 1>::new(simd, image, pixmap, start_x, start_y),
-        )
+        FilteredImagePainter::<S, 1>::new(simd, image, pixmap, start_x, start_y)
     }
 
     /// Create a painter for rendering images with `High` quality filtering.
     ///
     /// Uses high-quality filtering for the best visual appearance.
+    #[simd]
     fn high_quality_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -375,26 +364,21 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: f64,
         start_y: f64,
     ) -> impl Painter + 'a {
-        simd.vectorize(
-            #[inline(always)]
-            || FilteredImagePainter::<S, 2>::new(simd, image, pixmap, start_x, start_y),
-        )
+        FilteredImagePainter::<S, 2>::new(simd, image, pixmap, start_x, start_y)
     }
 
     /// Create a painter for rendering blurred rounded rectangles.
     ///
     /// Efficiently renders rounded rectangles with gaussian blur applied,
     /// computing the blur analytically rather than as a post-process.
+    #[simd]
     fn blurred_rounded_rectangle_painter(
         simd: S,
         rect: &EncodedBlurredRoundedRectangle,
         start_x: f64,
         start_y: f64,
     ) -> impl Painter {
-        simd.vectorize(
-            #[inline(always)]
-            || BlurredRoundedRectFiller::new(simd, rect, start_x, start_y),
-        )
+        BlurredRoundedRectFiller::new(simd, rect, start_x, start_y)
     }
     /// Apply a mask to the destination buffer.
     ///
@@ -709,26 +693,25 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         }
     }
 
-    fn opacity(&mut self, span: Span, opacity: f32) {
+    #[simd]
+    fn opacity(&mut self, simd: S, span: Span, opacity: f32) {
         let target = self.blend_buffers.last_mut().unwrap();
         let target = &mut target[Self::scratch_range(span)];
 
         T::apply_mask(
-            self.simd,
+            simd,
             target,
-            iter::repeat(T::NumericVec::from_f32(
-                self.simd,
-                f32x16::splat(self.simd, opacity),
-            )),
+            iter::repeat(T::NumericVec::from_f32(simd, f32x16::splat(simd, opacity))),
         );
     }
 
-    fn mask(&mut self, row_y: u16, span: Span, mask: &Mask) {
+    #[simd]
+    fn mask(&mut self, simd: S, row_y: u16, span: Span, mask: &Mask) {
         let x = span.pixel_x();
         let width = span.pixel_width();
         let target = self.blend_buffers.last_mut().unwrap();
         let target = &mut target[Self::scratch_range(span)];
-        let y = u32::from(row_y) + u32x4::from_slice(self.simd, &[0, 1, 2, 3]);
+        let y = u32::from(row_y) + u32x4::from_slice(simd, &[0, 1, 2, 3]);
         let iter = (x..x.saturating_add(width)).map(|x| {
             let x_in_range = x < mask.width();
 
@@ -748,15 +731,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             let s4 = sample!(3);
 
             let samples = u8x16::from_slice(
-                self.simd,
+                simd,
                 &[
                     s1, s1, s1, s1, s2, s2, s2, s2, s3, s3, s3, s3, s4, s4, s4, s4,
                 ],
             );
-            T::NumericVec::from_u8(self.simd, samples)
+            T::NumericVec::from_u8(simd, samples)
         });
 
-        T::apply_mask(self.simd, target, iter);
+        T::apply_mask(simd, target, iter);
     }
 
     fn layer_fill(
@@ -766,11 +749,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         attrs: &LayerFillAttrs,
         alphas: Option<&[u8]>,
     ) {
+        let simd = self.simd;
         if attrs.opacity != 1.0 {
-            self.opacity(span, attrs.opacity);
+            self.opacity(simd, span, attrs.opacity);
         }
         if let Some(mask) = attrs.mask.as_ref() {
-            self.mask(row_y, span, mask);
+            self.mask(simd, row_y, span, mask);
         }
 
         let x = span.pixel_x();
@@ -1139,7 +1123,7 @@ pub trait PosExt<S: Simd> {
 }
 
 impl<S: Simd> PosExt<S> for f32x4<S> {
-    #[inline(always)]
+    #[simd]
     fn splat_pos(simd: S, pos: f32, _: f32, y_advance: f32) -> Self {
         let columns: [f32; Tile::HEIGHT as usize] = [0.0, 1.0, 2.0, 3.0];
         let column_mask: Self = columns.simd_into(simd);
@@ -1149,7 +1133,7 @@ impl<S: Simd> PosExt<S> for f32x4<S> {
 }
 
 impl<S: Simd> PosExt<S> for f32x8<S> {
-    #[inline(always)]
+    #[simd]
     fn splat_pos(simd: S, pos: f32, x_advance: f32, y_advance: f32) -> Self {
         simd.combine_f32x4(
             f32x4::splat_pos(simd, pos, x_advance, y_advance),
@@ -1177,12 +1161,12 @@ impl<S: Simd> ShaderResultF32<S> {
     /// Convert from planar format to interleaved RGBA format.
     ///
     /// Returns two sets of four f32x4 vectors containing 8 pixels (4 RGBA components each),
-    #[inline(always)]
-    pub(crate) fn get(&self) -> [[f32x4<S>; 4]; 2] {
-        let (r_1, r_2) = self.r.simd.split_f32x8(self.r);
-        let (g_1, g_2) = self.g.simd.split_f32x8(self.g);
-        let (b_1, b_2) = self.b.simd.split_f32x8(self.b);
-        let (a_1, a_2) = self.a.simd.split_f32x8(self.a);
+    #[simd]
+    pub(crate) fn get(&self, simd: S) -> [[f32x4<S>; 4]; 2] {
+        let (r_1, r_2) = simd.split_f32x8(self.r);
+        let (g_1, g_2) = simd.split_f32x8(self.g);
+        let (b_1, b_2) = simd.split_f32x8(self.b);
+        let (a_1, a_2) = simd.split_f32x8(self.a);
 
         [[r_1, g_1, b_1, a_1], [r_2, g_2, b_2, a_2]]
     }

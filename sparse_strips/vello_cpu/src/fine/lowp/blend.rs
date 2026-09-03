@@ -3,56 +3,57 @@
 
 use crate::fine::{Splat4thExt, highp, u8_to_f32};
 use crate::peniko::{BlendMode, Mix};
+use fearless_simd_macros::simd;
 use vello_common::fearless_simd::*;
 use vello_common::util::{Div255Ext, f32_to_u8, normalized_mul_u8, saturating_narrow, widen};
 
-pub(crate) fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32<S> {
-    src_c.simd.vectorize(
-        #[inline(always)]
-        || mix_inner(src_c, bg_c, blend_mode),
-    )
-}
-
-#[inline(always)]
-fn mix_inner<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32<S> {
-    if let Some(res) = try_u8_mix(blend_mode, src_c, bg_c) {
+#[simd]
+pub(crate) fn mix<S: Simd>(
+    simd: S,
+    src_c: u8x32<S>,
+    bg_c: u8x32<S>,
+    blend_mode: BlendMode,
+) -> u8x32<S> {
+    if let Some(res) = try_u8_mix(simd, blend_mode, src_c, bg_c) {
         return res;
     }
 
     // Fallback for blend modes that aren't supported in u8.
 
-    let (mut src_1, mut src_2) = to_f32(src_c);
-    let (bg_1, bg_2) = to_f32(bg_c);
+    let (mut src_1, mut src_2) = to_f32(simd, src_c);
+    let (bg_1, bg_2) = to_f32(simd, bg_c);
 
-    src_1 = highp::blend::mix(src_1, bg_1, blend_mode);
-    src_2 = highp::blend::mix(src_2, bg_2, blend_mode);
+    src_1 = highp::blend::mix(simd, src_1, bg_1, blend_mode);
+    src_2 = highp::blend::mix(simd, src_2, bg_2, blend_mode);
 
-    to_u8(src_1, src_2)
+    to_u8(simd, src_1, src_2)
 }
 
-#[inline(always)]
-fn to_f32<S: Simd>(val: u8x32<S>) -> (f32x16<S>, f32x16<S>) {
-    let simd = val.simd;
+#[simd]
+fn to_f32<S: Simd>(simd: S, val: u8x32<S>) -> (f32x16<S>, f32x16<S>) {
     let (a, b) = simd.split_u8x32(val);
-    let mut a = u8_to_f32(a);
-    let mut b = u8_to_f32(b);
+    let mut a = u8_to_f32(simd, a);
+    let mut b = u8_to_f32(simd, b);
     a *= f32x16::splat(simd, 1.0 / 255.0);
     b *= f32x16::splat(simd, 1.0 / 255.0);
     (a, b)
 }
 
-#[inline(always)]
-fn to_u8<S: Simd>(val1: f32x16<S>, val2: f32x16<S>) -> u8x32<S> {
-    let val1 =
-        f32_to_u8(f32x16::splat(val1.simd, 255.0).mul_add(val1, f32x16::splat(val1.simd, 0.5)));
-    let val2 =
-        f32_to_u8(f32x16::splat(val2.simd, 255.0).mul_add(val2, f32x16::splat(val2.simd, 0.5)));
+#[simd]
+fn to_u8<S: Simd>(simd: S, val1: f32x16<S>, val2: f32x16<S>) -> u8x32<S> {
+    let val1 = f32_to_u8(f32x16::splat(simd, 255.0).mul_add(val1, f32x16::splat(simd, 0.5)));
+    let val2 = f32_to_u8(f32x16::splat(simd, 255.0).mul_add(val2, f32x16::splat(simd, 0.5)));
 
-    val1.simd.combine_u8x16(val1, val2)
+    simd.combine_u8x16(val1, val2)
 }
 
-#[inline(always)]
-fn try_u8_mix<S: Simd>(blend_mode: BlendMode, src_c: u8x32<S>, bg_c: u8x32<S>) -> Option<u8x32<S>> {
+#[simd]
+fn try_u8_mix<S: Simd>(
+    simd: S,
+    blend_mode: BlendMode,
+    src_c: u8x32<S>,
+    bg_c: u8x32<S>,
+) -> Option<u8x32<S>> {
     // We implement the u8 fast path for blend modes that
     // 1) are separable.
     // 2) don't have too many divisions, since integer normalization is
@@ -61,14 +62,14 @@ fn try_u8_mix<S: Simd>(blend_mode: BlendMode, src_c: u8x32<S>, bg_c: u8x32<S>) -
     // some more blend modes are worth doing in integer space.
     Some(match blend_mode.mix {
         Mix::Normal => src_c,
-        Mix::Multiply => Multiply::mix(src_c, bg_c),
-        Mix::Screen => Screen::mix(src_c, bg_c),
-        Mix::Overlay => Overlay::mix(src_c, bg_c),
-        Mix::Darken => Darken::mix(src_c, bg_c),
-        Mix::Lighten => Lighten::mix(src_c, bg_c),
-        Mix::HardLight => HardLight::mix(src_c, bg_c),
-        Mix::Difference => Difference::mix(src_c, bg_c),
-        Mix::Exclusion => Exclusion::mix(src_c, bg_c),
+        Mix::Multiply => Multiply::mix(simd, src_c, bg_c),
+        Mix::Screen => Screen::mix(simd, src_c, bg_c),
+        Mix::Overlay => Overlay::mix(simd, src_c, bg_c),
+        Mix::Darken => Darken::mix(simd, src_c, bg_c),
+        Mix::Lighten => Lighten::mix(simd, src_c, bg_c),
+        Mix::HardLight => HardLight::mix(simd, src_c, bg_c),
+        Mix::Difference => Difference::mix(simd, src_c, bg_c),
+        Mix::Exclusion => Exclusion::mix(simd, src_c, bg_c),
         Mix::ColorDodge
         | Mix::ColorBurn
         | Mix::SoftLight
@@ -84,10 +85,9 @@ macro_rules! u8_mix {
         struct $name;
 
         impl $name {
-            #[inline(always)]
-            fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>) -> u8x32<S> {
-                let simd = src_c.simd;
-                let res = $calc(src_c, bg_c);
+            #[simd]
+            fn mix<S: Simd>(simd: S, src_c: u8x32<S>, bg_c: u8x32<S>) -> u8x32<S> {
+                let res = ($calc)(simd, src_c, bg_c);
 
                 with_src_alpha(simd, res, src_c)
             }
@@ -108,7 +108,7 @@ macro_rules! u8_mix {
 //   B(Cb, Cs) = Cb * Cs
 //   M = S * (1 - Ab) + As * Ab * Cb * Cs
 //     = S * (1 - Ab) + S * D
-u8_mix!(Multiply, |src_c: u8x32<S>, bg_c: u8x32<S>| {
+u8_mix!(Multiply, |_: S, src_c: u8x32<S>, bg_c: u8x32<S>| {
     let one_minus_bg_a = 255 - bg_c.splat_4th();
     let p1 = normalized_mul_u8(src_c, one_minus_bg_a);
     let p2 = normalized_mul_u8(src_c, bg_c);
@@ -120,7 +120,7 @@ u8_mix!(Multiply, |src_c: u8x32<S>, bg_c: u8x32<S>| {
 //   B(Cb, Cs) = Cb + Cs - Cb * Cs
 //   M = S * (1 - Ab) + As * D + S * Ab - S * D
 //     = S + As * D - S * D
-u8_mix!(Screen, |src_c: u8x32<S>, bg_c: u8x32<S>| {
+u8_mix!(Screen, |_: S, src_c: u8x32<S>, bg_c: u8x32<S>| {
     let p1 = normalized_mul_u8(src_c.splat_4th(), bg_c);
     let p2 = normalized_mul_u8(src_c, bg_c);
     let res = widen(src_c) + p1 - p2;
@@ -129,14 +129,14 @@ u8_mix!(Screen, |src_c: u8x32<S>, bg_c: u8x32<S>| {
 });
 
 // Overlay is hard-light with source and backdrop swapped.
-u8_mix!(Overlay, |src_c: u8x32<S>, bg_c: u8x32<S>| {
-    hard_light_inner(src_c, bg_c, bg_c)
+u8_mix!(Overlay, |simd: S, src_c: u8x32<S>, bg_c: u8x32<S>| {
+    hard_light_inner(simd, src_c, bg_c, bg_c)
 });
 
 // Darken:
 //   B(Cb, Cs) = min(Cb, Cs)
 //   M = S * (1 - Ab) + min(S * Ab, D * As)
-u8_mix!(Darken, |src_c: u8x32<S>, bg_c: u8x32<S>| {
+u8_mix!(Darken, |_: S, src_c: u8x32<S>, bg_c: u8x32<S>| {
     let src_a = src_c.splat_4th();
     let bg_a = bg_c.splat_4th();
     let p1 = normalized_mul_u8(src_c, 255 - bg_a);
@@ -148,7 +148,7 @@ u8_mix!(Darken, |src_c: u8x32<S>, bg_c: u8x32<S>| {
 // Lighten:
 //   B(Cb, Cs) = max(Cb, Cs)
 //   M = S * (1 - Ab) + max(S * Ab, D * As)
-u8_mix!(Lighten, |src_c: u8x32<S>, bg_c: u8x32<S>| {
+u8_mix!(Lighten, |_: S, src_c: u8x32<S>, bg_c: u8x32<S>| {
     let src_a = src_c.splat_4th();
     let bg_a = bg_c.splat_4th();
     let p1 = normalized_mul_u8(src_c, 255 - bg_a);
@@ -160,14 +160,14 @@ u8_mix!(Lighten, |src_c: u8x32<S>, bg_c: u8x32<S>| {
 // Hard-light:
 //   if Cs <= 0.5: B(Cb, Cs) = 2 * Cb * Cs
 //   otherwise:    B(Cb, Cs) = 1 - 2 * (1 - Cb) * (1 - Cs)
-u8_mix!(HardLight, |src_c: u8x32<S>, bg_c: u8x32<S>| {
-    hard_light_inner(src_c, bg_c, src_c)
+u8_mix!(HardLight, |simd: S, src_c: u8x32<S>, bg_c: u8x32<S>| {
+    hard_light_inner(simd, src_c, bg_c, src_c)
 });
 
 // Difference:
 //   B(Cb, Cs) = abs(Cb - Cs)
 //   M = S * (1 - Ab) + abs(S * Ab - D * As)
-u8_mix!(Difference, |src_c: u8x32<S>, bg_c: u8x32<S>| {
+u8_mix!(Difference, |_: S, src_c: u8x32<S>, bg_c: u8x32<S>| {
     let src_a = src_c.splat_4th();
     let bg_a = bg_c.splat_4th();
     let p1 = normalized_mul_u8(src_c, 255 - bg_a);
@@ -182,8 +182,7 @@ u8_mix!(Difference, |src_c: u8x32<S>, bg_c: u8x32<S>| {
 //   B(Cb, Cs) = Cb + Cs - 2 * Cb * Cs
 //   M = S * (1 - Ab) + As * D + S * Ab - 2 * S * D
 //     = S + As * D - 2 * S * D
-u8_mix!(Exclusion, |src_c: u8x32<S>, bg_c: u8x32<S>| {
-    let simd = src_c.simd;
+u8_mix!(Exclusion, |simd: S, src_c: u8x32<S>, bg_c: u8x32<S>| {
     let p1 = normalized_mul_u8(src_c.splat_4th(), bg_c);
     let p2 = normalized_mul_u8(src_c, bg_c);
     let res = widen(src_c) + p1;
@@ -193,9 +192,13 @@ u8_mix!(Exclusion, |src_c: u8x32<S>, bg_c: u8x32<S>| {
     saturating_narrow(res)
 });
 
-#[inline(always)]
-fn hard_light_inner<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, condition: u8x32<S>) -> u8x32<S> {
-    let simd = src_c.simd;
+#[simd]
+fn hard_light_inner<S: Simd>(
+    simd: S,
+    src_c: u8x32<S>,
+    bg_c: u8x32<S>,
+    condition: u8x32<S>,
+) -> u8x32<S> {
     let src = widen(src_c);
     let bg = widen(bg_c);
     let src_a = widen(src_c.splat_4th());
@@ -222,7 +225,7 @@ fn hard_light_inner<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, condition: u8x32<S
     saturating_narrow(res)
 }
 
-#[inline(always)]
+#[simd]
 fn with_src_alpha<S: Simd>(simd: S, rgb: u8x32<S>, src_c: u8x32<S>) -> u8x32<S> {
     let alpha_mask = u32x8::splat(simd, u32::from_ne_bytes([0, 0, 0, 255])).to_bytes();
     // It can happen that we end up with an R/G/B larger than the alpha value due to
@@ -244,7 +247,7 @@ mod tests {
         let src = u8x32::from_slice(simd, &src.repeat(8));
         let bg = u8x32::from_slice(simd, &bg.repeat(8));
         let blend_mode = BlendMode::new(blend, Compose::SrcOver);
-        let res = mix(src, bg, blend_mode);
+        let res = mix(simd, src, bg, blend_mode);
         let mut out = [0; 32];
         res.store_slice(&mut out);
         out[..4].try_into().unwrap()
@@ -260,7 +263,7 @@ mod tests {
         let bg = to_f32(bg);
         let blend_mode = BlendMode::new(mix, Compose::SrcOver);
 
-        let res = highp::blend::mix(src, bg, blend_mode);
+        let res = highp::blend::mix(simd, src, bg, blend_mode);
         let res = f32_to_u8(f32x16::splat(simd, 255.0).mul_add(res, f32x16::splat(simd, 0.5)));
         let mut out = [0; 16];
         res.store_slice(&mut out);
