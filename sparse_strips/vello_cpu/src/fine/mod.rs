@@ -12,7 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{CommandBucketer, LayerFillAttrs, RenderCmd, RowState};
+use crate::coarse::{CommandBucketer, RenderCmd, RowState};
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
 pub(crate) use crate::fine::common::gradient::calculate_t_vals;
@@ -469,7 +469,8 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
     region: &mut Region<'_>,
     bucketer: &CommandBucketer,
     resources: FineResources<'_>,
-    unpack_dest: bool,
+    mut unpack_dest: bool,
+    root_is_blend_target: bool,
 ) {
     let scene_y = region.row_idx as u16 * Tile::HEIGHT;
     let row = &bucketer.rows()[region.row_idx];
@@ -477,6 +478,15 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
 
     fine.set_row_y(scene_y);
     depth.clear();
+
+    let has_cmds = !row.depth_cmds.is_empty() || !row.render_cmds.is_empty();
+    let isolate_bg = unpack_dest && root_is_blend_target && has_cmds;
+    if isolate_bg {
+        fine.init_uncovered_range(span, region, unpack_dest, depth);
+        fine.push_buf(None);
+
+        unpack_dest = false;
+    }
 
     // Render depth-buffer commands front-to-back, with depth-buffer read and write.
     for &cmd in row.depth_cmds.iter().rev() {
@@ -494,6 +504,11 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
     // Render the main commands back-to-front, with depth-buffer read.
     for cmd in &row.render_cmds {
         fine.run_cmd(*cmd, bucketer, row, scene_y, resources, depth);
+    }
+
+    if isolate_bg {
+        fine.layer_fill(scene_y, span, BlendMode::default(), 1.0, None, None);
+        fine.pop_buf();
     }
 
     // Pack the composited result back into the pixmap.
@@ -585,10 +600,29 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 let mut region = region.sub_span(x, end - x);
                 self.unpack(x, &mut region);
             } else {
-                self.blend_buffers[0][Self::scratch_range(Span::new(x, end - x))]
-                    .fill(T::Numeric::ZERO);
+                let range = Self::scratch_range(Span::new(x, end - x));
+                self.blend_buffers.last_mut().unwrap()[range].fill(T::Numeric::ZERO);
             }
         });
+    }
+
+    fn push_buf(&mut self, span: Option<Span>) {
+        let mut buf = self.buffer_pool.take();
+        // Reused vectors will retain their length, so in most cases this
+        // will be a no-op.
+        buf.resize(self.blend_buffers[0].len(), T::Numeric::ZERO);
+
+        // Instead of always zeroing out the whole buffer, only zero the
+        // row-local span that will be read when compositing this layer.
+        if let Some(span) = span.and_then(|span| span.intersect(self.buffer_span)) {
+            buf[Self::scratch_range(span)].fill(T::Numeric::ZERO);
+        }
+        self.blend_buffers.push(buf);
+    }
+
+    fn pop_buf(&mut self) {
+        let popped = self.blend_buffers.pop().unwrap();
+        self.buffer_pool.submit(popped);
     }
 
     /// Writes the current buffer contents to the output row.
@@ -661,23 +695,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     paint_fill(self, span);
                 }
             }
-            RenderCmd::PushBuf(span) => {
-                let mut buf = self.buffer_pool.take();
-                // Reused vectors will retain their length, so in most cases this
-                // will be a no-op.
-                buf.resize(self.blend_buffers[0].len(), T::Numeric::ZERO);
-
-                // Instead of always zeroing out the whole buffer, only zero the
-                // row-local span that will be read when compositing this layer.
-                if let Some(span) = span.and_then(|span| span.intersect(self.buffer_span)) {
-                    buf[Self::scratch_range(span)].fill(T::Numeric::ZERO);
-                }
-                self.blend_buffers.push(buf);
-            }
-            RenderCmd::PopBuf => {
-                let popped = self.blend_buffers.pop().unwrap();
-                self.buffer_pool.submit(popped);
-            }
+            RenderCmd::PushBuf(span) => self.push_buf(span),
+            RenderCmd::PopBuf => self.pop_buf(),
             RenderCmd::LayerFill(cmd) => {
                 let Some(span) = cmd.span.intersect(self.buffer_span) else {
                     return;
@@ -694,7 +713,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         &alpha_buffer[alpha_offset..]
                     });
 
-                    fine.layer_fill(row_y, span, attrs, alphas);
+                    fine.layer_fill(
+                        row_y,
+                        span,
+                        attrs.blend_mode,
+                        attrs.opacity,
+                        attrs.mask.as_ref(),
+                        alphas,
+                    );
                 };
 
                 // Same as for paint fills.
@@ -763,13 +789,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         &mut self,
         row_y: u16,
         span: Span,
-        attrs: &LayerFillAttrs,
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<&Mask>,
         alphas: Option<&[u8]>,
     ) {
-        if attrs.opacity != 1.0 {
-            self.opacity(span, attrs.opacity);
+        if opacity != 1.0 {
+            self.opacity(span, opacity);
         }
-        if let Some(mask) = attrs.mask.as_ref() {
+        if let Some(mask) = mask {
             self.mask(row_y, span, mask);
         }
 
@@ -780,7 +808,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let source = &mut source[range.clone()];
         let target = &mut target[range];
 
-        if attrs.blend_mode == BlendMode::default() {
+        if blend_mode == BlendMode::default() {
             T::alpha_composite_buffer(self.simd, target, source, alphas);
         } else {
             T::blend(
@@ -791,7 +819,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 source
                     .chunks_exact(T::Composite::LENGTH)
                     .map(|s| T::Composite::from_slice(self.simd, s)),
-                attrs.blend_mode,
+                blend_mode,
                 alphas,
                 None,
             );

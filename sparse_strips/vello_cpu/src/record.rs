@@ -41,4 +41,8 @@ impl Drawable for RecordedFill {
     fn bbox(&self, strips: &[Strip]) -> Option<RectU16> {
         strip_bbox(strips)
     }
+
+    fn blend_mode(&self) -> Option<&BlendMode> {
+        Some(&self.blend_mode)
+    }
 }
