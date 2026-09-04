@@ -166,6 +166,23 @@ pub struct RenderConfig {
 
 impl RenderConfig {
     pub fn new(layout: &Layout, width: u32, height: u32, base_color: &peniko::Color) -> Self {
+        Self::new_with_bump_sizes(
+            layout,
+            width,
+            height,
+            base_color,
+            &BumpAllocationSizes::default(),
+        )
+    }
+
+    /// Creates a render configuration with explicit bump-buffer reservations.
+    pub fn new_with_bump_sizes(
+        layout: &Layout,
+        width: u32,
+        height: u32,
+        base_color: &peniko::Color,
+        bump_sizes: &BumpAllocationSizes,
+    ) -> Self {
         let new_width = width.next_multiple_of(TILE_WIDTH);
         let new_height = height.next_multiple_of(TILE_HEIGHT);
         let width_in_tiles = new_width / TILE_WIDTH;
@@ -173,7 +190,7 @@ impl RenderConfig {
         let n_path_tags = layout.path_tags_size();
         let workgroup_counts =
             WorkgroupCounts::new(layout, width_in_tiles, height_in_tiles, n_path_tags);
-        let buffer_sizes = BufferSizes::new(layout, &workgroup_counts);
+        let buffer_sizes = BufferSizes::new_with_bump_sizes(layout, &workgroup_counts, bump_sizes);
         Self {
             gpu: ConfigUniform {
                 width_in_tiles,
@@ -328,6 +345,46 @@ impl<T: Sized> PartialOrd for BufferSize<T> {
     }
 }
 
+/// Element counts reserved for buffers allocated through the GPU bump allocator.
+///
+/// The defaults preserve Vello's existing fixed reservations. Smaller values can
+/// reduce memory use, but an exhausted buffer causes parts of a frame to be omitted.
+/// Callers should only customize these values when they can bound or validate their
+/// workloads.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BumpAllocationSizes {
+    /// Line-soup elements.
+    pub lines: u32,
+    /// `u32` elements in the combined draw-info and binning buffer.
+    ///
+    /// The allocation is raised to fit the draw-info prefix when necessary.
+    pub bin_data: u32,
+    /// Tile elements.
+    pub tiles: u32,
+    /// Segment-count elements.
+    pub seg_counts: u32,
+    /// Path-segment elements.
+    pub segments: u32,
+    /// `u32` elements in the blend-spill buffer (256 elements per spill).
+    pub blend_spill: u32,
+    /// `u32` elements in the per-tile command-list buffer.
+    pub ptcl: u32,
+}
+
+impl Default for BumpAllocationSizes {
+    fn default() -> Self {
+        Self {
+            lines: 1 << 21,
+            bin_data: 1 << 18,
+            tiles: 1 << 21,
+            seg_counts: 1 << 21,
+            segments: 1 << 21,
+            blend_spill: 1 << 20,
+            ptcl: 1 << 23,
+        }
+    }
+}
+
 /// Computed sizes for all buffers.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct BufferSizes {
@@ -361,6 +418,15 @@ pub struct BufferSizes {
 
 impl BufferSizes {
     pub fn new(layout: &Layout, workgroups: &WorkgroupCounts) -> Self {
+        Self::new_with_bump_sizes(layout, workgroups, &BumpAllocationSizes::default())
+    }
+
+    /// Computes buffer sizes using explicit bump-buffer reservations.
+    pub fn new_with_bump_sizes(
+        layout: &Layout,
+        workgroups: &WorkgroupCounts,
+        bump_sizes: &BumpAllocationSizes,
+    ) -> Self {
         let n_paths = layout.n_paths;
         let n_draw_objects = layout.n_draw_objects;
         let n_clips = layout.n_clips;
@@ -395,17 +461,17 @@ impl BufferSizes {
         let aligned_n_bins = align_up(n_bins, 256);
         let bin_headers = BufferSize::new(binning_wgs * aligned_n_bins);
 
-        // The following buffer sizes have been hand picked to accommodate the vello test scenes as
-        // well as paris-30k. These should instead get derived from the scene layout using
-        // reasonable heuristics.
-        let bin_data = BufferSize::new(1 << 18);
-        let tiles = BufferSize::new(1 << 21);
-        let lines = BufferSize::new(1 << 21);
-        let seg_counts = BufferSize::new(1 << 21);
-        let segments = BufferSize::new(1 << 21);
-        // 16 * 16 (1 << 8) is one blend spill, so this allows for 4096 spills.
-        let blend_spill = BufferSize::new(1 << 20);
-        let ptcl = BufferSize::new(1 << 23);
+        // The defaults were hand-picked to accommodate Vello's test scenes and paris-30k.
+        // Callers with bounded workloads can provide different reservations.
+        // BufferSize::new bounds every allocation away from zero because these
+        // buffers are still bound even when a scene does not use them.
+        let bin_data = BufferSize::new(bump_sizes.bin_data.max(layout.bin_data_start));
+        let tiles = BufferSize::new(bump_sizes.tiles);
+        let lines = BufferSize::new(bump_sizes.lines);
+        let seg_counts = BufferSize::new(bump_sizes.seg_counts);
+        let segments = BufferSize::new(bump_sizes.segments);
+        let blend_spill = BufferSize::new(bump_sizes.blend_spill);
+        let ptcl = BufferSize::new(bump_sizes.ptcl);
         Self {
             path_reduced,
             path_reduced2,
@@ -437,4 +503,73 @@ impl BufferSizes {
 
 const fn align_up(len: u32, alignment: u32) -> u32 {
     len + (len.wrapping_neg() & (alignment - 1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BufferSizes, BumpAllocationSizes, WorkgroupCounts};
+    use crate::Layout;
+
+    fn sizes(layout: &Layout, bump_sizes: &BumpAllocationSizes) -> BufferSizes {
+        let workgroups = WorkgroupCounts::new(layout, 1, 1, layout.path_tags_size());
+        BufferSizes::new_with_bump_sizes(layout, &workgroups, bump_sizes)
+    }
+
+    #[test]
+    fn default_bump_sizes_preserve_existing_reservations() {
+        let sizes = sizes(&Layout::new(), &BumpAllocationSizes::default());
+        assert_eq!(sizes.lines.len(), 1 << 21);
+        assert_eq!(sizes.bin_data.len(), 1 << 18);
+        assert_eq!(sizes.tiles.len(), 1 << 21);
+        assert_eq!(sizes.seg_counts.len(), 1 << 21);
+        assert_eq!(sizes.segments.len(), 1 << 21);
+        assert_eq!(sizes.blend_spill.len(), 1 << 20);
+        assert_eq!(sizes.ptcl.len(), 1 << 23);
+    }
+
+    #[test]
+    fn custom_bump_sizes_are_used() {
+        let mut layout = Layout::new();
+        layout.bin_data_start = 32;
+        let custom = BumpAllocationSizes {
+            lines: 2,
+            bin_data: 3,
+            tiles: 4,
+            seg_counts: 5,
+            segments: 6,
+            blend_spill: 7,
+            ptcl: 8,
+        };
+        let sizes = sizes(&layout, &custom);
+        assert_eq!(sizes.lines.len(), 2);
+        assert_eq!(sizes.bin_data.len(), layout.bin_data_start);
+        assert_eq!(sizes.tiles.len(), 4);
+        assert_eq!(sizes.seg_counts.len(), 5);
+        assert_eq!(sizes.segments.len(), 6);
+        assert_eq!(sizes.blend_spill.len(), 7);
+        assert_eq!(sizes.ptcl.len(), 8);
+    }
+
+    #[test]
+    fn zero_bump_sizes_still_create_bindable_buffers() {
+        let sizes = sizes(
+            &Layout::new(),
+            &BumpAllocationSizes {
+                lines: 0,
+                bin_data: 0,
+                tiles: 0,
+                seg_counts: 0,
+                segments: 0,
+                blend_spill: 0,
+                ptcl: 0,
+            },
+        );
+        assert_eq!(sizes.lines.len(), 1);
+        assert_eq!(sizes.bin_data.len(), 1);
+        assert_eq!(sizes.tiles.len(), 1);
+        assert_eq!(sizes.seg_counts.len(), 1);
+        assert_eq!(sizes.segments.len(), 1);
+        assert_eq!(sizes.blend_spill.len(), 1);
+        assert_eq!(sizes.ptcl.len(), 1);
+    }
 }
