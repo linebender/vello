@@ -16,7 +16,6 @@ use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
-use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderMode};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -194,12 +193,6 @@ pub(crate) fn get_ctx_with_depth_buffer<T: Renderer>(
     }
 
     ctx
-}
-
-pub(crate) fn render_pixmap(ctx: &mut impl Renderer) -> Pixmap {
-    let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render_to_pixmap(&mut pixmap);
-    pixmap
 }
 
 pub(crate) fn miter_stroke_2() -> Stroke {
@@ -383,7 +376,8 @@ pub(crate) fn check_ref(
     is_reference: bool,
     _: &[u8],
 ) {
-    let pixmap = render_pixmap(ctx);
+    ctx.render();
+    let pixmap = ctx.snapshot();
 
     let encoded_image = pixmap.into_png().unwrap();
     let ref_path = REFS_PATH.join(format!("{test_name}.png"));
@@ -473,7 +467,8 @@ pub(crate) fn check_ref(
 ) {
     assert!(!is_reference, "WASM cannot create new reference images");
 
-    let pixmap = render_pixmap(ctx);
+    ctx.render();
+    let pixmap = ctx.snapshot();
     let encoded_image = pixmap.into_png().unwrap();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 

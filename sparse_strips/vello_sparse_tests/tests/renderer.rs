@@ -83,9 +83,8 @@ pub(crate) trait Renderer: Sized {
     fn set_filter_effect(&mut self, filter: Filter);
     fn reset_filter_effect(&mut self);
     fn reset(&mut self);
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap);
-    fn width(&self) -> u16;
-    fn height(&self) -> u16;
+    fn render(&mut self);
+    fn snapshot(&mut self) -> Pixmap;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId;
@@ -95,6 +94,7 @@ pub(crate) struct CpuRenderer {
     ctx: RenderContext,
     resources: Resources,
     render_mode: RenderMode,
+    target: Pixmap,
 }
 
 impl Renderer for CpuRenderer {
@@ -112,6 +112,7 @@ impl Renderer for CpuRenderer {
             ctx: RenderContext::new_with(width, height, settings),
             resources: Resources::new(),
             render_mode,
+            target: Pixmap::new(width, height),
         }
     }
 
@@ -239,9 +240,9 @@ impl Renderer for CpuRenderer {
         self.ctx.reset();
     }
 
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
+    fn render(&mut self) {
         self.ctx.render_with(
-            pixmap,
+            &mut self.target,
             &mut self.resources,
             RasterizerSettings {
                 render_mode: self.render_mode,
@@ -250,12 +251,8 @@ impl Renderer for CpuRenderer {
         );
     }
 
-    fn width(&self) -> u16 {
-        self.ctx.width()
-    }
-
-    fn height(&self) -> u16 {
-        self.ctx.height()
+    fn snapshot(&mut self) -> Pixmap {
+        self.target.clone()
     }
 
     fn register_external_texture(&mut self, _: Arc<Pixmap>) -> TextureId {
@@ -273,6 +270,9 @@ impl Renderer for CpuRenderer {
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+static WGPU_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
     resources: HybridResources,
@@ -284,6 +284,7 @@ pub(crate) struct HybridRenderer {
     renderer: vello_hybrid::Renderer,
     external_textures: HashMap<TextureId, wgpu::TextureView>,
     next_external_texture_id: u64,
+    gpu_test_guard: Option<std::sync::MutexGuard<'static, ()>>,
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
@@ -356,6 +357,13 @@ impl HybridRenderer {
             renderer,
             external_textures: HashMap::new(),
             next_external_texture_id: 1,
+            gpu_test_guard: None,
+        }
+    }
+
+    fn lock_gpu_test(&mut self) {
+        if self.gpu_test_guard.is_none() {
+            self.gpu_test_guard = Some(WGPU_TEST_MUTEX.lock().unwrap());
         }
     }
 
@@ -540,24 +548,16 @@ impl Renderer for HybridRenderer {
         self.scene.reset();
     }
 
-    // This method creates device resources every time it is called. This does not matter much for
-    // testing, but should not be used as a basis for implementing something real. This would be a
-    // very bad example for that.
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
+    fn render(&mut self) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
-        // requested simultaneously). This is "fixed" by putting a mutex around this method,
-        // ensuring only one set of device resources is alive at the same time. This slows down
-        // testing when `cargo test` is used.
+        // requested simultaneously). This is "fixed" by putting a mutex around GPU rendering and
+        // readback. This slows down testing when `cargo test` is used.
         //
         // Testing with `cargo nextest` (as on CI) is not meaningfully slowed down. `nextest` runs
         // each test in its own process (<https://nexte.st/docs/design/why-process-per-test/>),
         // meaning there is no contention on this mutex.
-        let _guard = {
-            use std::sync::Mutex;
-            static M: Mutex<()> = Mutex::new(());
-            M.lock().unwrap()
-        };
+        self.lock_gpu_test();
 
         let width = self.scene.width();
         let height = self.scene.height();
@@ -571,11 +571,10 @@ impl Renderer for HybridRenderer {
         for (texture_id, texture) in &self.external_textures {
             texture_bindings.insert(*texture_id, texture.clone());
         }
-        // Copy texture to buffer
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Vello Render To Buffer"),
+                label: Some("Vello Render"),
             });
         self.renderer
             .render(
@@ -590,6 +589,24 @@ impl Renderer for HybridRenderer {
                 &texture_bindings,
             )
             .unwrap();
+
+        self.queue.submit([encoder.finish()]);
+    }
+
+    // This method creates device resources every time it is called. This does not matter much for
+    // testing, but should not be used as a basis for implementing something real. This would be a
+    // very bad example for that.
+    fn snapshot(&mut self) -> Pixmap {
+        self.lock_gpu_test();
+
+        let width = self.scene.width();
+        let height = self.scene.height();
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Vello Readback"),
+            });
 
         // Create a buffer to copy the texture data
         let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
@@ -637,6 +654,7 @@ impl Renderer for HybridRenderer {
             .unwrap();
 
         // Read back the pixel data
+        let mut pixmap = Pixmap::new(width, height);
         for (row, buf) in texture_copy_buffer
             .slice(..)
             .get_mapped_range()
@@ -650,14 +668,9 @@ impl Renderer for HybridRenderer {
             buf.copy_from_slice(&row[0..width as usize * 4]);
         }
         texture_copy_buffer.unmap();
-    }
-
-    fn width(&self) -> u16 {
-        self.scene.width()
-    }
-
-    fn height(&self) -> u16 {
-        self.scene.height()
+        drop(texture_copy_buffer);
+        self.gpu_test_guard = None;
+        pixmap
     }
 
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId {
@@ -919,10 +932,7 @@ impl Renderer for HybridRenderer {
         self.scene.reset();
     }
 
-    // vello_hybrid WebGL renderer backend.
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
-        use web_sys::WebGl2RenderingContext;
-
+    fn render(&mut self) {
         let width = self.scene.width();
         let height = self.scene.height();
 
@@ -938,6 +948,13 @@ impl Renderer for HybridRenderer {
                 &self.external_textures,
             )
             .unwrap();
+    }
+
+    fn snapshot(&mut self) -> Pixmap {
+        use web_sys::WebGl2RenderingContext;
+
+        let width = self.scene.width();
+        let height = self.scene.height();
         let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
         self.gl
             .read_pixels_with_opt_u8_array(
@@ -952,23 +969,17 @@ impl Renderer for HybridRenderer {
             .unwrap();
 
         // WebGL framebuffers are y-up, so we need to invert the rows.
-        let row_bytes = width as usize * 4;
-        let height = height as usize;
-        for y in 0..height / 2 {
-            let (a, b) = pixels.split_at_mut((height - 1 - y) * row_bytes);
+        let row_bytes = usize::from(width) * 4;
+        let height_usize = usize::from(height);
+        for y in 0..height_usize / 2 {
+            let (a, b) = pixels.split_at_mut((height_usize - 1 - y) * row_bytes);
             a[y * row_bytes..(y + 1) * row_bytes].swap_with_slice(&mut b[..row_bytes]);
         }
 
+        let mut pixmap = Pixmap::new(width, height);
         let pixmap_data = pixmap.data_as_u8_slice_mut();
         pixmap_data.copy_from_slice(&pixels);
-    }
-
-    fn width(&self) -> u16 {
-        self.scene.width()
-    }
-
-    fn height(&self) -> u16 {
-        self.scene.height()
+        pixmap
     }
 
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId {
