@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::RasterizerSettings;
 use crate::coarse::CommandBucketer;
 use crate::coarse::depth::DepthBuffer;
 use crate::dispatch::Dispatcher;
@@ -10,14 +11,15 @@ use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::record::RecordedFill;
 use crate::region::Regions;
-use crate::{CompositeMode, RasterizerSettings};
 use core::cell::RefCell;
+use vello_common::TargetInit;
+use vello_common::color::AlphaColor;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, Paint};
+use vello_common::paint::{ImageResolver, Paint, PremulColor};
 use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::record::{
     CommandRecorder, LayerClip, LayerProps, Node, PoppedLayer, RecordedLayerKind,
@@ -109,7 +111,7 @@ impl SingleThreadedDispatcher {
         image_resolver: &dyn ImageResolver,
     ) {
         let filters = self.rasterize_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
-        let use_src_over = settings.composite_mode == CompositeMode::SrcOver;
+        let target_init = settings.target_init.map(PremulColor::from_alpha_color);
         let params = FineRenderParams {
             scene_size: (scene_width, scene_height),
             target_offset: settings.offset,
@@ -122,7 +124,7 @@ impl SingleThreadedDispatcher {
             &filters,
             target,
             params,
-            use_src_over,
+            target_init,
             self.recorder.root_is_blend_target,
             encoded_paints,
             image_resolver,
@@ -137,7 +139,7 @@ impl SingleThreadedDispatcher {
         filter_ctx: &FilterContext,
         mut target: PixmapMut<'_>,
         params: FineRenderParams,
-        use_src_over: bool,
+        target_init: TargetInit<PremulColor>,
         root_is_blend_target: bool,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
@@ -171,7 +173,7 @@ impl SingleThreadedDispatcher {
             &bucketer,
             resources,
             &mut regions,
-            use_src_over,
+            target_init,
             root_is_blend_target,
         );
     }
@@ -181,7 +183,7 @@ impl SingleThreadedDispatcher {
         bucketer: &CommandBucketer,
         resources: FineResources<'_>,
         regions: &mut Regions<'_>,
-        use_src_over: bool,
+        target_init: TargetInit<PremulColor>,
         root_is_blend_target: bool,
     ) {
         // TODO: Reuse fine and depth buffer across targets?
@@ -194,7 +196,7 @@ impl SingleThreadedDispatcher {
                 region,
                 bucketer,
                 resources,
-                use_src_over,
+                target_init,
                 root_is_blend_target,
             );
         });
@@ -257,7 +259,7 @@ impl SingleThreadedDispatcher {
                 &filter_ctx,
                 (&mut pixmap).into(),
                 params,
-                false,
+                TargetInit::Clear(PremulColor::from_alpha_color(AlphaColor::TRANSPARENT)),
                 false,
                 encoded_paints,
                 image_resolver,

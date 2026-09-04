@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::RasterizerSettings;
 use crate::coarse::CommandBucketer;
 use crate::coarse::depth::DepthBuffer;
 use crate::dispatch::Dispatcher;
@@ -12,7 +13,6 @@ use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::record::RecordedFill;
 use crate::region::Regions;
-use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -31,7 +31,7 @@ use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, Paint};
+use vello_common::paint::{ImageResolver, Paint, PremulColor};
 use vello_common::pixmap::PixmapMut;
 use vello_common::record::{CommandRecorder, LayerClip, LayerProps, PoppedLayer};
 use vello_common::strip::Strip;
@@ -398,7 +398,7 @@ impl MultiThreadedDispatcher {
         let mut bucketer = self.bucketer.lock().unwrap();
         let filters = FilterContext::new(0);
         bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
-        let use_src_over = settings.composite_mode == CompositeMode::SrcOver;
+        let target_init = settings.target_init.map(PremulColor::from_alpha_color);
         bucketer.bucket_commands(
             &self.recorder.nodes,
             &self.recorder.draws,
@@ -447,7 +447,7 @@ impl MultiThreadedDispatcher {
                         region,
                         &bucketer,
                         resources,
-                        use_src_over,
+                        target_init,
                         self.recorder.root_is_blend_target,
                     );
                 });
