@@ -399,6 +399,7 @@ impl Pixmap {
     /// If both, premultiplied and unpremultiplied RGBA are acceptable formats, it is
     /// recommended to choose [`ImageAlphaType::AlphaPremultiplied`], as the data can
     /// be returned as is without any additional post-processing.
+    #[inline]
     pub fn take_rgba8(mut self, alpha_type: ImageAlphaType) -> Vec<u8> {
         if self.may_have_transparency && alpha_type == ImageAlphaType::Alpha {
             unpremultiply_rgba8(bytemuck::cast_slice_mut(&mut self.buf));
