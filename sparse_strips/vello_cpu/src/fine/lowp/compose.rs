@@ -4,6 +4,7 @@
 use crate::fine::Splat4thExt;
 use crate::peniko::{BlendMode, Compose};
 use crate::util::NormalizedMulExt;
+use fearless_simd_macros::simd;
 use vello_common::fearless_simd::*;
 use vello_common::util::{Div255Ext, narrow, widen};
 
@@ -18,6 +19,7 @@ pub(crate) trait ComposeExt {
 }
 
 impl ComposeExt for BlendMode {
+    #[simd]
     fn compose<S: Simd>(
         &self,
         simd: S,
@@ -25,47 +27,33 @@ impl ComposeExt for BlendMode {
         bg_c: u8x32<S>,
         alpha_mask: Option<u8x32<S>>,
     ) -> u8x32<S> {
-        simd.vectorize(
-            #[inline(always)]
-            || compose_inner(*self, simd, src_c, bg_c, alpha_mask),
-        )
+        let mut res = match self.compose {
+            Compose::SrcOver => SrcOver::compose(simd, src_c, bg_c),
+            Compose::Clear => Clear::compose(simd, src_c, bg_c),
+            Compose::Copy => Copy::compose(simd, src_c, bg_c),
+            Compose::DestOver => DestOver::compose(simd, src_c, bg_c),
+            Compose::Dest => Dest::compose(simd, src_c, bg_c),
+            Compose::SrcIn => SrcIn::compose(simd, src_c, bg_c),
+            Compose::DestIn => DestIn::compose(simd, src_c, bg_c),
+            Compose::SrcOut => SrcOut::compose(simd, src_c, bg_c),
+            Compose::DestOut => DestOut::compose(simd, src_c, bg_c),
+            Compose::SrcAtop => SrcAtop::compose(simd, src_c, bg_c),
+            Compose::DestAtop => DestAtop::compose(simd, src_c, bg_c),
+            Compose::Xor => Xor::compose(simd, src_c, bg_c),
+            Compose::Plus => Plus::compose(simd, src_c, bg_c),
+            // Have not been able to find a formula for this, so just fallback to Plus.
+            Compose::PlusLighter => Plus::compose(simd, src_c, bg_c),
+        };
+
+        if let Some(alpha_mask) = alpha_mask {
+            let alpha_mask_inv = 255 - alpha_mask;
+            let p1 = widen(alpha_mask) * widen(res);
+            let p2 = widen(alpha_mask_inv) * widen(bg_c);
+            res = narrow((p1 + p2).div_255());
+        }
+
+        res
     }
-}
-
-#[inline(always)]
-fn compose_inner<S: Simd>(
-    blend_mode: BlendMode,
-    simd: S,
-    src_c: u8x32<S>,
-    bg_c: u8x32<S>,
-    alpha_mask: Option<u8x32<S>>,
-) -> u8x32<S> {
-    let mut res = match blend_mode.compose {
-        Compose::SrcOver => SrcOver::compose(simd, src_c, bg_c),
-        Compose::Clear => Clear::compose(simd, src_c, bg_c),
-        Compose::Copy => Copy::compose(simd, src_c, bg_c),
-        Compose::DestOver => DestOver::compose(simd, src_c, bg_c),
-        Compose::Dest => Dest::compose(simd, src_c, bg_c),
-        Compose::SrcIn => SrcIn::compose(simd, src_c, bg_c),
-        Compose::DestIn => DestIn::compose(simd, src_c, bg_c),
-        Compose::SrcOut => SrcOut::compose(simd, src_c, bg_c),
-        Compose::DestOut => DestOut::compose(simd, src_c, bg_c),
-        Compose::SrcAtop => SrcAtop::compose(simd, src_c, bg_c),
-        Compose::DestAtop => DestAtop::compose(simd, src_c, bg_c),
-        Compose::Xor => Xor::compose(simd, src_c, bg_c),
-        Compose::Plus => Plus::compose(simd, src_c, bg_c),
-        // Have not been able to find a formula for this, so just fallback to Plus.
-        Compose::PlusLighter => Plus::compose(simd, src_c, bg_c),
-    };
-
-    if let Some(alpha_mask) = alpha_mask {
-        let alpha_mask_inv = 255 - alpha_mask;
-        let p1 = widen(alpha_mask) * widen(res);
-        let p2 = widen(alpha_mask_inv) * widen(bg_c);
-        res = narrow((p1 + p2).div_255());
-    }
-
-    res
 }
 
 macro_rules! compose {
@@ -73,22 +61,23 @@ macro_rules! compose {
         struct $name;
 
         impl $name {
-            #[inline(always)]
+            #[simd]
             fn compose<S: Simd>(simd: S, src_c: u8x32<S>, bg_c: u8x32<S>) -> u8x32<S> {
                 let al_b = bg_c.splat_4th();
                 let al_s = src_c.splat_4th();
 
-                let fa = $fa(simd, al_s, al_b);
-                let fb = $fb(simd, al_s, al_b);
+                let fa = ($fa)(simd, al_s, al_b);
+                let fb = ($fb)(simd, al_s, al_b);
 
                 if $sat {
                     narrow(
-                        (widen(src_c.normalized_mul(fa)) + widen(fb.normalized_mul(bg_c)))
-                            .min(u16x32::splat(simd, 255))
-                            .max(u16x32::splat(simd, 0)),
+                        (widen(src_c.normalized_mul(simd, fa))
+                            + widen(fb.normalized_mul(simd, bg_c)))
+                        .min(u16x32::splat(simd, 255))
+                        .max(u16x32::splat(simd, 0)),
                     )
                 } else {
-                    src_c.normalized_mul(fa) + fb.normalized_mul(bg_c)
+                    src_c.normalized_mul(simd, fa) + fb.normalized_mul(simd, bg_c)
                 }
             }
         }
