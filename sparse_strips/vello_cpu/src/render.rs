@@ -814,6 +814,16 @@ impl RenderContext {
             }
         }
 
+        // The background is always isolated, so we don't need to worry about destructive
+        // blend modes.
+        match settings.target_init {
+            TargetInit::Clear(color) => {
+                target.set_may_have_transparency(color.components[3] != 1.0);
+            }
+            // Whatever is the current hint can be preserved.
+            TargetInit::SrcOver => {}
+        }
+
         self.dispatcher.rasterize(
             target,
             self.width,
@@ -1211,6 +1221,47 @@ mod tests {
                 a: 255,
             }
         );
+    }
+
+    #[test]
+    fn opaque_clear_updates_target_transparency_hint() {
+        let mut ctx = RenderContext::new(1, 1);
+        ctx.flush();
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(1, 1);
+
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                target_init: TargetInit::Clear(BLUE),
+                ..Default::default()
+            },
+        );
+
+        assert!(!pixmap.may_have_transparency());
+        assert_eq!(pixmap.sample(0, 0), blue_pixel());
+    }
+
+    #[test]
+    fn translucent_clear_updates_target_transparency_hint() {
+        let mut ctx = RenderContext::new(1, 1);
+        ctx.flush();
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(1, 1, blue_pixel());
+        let clear_color = RED.with_alpha(0.5);
+
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                target_init: TargetInit::Clear(clear_color),
+                ..Default::default()
+            },
+        );
+
+        assert!(pixmap.may_have_transparency());
+        assert_eq!(pixmap.sample(0, 0), clear_color.premultiply().to_rgba8());
     }
 
     #[cfg(feature = "multithreading")]
