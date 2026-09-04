@@ -82,7 +82,6 @@ impl WebGlRenderer {
                 active_texture: true,
                 texture_2d: true,
                 pixel_pack_buffer: true,
-                viewport: true,
                 ..Default::default()
             },
         );
