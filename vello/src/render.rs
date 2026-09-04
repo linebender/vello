@@ -198,6 +198,15 @@ impl Render {
                 );
             }
         }
+        // Warn on the first resolve pass that omits any image draws.
+        if images.omitted != 0 && images.omitted_total == images.omitted as u64 {
+            log::warn!(
+                "image atlas {}x{} omitted {} image draw(s); further omissions will not be logged",
+                atlas_width,
+                atlas_height,
+                images.omitted,
+            );
+        }
         for image in images.images {
             recording.write_image(image_atlas, image.1, image.2, image.0.clone());
         }

@@ -527,7 +527,9 @@ impl Resolver {
                     } else {
                         // If the atlas is already maximum size, there's nothing we can do. Set
                         // the xy field to None so this image isn't rendered and then carry on--
-                        // other images might still fit.
+                        // other images might still fit. Record the omission so the renderer can
+                        // report why the image is missing.
+                        self.image_cache.record_omission();
                         break None;
                     }
                 };
