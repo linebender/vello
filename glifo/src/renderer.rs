@@ -271,7 +271,7 @@ fn render_uncached_colr_glyph(
     if glyph.has_non_default_blend {
         renderer.push_clip_layer(&glyph.area.to_path(0.1));
     } else {
-        renderer.push_clip_path(&glyph.area.to_path(0.1));
+        renderer.push_clip_rect(&glyph.area);
     }
 
     // TODO: Maybe ColrPainter can be reused across glyphs?
@@ -374,7 +374,7 @@ fn render_colr_to_atlas(
     if glyph.has_non_default_blend {
         recorder.push_clip_layer(&glyph.area.to_path(0.1));
     } else {
-        recorder.push_clip_path(&glyph.area.to_path(0.1));
+        recorder.push_clip_rect(&glyph.area);
     }
 
     // TODO: Maybe ColrPainter can be reused across glyphs?
@@ -654,6 +654,7 @@ pub fn replay_atlas_commands(commands: &mut Vec<AtlasCommand>, target: &mut impl
             AtlasCommand::FillRect(r) => target.fill_rect(&r),
             AtlasCommand::PushClipLayer(c) => target.push_clip_layer(&c),
             AtlasCommand::PushClipPath(c) => target.push_clip_path(&c),
+            AtlasCommand::PushClipRect(r) => target.push_clip_rect(&r),
             AtlasCommand::PushBlendLayer(m) => target.push_blend_layer(m),
             AtlasCommand::PopLayer => target.pop_layer(),
             AtlasCommand::PopClipPath => target.pop_clip_path(),

@@ -167,6 +167,11 @@ impl DrawSink for Scene {
     }
 
     #[inline]
+    fn push_clip_rect(&mut self, clip: &Rect) {
+        Self::push_clip_rect(self, clip);
+    }
+
+    #[inline]
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         Self::push_blend_layer(self, blend_mode);
     }

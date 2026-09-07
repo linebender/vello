@@ -1736,7 +1736,47 @@ fn filter_with_outer_clip_path(ctx: &mut impl Renderer) {
         edge_mode: EdgeMode::None,
     });
 
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
+    ctx.push_filter_layer(blur);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+    ctx.pop_clip_path();
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
+fn filter_with_outer_scaled_clip_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.0, 20.0, 40.0, 80.0);
+    let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 5.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.set_transform(Affine::scale_non_uniform(2.0, 1.0));
+    ctx.push_clip_rect(&clip_rect);
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.push_filter_layer(blur);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
+    ctx.pop_layer();
+    ctx.pop_clip_path();
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
+fn filter_with_outer_rotated_clip_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(25.0, 25.0, 75.0, 75.0);
+    let rect = clip_rect.inflate(15.0, 15.0);
+    let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 5.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.set_transform(Affine::rotate_about(
+        std::f64::consts::PI / 4.0,
+        Point::new(50.0, 50.0),
+    ));
+    ctx.push_clip_rect(&clip_rect);
+    ctx.set_transform(Affine::IDENTITY);
     ctx.push_filter_layer(blur);
     ctx.set_paint(RED);
     ctx.fill_rect(&rect);
@@ -1754,7 +1794,7 @@ fn filter_with_inner_clip_path(ctx: &mut impl Renderer) {
     });
 
     ctx.push_filter_layer(blur);
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
     ctx.set_paint(RED);
     ctx.fill_rect(&rect);
     ctx.pop_clip_path();
@@ -1845,7 +1885,7 @@ fn filter_with_inner_clip_that_stays_alive(ctx: &mut impl Renderer) {
     });
 
     ctx.push_filter_layer(blur);
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
     ctx.set_paint(AlphaColor::from_rgba8(0, 0, 0, 0));
     ctx.fill_rect(&viewport);
     ctx.pop_layer();

@@ -65,6 +65,7 @@ pub(crate) trait Renderer: Sized {
     fn flush(&mut self);
     fn push_clip_layer(&mut self, path: &BezPath);
     fn push_clip_path(&mut self, path: &BezPath);
+    fn push_clip_rect(&mut self, rect: &Rect);
     fn push_blend_layer(&mut self, blend_mode: BlendMode);
     fn push_opacity_layer(&mut self, opacity: f32);
     fn push_mask_layer(&mut self, mask: Mask);
@@ -166,6 +167,10 @@ impl Renderer for CpuRenderer {
 
     fn push_clip_path(&mut self, path: &BezPath) {
         self.ctx.push_clip_path(path);
+    }
+
+    fn push_clip_rect(&mut self, rect: &Rect) {
+        self.ctx.push_clip_rect(rect);
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
@@ -473,6 +478,10 @@ impl Renderer for HybridRenderer {
 
     fn push_clip_path(&mut self, path: &BezPath) {
         self.scene.push_clip_path(path);
+    }
+
+    fn push_clip_rect(&mut self, rect: &Rect) {
+        self.scene.push_clip_rect(rect);
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
@@ -844,6 +853,10 @@ impl Renderer for HybridRenderer {
 
     fn push_clip_path(&mut self, path: &BezPath) {
         self.scene.push_clip_path(path);
+    }
+
+    fn push_clip_rect(&mut self, rect: &Rect) {
+        self.scene.push_clip_rect(rect);
     }
 
     fn push_layer(

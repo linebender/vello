@@ -4,7 +4,7 @@
 //! Managing clipping state.
 
 use crate::geometry::RectU16;
-use crate::kurbo::{Affine, BezPath, PathEl};
+use crate::kurbo::{Affine, BezPath, PathEl, Rect};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use crate::tile::Tile;
@@ -87,13 +87,38 @@ impl ClipContext {
 
     /// Push a new clip path to the stack.
     #[inline]
-    pub fn push_clip(
+    pub fn push_clip_path(
         &mut self,
         clip_path: impl IntoIterator<Item = PathEl>,
         strip_generator: &mut StripGenerator,
         fill_rule: Fill,
         transform: Affine,
         aliasing_threshold: Option<u8>,
+    ) {
+        self.push_generated_clip(strip_generator, |generator, storage, existing_clip| {
+            generator.generate_filled_path(
+                clip_path,
+                fill_rule,
+                transform,
+                aliasing_threshold,
+                storage,
+                existing_clip,
+            );
+        });
+    }
+
+    /// Push a rectangular clip path.
+    #[inline]
+    pub fn push_clip_rect(&mut self, rect: &Rect, strip_generator: &mut StripGenerator) {
+        self.push_generated_clip(strip_generator, |generator, storage, existing_clip| {
+            generator.generate_filled_rect_fast(rect, storage, existing_clip);
+        });
+    }
+
+    fn push_generated_clip(
+        &mut self,
+        strip_generator: &mut StripGenerator,
+        generate: impl FnOnce(&mut StripGenerator, &mut StripStorage, Option<PathDataRef<'_>>),
     ) {
         self.temp_storage.clear();
 
@@ -105,27 +130,18 @@ impl ClipContext {
             .last()
             .map(|c| c.to_path_data_ref(&self.storage));
 
-        strip_generator.generate_filled_path(
-            clip_path,
-            fill_rule,
-            transform,
-            aliasing_threshold,
-            &mut self.temp_storage,
-            existing_clip,
-        );
+        generate(strip_generator, &mut self.temp_storage, existing_clip);
 
         let bbox = strip_bbox(&self.temp_storage.strips).unwrap_or(RectU16::ZERO);
-        let clip_data = ClipData {
+        self.storage.extend(&self.temp_storage);
+        self.clip_stack.push(ClipData {
             alpha_start,
             strip_start,
             bbox,
-        };
-
-        self.storage.extend(&self.temp_storage);
-        self.clip_stack.push(clip_data);
+        });
     }
 
-    /// Pop the least recent clip path.
+    /// Pop the most recent clip path.
     #[inline]
     pub fn pop_clip(&mut self) {
         let data = self.clip_stack.pop().expect("clip stack underflowed");
@@ -136,12 +152,14 @@ impl ClipContext {
 
 /// Raw data of a previously pushed clip path.
 #[derive(Debug)]
-struct RawClip {
-    /// The range of commands in [`ClipState::path_elements`] belonging to this clip path.
-    path: Range<usize>,
-    fill_rule: Fill,
-    transform: Affine,
-    aliasing_threshold: Option<u8>,
+enum RawClip {
+    Path {
+        elements: Range<usize>,
+        fill_rule: Fill,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
+    },
+    Rect(Rect),
 }
 
 /// A frame containing clipping-relevant state for the root layer or a filter layer.
@@ -171,7 +189,7 @@ pub struct ClipState {
     context: ClipContext,
     /// A pool of reusable clip contexts.
     context_pool: Pool<ClipContext>,
-    /// A flat factor of path elements storing the original path data of clip paths.
+    /// A flat buffer storing the original path elements of active clips.
     path_elements: Vec<PathEl>,
     /// Raw data of the currently active stack of clip paths
     raw_clips: Vec<RawClip>,
@@ -242,7 +260,7 @@ impl ClipState {
     }
 
     /// Push a clip path.
-    pub fn push_clip(
+    pub fn push_clip_path(
         &mut self,
         path: &BezPath,
         strip_generator: &mut StripGenerator,
@@ -252,18 +270,18 @@ impl ClipState {
     ) {
         let path_start = self.path_elements.len();
         self.path_elements.extend(path.iter());
-        let path = path_start..self.path_elements.len();
+        let elements = path_start..self.path_elements.len();
         let clip_transform = self.active_shift() * transform;
 
-        self.context.push_clip(
-            self.path_elements[path.clone()].iter().copied(),
+        self.context.push_clip_path(
+            self.path_elements[elements.clone()].iter().copied(),
             strip_generator,
             fill_rule,
             clip_transform,
             aliasing_threshold,
         );
-        self.raw_clips.push(RawClip {
-            path,
+        self.raw_clips.push(RawClip::Path {
+            elements,
             fill_rule,
             transform,
             aliasing_threshold,
@@ -271,10 +289,22 @@ impl ClipState {
         self.revision = self.revision.wrapping_add(1);
     }
 
+    /// Push a rectangular clip path.
+    pub fn push_clip_rect(&mut self, rect: &Rect, strip_generator: &mut StripGenerator) {
+        let transformed_rect = self.active_shift().transform_rect_bbox(*rect);
+
+        self.context
+            .push_clip_rect(&transformed_rect, strip_generator);
+        self.raw_clips.push(RawClip::Rect(*rect));
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     /// Pop the active clip path.
     pub fn pop_clip(&mut self) {
         let raw_clip = self.raw_clips.pop().expect("clip stack underflowed");
-        self.path_elements.truncate(raw_clip.path.start);
+        if let RawClip::Path { elements, .. } = raw_clip {
+            self.path_elements.truncate(elements.start);
+        }
         self.context.pop_clip();
         self.revision = self.revision.wrapping_add(1);
     }
@@ -300,13 +330,24 @@ impl ClipState {
         self.context.reset();
         let active_shift = self.active_shift();
         for raw_clip in &self.raw_clips {
-            self.context.push_clip(
-                self.path_elements[raw_clip.path.clone()].iter().copied(),
-                strip_generator,
-                raw_clip.fill_rule,
-                active_shift * raw_clip.transform,
-                raw_clip.aliasing_threshold,
-            );
+            match raw_clip {
+                RawClip::Path {
+                    elements,
+                    fill_rule,
+                    transform,
+                    aliasing_threshold,
+                } => self.context.push_clip_path(
+                    self.path_elements[elements.clone()].iter().copied(),
+                    strip_generator,
+                    *fill_rule,
+                    active_shift * *transform,
+                    *aliasing_threshold,
+                ),
+                RawClip::Rect(rect) => {
+                    let rect = active_shift.transform_rect_bbox(*rect);
+                    self.context.push_clip_rect(&rect, strip_generator);
+                }
+            }
         }
     }
 }
