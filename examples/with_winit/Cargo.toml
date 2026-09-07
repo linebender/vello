@@ -35,10 +35,12 @@ scenes = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 pollster = { workspace = true }
+wgpu = { workspace = true }
 wgpu-profiler = { workspace = true, optional = true }
 
 winit = { workspace = true }
 log = { workspace = true }
+bytemuck = { workspace = true }
 
 # We're still using env-logger, but we want to use tracing spans to allow using
 # tracing_android_trace
