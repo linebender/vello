@@ -404,13 +404,9 @@ fn fs_main(
             let image_tint = unpack4x8unorm(packed_tint);
             let is_multiply = image_texel2.z == TINT_MODE_MULTIPLY;
             let local_xy = sample_xy - image_offset;
-            // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
-            // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
-            // this to see whether a better approach is possible.
-            let offset = 0.00001;
             let extended_xy = vec2<f32>(
-                extend_mode(local_xy.x + offset, image_extend_modes.x, image_size.x),
-                extend_mode(local_xy.y + offset, image_extend_modes.y, image_size.y)
+                extend_mode(local_xy.x, image_extend_modes.x, image_size.x),
+                extend_mode(local_xy.y, image_extend_modes.y, image_size.y)
             );
 
             // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
