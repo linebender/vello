@@ -754,12 +754,16 @@ fn image_sampler_alpha(ctx: &mut impl Renderer) {
         color: REBECCA_PURPLE,
         mode: TintMode::Multiply,
     });
+    let masked = Some(Tint {
+        color: REBECCA_PURPLE,
+        mode: TintMode::AlphaMask,
+    });
 
     for (x, y, alpha, tint) in [
         (0.0, 0.0, 0.5, None),
         (50.0, 0.0, 0.5, tinted),
         (0.0, 50.0, 1.0, None),
-        (50.0, 50.0, 0.0, None),
+        (50.0, 50.0, 0.5, masked),
     ] {
         ctx.set_transform(Affine::translate((x, y)) * Affine::scale(5.0));
         ctx.set_tint(tint);
