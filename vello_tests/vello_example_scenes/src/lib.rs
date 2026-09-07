@@ -93,6 +93,8 @@ pub trait RenderingContext: Sized {
     fn push_clip_layer(&mut self, path: &BezPath);
     /// Push a clip path.
     fn push_clip_path(&mut self, path: &BezPath);
+    /// Push a rectangular clip path.
+    fn push_clip_rect(&mut self, rect: &Rect);
     /// Push a layer with blend mode, alpha, etc.
     fn push_layer(
         &mut self,
@@ -200,6 +202,10 @@ impl RenderingContext for RenderContext {
         Self::push_clip_path(self, path);
     }
 
+    fn push_clip_rect(&mut self, rect: &Rect) {
+        Self::push_clip_rect(self, rect);
+    }
+
     fn pop_clip_path(&mut self) {
         Self::pop_clip_path(self);
     }
@@ -294,6 +300,10 @@ impl RenderingContext for Scene {
 
     fn push_clip_path(&mut self, path: &BezPath) {
         Self::push_clip_path(self, path);
+    }
+
+    fn push_clip_rect(&mut self, rect: &Rect) {
+        Self::push_clip_rect(self, rect);
     }
 
     fn pop_clip_path(&mut self) {

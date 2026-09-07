@@ -511,7 +511,11 @@ impl Dispatcher for SingleThreadedDispatcher {
         aliasing_threshold: Option<u8>,
     ) {
         self.viewport
-            .push_clip(path, fill_rule, transform, aliasing_threshold);
+            .push_clip_path(path, fill_rule, transform, aliasing_threshold);
+    }
+
+    fn push_clip_rect(&mut self, rect: &Rect) {
+        self.viewport.push_clip_rect(rect);
     }
 
     fn pop_clip_path(&mut self) {

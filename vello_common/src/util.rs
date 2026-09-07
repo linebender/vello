@@ -145,6 +145,12 @@ pub fn is_axis_aligned(transform: &Affine) -> bool {
     b.is_nearly_zero() && c.is_nearly_zero()
 }
 
+/// Return whether the rectangle fast path supports the given settings.
+#[inline]
+pub fn can_use_fast_rect(transform: &Affine, aliasing_threshold: Option<u8>) -> bool {
+    is_axis_aligned(transform) && aliasing_threshold.is_none()
+}
+
 /// Extract scale factors from an affine transform using singular value decomposition.
 ///
 /// Returns a tuple of (`scale_x`, `scale_y`) representing the scale along each axis.

@@ -705,13 +705,19 @@ impl Dispatcher for MultiThreadedDispatcher {
         aliasing_threshold: Option<u8>,
     ) {
         self.flush_tasks();
-        self.clip_context.push_clip(
+        self.clip_context.push_clip_path(
             path.iter(),
             &mut self.strip_generator,
             fill_rule,
             transform,
             aliasing_threshold,
         );
+    }
+
+    fn push_clip_rect(&mut self, rect: &Rect) {
+        self.flush_tasks();
+        self.clip_context
+            .push_clip_rect(rect, &mut self.strip_generator);
     }
 
     fn pop_clip_path(&mut self) {

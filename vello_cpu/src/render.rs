@@ -33,7 +33,7 @@ use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::render_state::RenderState;
 use vello_common::transforms::{RootTransforms, Transforms};
-use vello_common::util::is_axis_aligned;
+use vello_common::util::can_use_fast_rect;
 
 #[cfg(feature = "text")]
 pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
@@ -312,7 +312,7 @@ impl RenderContext {
             // Fast path: Use optimized rect filling if we have no skew in the path transform
             // and anti-aliasing is enabled.
             // TODO: Maybe also support no anti-aliasing in the fast path
-            if is_axis_aligned(&transform) && ctx.aliasing_threshold.is_none() {
+            if can_use_fast_rect(&transform, ctx.aliasing_threshold) {
                 // Transform the rect to screen coordinates.
                 let transformed_rect = transform.transform_rect_bbox(*rect);
                 ctx.dispatcher.fill_rect_fast(
@@ -718,6 +718,24 @@ impl RenderContext {
             transform,
             self.aliasing_threshold,
         );
+    }
+
+    /// Push a rectangular clip path.
+    pub fn push_clip_rect(&mut self, rect: &Rect) {
+        let transform = self.transforms().clip_path_transform();
+
+        if can_use_fast_rect(&transform, self.aliasing_threshold) {
+            let rect = transform.transform_rect_bbox(*rect);
+            self.dispatcher.push_clip_rect(&rect);
+        } else {
+            self.rect_to_temp_path(rect);
+            self.dispatcher.push_clip_path(
+                &self.temp_path,
+                self.state.fill_rule,
+                transform,
+                self.aliasing_threshold,
+            );
+        }
     }
 
     /// Pop a clip path from the clip stack.
