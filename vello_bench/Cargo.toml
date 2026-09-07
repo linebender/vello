@@ -10,25 +10,30 @@ repository.workspace = true
 publish = false
 
 [lib]
+crate-type = ["rlib", "cdylib"]
 test = false
-
-[dependencies]
-vello_common = { workspace = true }
-vello_cpu = { workspace = true }
-vello_dev_macros = { workspace = true }
-criterion = { workspace = true }
-image = { workspace = true, features = ["jpeg"] }
-parley = { version = "0.11.0", default-features = true }
-rand = { workspace = true, features = ["small_rng"] }
-smallvec = { workspace = true }
-usvg = { workspace = true }
 
 [features]
 extended = []
+f32 = []
+non-simd = []
 
-[[bench]]
-name = "main"
-harness = false
+[dependencies]
+fearless_simd = { workspace = true, features = ["force_support_fallback"] }
+vello_common = { workspace = true }
+vello_cpu = { workspace = true }
+vello_dev_macros = { workspace = true }
+rand = { workspace = true, features = ["small_rng"] }
+smallvec = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+image = { workspace = true, features = ["jpeg"] }
+parley = { version = "0.11.0", default-features = true }
+usvg = { workspace = true }
+
+[[bin]]
+name = "vello-bench"
+path = "src/bin/cli.rs"
 
 [[test]]
 name = "allocations"

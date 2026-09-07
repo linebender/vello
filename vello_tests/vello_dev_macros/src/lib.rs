@@ -49,9 +49,9 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     vello_test_inner(attr, item)
 }
 
-/// Create a new Vello benchmark for fine rasterization.
-/// This macro expects a function hat takes a `Bencher` and `Fine` as input, and will generate one benchmark
-/// for each possible instantiation of `Fine`.
+/// Create a Vello benchmark for fine rasterization.
+/// This macro expects a function that takes the Vello benchmark harness's `Bencher` and `Fine` as
+/// input, and generates one registered benchmark for each supported SIMD instantiation of `Fine`.
 ///
 /// ## Example
 /// ```ignore

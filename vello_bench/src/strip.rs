@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::data::get_data_items;
-use criterion::Criterion;
+use crate::harness::Registry;
 use vello_common::fearless_simd::Level;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, Rect, Shape};
@@ -32,57 +32,53 @@ pub fn shift_lines_50_percent(lines: &[Line]) -> Vec<Line> {
     shifted
 }
 
-pub fn render_strips(c: &mut Criterion) {
-    let mut g = c.benchmark_group("render_strips");
-    g.sample_size(50);
-
-    macro_rules! strip_single {
-        ($item:expr, $level:expr, $suffix:expr) => {
-            let lines = $item.lines();
-            let tiles = $item.sorted_tiles();
-
-            g.bench_function(format!("{}_{}", $item.name.clone(), $suffix), |b| {
-                let mut strip_buf = vec![];
-                let mut alpha_buf = vec![];
-
-                b.iter(|| {
-                    strip_buf.clear();
-                    alpha_buf.clear();
-
-                    vello_common::strip::render(
-                        $level,
-                        &tiles,
-                        &mut strip_buf,
-                        &mut alpha_buf,
-                        Fill::NonZero,
-                        None,
-                        &lines,
-                    );
-                    std::hint::black_box((&strip_buf, &alpha_buf));
-                })
-            });
-        };
-    }
-
+pub fn register(registry: &mut Registry) {
     for item in get_data_items() {
-        // Commenting this out by default since SIMD is what we care about most.
-        // strip_single!(item, Level::baseline(), "fallback");
+        registry.non_simd(|registry| {
+            register_render_strips(registry, item, Level::baseline(), "fallback");
+        });
         let simd_level = Level::new();
         if !simd_level.is_fallback() {
-            strip_single!(item, simd_level, "simd");
+            register_render_strips(registry, item, simd_level, "simd");
         }
     }
-    g.finish();
+
+    register_render_rect(registry);
+
+    registry.extended(register_render_strips_culled);
 }
 
-pub fn render_strips_cull(c: &mut Criterion) {
-    if !crate::EXTENDED {
-        return;
-    }
+fn register_render_strips(
+    registry: &mut Registry,
+    item: &'static crate::data::DataItem,
+    level: Level,
+    suffix: &str,
+) {
+    let lines = item.lines();
+    let tiles = item.sorted_tiles();
+    registry.add(format!("render_strips/{}_{suffix}", item.name), move |b| {
+        let mut strip_buf = vec![];
+        let mut alpha_buf = vec![];
 
-    let mut g_cull = c.benchmark_group("render_strips_culled50");
-    g_cull.sample_size(50);
+        b.iter(|| {
+            strip_buf.clear();
+            alpha_buf.clear();
 
+            vello_common::strip::render(
+                level,
+                &tiles,
+                &mut strip_buf,
+                &mut alpha_buf,
+                Fill::NonZero,
+                None,
+                &lines,
+            );
+            std::hint::black_box((&strip_buf, &alpha_buf));
+        });
+    });
+}
+
+fn register_render_strips_culled(registry: &mut Registry) {
     for item in get_data_items() {
         let simd_level = Level::new();
         if simd_level.is_fallback() {
@@ -95,7 +91,7 @@ pub fn render_strips_cull(c: &mut Criterion) {
         tiler.make_tiles_analytic_aa(simd_level, &shifted_lines, item.width, item.height);
         tiler.sort_tiles();
 
-        g_cull.bench_function(item.name.clone().to_string(), |b| {
+        registry.add(format!("render_strips_culled50/{}", item.name), move |b| {
             let mut strip_buf = vec![];
             let mut alpha_buf = vec![];
 
@@ -116,54 +112,51 @@ pub fn render_strips_cull(c: &mut Criterion) {
             });
         });
     }
-    g_cull.finish();
 }
 
-pub fn render_rect(c: &mut Criterion) {
-    let mut g = c.benchmark_group("render_rect");
-    g.sample_size(50);
+fn register_render_rect(registry: &mut Registry) {
+    for (name, size) in [("small", 20_u16), ("medium", 300), ("large", 1200)] {
+        if name == "medium" {
+            registry.extended(|registry| register_rect_size(registry, name, size));
+        } else {
+            register_rect_size(registry, name, size);
+        }
+    }
+}
 
+fn register_rect_size(registry: &mut Registry, name: &'static str, size: u16) {
+    let rect = Rect::new(10.0, 10.0, f64::from(size) + 10.0, f64::from(size) + 10.0);
+    let viewport_size = size + 20;
     let level = Level::new();
 
-    for (name, size) in [("small", 20_u16), ("medium", 300), ("large", 1200)] {
-        if name == "medium" && !crate::EXTENDED {
-            continue;
-        }
+    registry.add(format!("render_rect/{name}"), move |b| {
+        let mut generator = StripGenerator::new(viewport_size, viewport_size, level);
+        let mut storage = StripStorage::default();
 
-        let rect = Rect::new(10.0, 10.0, f64::from(size) + 10.0, f64::from(size) + 10.0);
-        let viewport_size = size + 20;
-
-        g.bench_function(name, |b| {
-            let mut generator = StripGenerator::new(viewport_size, viewport_size, level);
-            let mut storage = StripStorage::default();
-
-            b.iter(|| {
-                storage.clear();
-                generator.generate_filled_rect_fast(&rect, &mut storage, None);
-                generator.reset(viewport_size, viewport_size);
-                std::hint::black_box(&storage);
-            });
+        b.iter(|| {
+            storage.clear();
+            generator.generate_filled_rect_fast(&rect, &mut storage, None);
+            generator.reset(viewport_size, viewport_size);
+            std::hint::black_box(&storage);
         });
+    });
 
-        g.bench_function(format!("{name}_via_path"), |b| {
-            let mut generator = StripGenerator::new(viewport_size, viewport_size, level);
-            let mut storage = StripStorage::default();
+    registry.add(format!("render_rect/{name}_via_path"), move |b| {
+        let mut generator = StripGenerator::new(viewport_size, viewport_size, level);
+        let mut storage = StripStorage::default();
 
-            b.iter(|| {
-                storage.clear();
-                generator.generate_filled_path(
-                    rect.to_path(0.1),
-                    Fill::NonZero,
-                    Affine::IDENTITY,
-                    None,
-                    &mut storage,
-                    None,
-                );
-                generator.reset(viewport_size, viewport_size);
-                std::hint::black_box(&storage);
-            });
+        b.iter(|| {
+            storage.clear();
+            generator.generate_filled_path(
+                rect.to_path(0.1),
+                Fill::NonZero,
+                Affine::IDENTITY,
+                None,
+                &mut storage,
+                None,
+            );
+            generator.reset(viewport_size, viewport_size);
+            std::hint::black_box(&storage);
         });
-    }
-
-    g.finish();
+    });
 }

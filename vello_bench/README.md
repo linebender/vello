@@ -1,17 +1,40 @@
-# Setup
+# Vello benchmarks
 
-In order to run the integration benchmarks with custom SVGs, you need to add the SVGs you want to run into the `data` folder. For each SVG file in that folder, a corresponding integration test will be generated automatically.
+## Native benchmarks
 
-If you don't add any SVGs, the benchmarking harness will only use the ghostscript tiger by default.
-
-Run the core benchmarks with `cargo bench`. Enable the `extended` feature to include all benchmarks:
+By default, the runner includes SIMD, non-extended, u8 benchmarks:
 
 ```shell
-cargo bench --features extended
+bash vello_bench/bench.sh cli
 ```
 
-You can also provide a filter for the name of the benchmarks you want to run, like
-`cargo bench -- fine/fill`.
+Pass a benchmark path substring to select a group or individual case:
+
+```shell
+bash vello_bench/bench.sh cli fine/fill
+```
+
+Add other variants independently with `--non-simd`, `--extended`, or `--f32`:
+
+```shell
+bash vello_bench/bench.sh cli --non-simd
+bash vello_bench/bench.sh cli --extended
+bash vello_bench/bench.sh cli --f32
+```
+
+Use `--warmup-ms`, `--measurement-ms`, and `--samples` to change the default 250-millisecond
+warmup, one-second target measurement time, and 20 measured samples:
+
+```shell
+bash vello_bench/bench.sh cli fine/fill --warmup-ms 500 --measurement-ms 2000 --samples 20
+```
+
+List available cases with:
+
+```shell
+cargo run --release -p vello_bench --bin vello-bench -- list
+cargo run --release -p vello_bench --bin vello-bench -- list --non-simd --extended --f32
+```
 
 Run the deterministic CPU allocation regression benchmarks with:
 
@@ -29,19 +52,56 @@ cargo bench --bench allocations -- --frames 1,10,100
 cargo bench --bench allocations -- --frames 1 10 100
 ```
 
-## Workflow
+## Comparing revisions
 
-Save a control run with:
-
-```shell
-cargo bench --bench main -- --save-baseline control [TEST NAME FILTER]
-```
-
-Then, apply some changes to the code and compare it to the control with:
+Compare matching cases from two revisions:
 
 ```shell
-# Rerun bench against new changes
-cargo bench -- [TEST NAME FILTER]
-# Compare it against control
-cargo bench --bench main -- --load-baseline new --baseline control
+bash vello_bench/bench.sh cli --ab REVISION_A REVISION_B fine/fill
 ```
+
+Use `--non-simd`, `--extended`, and `--f32` to include those variants, and
+`--warmup-ms`, `--measurement-ms`, and `--samples` to change the timing.
+
+Comparison mode requires a clean checkout. It builds both revisions in a temporary worktree using
+the current benchmark definitions, then removes the worktree when it exits. The current checkout is
+not modified.
+
+## Browser benchmarks
+
+Build and serve the SIMD, non-extended, u8 benchmark set:
+
+```shell
+bash vello_bench/bench.sh web
+```
+
+Pass flags to include additional categories in the WebAssembly artifact:
+
+```shell
+bash vello_bench/bench.sh web --non-simd --extended --f32
+```
+
+Compare two revisions in the browser with:
+
+```shell
+bash vello_bench/bench.sh web --ab REVISION_A REVISION_B --f32
+```
+
+The browser contains the fine-rasterizer cases that compile to WebAssembly. The page can filter
+the categories included at build time, select cases, and change the timing.
+
+## Measurement
+
+Each case warms up for the configured duration while the harness estimates the iteration count that
+will make one sample take approximately the target measurement time divided by the sample count. It
+then records exactly that number of samples. Results report the average time per iteration and the
+sample standard deviation as a percentage of the average.
+
+Revision comparisons warm up both artifacts independently, use their independently estimated
+iteration counts, and alternate their measurement order. They report the average and standard
+deviation for each artifact and the average paired change between normalized times per iteration.
+
+## Data-driven benchmarks
+
+The Ghostscript tiger is always included in the pipeline benchmarks. Add SVG files to `data` to
+include additional scenes.

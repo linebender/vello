@@ -1,70 +1,29 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use criterion::{BatchSize, Criterion, black_box};
+use crate::harness::Registry;
 use vello_common::peniko::ImageAlphaType;
 use vello_common::pixmap::{PixelMetadata, Pixmap};
 
 const WIDTH: u16 = 1920;
 const HEIGHT: u16 = 1080;
+const BATCH_SIZE: usize = 1;
 const OPAQUE_BLUE: [u8; 4] = [0, 0, 255, 255];
 const TRANSLUCENT_BLUE: [u8; 4] = [0, 0, 255, 128];
 
-pub fn pixmap(c: &mut Criterion) {
+pub fn register(registry: &mut Registry) {
     let pixel_count = usize::from(WIDTH) * usize::from(HEIGHT);
-    let opaque_input = ("opaque", OPAQUE_BLUE.repeat(pixel_count));
-    let mut unpremultiply_inputs = vec![("translucent", TRANSLUCENT_BLUE.repeat(pixel_count))];
+    register_premultiply(registry, "opaque", OPAQUE_BLUE.repeat(pixel_count));
+    register_input(
+        registry,
+        "translucent",
+        TRANSLUCENT_BLUE.repeat(pixel_count),
+    );
 
-    if crate::EXTENDED {
-        unpremultiply_inputs.push(("interleaved", interleaved_pixels(pixel_count)));
-        unpremultiply_inputs.push(("mixed_lanes", mixed_lane_pixels(pixel_count)));
-    }
-
-    let mut group = c.benchmark_group("pixmap/premultiply");
-    for (name, rgba) in std::iter::once(&opaque_input).chain(&unpremultiply_inputs) {
-        group.bench_function(*name, |b| {
-            b.iter_batched(
-                || rgba.clone(),
-                |rgba| {
-                    black_box(Pixmap::from_parts(
-                        rgba,
-                        WIDTH,
-                        HEIGHT,
-                        PixelMetadata::new(ImageAlphaType::Alpha, true),
-                    ));
-                },
-                BatchSize::LargeInput,
-            );
-        });
-    }
-    group.finish();
-
-    let pixmaps = unpremultiply_inputs
-        .into_iter()
-        .map(|(name, rgba)| {
-            (
-                name,
-                Pixmap::from_parts(
-                    rgba,
-                    WIDTH,
-                    HEIGHT,
-                    PixelMetadata::new(ImageAlphaType::Alpha, true),
-                ),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let mut group = c.benchmark_group("pixmap/unpremultiply");
-    for (name, pixmap) in &pixmaps {
-        group.bench_function(*name, |b| {
-            b.iter_batched(
-                || pixmap.clone(),
-                |pixmap| black_box(pixmap.take_rgba8(ImageAlphaType::Alpha)),
-                BatchSize::LargeInput,
-            );
-        });
-    }
-    group.finish();
+    registry.extended(|registry| {
+        register_input(registry, "interleaved", interleaved_pixels(pixel_count));
+        register_input(registry, "mixed_lanes", mixed_lane_pixels(pixel_count));
+    });
 
     let opaque_pixmap = Pixmap::from_parts(
         OPAQUE_BLUE.repeat(pixel_count),
@@ -72,15 +31,48 @@ pub fn pixmap(c: &mut Criterion) {
         HEIGHT,
         PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, false),
     );
-    let mut group = c.benchmark_group("pixmap/rgba_to_rgb");
-    group.bench_function("opaque", |b| {
+    registry.add("pixmap/rgba_to_rgb/opaque", move |b| {
         b.iter_batched(
             || opaque_pixmap.clone(),
-            |pixmap| black_box(pixmap.try_take_rgb8(ImageAlphaType::Alpha)),
-            BatchSize::LargeInput,
+            |pixmap| pixmap.try_take_rgb8(ImageAlphaType::Alpha),
+            BATCH_SIZE,
         );
     });
-    group.finish();
+}
+
+fn register_input(registry: &mut Registry, name: &'static str, rgba: Vec<u8>) {
+    register_premultiply(registry, name, rgba.clone());
+
+    let pixmap = Pixmap::from_parts(
+        rgba,
+        WIDTH,
+        HEIGHT,
+        PixelMetadata::new(ImageAlphaType::Alpha, true),
+    );
+    registry.add(format!("pixmap/unpremultiply/{name}"), move |b| {
+        b.iter_batched(
+            || pixmap.clone(),
+            |pixmap| pixmap.take_rgba8(ImageAlphaType::Alpha),
+            BATCH_SIZE,
+        );
+    });
+}
+
+fn register_premultiply(registry: &mut Registry, name: &'static str, rgba: Vec<u8>) {
+    registry.add(format!("pixmap/premultiply/{name}"), move |b| {
+        b.iter_batched(
+            || rgba.clone(),
+            |rgba| {
+                Pixmap::from_parts(
+                    rgba,
+                    WIDTH,
+                    HEIGHT,
+                    PixelMetadata::new(ImageAlphaType::Alpha, true),
+                )
+            },
+            BATCH_SIZE,
+        );
+    });
 }
 
 fn interleaved_pixels(pixel_count: usize) -> Vec<u8> {

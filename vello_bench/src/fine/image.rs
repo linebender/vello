@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::{BENCH_WIDTH, default_blend, fill_single};
-use criterion::{Bencher, Criterion};
+use crate::harness::{Bencher, Registry};
 use std::io::Cursor;
 use std::sync::Arc;
 use vello_common::encode::EncodeExt;
@@ -15,27 +15,27 @@ use vello_common::peniko::ImageSampler;
 use vello_common::pixmap::Pixmap;
 use vello_cpu::fine::{Fine, FineKernel};
 
-pub fn image(c: &mut Criterion) {
-    transform::scale(c);
-    quality::low(c);
-    quality::medium(c);
+pub fn image(registry: &mut Registry) {
+    transform::scale(registry);
+    quality::low(registry);
+    quality::medium(registry);
 
-    if crate::EXTENDED {
-        transform::none(c);
-        transform::rotate(c);
+    registry.extended(|registry| {
+        transform::none(registry);
+        transform::rotate(registry);
 
-        quality::high(c);
+        quality::high(registry);
 
-        extend::pad(c);
-        extend::repeat(c);
-        extend::reflect(c);
-    }
+        extend::pad(registry);
+        extend::repeat(registry);
+        extend::reflect(registry);
+    });
 }
 
 mod extend {
     use crate::fine::BENCH_WIDTH;
     use crate::fine::image::{get_small_image, image_base};
-    use criterion::Bencher;
+    use crate::harness::Bencher;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Affine;
     use vello_common::peniko;
@@ -44,7 +44,7 @@ mod extend {
     use vello_dev_macros::vello_bench;
 
     fn extend_base<S: Simd, T: FineKernel<S>>(
-        b: &mut Bencher<'_>,
+        b: &mut Bencher,
         fine: &mut Fine<S, T>,
         extend: peniko::Extend,
     ) {
@@ -58,24 +58,24 @@ mod extend {
     }
 
     #[vello_bench]
-    fn pad<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+    fn pad<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
         extend_base(b, fine, peniko::Extend::Pad);
     }
 
     #[vello_bench]
-    fn repeat<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+    fn repeat<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
         extend_base(b, fine, peniko::Extend::Repeat);
     }
 
     #[vello_bench]
-    fn reflect<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+    fn reflect<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
         extend_base(b, fine, peniko::Extend::Reflect);
     }
 }
 
 mod quality {
     use crate::fine::image::{get_colr_image, image_base};
-    use criterion::Bencher;
+    use crate::harness::Bencher;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Affine;
     use vello_common::peniko;
@@ -84,7 +84,7 @@ mod quality {
     use vello_dev_macros::vello_bench;
 
     fn quality_base<S: Simd, T: FineKernel<S>>(
-        b: &mut Bencher<'_>,
+        b: &mut Bencher,
         fine: &mut Fine<S, T>,
         quality: ImageQuality,
     ) {
@@ -93,17 +93,17 @@ mod quality {
     }
 
     #[vello_bench]
-    fn low<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+    fn low<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
         quality_base(b, fine, ImageQuality::Low);
     }
 
     #[vello_bench]
-    fn medium<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+    fn medium<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
         quality_base(b, fine, ImageQuality::Medium);
     }
 
     #[vello_bench]
-    fn high<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+    fn high<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
         quality_base(b, fine, ImageQuality::High);
     }
 }
@@ -111,7 +111,7 @@ mod quality {
 mod transform {
     use crate::fine::BENCH_WIDTH;
     use crate::fine::image::{get_colr_image, image_base};
-    use criterion::Bencher;
+    use crate::harness::Bencher;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::{Affine, Point};
     use vello_common::peniko;
@@ -121,19 +121,19 @@ mod transform {
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
-    fn none<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+    fn none<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
         let im = get_colr_image(peniko::Extend::Pad, ImageQuality::Low);
         image_base(b, fine, im, Affine::IDENTITY);
     }
 
     #[vello_bench]
-    fn scale<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+    fn scale<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
         let im = get_colr_image(peniko::Extend::Pad, ImageQuality::Low);
         image_base(b, fine, im, Affine::scale(3.0));
     }
 
     #[vello_bench]
-    fn rotate<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+    fn rotate<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
         let im = get_colr_image(peniko::Extend::Pad, ImageQuality::Low);
         image_base(
             b,
@@ -178,7 +178,7 @@ fn get_small_image(extend: peniko::Extend, quality: ImageQuality) -> Image {
 }
 
 fn image_base<S: Simd, T: FineKernel<S>>(
-    b: &mut Bencher<'_>,
+    b: &mut Bencher,
     fine: &mut Fine<S, T>,
     image: Image,
     transform: Affine,

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::BENCH_WIDTH;
-use criterion::{Bencher, Criterion};
+use crate::harness::{Bencher, Registry};
 use vello_common::fearless_simd::Simd;
 use vello_common::geometry::RectU16;
 use vello_common::pixmap::PixmapMut;
@@ -13,13 +13,13 @@ use vello_dev_macros::vello_bench;
 
 const TILE_BUFFER_SIZE: usize = BENCH_WIDTH as usize * Tile::HEIGHT as usize * 4;
 
-pub fn pack(c: &mut Criterion) {
-    pack_block(c);
-    unpack_block(c);
+pub fn pack(registry: &mut Registry) {
+    pack_block(registry);
+    unpack_block(registry);
 }
 
 #[vello_bench]
-pub fn pack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+pub fn pack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
     let mut buf = vec![0; TILE_BUFFER_SIZE];
 
     b.iter(|| {
@@ -32,7 +32,7 @@ pub fn pack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fin
 }
 
 #[vello_bench]
-pub fn unpack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
+pub fn unpack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, T>) {
     let mut buf = vec![0; TILE_BUFFER_SIZE];
 
     b.iter(|| {

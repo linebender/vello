@@ -1,9 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::time::{Duration, Instant};
+use std::rc::Rc;
 
-use criterion::Criterion;
+use crate::harness::Registry;
 use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, GlyphRun, Layout, LayoutContext,
     PositionedLayoutItem,
@@ -11,71 +11,65 @@ use parley::{
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Glyph, RenderContext, RenderSettings, Resources};
 
-pub fn glyph(c: &mut Criterion) {
-    if !crate::EXTENDED {
-        return;
-    }
+const WIDTH: u16 = 256;
+const HEIGHT: u16 = 256;
 
-    let mut g = c.benchmark_group("glyph");
+pub fn register(registry: &mut Registry) {
+    registry.extended(|registry| {
+        const TEXT: &str = "The quick brown fox jumps over the lazy dog 0123456789";
 
-    const WIDTH: u16 = 256;
-    const HEIGHT: u16 = 256;
-    const TEXT: &str = "The quick brown fox jumps over the lazy dog 0123456789";
-
-    let layout_for = |text: &str, scale: f32| {
         let mut layout_cx = LayoutContext::new();
         let mut font_cx = FontContext::new();
-        let mut builder = layout_cx.ranged_builder(&mut font_cx, text, scale, true);
+        let mut builder = layout_cx.ranged_builder(&mut font_cx, TEXT, 1.0, true);
         builder.push_default(FontFamily::named("Roboto"));
-        let mut layout: Layout<Brush> = builder.build(text);
-        let max_advance = Some(WIDTH as f32);
-        layout.break_all_lines(max_advance);
+        let mut layout: Layout<Brush> = builder.build(TEXT);
+        layout.break_all_lines(Some(WIDTH as f32));
         layout.align(Alignment::Start, AlignmentOptions::default());
-        layout
-    };
 
-    let settings = RenderSettings::default();
-    let layout = layout_for(TEXT, 1.0);
+        let settings = RenderSettings::default();
+        let layout = Rc::new(layout);
+        for (hint_name, hint) in [("hinted", true), ("unhinted", false)] {
+            register_glyph_case(
+                registry,
+                format!("glyph/cached_{hint_name}"),
+                Rc::clone(&layout),
+                settings,
+                hint,
+                true,
+            );
 
-    for (hint_name, hint) in [("hinted", true), ("unhinted", false)] {
-        g.bench_function(format!("cached_{hint_name}"), |b| {
-            let mut renderer = GlyphBenchRenderer::new(WIDTH, HEIGHT, settings);
-            render_layout(&mut renderer, &layout, hint, true);
+            // Even for `uncached`, the outline and hint cache will still be used. This only tests
+            // the difference between having atlas caching enabled and disabled.
+            register_glyph_case(
+                registry,
+                format!("glyph/uncached_{hint_name}"),
+                Rc::clone(&layout),
+                settings,
+                hint,
+                false,
+            );
+        }
+    });
+}
 
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::from_nanos(0);
-                for _ in 0..iters {
-                    // Don't include `reset` time in the benchmark.
-                    renderer.reset();
+fn register_glyph_case(
+    registry: &mut Registry,
+    id: String,
+    layout: Rc<Layout<Brush>>,
+    settings: RenderSettings,
+    hint: bool,
+    atlas_cache: bool,
+) {
+    registry.add(id, move |b| {
+        let mut renderer = GlyphBenchRenderer::new(WIDTH, HEIGHT, settings);
+        render_layout(&mut renderer, &layout, hint, atlas_cache);
 
-                    let start = Instant::now();
-                    render_layout(&mut renderer, &layout, hint, true);
-                    total_time += start.elapsed();
-                }
-                total_time
-            });
+        b.iter(|| {
+            renderer.ctx.reset();
+            render_layout(&mut renderer, &layout, hint, atlas_cache);
+            std::hint::black_box(&renderer.pixmap);
         });
-
-        // Note that even for `uncached`, the outline and hint cache will still be used. This benchmark
-        // is only for testing the difference between having atlas caching enabled and disabled.
-
-        g.bench_function(format!("uncached_{hint_name}"), |b| {
-            let mut renderer = GlyphBenchRenderer::new(WIDTH, HEIGHT, settings);
-            render_layout(&mut renderer, &layout, hint, false);
-
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::from_nanos(0);
-                for _ in 0..iters {
-                    renderer.reset();
-
-                    let start = Instant::now();
-                    render_layout(&mut renderer, &layout, hint, false);
-                    total_time += start.elapsed();
-                }
-                total_time
-            });
-        });
-    }
+    });
 }
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -94,10 +88,6 @@ impl GlyphBenchRenderer {
             resources: Resources::new(),
             pixmap: Pixmap::new(width, height),
         }
-    }
-
-    fn reset(&mut self) {
-        self.ctx.reset();
     }
 }
 

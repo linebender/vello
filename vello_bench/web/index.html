@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vello benchmarks</title>
+    <style>
+      :root { color-scheme: light dark; font: 15px system-ui, sans-serif; --regression: #b42318; --improvement: #067647; }
+      @media (prefers-color-scheme: dark) {
+        :root { --regression: #ff7b72; --improvement: #56d364; }
+      }
+      body { max-width: 920px; margin: 2rem auto; padding: 0 1rem; }
+      label { display: block; margin: .8rem 0 .25rem; }
+      input, button { box-sizing: border-box; font: inherit; padding: .45rem; }
+      button { margin-top: .75rem; }
+      .toggle { align-items: center; display: flex; gap: .5rem; margin-top: 1rem; }
+      .toggle input { margin: 0; }
+      .setting { align-items: center; display: flex; gap: .5rem; }
+      .setting input { width: 7rem; }
+      .actions { align-items: baseline; display: flex; gap: .75rem; }
+      .actions span { color: #777; }
+      .extended { color: #777; font-size: .85em; margin-left: auto; }
+      table { border-collapse: collapse; margin-top: 1.5rem; width: 100%; }
+      th, td { border-bottom: 1px solid #8886; padding: .5rem; text-align: right; }
+      .selection { padding-left: .25rem; padding-right: .25rem; text-align: center; width: 1.5rem; }
+      .benchmark { text-align: left; }
+      .category .benchmark { font-weight: 650; }
+      .case .benchmark { font-weight: 400; }
+      .case[hidden], .category[hidden] { display: none; }
+      .regression { color: var(--regression); font-weight: 650; }
+      .improvement { color: var(--improvement); font-weight: 650; }
+      #status { min-height: 1.5rem; margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Vello benchmarks</h1>
+    <p>Runs the artifacts in one Web Worker with a configurable time budget per benchmark.</p>
+    <p id="mode">Loading artifacts…</p>
+
+    <label class="toggle" for="show-extended" hidden>
+      <input id="show-extended" type="checkbox">
+      Show extended benchmarks
+    </label>
+
+    <label class="toggle" for="show-non-simd" hidden>
+      <input id="show-non-simd" type="checkbox">
+      Show non-SIMD benchmarks
+    </label>
+
+    <label class="toggle" for="show-f32" hidden>
+      <input id="show-f32" type="checkbox">
+      Show f32 benchmarks
+    </label>
+
+    <label class="setting" for="warmup-ms">
+      Warmup per artifact
+      <input id="warmup-ms" type="number" min="0" step="50" value="250">
+      ms
+    </label>
+
+    <label class="setting" for="measurement-ms">
+      Measurement per artifact
+      <input id="measurement-ms" type="number" min="1" step="100" value="1000">
+      ms
+    </label>
+
+    <label class="setting" for="sample-count">
+      Samples per artifact
+      <input id="sample-count" type="number" min="1" step="1" value="20">
+    </label>
+
+    <div class="actions">
+      <button id="run" disabled>Run selected</button>
+      <span id="selection-summary"></span>
+    </div>
+
+    <div id="status"></div>
+    <table aria-label="Benchmarks">
+      <thead><tr><th class="selection"><input id="select-all" type="checkbox" aria-label="Select all shown" disabled></th><th class="benchmark">Benchmark</th><th>A</th><th>B</th><th>Change</th></tr></thead>
+      <tbody id="results"></tbody>
+    </table>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
