@@ -143,7 +143,7 @@ use peniko::ImageData;
 pub use wgpu;
 
 pub use scene::{DrawGlyphs, Scene};
-pub use vello_encoding::{FontEmbolden, Glyph, NormalizedCoord};
+pub use vello_encoding::{BumpAllocationSizes, FontEmbolden, Glyph, NormalizedCoord};
 
 use low_level::ShaderId;
 #[cfg(feature = "wgpu")]
@@ -332,6 +332,7 @@ pub struct Renderer {
     resolver: Resolver,
     image_atlas: Option<recording::ImageProxy>,
     shaders: FullShaders,
+    bump_allocation_sizes: BumpAllocationSizes,
     #[cfg(feature = "debug_layers")]
     debug: debug::DebugRenderer,
     #[cfg(feature = "wgpu-profiler")]
@@ -448,6 +449,7 @@ impl Renderer {
             resolver: Resolver::new(),
             image_atlas: None,
             shaders,
+            bump_allocation_sizes: BumpAllocationSizes::default(),
             #[cfg(feature = "debug_layers")]
             debug,
             #[cfg(feature = "wgpu-profiler")]
@@ -455,6 +457,24 @@ impl Renderer {
             #[cfg(feature = "wgpu-profiler")]
             profile_result: None,
         })
+    }
+
+    /// Sets the reservations for buffers allocated through the GPU bump allocator.
+    ///
+    /// The default values accommodate Vello's test scenes and `paris-30k`. Smaller
+    /// reservations can reduce memory use, but exhausted buffers omit parts of a frame.
+    /// Callers should only customize these values when they can bound or validate their
+    /// workloads.
+    pub fn set_bump_allocation_sizes(&mut self, sizes: BumpAllocationSizes) {
+        if self.bump_allocation_sizes != sizes {
+            self.engine.clear_pool();
+            self.bump_allocation_sizes = sizes;
+        }
+    }
+
+    /// Returns the current bump-buffer reservations.
+    pub fn bump_allocation_sizes(&self) -> BumpAllocationSizes {
+        self.bump_allocation_sizes
     }
 
     /// Renders a scene to the target texture.
@@ -485,6 +505,7 @@ impl Renderer {
             &self.shaders,
             &mut self.image_atlas,
             params,
+            &self.bump_allocation_sizes,
         );
         let external_resources = [ExternalResource::Image(
             *target.as_image().unwrap(),
@@ -734,6 +755,7 @@ impl Renderer {
             &self.shaders,
             &mut self.image_atlas,
             params,
+            &self.bump_allocation_sizes,
             robust,
         );
         let target = render.out_image();

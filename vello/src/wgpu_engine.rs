@@ -784,6 +784,10 @@ impl WgpuEngine {
         self.downloads.remove(&buf.id);
     }
 
+    pub(crate) fn clear_pool(&mut self) {
+        self.pool.bufs.clear();
+    }
+
     fn create_bind_group_layout_entries(
         layout: impl Iterator<Item = (BindType, wgpu::ShaderStages)>,
     ) -> Vec<wgpu::BindGroupLayoutEntry> {

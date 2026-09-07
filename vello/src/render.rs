@@ -87,8 +87,16 @@ pub(crate) fn render_full(
     shaders: &FullShaders,
     image_atlas: &mut Option<ImageProxy>,
     params: &RenderParams,
+    bump_sizes: &vello_encoding::BumpAllocationSizes,
 ) -> (Recording, ResourceProxy) {
-    render_encoding_full(scene.encoding(), resolver, shaders, image_atlas, params)
+    render_encoding_full(
+        scene.encoding(),
+        resolver,
+        shaders,
+        image_atlas,
+        params,
+        bump_sizes,
+    )
 }
 
 #[cfg(feature = "wgpu")]
@@ -102,10 +110,18 @@ pub(crate) fn render_encoding_full(
     shaders: &FullShaders,
     image_atlas: &mut Option<ImageProxy>,
     params: &RenderParams,
+    bump_sizes: &vello_encoding::BumpAllocationSizes,
 ) -> (Recording, ResourceProxy) {
     let mut render = Render::new();
-    let mut recording =
-        render.render_encoding_coarse(encoding, resolver, shaders, image_atlas, params, false);
+    let mut recording = render.render_encoding_coarse(
+        encoding,
+        resolver,
+        shaders,
+        image_atlas,
+        params,
+        bump_sizes,
+        false,
+    );
     let out_image = render.out_image();
     render.record_fine(shaders, &mut recording);
     (recording, out_image.into())
@@ -139,6 +155,7 @@ impl Render {
         shaders: &FullShaders,
         persistent_image_atlas: &mut Option<ImageProxy>,
         params: &RenderParams,
+        bump_sizes: &vello_encoding::BumpAllocationSizes,
         robust: bool,
     ) -> Recording {
         use vello_encoding::RenderConfig;
@@ -201,8 +218,13 @@ impl Render {
         for image in images.images {
             recording.write_image(image_atlas, image.1, image.2, image.0.clone());
         }
-        let cpu_config =
-            RenderConfig::new(&layout, params.width, params.height, &params.base_color);
+        let cpu_config = RenderConfig::new_with_bump_sizes(
+            &layout,
+            params.width,
+            params.height,
+            &params.base_color,
+            bump_sizes,
+        );
         // HACK: The coarse workgroup counts is the number of active bins.
         if (cpu_config.workgroup_counts.coarse.0
             * cpu_config.workgroup_counts.coarse.1
