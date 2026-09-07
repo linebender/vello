@@ -7,6 +7,7 @@
 //! represent a special representation of each filter to be used as the basis for rendering in
 //! `vello_hybrid` and `vello_cpu`.
 
+use crate::filter::color_matrix::ColorMatrix;
 use crate::filter::drop_shadow::{DropShadow, transform_shadow_params};
 use crate::filter::flood::Flood;
 use crate::filter::gaussian_blur::{GaussianBlur, transform_blur_params};
@@ -18,6 +19,7 @@ use crate::math::snap_up;
 use crate::tile::Tile;
 use crate::util::RectExt;
 
+pub mod color_matrix;
 pub mod drop_shadow;
 pub mod flood;
 pub mod gaussian_blur;
@@ -34,6 +36,8 @@ pub enum PreparedFilter {
     Offset(Offset),
     /// A drop shadow filter.
     DropShadow(DropShadow),
+    /// A color matrix filter.
+    ColorMatrix(ColorMatrix),
 }
 
 impl PreparedFilter {
@@ -96,8 +100,9 @@ impl PreparedFilter {
 
                 Self::Offset(offset)
             }
+            FilterPrimitive::ColorMatrix { matrix } => Self::ColorMatrix(ColorMatrix::new(*matrix)),
             _ => {
-                // Other primitives like Blend, ColorMatrix, ComponentTransfer, etc.
+                // Other primitives like Blend, ComponentTransfer, etc.
                 // are not yet implemented
                 unimplemented!("Other filter primitives not yet implemented");
             }
@@ -254,4 +259,24 @@ fn transform_offset_params(dx: f32, dy: f32, transform: &Affine) -> (f32, f32) {
     let [a, b, c, d, _, _] = transform.as_coeffs();
     let transformed_offset = Vec2::new(a * offset.x + c * offset.y, b * offset.x + d * offset.y);
     (transformed_offset.x as f32, transformed_offset.y as f32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::filter_effects::matrices;
+
+    #[test]
+    fn prepares_color_matrix_filter() {
+        let filter = Filter::from_primitive(FilterPrimitive::ColorMatrix {
+            matrix: matrices::SEPIA,
+        });
+        let prepared = PreparedFilter::new(&filter, &Affine::IDENTITY);
+
+        let PreparedFilter::ColorMatrix(color_matrix) = prepared else {
+            panic!("expected color matrix filter");
+        };
+
+        assert_eq!(color_matrix.matrix, matrices::SEPIA);
+    }
 }
