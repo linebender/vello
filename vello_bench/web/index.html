@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#14191f">
+    <title>Vello benchmarks</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font: 14px/1.35 system-ui, sans-serif;
+        --background: #14191f;
+        --surface: #1d252e;
+        --text: #e7ebf0;
+        --muted: #aab4c0;
+        --border: #36414c;
+        --accent: #8bb8ff;
+        --soft: #263544;
+        --regression: #ff7b72;
+        --improvement: #56d364;
+      }
+      body { background: var(--background); color: var(--text); margin: 0; }
+      [hidden] { display: none !important; }
+      main { margin: 0 auto; max-width: 1600px; padding: .75rem 1rem 2rem; }
+      .controls {
+        background: var(--background);
+        border-bottom: 1px solid var(--border);
+        padding: .5rem 0 .6rem;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+      .timing-settings { position: relative; }
+      .timing-settings summary {
+        border: 1px solid var(--border);
+        border-radius: .35rem;
+        box-sizing: border-box;
+        color: var(--text);
+        cursor: pointer;
+        font-weight: 600;
+        min-height: 2rem;
+        padding: .25rem .7rem;
+      }
+      .timing-settings summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .settings {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: .35rem;
+        box-shadow: 0 .5rem 1.5rem #0008;
+        display: grid;
+        gap: .6rem;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        padding: .75rem;
+        position: absolute;
+        right: 0;
+        top: calc(100% + .4rem);
+        width: min(27rem, calc(100vw - 2rem));
+      }
+      .setting { display: grid; font-size: .85rem; font-weight: 600; gap: .2rem; }
+      .input-with-unit { align-items: center; display: flex; gap: .3rem; }
+      .input-with-unit input { min-width: 0; width: 100%; }
+      .input-with-unit span { color: var(--muted); font-weight: 400; }
+      input, button { box-sizing: border-box; font: inherit; }
+      input[type="number"] {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: .3rem;
+        color: var(--text);
+        min-height: 2rem;
+        padding: .25rem .45rem;
+      }
+      input[type="checkbox"] { accent-color: var(--accent); height: 1rem; margin: 0; width: 1rem; }
+      input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .controls-row { align-items: center; display: flex; flex-wrap: wrap; gap: .4rem .8rem; }
+      .variants, .actions { align-items: center; display: flex; flex-wrap: wrap; gap: .3rem .8rem; }
+      .actions { margin-left: auto; }
+      .toggle, .select-all { align-items: center; display: inline-flex; gap: .3rem; white-space: nowrap; }
+      button {
+        background: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: .35rem;
+        color: var(--surface);
+        cursor: pointer;
+        font-weight: 600;
+        min-height: 2rem;
+        padding: .25rem .7rem;
+      }
+      button:disabled { cursor: default; opacity: .5; }
+      #status { color: var(--muted); margin-top: .4rem; overflow-wrap: anywhere; }
+      #status:empty { display: none; }
+      .results-grid { column-count: 1; column-gap: .7rem; margin-top: .5rem; }
+      .group { break-inside: avoid; box-sizing: border-box; font-variant-numeric: tabular-nums; margin-bottom: .6rem; width: 100%; }
+      .category, .case { display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); }
+      .selection, .benchmark { border: 0; padding: .15rem .2rem; }
+      .selection { text-align: center; }
+      .benchmark { overflow-wrap: anywhere; text-align: left; }
+      .category { align-items: center; background: var(--soft); padding: .15rem .2rem; }
+      .category .benchmark { font-weight: 650; }
+      .case { border-bottom: 1px solid var(--border); padding: .15rem .2rem; }
+      .case .benchmark { font-weight: 450; }
+      body:not(.comparing) .result-b, body:not(.comparing) .result-change { display: none; }
+      .case .result-a, .case .result-b, .case .result-change {
+        display: flex;
+        gap: .5rem;
+        grid-column: 2;
+        justify-content: space-between;
+        padding: .05rem .2rem;
+        text-align: right;
+      }
+      .case [data-label]:empty { display: none !important; }
+      .case [data-label]::before { color: var(--muted); content: attr(data-label); font-weight: 400; }
+      body:not(.comparing) .case { grid-template-columns: 1.4rem minmax(0, 1fr) auto; }
+      body:not(.comparing) .case .result-a { align-self: center; grid-column: 3; grid-row: 1; white-space: nowrap; }
+      body:not(.comparing) .case .result-a::before { display: none; }
+      .regression { color: var(--regression); font-weight: 650; }
+      .improvement { color: var(--improvement); font-weight: 650; }
+      @media (min-width: 701px) {
+        .results-grid { column-count: 2; }
+      }
+      @media (min-width: 1100px) { .results-grid { column-count: 3; } }
+      @media (min-width: 1500px) { .results-grid { column-count: 4; } }
+      @media (max-width: 700px) {
+        main { padding: .45rem .5rem 1.5rem; }
+        .controls { position: static; }
+        .settings { gap: .35rem; }
+        .input-with-unit { gap: .15rem; }
+        input[type="number"] { padding: .2rem .3rem; }
+        .controls-row { display: block; }
+        .variants { gap: .25rem .6rem; }
+        .actions { justify-content: space-between; margin-top: .4rem; }
+        .timing-settings[open] { flex-basis: 100%; }
+        .timing-settings[open] .settings { box-shadow: none; margin-top: .4rem; position: static; width: auto; }
+        .group { margin-bottom: .35rem; }
+        .category { padding: .1rem .2rem; }
+        .case { padding: .1rem .2rem; }
+        .selection, .benchmark { padding: .1rem; }
+        body:not(.comparing) .case { align-items: center; display: flex; flex-wrap: wrap; }
+        body:not(.comparing) .case .selection { flex: 0 0 1.4rem; }
+        body:not(.comparing) .case .benchmark { flex: 1 0 auto; max-width: calc(100% - 1.4rem); }
+        body:not(.comparing) .case .result-a { flex: 0 0 auto; margin-left: auto; }
+      }
+      @media (max-height: 450px) { .controls { position: static; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="controls">
+        <div class="controls-row">
+          <div class="variants">
+            <label class="toggle" for="show-extended" hidden><input id="show-extended" type="checkbox"> Extended</label>
+            <label class="toggle" for="show-non-simd" hidden><input id="show-non-simd" type="checkbox"> Non-SIMD</label>
+            <label class="toggle" for="show-f32" hidden><input id="show-f32" type="checkbox"> f32</label>
+          </div>
+          <div class="actions">
+            <label class="select-all" for="select-all"><input id="select-all" type="checkbox" disabled> All shown</label>
+            <details class="timing-settings">
+              <summary>Timing</summary>
+              <div class="settings">
+                <label class="setting" for="warmup-ms">
+                  <span>Warmup</span>
+                  <span class="input-with-unit"><input id="warmup-ms" type="number" min="0" step="50" value="250"><span>ms</span></span>
+                </label>
+                <label class="setting" for="measurement-ms">
+                  <span>Measure</span>
+                  <span class="input-with-unit"><input id="measurement-ms" type="number" min="1" step="100" value="2000"><span>ms</span></span>
+                </label>
+                <label class="setting" for="sample-count">
+                  <span>Samples</span>
+                  <span class="input-with-unit"><input id="sample-count" type="number" min="1" step="1" value="30"></span>
+                </label>
+              </div>
+            </details>
+            <button id="run" disabled>Run selected</button>
+          </div>
+        </div>
+        <div id="status"></div>
+      </div>
+
+      <div id="results" class="results-grid"></div>
+    </main>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

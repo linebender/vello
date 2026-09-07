@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::default_blend;
-use criterion::{Bencher, Criterion};
+use crate::harness::{Bencher, Registry};
 use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
@@ -12,15 +12,15 @@ use vello_cpu::fine::{Fine, FineKernel, FineResources, PaintFillAttrs};
 use vello_cpu::span::{Span, TileAlignedSpan};
 use vello_dev_macros::vello_bench;
 
-pub fn fill(c: &mut Criterion) {
-    opaque_short(c);
-    opaque_long(c);
-    transparent_short(c);
-    transparent_long(c);
+pub fn fill(registry: &mut Registry) {
+    opaque_short(registry);
+    opaque_long(registry);
+    transparent_short(registry);
+    transparent_long(registry);
 }
 
 #[vello_bench]
-pub fn opaque_short<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+pub fn opaque_short<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE));
     let width = 32;
 
@@ -28,7 +28,7 @@ pub fn opaque_short<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut F
 }
 
 #[vello_bench]
-pub fn opaque_long<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+pub fn opaque_long<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE));
     let width = 256;
 
@@ -36,7 +36,7 @@ pub fn opaque_long<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fi
 }
 
 #[vello_bench]
-pub fn transparent_short<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+pub fn transparent_short<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.3)));
     let width = 32;
 
@@ -44,7 +44,7 @@ pub fn transparent_short<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &
 }
 
 #[vello_bench]
-pub fn transparent_long<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+pub fn transparent_long<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.3)));
     let width = 256;
 
@@ -55,7 +55,7 @@ pub(crate) fn fill_single<S: Simd, N: FineKernel<S>>(
     paint: &Paint,
     encoded_paints: &[EncodedPaint],
     width: u16,
-    b: &mut Bencher<'_>,
+    b: &mut Bencher,
     blend_mode: BlendMode,
     fine: &mut Fine<S, N>,
 ) {

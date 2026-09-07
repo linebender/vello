@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::{BENCH_WIDTH, default_blend, fill_single};
-use criterion::{Bencher, Criterion};
+use crate::harness::{Bencher, Registry};
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::color::palette::css::GREEN;
 use vello_common::encode::EncodeExt;
@@ -12,28 +12,26 @@ use vello_common::tile::Tile;
 use vello_cpu::fine::{Fine, FineKernel};
 use vello_dev_macros::vello_bench;
 
-pub fn rounded_blurred_rect(c: &mut Criterion) {
-    if !crate::EXTENDED {
-        return;
-    }
-
-    with_transform(c);
-    no_transform(c);
+pub fn rounded_blurred_rect(registry: &mut Registry) {
+    registry.extended(|registry| {
+        with_transform(registry);
+        no_transform(registry);
+    });
 }
 
 #[vello_bench]
-fn with_transform<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+fn with_transform<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
     let center = Point::new(BENCH_WIDTH as f64 / 2.0, Tile::HEIGHT as f64 / 2.0);
 
     base(b, fine, Affine::rotate_about(1.0, center));
 }
 
 #[vello_bench]
-fn no_transform<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+fn no_transform<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
     base(b, fine, Affine::IDENTITY);
 }
 
-fn base<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>, transform: Affine) {
+fn base<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>, transform: Affine) {
     let mut paints = vec![];
 
     let rect = BlurredRoundedRectangle {

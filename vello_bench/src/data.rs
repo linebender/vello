@@ -1,7 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::path::Path;
 use std::sync::OnceLock;
 use usvg::tiny_skia_path::PathSegment;
 use usvg::{Group, Node};
@@ -15,26 +14,17 @@ use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
 
 static DATA: OnceLock<Vec<DataItem>> = OnceLock::new();
+include!(concat!(env!("OUT_DIR"), "/bench_data.rs"));
 
 pub fn get_data_items() -> &'static [DataItem] {
     DATA.get_or_init(|| {
-        let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("data");
-        let mut data = vec![];
-
-        // Always use ghostscript tiger.
-        data.push(DataItem::from_path(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/Ghostscript_Tiger.svg"),
-        ));
-
-        for entry in std::fs::read_dir(&data_dir).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-
-            if path.extension().and_then(|e| e.to_str()) == Some("svg") {
-                data.push(DataItem::from_path(&path));
-            }
+        let mut data = vec![DataItem::from_bytes(
+            "Ghostscript_Tiger",
+            include_bytes!("../../assets/Ghostscript_Tiger.svg"),
+        )];
+        for &(name, bytes) in EXTRA_SVGS {
+            data.push(DataItem::from_bytes(name, bytes));
         }
-
         data
     })
 }
@@ -49,16 +39,13 @@ pub struct DataItem {
 }
 
 impl DataItem {
-    fn from_path(path: &Path) -> Self {
-        let file_name = { path.file_stem().unwrap().to_string_lossy().to_string() };
-
-        let data = std::fs::read(path).unwrap();
-        let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).unwrap();
+    fn from_bytes(name: &str, data: &[u8]) -> Self {
+        let tree = usvg::Tree::from_data(data, &usvg::Options::default()).unwrap();
         let mut ctx = ConversionContext::new();
         convert(&mut ctx, tree.root());
 
         Self {
-            name: file_name,
+            name: name.to_owned(),
             fills: ctx.fills,
             strokes: ctx.strokes,
             #[expect(
@@ -74,7 +61,6 @@ impl DataItem {
         }
     }
 
-    /// Get the raw flattened lines of both fills and strokes.
     pub fn lines(&self) -> Vec<Line> {
         let mut line_buf = vec![];
         let mut temp_buf = vec![];
@@ -112,7 +98,6 @@ impl DataItem {
         line_buf
     }
 
-    /// Get the expanded strokes.
     pub fn expanded_strokes(&self) -> Vec<BezPath> {
         let mut paths = vec![];
         let mut stroke_ctx = StrokeCtx::default();
@@ -129,7 +114,6 @@ impl DataItem {
         paths
     }
 
-    /// Get the unsorted tiles.
     pub fn unsorted_tiles(&self) -> Tiles {
         let mut tiles = Tiles::new(Level::new(), self.width, self.height);
         let lines = self.lines();
@@ -138,7 +122,6 @@ impl DataItem {
         tiles
     }
 
-    /// Get the sorted tiles.
     pub fn sorted_tiles(&self) -> Tiles {
         let mut tiles = self.unsorted_tiles();
         tiles.sort_tiles();
@@ -146,7 +129,6 @@ impl DataItem {
         tiles
     }
 
-    /// Get the alpha buffer and rendered strips.
     pub fn strips(&self) -> (Vec<u8>, Vec<Strip>) {
         let mut strip_buf = vec![];
         let mut alpha_buf = vec![];

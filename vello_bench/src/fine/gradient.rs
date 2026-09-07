@@ -3,7 +3,7 @@
 
 use crate::SEED;
 use crate::fine::{BENCH_WIDTH, default_blend, fill_single};
-use criterion::{Bencher, Criterion};
+use crate::harness::{Bencher, Registry};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use smallvec::{SmallVec, smallvec};
@@ -18,25 +18,25 @@ use vello_cpu::fine::{Fine, FineKernel};
 use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_bench;
 
-pub fn gradient(c: &mut Criterion) {
-    linear::opaque(c);
-    radial::opaque(c);
-    sweep::opaque(c);
+pub fn gradient(registry: &mut Registry) {
+    linear::opaque(registry);
+    radial::opaque(registry);
+    sweep::opaque(registry);
 
-    if crate::EXTENDED {
-        radial::opaque_conical(c);
+    registry.extended(|registry| {
+        radial::opaque_conical(registry);
 
-        extend::pad(c);
-        extend::repeat(c);
-        extend::reflect(c);
+        extend::pad(registry);
+        extend::repeat(registry);
+        extend::reflect(registry);
 
-        many_stops(c);
-        transparent(c);
-    }
+        many_stops(registry);
+        transparent(registry);
+    });
 }
 
 #[vello_bench]
-fn many_stops<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+fn many_stops<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
     let kind = LinearGradientPosition {
         start: Point::new(128.0, 128.0),
         end: Point::new(134.0, 134.0),
@@ -47,7 +47,7 @@ fn many_stops<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S,
 }
 
 #[vello_bench]
-fn transparent<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+fn transparent<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
     let kind = LinearGradientPosition {
         start: Point::new(128.0, 128.0),
         end: Point::new(134.0, 134.0),
@@ -65,7 +65,7 @@ fn transparent<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S
 
 mod extend {
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
-    use criterion::Bencher;
+    use crate::harness::Bencher;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Point;
     use vello_common::peniko;
@@ -76,7 +76,7 @@ mod extend {
     use vello_dev_macros::vello_bench;
 
     fn extend<S: Simd, N: FineKernel<S>>(
-        b: &mut Bencher<'_>,
+        b: &mut Bencher,
         fine: &mut Fine<S, N>,
         extend: peniko::Extend,
     ) {
@@ -90,24 +90,24 @@ mod extend {
     }
 
     #[vello_bench]
-    pub(super) fn pad<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+    pub(super) fn pad<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
         extend(b, fine, peniko::Extend::Pad);
     }
 
     #[vello_bench]
-    pub(super) fn reflect<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+    pub(super) fn reflect<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
         extend(b, fine, peniko::Extend::Reflect);
     }
 
     #[vello_bench]
-    pub(super) fn repeat<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+    pub(super) fn repeat<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
         extend(b, fine, peniko::Extend::Repeat);
     }
 }
 
 mod linear {
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
-    use criterion::Bencher;
+    use crate::harness::Bencher;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Point;
     use vello_common::peniko;
@@ -119,7 +119,7 @@ mod linear {
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
-    pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+    pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
         let kind = LinearGradientPosition {
             start: Point::new(128.0, 128.0),
             end: Point::new(134.0, 134.0),
@@ -140,7 +140,7 @@ mod radial {
 
     use crate::fine::BENCH_WIDTH;
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
-    use criterion::Bencher;
+    use crate::harness::Bencher;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Point;
     use vello_common::peniko;
@@ -152,7 +152,7 @@ mod radial {
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
-    pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+    pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
         let kind = RadialGradientPosition {
             start_center: Point::new(BENCH_WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             start_radius: 25.0,
@@ -172,7 +172,7 @@ mod radial {
 
     #[vello_bench]
     pub(super) fn opaque_conical<S: Simd, N: FineKernel<S>>(
-        b: &mut Bencher<'_>,
+        b: &mut Bencher,
         fine: &mut Fine<S, N>,
     ) {
         let kind = RadialGradientPosition {
@@ -200,7 +200,7 @@ mod sweep {
 
     use crate::fine::BENCH_WIDTH;
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
-    use criterion::Bencher;
+    use crate::harness::Bencher;
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Point;
     use vello_common::peniko;
@@ -212,7 +212,7 @@ mod sweep {
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
-    pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+    pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher, fine: &mut Fine<S, N>) {
         let kind = SweepGradientPosition {
             center: Point::new(BENCH_WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             start_angle: 70.0_f32.to_radians(),
@@ -231,7 +231,7 @@ mod sweep {
 }
 
 fn gradient_base<S: Simd, N: FineKernel<S>>(
-    b: &mut Bencher<'_>,
+    b: &mut Bencher,
     fine: &mut Fine<S, N>,
     extend: peniko::Extend,
     kind: GradientKind,
