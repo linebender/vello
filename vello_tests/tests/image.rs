@@ -746,10 +746,6 @@ fn image_spritesheet_tinted(ctx: &mut impl Renderer) {
     }
 }
 
-/// `ImageSampler::alpha` is folded into the tint, so it has to scale the image's
-/// opacity both without a tint (top-left) and on top of an existing one
-/// (top-right), leave the image untouched at `1.0` (bottom-left) and erase it
-/// completely at `0.0` (bottom-right).
 #[vello_test]
 fn image_sampler_alpha(ctx: &mut impl Renderer) {
     let source = rgb_img_10x10(ctx);
