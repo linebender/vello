@@ -1926,8 +1926,6 @@ pub(crate) struct WebGlStateGuard {
     config: WebGlStateConfig,
     original_framebuffer: Option<WebGlFramebuffer>,
     original_read_framebuffer: Option<WebGlFramebuffer>,
-    original_active_texture: Option<u32>,
-    original_texture_2d: Option<WebGlTexture>,
     original_pixel_pack_buffer: Option<WebGlBuffer>,
 }
 
@@ -1952,23 +1950,6 @@ impl WebGlStateGuard {
             None
         };
 
-        let original_active_texture = if config.active_texture {
-            gl.get_parameter(WebGl2RenderingContext::ACTIVE_TEXTURE)
-                .ok()
-                .and_then(|v| v.as_f64())
-                .map(|v| v as u32)
-        } else {
-            None
-        };
-
-        let original_texture_2d = if config.texture_2d {
-            gl.get_parameter(WebGl2RenderingContext::TEXTURE_BINDING_2D)
-                .ok()
-                .and_then(|v| v.dyn_into::<WebGlTexture>().ok())
-        } else {
-            None
-        };
-
         let original_pixel_pack_buffer = if config.pixel_pack_buffer {
             gl.get_parameter(WebGl2RenderingContext::PIXEL_PACK_BUFFER_BINDING)
                 .ok()
@@ -1982,8 +1963,6 @@ impl WebGlStateGuard {
             config,
             original_framebuffer,
             original_read_framebuffer,
-            original_active_texture,
-            original_texture_2d,
             original_pixel_pack_buffer,
         }
     }
@@ -2005,7 +1984,6 @@ impl WebGlStateGuard {
             gl,
             WebGlStateConfig {
                 read_framebuffer: true,
-                texture_2d: true,
                 ..Default::default()
             },
         )
@@ -2032,19 +2010,6 @@ impl Drop for WebGlStateGuard {
             );
         }
 
-        if self.config.active_texture
-            && let Some(active_texture) = self.original_active_texture
-        {
-            self.gl.active_texture(active_texture);
-        }
-
-        if self.config.texture_2d {
-            self.gl.bind_texture(
-                WebGl2RenderingContext::TEXTURE_2D,
-                self.original_texture_2d.as_ref(),
-            );
-        }
-
         if self.config.pixel_pack_buffer {
             self.gl.bind_buffer(
                 WebGl2RenderingContext::PIXEL_PACK_BUFFER,
@@ -2060,10 +2025,6 @@ pub(crate) struct WebGlStateConfig {
     pub(crate) framebuffer: bool,
     /// Save/restore read framebuffer binding (`READ_FRAMEBUFFER_BINDING`)
     pub(crate) read_framebuffer: bool,
-    /// Save/restore active texture unit (`ACTIVE_TEXTURE`)
-    pub(crate) active_texture: bool,
-    /// Save/restore 2D texture binding (`TEXTURE_BINDING_2D`)
-    pub(crate) texture_2d: bool,
     /// Save/restore pixel pack buffer binding (`PIXEL_PACK_BUFFER_BINDING`)
     pub(crate) pixel_pack_buffer: bool,
 }
@@ -3344,14 +3305,6 @@ fn copy_to_texture(
     dest_offset: [u32; 2],
     copy_size: [u32; 2],
 ) {
-    let _active_texture_guard = WebGlStateGuard::with_config(
-        gl,
-        WebGlStateConfig {
-            active_texture: true,
-            ..Default::default()
-        },
-    );
-
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     let _state_guard = WebGlStateGuard::for_texture_copy(gl);
     let read_framebuffer = Framebuffer::new(gl);

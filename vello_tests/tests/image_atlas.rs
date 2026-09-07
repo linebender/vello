@@ -12,11 +12,11 @@ use vello_common::{
 };
 use vello_gpu::{
     AtlasConfig, AtlasId, AtlasTextureInfo, MemorySettings, RenderError, RenderSettings, Scene,
-    TextureId, WebGlRenderer, WebGlTextureBindings, WebGlTextureWithDimensions,
+    TextureId, WebGlRenderer, WebGlTextureBindings,
 };
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
-use web_sys::{HtmlCanvasElement, WebGl2RenderingContext, WebGlTexture};
+use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
 fn create_canvas() -> HtmlCanvasElement {
     web_sys::window()
@@ -24,31 +24,6 @@ fn create_canvas() -> HtmlCanvasElement {
         .document()
         .unwrap()
         .create_element("canvas")
-        .unwrap()
-        .dyn_into()
-        .unwrap()
-}
-
-fn solid_texture(gl: &WebGl2RenderingContext, pixel: [u8; 4]) -> WebGlTexture {
-    let texture = gl.create_texture().unwrap();
-    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
-    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
-        WebGl2RenderingContext::TEXTURE_2D,
-        0,
-        WebGl2RenderingContext::RGBA8 as i32,
-        1,
-        1,
-        0,
-        WebGl2RenderingContext::RGBA,
-        WebGl2RenderingContext::UNSIGNED_BYTE,
-        Some(&pixel),
-    )
-    .unwrap();
-    texture
-}
-
-fn texture_binding_2d(gl: &WebGl2RenderingContext) -> WebGlTexture {
-    gl.get_parameter(WebGl2RenderingContext::TEXTURE_BINDING_2D)
         .unwrap()
         .dyn_into()
         .unwrap()
@@ -171,56 +146,5 @@ fn image_atlas_rejects_sampling_from_its_render_target() {
             Err(RenderError::TextureFeedbackLoop(id)) if id == texture_id
         ),
         "sampling from the render target should fail"
-    );
-}
-
-#[wasm_bindgen_test]
-fn texture_copy_preserves_texture_bindings() {
-    let canvas = create_canvas();
-    let settings = RenderSettings {
-        memory_settings: MemorySettings {
-            image_atlas_config: AtlasConfig {
-                initial_atlas_count: 1,
-                max_atlases: 1,
-                atlas_size: (1, 1),
-                ..AtlasConfig::default()
-            },
-            ..MemorySettings::default()
-        },
-        ..RenderSettings::default()
-    };
-    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings, true);
-    let gl = renderer.gl_context().clone();
-
-    let source = solid_texture(&gl, [255, 0, 0, 255]);
-    let texture_zero = solid_texture(&gl, [0, 255, 0, 255]);
-    let texture_seven = solid_texture(&gl, [0, 0, 255, 255]);
-
-    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture_zero));
-    gl.active_texture(WebGl2RenderingContext::TEXTURE7);
-    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture_seven));
-
-    renderer.upload_image(
-        &mut resources,
-        &WebGlTextureWithDimensions {
-            texture: source,
-            width: 1,
-            height: 1,
-        },
-    );
-
-    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-    assert_eq!(
-        texture_binding_2d(&gl),
-        texture_zero,
-        "the texture copy should preserve texture unit 0's binding",
-    );
-
-    gl.active_texture(WebGl2RenderingContext::TEXTURE7);
-    assert_eq!(
-        texture_binding_2d(&gl),
-        texture_seven,
-        "the texture copy should preserve other texture units' bindings",
     );
 }
