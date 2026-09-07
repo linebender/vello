@@ -101,6 +101,41 @@ pub use peniko::color;
 pub use peniko::kurbo;
 pub use target::TargetInit;
 
+/// Public API types re-exported by Vello CPU and Vello Hybrid.
+#[doc(hidden)]
+pub mod exports {
+    mod shared {
+        pub use crate::filter_effects;
+        pub use crate::geometry;
+        pub use crate::mask::Mask;
+        pub use crate::paint::{Image, ImageId, ImageSource, PaintType, Tint, TintMode};
+        pub use crate::pixmap::{PixelMetadata, Pixels, Pixmap};
+        pub use crate::render_state::RenderState;
+        pub use crate::transforms::Transforms;
+        pub use crate::{color, kurbo, peniko};
+        pub use fearless_simd::Level;
+    }
+
+    /// Public API types specific to Vello CPU.
+    pub mod cpu {
+        pub use super::shared::*;
+        pub use crate::pixmap::PixmapMut;
+    }
+
+    /// Public API types specific to Vello Hybrid.
+    pub mod hybrid {
+        pub use super::shared::*;
+        pub use crate::TextureId;
+        pub use crate::geometry::{RectU16, SizeU16};
+        pub use crate::multi_atlas::{
+            AllocationStrategy, AtlasConfig, AtlasError, AtlasId, AtlasLayerDiagnostics,
+            AtlasSpaceDiagnostics,
+        };
+        #[cfg(feature = "probe")]
+        pub use crate::probe::{PROBE_ELEMENTS, Probe, ProbeFeature, ProbeResult, ProbeStatistics};
+    }
+}
+
 /// A handle to an external, user-provided texture.
 ///
 /// This is resolved at render time by passing in a mapping of handles to textures, but is
