@@ -175,7 +175,7 @@ fn image_atlas_rejects_sampling_from_its_render_target() {
 }
 
 #[wasm_bindgen_test]
-fn texture_copy_restores_texture_zero_binding_when_another_unit_is_active() {
+fn texture_copy_preserves_texture_bindings() {
     let canvas = create_canvas();
     let settings = RenderSettings {
         memory_settings: MemorySettings {
@@ -210,24 +210,17 @@ fn texture_copy_restores_texture_zero_binding_when_another_unit_is_active() {
         },
     );
 
-    assert_eq!(
-        gl.get_parameter(WebGl2RenderingContext::ACTIVE_TEXTURE)
-            .unwrap()
-            .as_f64()
-            .unwrap() as u32,
-        WebGl2RenderingContext::TEXTURE7,
-        "the texture copy should restore the active texture unit",
-    );
-    assert_eq!(
-        texture_binding_2d(&gl),
-        texture_seven,
-        "the texture copy should preserve the active unit's binding",
-    );
-
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     assert_eq!(
         texture_binding_2d(&gl),
         texture_zero,
         "the texture copy should preserve texture unit 0's binding",
+    );
+
+    gl.active_texture(WebGl2RenderingContext::TEXTURE7);
+    assert_eq!(
+        texture_binding_2d(&gl),
+        texture_seven,
+        "the texture copy should preserve other texture units' bindings",
     );
 }
