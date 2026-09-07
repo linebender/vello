@@ -1,6 +1,6 @@
 # Noto Color Emoji Subset
 
-This folder contains a small subset of [Noto Color Emoji](https://fonts.google.com/noto/specimen/Noto+Color+Emoji), licensed under the [OFL version 1.1](LICENSE).
+This folder contains a small subset of [Noto Color Emoji](https://fonts.google.com/noto/specimen/Noto+Color+Emoji), licensed under the [OFL version 1.1](LICENSE.txt).
 We do not include the full set of Emoji, because including the entire Emoji set would increase the repository size too much.
 Included emoji are:
 

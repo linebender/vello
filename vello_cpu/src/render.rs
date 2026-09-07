@@ -537,7 +537,7 @@ impl RenderContext {
     /// render context. The mask will not be affected by the current transform
     /// in place.
     ///
-    /// See the explanation in the [masking](https://github.com/linebender/vello/tree/main/sparse_strips/masking/examples)
+    /// See the explanation in the [masking](https://github.com/linebender/vello/blob/main/vello_cpu/examples/masking.rs)
     /// example for how this method differs from `set_mask`.
     pub fn push_mask_layer(&mut self, mask: Mask) {
         self.push_layer(None, None, None, Some(mask), None);
@@ -655,7 +655,7 @@ impl RenderContext {
     /// have the same dimensions as the render context. The mask will not be
     /// affected by the current transform in place.
     ///
-    /// See the explanation in the [masking](https://github.com/linebender/vello/tree/main/sparse_strips/masking/examples)
+    /// See the explanation in the [masking](https://github.com/linebender/vello/blob/main/vello_cpu/examples/masking.rs)
     /// example for how this method differs from `push_mask_layer`.
     pub fn set_mask(&mut self, mask: Mask) {
         self.mask = Some(mask);

@@ -487,7 +487,7 @@ This release has an [MSRV][] of 1.75.
 [0.2.0]: https://github.com/linebender/vello/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/linebender/vello/releases/tag/v0.1.0
 
-[MSRV]: README.md#minimum-supported-rust-version-msrv
+[MSRV]: ../README.md#minimum-supported-rust-version-msrv
 [`run_app`]: https://docs.rs/winit/latest/winit/event_loop/struct.EventLoop.html#method.run_app
 [stroke-expansion]: https://linebender.org/gpu-stroke-expansion-paper/
 [`color`]: https://docs.rs/color/
