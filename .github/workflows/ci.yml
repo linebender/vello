@@ -22,7 +22,7 @@ env:
   # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_tests --exclude xtask"
   # The files stored in LFS the tests need to access, in JSON format
-  LFS_FILES: '["vello_tests/snapshots/*.png", "sparse_strips/vello_sparse_tests/snapshots/*.png"]'
+  LFS_FILES: '["research/vello_tests/snapshots/*.png", "vello_sparse_tests/snapshots/*.png"]'
 
 
 # Rationale
@@ -225,7 +225,7 @@ jobs:
           save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: check sparse strips wasm sizes
-        run: ./sparse_strips/web/check_wasm_sizes.sh
+        run: ./vello_sparse_tests/web/check_wasm_sizes.sh
 
   prime-lfs-cache:
     name: Prime LFS Cache
@@ -340,9 +340,9 @@ jobs:
         with:
           name: vello-snapshot-tests-${{ matrix.os }}
           path: |
-            vello_tests/comparisons
-            vello_tests/current
-            sparse_strips/vello_sparse_tests/diffs
+            research/vello_tests/comparisons
+            research/vello_tests/current
+            vello_sparse_tests/diffs
 
       - name: cargo test --doc
         run: cargo test --doc --workspace --locked --all-features --no-fail-fast
@@ -454,7 +454,7 @@ jobs:
         # We need to run in release mode, because otherwise wasm_parser can't read the
         # blob, see <https://github.com/linebender/vello/pull/1078#issuecomment-3029336905>
         run: wasm-pack test --headless --chrome --features webgl --release
-        working-directory: sparse_strips/vello_sparse_tests
+        working-directory: vello_sparse_tests
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
 
@@ -482,11 +482,11 @@ jobs:
 
       - name: check vello_hybrid is wgpu webgl compatible
         run: wasm-pack test --headless --chrome
-        working-directory: sparse_strips/vello_hybrid/examples/wgpu_webgl
+        working-directory: vello_hybrid/examples/wgpu_webgl
 
       - name: check vello_hybrid is native webgl compatible
         run: wasm-pack test --headless --chrome
-        working-directory: sparse_strips/vello_hybrid/examples/native_webgl
+        working-directory: vello_hybrid/examples/native_webgl
 
 
   check-stable-android:

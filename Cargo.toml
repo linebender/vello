@@ -1,32 +1,33 @@
 [workspace]
 resolver = "2"
 members = [
-    "vello",
-    "vello_encoding",
-    "vello_shaders",
-    "vello_tests",
-    "xtask",
+    "research/vello",
+    "research/vello_encoding",
+    "research/vello_shaders",
+    "research/vello_tests",
+    "research/xtask",
 
-    "examples/headless",
-    "examples/run_wasm",
-    "examples/scenes",
-    "examples/simple",
-    "examples/with_winit",
+    "research/examples/headless",
+    "tools/run_wasm",
+    "research/examples/scenes",
+    "research/examples/simple",
+    "research/examples/with_winit",
 
-    "sparse_strips/vello_bench",
-    "sparse_strips/vello_common",
-    "sparse_strips/vello_cpu",
-    "sparse_strips/vello_cpu/examples/wasm_cpu",
-    "sparse_strips/vello_cpu/examples/winit",
-    "sparse_strips/vello_hybrid",
-    "sparse_strips/vello_sparse_shaders",
-    "sparse_strips/vello_hybrid/examples/native_webgl",
-    "sparse_strips/vello_example_scenes",
-    "sparse_strips/vello_hybrid/examples/wgpu_webgl",
-    "sparse_strips/vello_hybrid/examples/winit",
-    "sparse_strips/vello_toy",
-    "sparse_strips/vello_dev_macros",
-    "sparse_strips/vello_sparse_tests",
+    "vello_cpu",
+    "vello_cpu/examples/wasm_cpu",
+    "vello_cpu/examples/winit",
+    "vello_hybrid",
+    "vello_hybrid/examples/native_webgl",
+    "vello_hybrid/examples/wgpu_webgl",
+    "vello_hybrid/examples/winit",
+
+    "vello_bench",
+    "vello_common",
+    "vello_sparse_shaders",
+    "vello_toy",
+    "vello_sparse_tests",
+    "vello_sparse_tests/vello_dev_macros",
+    "vello_sparse_tests/vello_example_scenes",
     "glifo",
 ]
 
@@ -41,7 +42,7 @@ version = "0.10.0"
 
 edition = "2024"
 # Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml, with the relevant README.md files
-# and with the MSRV in the `Unreleased` section of CHANGELOG.md.
+# and with the MSRV in the `Unreleased` section of research/CHANGELOG.md.
 rust-version = "1.89"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/linebender/vello"
@@ -94,9 +95,9 @@ clippy.wildcard_dependencies = "warn"
 # END LINEBENDER LINT SET
 
 [workspace.dependencies]
-vello = { version = "0.10.0", path = "vello" }
-vello_encoding = { version = "0.10.0", path = "vello_encoding" }
-vello_shaders = { version = "0.10.0", path = "vello_shaders" }
+vello = { version = "0.10.0", path = "research/vello" }
+vello_encoding = { version = "0.10.0", path = "research/vello_encoding" }
+vello_shaders = { version = "0.10.0", path = "research/vello_shaders" }
 bytemuck = { version = "1.25.0", features = ["derive"] }
 skrifa = { version = "0.44.0", default-features = false, features = ["autohint_shaping"] }
 # The version of kurbo used below should be kept in sync
@@ -128,16 +129,16 @@ wasm-bindgen-futures = "0.4.64"
 wasm-bindgen-test = "0.3.64"
 web-sys = "0.3.91"
 
-vello_common = { version = "0.2.0", path = "sparse_strips/vello_common", default-features = false }
-vello_cpu = { version = "0.2.0", path = "sparse_strips/vello_cpu" }
-vello_hybrid = { version = "0.2.0", path = "sparse_strips/vello_hybrid", default-features = false }
-vello_sparse_shaders = { version = "0.2.0", path = "sparse_strips/vello_sparse_shaders" }
+vello_common = { version = "0.2.0", path = "vello_common", default-features = false }
+vello_cpu = { version = "0.2.0", path = "vello_cpu" }
+vello_hybrid = { version = "0.2.0", path = "vello_hybrid", default-features = false }
+vello_sparse_shaders = { version = "0.2.0", path = "vello_sparse_shaders" }
 glifo = { version = "0.3.0", path = "glifo", default-features = false }
-vello_example_scenes = { path = "sparse_strips/vello_example_scenes" }
-vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
+vello_example_scenes = { path = "vello_sparse_tests/vello_example_scenes" }
+vello_dev_macros = { path = "vello_sparse_tests/vello_dev_macros" }
 
 # NOTE: The wgpu and naga versions should be kept in sync, and make sure to keep this
-# in sync with the version badge in README.md and vello/README.md
+# in sync with the version badge in README.md and research/vello/README.md
 wgpu = { version = "29.0.3", default-features = false, features = ["std", "wgsl"] }
 naga = { version = "29.0.3", default-features = false }
 log = "0.4.29"
@@ -150,7 +151,7 @@ pollster = "0.4.0"
 web-time = "1.1.0"
 wgpu-profiler = "0.27.0"
 winit = "0.30.13"
-scenes = { path = "examples/scenes" }
+scenes = { path = "research/examples/scenes" }
 svg = "0.18.0"
 criterion = { version = "0.5.1", default-features = false }
 rand = { version = "0.9.4", default-features = false, features = ["std_rng"] }

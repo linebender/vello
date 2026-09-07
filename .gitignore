@@ -5,7 +5,7 @@
 /example_*.png
 .DS_Store
 
-examples/assets/downloads/*
-!examples/assets/downloads/.tracked
-examples/headless/outputs/*
-!examples/headless/outputs/.tracked
+assets/downloads/*
+!assets/downloads/.tracked
+research/examples/headless/outputs/*
+!research/examples/headless/outputs/.tracked

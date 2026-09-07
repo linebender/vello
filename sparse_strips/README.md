@@ -36,7 +36,7 @@ included in this directory. Run the SIMD128 size check from the repository root
 with:
 
 ```bash
-./sparse_strips/web/check_wasm_sizes.sh
+./vello_sparse_tests/web/check_wasm_sizes.sh
 ```
 
 ## Community

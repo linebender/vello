@@ -87,11 +87,11 @@ Licensed under either of
 
 at your option.
 
-In addition, all files in the [`vello_shaders/shader`](https://github.com/linebender/vello/tree/main/vello_shaders/shader) and [`vello_shaders/src/cpu`](https://github.com/linebender/vello/tree/main/vello_shaders/src/cpu) directories and subdirectories thereof are alternatively licensed under the Unlicense ([vello_shaders/shader/UNLICENSE](https://github.com/linebender/vello/tree/main/vello_shaders/shader/UNLICENSE) or <http://unlicense.org/>).
+In addition, all files in the [`research/vello_shaders/shader`](https://github.com/linebender/vello/tree/main/research/vello_shaders/shader) and [`research/vello_shaders/src/cpu`](https://github.com/linebender/vello/tree/main/research/vello_shaders/src/cpu) directories and subdirectories thereof are alternatively licensed under the Unlicense ([research/vello_shaders/shader/UNLICENSE](https://github.com/linebender/vello/tree/main/research/vello_shaders/shader/UNLICENSE) or <http://unlicense.org/>).
 For clarity, these files are also licensed under either of the above licenses.
 The intent is for this research to be used in as broad a context as possible.
 
-The files in subdirectories of the [`examples/assets`](https://github.com/linebender/vello/tree/main/examples/assets) directory are licensed solely under their respective licenses, available in the `LICENSE` file in their directories.
+The files in subdirectories of the [`assets`](https://github.com/linebender/vello/tree/main/assets) directory are licensed solely under their respective licenses, available in the `LICENSE` file in their directories.
 
 [piet-metal]: https://github.com/linebender/piet-metal
 [`wgpu`]: https://wgpu.rs/
@@ -104,4 +104,4 @@ The files in subdirectories of the [`examples/assets`](https://github.com/linebe
 [winit]: https://github.com/rust-windowing/winit
 [Bevy]: https://bevyengine.org/
 [Requiem for piet-gpu-hal]: https://raphlinus.github.io/rust/gpu/2023/01/07/requiem-piet-gpu-hal.html
-[the changelog]: https://github.com/linebender/vello/tree/main/CHANGELOG.md
+[the changelog]: https://github.com/linebender/vello/tree/main/research/CHANGELOG.md

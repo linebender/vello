@@ -2194,12 +2194,12 @@ mod tests {
     const _NORMALISED_COORD_SIZE_MATCHES: () =
         assert!(size_of::<skrifa::instance::NormalizedCoord>() == size_of::<NormalizedCoord>());
 
-    const ROBOTO_FONT: &[u8] = include_bytes!("../../examples/assets/roboto/Roboto-Regular.ttf");
+    const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
     const NOTO_COLR_FONT: &[u8] =
-        include_bytes!("../../examples/assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
+        include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
     #[cfg(feature = "png")]
     const NOTO_CBTF_FONT: &[u8] =
-        include_bytes!("../../examples/assets/noto_color_emoji/NotoColorEmoji-CBTF-Subset.ttf");
+        include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-CBTF-Subset.ttf");
 
     #[derive(Clone, Copy)]
     enum TestGlyphKind {
