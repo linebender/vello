@@ -217,7 +217,7 @@ jobs:
       - name: install wasm-bindgen
         uses: taiki-e/install-action@v2
         with:
-          tool: wasm-bindgen@0.2.114
+          tool: wasm-bindgen@0.2.115
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2

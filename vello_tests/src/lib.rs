@@ -180,7 +180,7 @@ pub async fn get_scene_image(
     } else {
         bail!("channel was closed");
     }
-    let data = buf_slice.get_mapped_range();
+    let data = buf_slice.get_mapped_range().unwrap();
     let mut result_unpadded = Vec::<u8>::with_capacity((width * height * 4).try_into()?);
     for row in 0..height {
         let start = (row * padded_byte_width).try_into()?;

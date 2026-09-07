@@ -18,7 +18,7 @@ The script requires the `wasm32-unknown-unknown` Rust target and the
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.114 --locked --force
+cargo install wasm-bindgen-cli --version 0.2.115 --locked --force
 ```
 
 To build the three SIMD128 modules, report raw and gzip-compressed sizes, and
