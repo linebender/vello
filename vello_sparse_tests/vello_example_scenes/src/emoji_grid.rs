@@ -17,7 +17,7 @@ use vello_common::peniko::{Blob, FontData};
 use crate::{ExampleScene, RenderingContext};
 
 const FALLBACK_NOTO_COLR_FONT: &[u8] =
-    include_bytes!("../../../examples/assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
+    include_bytes!("../../../assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
 // If you want wasm builds to embed a custom COLR font and can guarantee
 // `NOTO_COLR_PATH` is set at compile time, replace the constant above with:
 //

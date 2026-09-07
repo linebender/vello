@@ -176,7 +176,7 @@ impl ExampleScene for ImageScene {
 impl ImageScene {
     /// Read the flower image
     pub fn read_flower_image() -> Pixmap {
-        let image_data = include_bytes!("../../../examples/assets/splash-flower.jpg");
+        let image_data = include_bytes!("../../../assets/splash-flower.jpg");
         Self::read_image(image_data)
     }
 
@@ -194,7 +194,7 @@ impl ImageScene {
 
     /// Read the cowboy image
     pub fn read_cowboy_image() -> Pixmap {
-        let data = include_bytes!("../../vello_sparse_tests/tests/assets/cowboy.png");
+        let data = include_bytes!("../../tests/assets/cowboy.png");
         Pixmap::from_png(Cursor::new(data)).unwrap()
     }
 }

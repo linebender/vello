@@ -29,7 +29,7 @@ impl Default for ColorBrush {
 
 // Wasm doesn't support system fonts, so we need to include the font data directly.
 #[cfg(target_arch = "wasm32")]
-const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+const ROBOTO_FONT: &[u8] = include_bytes!("../../../assets/roboto/Roboto-Regular.ttf");
 
 /// State for the text example.
 pub struct TextScene {

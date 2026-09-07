@@ -40,14 +40,13 @@ impl SvgScene {
     pub fn tiger() -> Self {
         // Load the ghost tiger SVG by default
         #[cfg(target_arch = "wasm32")]
-        let svg_content = include_str!("../../../examples/assets/Ghostscript_Tiger.svg");
+        let svg_content = include_str!("../../../assets/Ghostscript_Tiger.svg");
         #[cfg(not(target_arch = "wasm32"))]
         let svg_content = {
             let cargo_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .canonicalize()
                 .unwrap();
-            &std::fs::read_to_string(cargo_dir.join("../../examples/assets/Ghostscript_Tiger.svg"))
-                .unwrap()
+            &std::fs::read_to_string(cargo_dir.join("../../assets/Ghostscript_Tiger.svg")).unwrap()
         };
 
         let svg = PicoSvg::load(svg_content, 1.0).expect("Failed to parse Ghost Tiger SVG");

@@ -116,7 +116,7 @@ renderer
 // wgpu::util::TextureBlitter.
 ```
 
-See the repository's [`examples`](https://github.com/linebender/vello/tree/main/examples) directory for code that integrates with frameworks like winit.
+See the repository's [`research/examples`](https://github.com/linebender/vello/tree/main/research/examples) directory for code that integrates with frameworks like winit.
 
 ## Performance
 
@@ -140,14 +140,14 @@ A separate Linebender integration for rendering raw scenes or Lottie and SVG fil
 
 ## Examples
 
-Our examples are provided in separate packages in the repository's [`examples`](https://github.com/linebender/vello/tree/main/examples) directory.
+Our examples are provided in separate packages in the repository's [`research/examples`](https://github.com/linebender/vello/tree/main/research/examples) directory.
 This allows them to have independent dependencies and faster builds.
 Examples must be selected using the `--package` (or `-p`) Cargo flag.
 
 ### Winit
 
-Our [winit] example ([examples/with_winit](https://github.com/linebender/vello/tree/main/examples/with_winit)) demonstrates rendering to a [winit] window.
-By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [examples/assets/downloads](https://github.com/linebender/vello/tree/main/examples/assets/downloads) directory.
+Our [winit] example ([research/examples/with_winit](https://github.com/linebender/vello/tree/main/research/examples/with_winit)) demonstrates rendering to a [winit] window.
+By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [assets/downloads](https://github.com/linebender/vello/tree/main/assets/downloads) directory.
 A custom list of SVG file paths (and directories to render all SVG files from) can be provided as arguments instead.
 It also includes a collection of test scenes showing the capabilities of `vello`, which can be shown with `--test-scenes`.
 
@@ -201,7 +201,7 @@ cargo apk run -p with_winit --lib
 > See [their crates page docs](https://crates.io/crates/cargo-apk) (around `package.metadata.android.signing.<profile>`).
 >
 > See also [cargo-apk#16](https://github.com/rust-mobile/cargo-apk/issues/16).
-> To run in release mode, you must add the following to `examples/with_winit/Cargo.toml` (changing `$HOME` to your home directory):
+> To run in release mode, you must add the following to `research/examples/with_winit/Cargo.toml` (changing `$HOME` to your home directory):
 
 ```toml
 [package.metadata.android.signing.release]
@@ -262,7 +262,7 @@ This succeeded the previous prototype, [piet-metal], and included work adapted f
 
 The decision to lay down `piet-gpu-hal` in favor of WebGPU is discussed in detail in the blog post [Requiem for piet-gpu-hal].
 
-A [vision](https://github.com/linebender/vello/tree/main/doc/vision.md) document dated December 2020 explained the longer-term goals of the project, and how we might get there.
+A [vision](https://github.com/linebender/vello/tree/main/research/doc/vision.md) document dated December 2020 explained the longer-term goals of the project, and how we might get there.
 Many of these items are out-of-date or completed, but it still may provide some useful background.
 
 ## Related projects
@@ -295,4 +295,4 @@ at your option.
 [winit]: https://github.com/rust-windowing/winit
 [Bevy]: https://bevyengine.org/
 [Requiem for piet-gpu-hal]: https://raphlinus.github.io/rust/gpu/2023/01/07/requiem-piet-gpu-hal.html
-[the changelog]: https://github.com/linebender/vello/tree/main/CHANGELOG.md
+[the changelog]: https://github.com/linebender/vello/tree/main/research/CHANGELOG.md

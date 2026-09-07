@@ -76,7 +76,7 @@
 //! // wgpu::util::TextureBlitter.
 //! ```
 //!
-//! See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit.
+//! See the [`research/examples/`](https://github.com/linebender/vello/tree/main/research/examples) folder to see how that code integrates with frameworks like winit.
 
 // LINEBENDER LINT SET - lib.rs - v2
 // See https://linebender.org/wiki/canonical-lints/

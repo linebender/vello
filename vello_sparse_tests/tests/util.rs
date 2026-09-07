@@ -236,7 +236,7 @@ pub(crate) fn circular_star(center: Point, n: usize, inner: f64, outer: f64) -> 
 }
 
 pub(crate) fn layout_glyphs_roboto(text: &str, font_size: f32) -> (FontData, Vec<Glyph>) {
-    const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+    const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
     let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
 
     layout_glyphs(text, font_size, font)
@@ -244,7 +244,7 @@ pub(crate) fn layout_glyphs_roboto(text: &str, font_size: f32) -> (FontData, Vec
 
 pub(crate) fn layout_glyphs_noto_cbtf(text: &str, font_size: f32) -> (FontData, Vec<Glyph>) {
     const NOTO_FONT: &[u8] =
-        include_bytes!("../../../examples/assets/noto_color_emoji/NotoColorEmoji-CBTF-Subset.ttf");
+        include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-CBTF-Subset.ttf");
     let font = FontData::new(Blob::new(Arc::new(NOTO_FONT)), 0);
 
     layout_glyphs(text, font_size, font)
@@ -252,7 +252,7 @@ pub(crate) fn layout_glyphs_noto_cbtf(text: &str, font_size: f32) -> (FontData, 
 
 pub(crate) fn layout_glyphs_noto_colr(text: &str, font_size: f32) -> (FontData, Vec<Glyph>) {
     const NOTO_FONT: &[u8] =
-        include_bytes!("../../../examples/assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
+        include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
     let font = FontData::new(Blob::new(Arc::new(NOTO_FONT)), 0);
 
     layout_glyphs(text, font_size, font)

@@ -345,7 +345,7 @@ impl Scene {
 
     /// Push a new clip path to the clip stack.
     ///
-    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
+    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
         let transform = self.transforms().clip_path_transform();
@@ -670,7 +670,7 @@ impl Scene {
 
     /// Push a new clip layer.
     ///
-    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
+    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/vello_cpu/examples)
     /// example for how this method differs from `push_clip_path`.
     pub fn push_clip_layer(&mut self, path: &BezPath) {
         self.push_layer(Some(path), None, None, None, None);
@@ -970,8 +970,7 @@ mod tests {
     #[cfg(feature = "text")]
     #[test]
     fn glyph_atlas_resources_are_lazy() {
-        const ROBOTO_FONT: &[u8] =
-            include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+        const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
 
         let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
         let glyphs = [Glyph {

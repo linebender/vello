@@ -59,10 +59,10 @@ Licensed under either of
 
 at your option.
 
-In addition, all files in the [`shader`](https://github.com/linebender/vello/tree/main/vello_shaders/shader) and [`src/cpu`](https://github.com/linebender/vello/tree/main/vello_shaders/src/cpu) directories and subdirectories thereof are alternatively licensed under the Unlicense ([shader/UNLICENSE](https://github.com/linebender/vello/tree/main/vello_shaders/shader/UNLICENSE) or <http://unlicense.org/>).
+In addition, all files in the [`shader`](https://github.com/linebender/vello/tree/main/research/vello_shaders/shader) and [`src/cpu`](https://github.com/linebender/vello/tree/main/research/vello_shaders/src/cpu) directories and subdirectories thereof are alternatively licensed under the Unlicense ([shader/UNLICENSE](https://github.com/linebender/vello/tree/main/research/vello_shaders/shader/UNLICENSE) or <http://unlicense.org/>).
 For clarity, these files are also licensed under either of the above licenses.
 The intent is for this research to be used in as broad a context as possible.
 
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
 [Vello]: https://github.com/linebender/vello
-[the changelog]: https://github.com/linebender/vello/tree/main/CHANGELOG.md
+[the changelog]: https://github.com/linebender/vello/tree/main/research/CHANGELOG.md

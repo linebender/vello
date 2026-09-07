@@ -7,7 +7,8 @@
 //! `cargo run -p with_winit -- --test-scenes`
 //! Or `cargo run -p with_winit --release -- --test-scenes`
 //!
-//! Many of these are also tested automatically in `vello_tests/tests/snapshot_test_scenes.rs`.
+//! Many of these are also tested automatically in
+//! `research/vello_tests/tests/snapshot_test_scenes.rs`.
 //! If you're adding a new test scene, also add a corresponding test in that file.
 //!
 //! Architecturally, this module consists of:
@@ -136,7 +137,7 @@ mod impls {
     use vello::peniko::*;
     use vello::*;
 
-    const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
+    const FLOWER_IMAGE: &[u8] = include_bytes!("../../../../assets/splash-flower.jpg");
 
     fn sample_image_data() -> ImageData {
         let mut blob: Vec<u8> = Vec::new();
@@ -1975,7 +1976,7 @@ mod impls {
     pub(super) fn splash_with_tiger() -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
         let contents = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../assets/Ghostscript_Tiger.svg"
+            "/../../../assets/Ghostscript_Tiger.svg"
         ));
         let mut tiger =
             crate::svg::svg_function_of("Ghostscript Tiger".to_string(), move || contents);

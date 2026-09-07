@@ -69,7 +69,7 @@ pub fn images(c: &mut Criterion) {
 }
 
 fn load_flower_image() -> ImageSource {
-    let image_data = include_bytes!("../../../examples/assets/splash-flower.jpg");
+    let image_data = include_bytes!("../../assets/splash-flower.jpg");
     let image = image::load_from_memory(image_data).expect("Failed to decode image");
     let width = image.width();
     let height = image.height();

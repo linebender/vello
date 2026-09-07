@@ -14,14 +14,14 @@ Vello emerges from being a research project, which attempts to answer these hypo
 
 Another goal of the overall project is to explain how the renderer is built, and to advance the state of building applications on GPU compute shaders more generally.
 Much of the progress on Vello is documented in blog entries.
-See [blogs.md](blogs.md) for pointers to those.
+See [blogs.md](research/doc/blogs.md) for pointers to those.
 
 Ideally, we'd like our documentation to be more structured; we may refactor it in the future (see [#488]).
 
 
 ## Roadmap
 
-The [roadmap for 2023](roadmap_2023.md) is still largely applicable.
+The [roadmap for 2023](research/doc/roadmap_2023.md) is still largely applicable.
 The "Semi-stable encoding format" section and most of the "CPU fallback" section can be considered implemented.
 
 Our current priority is to fill in missing features and to fix rendering artifacts, so that Vello can reach feature parity with other 2D graphics engines.
@@ -31,15 +31,15 @@ Our current priority is to fill in missing features and to fix rendering artifac
 
 The repository is structured as such:
 
-- `doc/` - Various documents detailing the vision for Vello as it was developed. This directory should probably be refactored away; adding to it not recommended.
-- `examples/` - Example projects using Vello. Each example is its own crate, with its own dependencies. The simplest example is called `simple`.
-- `vello/` - Code for the main `vello` crate.
-- `vello_encoding/` - Types that represent the data that needs to be rendered.
-- `vello_shaders/` - Infrastructure to preprocess and cross-compile shaders at compile time; see "Shader templating".
+- `research/doc/` - Historical documents detailing the vision for the compute renderer as it was developed.
+- `research/examples/` - Example projects using the compute renderer. Each example is its own crate, with its own dependencies. The simplest example is called `simple`.
+- `research/vello/` - Code for the main `vello` crate.
+- `research/vello_encoding/` - Types that represent the data that needs to be rendered.
+- `research/vello_shaders/` - Infrastructure to preprocess and cross-compile shaders at compile time; see "Shader templating".
   - `shader/` - This is where the magic happens. WGSL shaders that define the compute operations (often variations of prefix sum) that Vello does to render a scene.
     - `shared/` - Shared types, functions and constants included in other shaders through non-standard `#import` preprocessor directives (see "Shader templating").
   - `cpu/` - Functions that perform the same work as their equivalently-named WGSL shaders for the CPU fallbacks. The name is a bit loose; they're "shaders" in the sense that they work on resource bindings with the exact same layout as actual GPU shaders.
-- `vello_tests/` - Helper code for writing tests; current has a single smoke test and not much else.
+- `research/vello_tests/` - Helper code for writing tests; current has a single smoke test and not much else.
 
 
 ## Shader templating
@@ -63,7 +63,7 @@ Note that new imports must currently be added to `.vscode/settings.json` for thi
 
 ## Path encoding
 
-See [Path segment encoding](./pathseg.md) document.
+See the [Path segment encoding](research/doc/pathseg.md) document.
 
 
 ## Intermediary layers
@@ -80,7 +80,7 @@ In principle, other backends could consume a `Recording`, but for now the only i
 
 ### CPU rendering
 
-The code in `vello_shaders/src/cpu/*.rs` and `vello_shaders/src/cpu.rs` provides *some* support for CPU-side rendering. It's in an awkward place right now:
+The code in `research/vello_shaders/src/cpu/*.rs` and `research/vello_shaders/src/cpu.rs` provides *some* support for CPU-side rendering. It's in an awkward place right now:
 
 - It's called through WgpuEngine, so the dependency on wgpu is still there.
 - Fine rasterization (the part at the end that puts pixels on screen) doesn't work in CPU yet (see [#386]).

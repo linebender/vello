@@ -28,7 +28,7 @@ impl Default for ColorBrush {
 }
 
 #[cfg(target_arch = "wasm32")]
-const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+const ROBOTO_FONT: &[u8] = include_bytes!("../../../assets/roboto/Roboto-Regular.ttf");
 
 const INITIAL_SEGMENT_COUNT: usize = 200;
 const BATCH_SIZE: usize = 50;

@@ -895,7 +895,7 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
 )]
 fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer, enable_caching: bool) {
     const TEST_FONT: &[u8] =
-        include_bytes!("../../../examples/assets/colr_test_glyphs/test_glyphs-glyf_colr_1.ttf");
+        include_bytes!("../../assets/colr_test_glyphs/test_glyphs-glyf_colr_1.ttf");
     let font = FontData::new(Blob::new(Arc::new(TEST_FONT)), 0);
     let num_glyphs = 221;
 

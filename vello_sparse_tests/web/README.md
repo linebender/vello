@@ -5,8 +5,8 @@ WebAssembly modules in `target/sparse-strips-wasm`. Pass the module and variant
 to build:
 
 ```bash
-./sparse_strips/web/build_wasm.sh vello_cpu non-simd
-./sparse_strips/web/build_wasm.sh vello_hybrid_webgl simd
+./vello_sparse_tests/web/build_wasm.sh vello_cpu non-simd
+./vello_sparse_tests/web/build_wasm.sh vello_hybrid_webgl simd
 ```
 
 The supported modules are `vello_cpu`, `vello_hybrid_webgl`, and
@@ -25,7 +25,7 @@ To build the three SIMD128 modules, report raw and gzip-compressed sizes, and
 enforce the committed raw size limits, run:
 
 ```bash
-./sparse_strips/web/check_wasm_sizes.sh
+./vello_sparse_tests/web/check_wasm_sizes.sh
 ```
 
 Set `WASM_BINDGEN` to use a `wasm-bindgen` executable that is not on `PATH`.

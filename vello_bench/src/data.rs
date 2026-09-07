@@ -23,8 +23,7 @@ pub fn get_data_items() -> &'static [DataItem] {
 
         // Always use ghostscript tiger.
         data.push(DataItem::from_path(
-            &Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../examples/assets/Ghostscript_Tiger.svg"),
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/Ghostscript_Tiger.svg"),
         ));
 
         for entry in std::fs::read_dir(&data_dir).unwrap() {

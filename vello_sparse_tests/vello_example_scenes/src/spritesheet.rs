@@ -46,7 +46,7 @@ impl SpritesheetScene {
     /// Decode the spritesheet into a [`Pixmap`]. Hosts should call this once per device when
     /// uploading the texture.
     pub fn read_spritesheet() -> Pixmap {
-        let data = include_bytes!("../../vello_sparse_tests/tests/assets/glyphs_colr_noto.png");
+        let data = include_bytes!("../../tests/assets/glyphs_colr_noto.png");
         Pixmap::from_png(Cursor::new(data)).unwrap()
     }
 }

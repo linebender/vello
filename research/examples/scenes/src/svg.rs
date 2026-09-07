@@ -24,7 +24,7 @@ pub fn scene_from_files(files: &[PathBuf]) -> Result<SceneSet> {
 
 pub fn default_scene() -> Result<SceneSet> {
     let assets_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../assets/")
+        .join("../../../assets/")
         .canonicalize()?;
     scene_from_files_inner(&[
         assets_dir.join("Ghostscript_Tiger.svg"),

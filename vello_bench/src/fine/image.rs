@@ -148,7 +148,7 @@ mod transform {
 }
 
 fn get_colr_image(extend: peniko::Extend, quality: ImageQuality) -> Image {
-    let data = include_bytes!("../../../../vello_tests/snapshots/big_colr.png");
+    let data = include_bytes!("../../../research/vello_tests/snapshots/big_colr.png");
 
     let pixmap = Pixmap::from_png(Cursor::new(data)).unwrap();
     Image {

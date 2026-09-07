@@ -16,6 +16,6 @@ This binary allows you to render SVG files to PNG. Note that support is very pri
 
 For example, if you run:
 
-`cargo run --bin svg --release  -- --path examples/assets/Ghostscript_Tiger.svg --scale 5 --runtime 2000`
+`cargo run --bin svg --release  -- --path assets/Ghostscript_Tiger.svg --scale 5 --runtime 2000`
 
 The binary will run for two seconds and render the ghostscript tiger in a loop for 2 seconds, until it finally saves the result as a PNG file and prints the average runtime per iteration.

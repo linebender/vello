@@ -188,7 +188,7 @@ We have spent multiple years laying the groundwork for a really good GPU acceler
 There's a fair amount of work to be done to make all of this real, but much of the design work is done and the path seems clear. With luck, 2023 should be a great year.
 
 [High Performance Rust UI]: https://www.youtube.com/watch?v=zVUTZlNCb8U
-[piet-gpu vision]: https://github.com/linebender/vello/blob/main/doc/vision.md
+[piet-gpu vision]: vision.md
 [vello#49]: https://github.com/linebender/vello/issues/49
 [vello#176]: https://github.com/linebender/vello/issues/176
 [vello#187]: https://github.com/linebender/vello/issues/187

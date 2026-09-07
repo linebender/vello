@@ -4,7 +4,7 @@
 //! Filter example showing deeply nested clipping.
 //!
 //! This scene is based on the `filter_varying_depths_clips_and_compositions` test.
-//! See: `sparse_strips/vello_sparse_tests/tests/filter.rs`
+//! See: `vello_sparse_tests/tests/filter.rs`
 
 use crate::{ExampleScene, RenderingContext};
 use vello_common::color::AlphaColor;
