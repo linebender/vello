@@ -102,6 +102,10 @@ impl Drawable for RecordedDraw {
             }
         }
     }
+
+    fn blend_mode(&self) -> Option<&BlendMode> {
+        None
+    }
 }
 
 /// Settings to apply to the render context.

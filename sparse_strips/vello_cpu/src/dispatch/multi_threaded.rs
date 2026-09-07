@@ -398,6 +398,7 @@ impl MultiThreadedDispatcher {
         let mut bucketer = self.bucketer.lock().unwrap();
         let filters = FilterContext::new(0);
         bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
+        let use_src_over = settings.composite_mode == CompositeMode::SrcOver;
         bucketer.bucket_commands(
             &self.recorder.nodes,
             &self.recorder.draws,
@@ -410,7 +411,6 @@ impl MultiThreadedDispatcher {
         let alpha_slots = self.alpha_storage.take();
         {
             let alpha_buffers = alpha_slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
-            let use_src_over = settings.composite_mode == CompositeMode::SrcOver;
             let resources = FineResources {
                 alpha_buffers: &alpha_buffers,
                 encoded_paints,
@@ -448,6 +448,7 @@ impl MultiThreadedDispatcher {
                         &bucketer,
                         resources,
                         use_src_over,
+                        self.recorder.root_is_blend_target,
                     );
                 });
             });

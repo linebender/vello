@@ -123,6 +123,7 @@ impl SingleThreadedDispatcher {
             target,
             params,
             use_src_over,
+            self.recorder.root_is_blend_target,
             encoded_paints,
             image_resolver,
         );
@@ -137,6 +138,7 @@ impl SingleThreadedDispatcher {
         mut target: PixmapMut<'_>,
         params: FineRenderParams,
         use_src_over: bool,
+        root_is_blend_target: bool,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
@@ -164,7 +166,14 @@ impl SingleThreadedDispatcher {
             params.target_offset,
             bucketer.rows().len(),
         );
-        Self::rasterize_target::<S, F>(simd, &bucketer, resources, &mut regions, use_src_over);
+        Self::rasterize_target::<S, F>(
+            simd,
+            &bucketer,
+            resources,
+            &mut regions,
+            use_src_over,
+            root_is_blend_target,
+        );
     }
 
     fn rasterize_target<S: Simd, F: FineKernel<S>>(
@@ -173,6 +182,7 @@ impl SingleThreadedDispatcher {
         resources: FineResources<'_>,
         regions: &mut Regions<'_>,
         use_src_over: bool,
+        root_is_blend_target: bool,
     ) {
         // TODO: Reuse fine and depth buffer across targets?
         let mut fine = Fine::<S, F>::new(simd, bucketer.width());
@@ -185,6 +195,7 @@ impl SingleThreadedDispatcher {
                 bucketer,
                 resources,
                 use_src_over,
+                root_is_blend_target,
             );
         });
     }
@@ -246,6 +257,7 @@ impl SingleThreadedDispatcher {
                 &filter_ctx,
                 (&mut pixmap).into(),
                 params,
+                false,
                 false,
                 encoded_paints,
                 image_resolver,
