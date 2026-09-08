@@ -115,6 +115,10 @@ pub enum WebGlRendererInitStatus {
 }
 
 /// Vello GPU's WebGL2 renderer.
+///
+/// Note that any operation of [`WebGlRenderer`] might modify the global state of the underlying
+/// WebGl context; state like the active texture unit and texture bindings are therefore not
+/// guaranteed to be restored to their original value after each method call.
 #[derive(Debug)]
 pub struct WebGlRenderer {
     /// Programs for rendering.
