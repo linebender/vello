@@ -55,7 +55,7 @@ const TILE_SCALE = 0.0625;
 
 // The "split" point between using local memory in fine for the blend stack and spilling to the blend_spill buffer.
 // A higher value will increase vgpr ("register") pressure in fine, but decrease required dynamic memory allocation.
-// If changing, also change in vello_shaders/src/cpu/coarse.rs.
+// If changing, also change in research/vello_shaders/src/cpu/coarse.rs.
 const BLEND_STACK_SPLIT = 4u;
 
 // The following are computed in draw_leaf from the generic gradient parameters
