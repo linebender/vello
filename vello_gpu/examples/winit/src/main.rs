@@ -346,8 +346,8 @@ impl ApplicationHandler for App<'_> {
 
                 let device_handle = &self.context.devices[surface.dev_id];
                 let render_size = RenderSize {
-                    width: surface.config.width,
-                    height: surface.config.height,
+                    width: surface.config.width.try_into().unwrap(),
+                    height: surface.config.height.try_into().unwrap(),
                 };
 
                 let surface_texture = match surface.surface.get_current_texture() {

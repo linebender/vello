@@ -91,9 +91,9 @@ pub struct RenderTargetConfig {
     /// Format of the rendering target
     pub format: wgpu::TextureFormat,
     /// Width of the rendering target
-    pub width: u32,
+    pub width: u16,
     /// Height of the rendering target
-    pub height: u32,
+    pub height: u16,
 }
 
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
@@ -230,8 +230,8 @@ impl Renderer {
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some("Vello GPU Depth Texture"),
                 size: Extent3d {
-                    width: render_size.width.max(1),
-                    height: render_size.height.max(1),
+                    width: u32::from(render_size.width.max(1)),
+                    height: u32::from(render_size.height.max(1)),
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -367,8 +367,8 @@ impl Renderer {
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
-            width: u32::from(atlas_width),
-            height: u32::from(atlas_height),
+            width: atlas_width,
+            height: atlas_height,
         };
 
         let layer_view =
@@ -1611,8 +1611,8 @@ impl Programs {
         );
         let view_config_buffer = Self::create_config_buffer(
             device,
-            render_target_config.width,
-            render_target_config.height,
+            u32::from(render_target_config.width),
+            u32::from(render_target_config.height),
             resource_texture_dimension_2d,
         );
 
@@ -2322,8 +2322,8 @@ impl Programs {
     ) {
         if self.render_size != *new_render_size {
             let config = Config {
-                width: new_render_size.width,
-                height: new_render_size.height,
+                width: u32::from(new_render_size.width),
+                height: u32::from(new_render_size.height),
                 strip_height: Tile::HEIGHT.into(),
                 alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
                 encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),

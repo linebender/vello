@@ -360,15 +360,12 @@ impl HybridRenderer {
             &device,
             &vello_gpu::RenderTargetConfig {
                 format: texture.format(),
-                width: width.into(),
-                height: height.into(),
+                width,
+                height,
             },
             settings,
         );
-        let render_size = vello_gpu::RenderSize {
-            width: width.into(),
-            height: height.into(),
-        };
+        let render_size = vello_gpu::RenderSize { width, height };
         let depth_texture_view = use_depth_buffer
             .then(|| vello_gpu::Renderer::create_depth_texture_view(&device, &render_size));
 
@@ -593,10 +590,7 @@ impl Renderer for HybridRenderer {
         let width = self.scene.width();
         let height = self.scene.height();
 
-        let render_size = vello_gpu::RenderSize {
-            width: width.into(),
-            height: height.into(),
-        };
+        let render_size = vello_gpu::RenderSize { width, height };
 
         let mut texture_bindings = vello_gpu::TextureBindings::new();
         for (texture_id, texture) in &self.external_textures {
@@ -979,10 +973,7 @@ impl Renderer for HybridRenderer {
         let width = self.scene.width();
         let height = self.scene.height();
 
-        let render_size = vello_gpu::RenderSize {
-            width: width.into(),
-            height: height.into(),
-        };
+        let render_size = vello_gpu::RenderSize { width, height };
         self.renderer
             .render(
                 &self.scene,

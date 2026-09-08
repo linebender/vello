@@ -386,9 +386,9 @@ mod tests {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RenderSize {
     /// Width of the rendering target.
-    pub width: u32,
+    pub width: u16,
     /// Height of the rendering target.
-    pub height: u32,
+    pub height: u16,
 }
 
 /// Configuration for the GPU renderer.

@@ -79,14 +79,11 @@ async fn run() {
         &device,
         &vello_gpu::RenderTargetConfig {
             format: texture.format(),
-            width: width.into(),
-            height: height.into(),
+            width,
+            height,
         },
     );
-    let render_size = vello_gpu::RenderSize {
-        width: width.into(),
-        height: height.into(),
-    };
+    let render_size = vello_gpu::RenderSize { width, height };
     let depth_texture_view = vello_gpu::Renderer::create_depth_texture_view(&device, &render_size);
     // Copy texture to buffer
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {

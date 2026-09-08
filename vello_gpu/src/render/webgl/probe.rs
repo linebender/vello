@@ -85,16 +85,13 @@ impl WebGlRenderer {
         );
 
         let (width, height) = vello_common::probe::canvas_size();
-        let render_size = RenderSize {
-            width: u32::from(width),
-            height: u32::from(height),
-        };
+        let render_size = RenderSize { width, height };
 
         let probe_texture = create_texture_storage(
             &self.gl,
             WebGl2RenderingContext::RGBA8,
-            render_size.width,
-            render_size.height,
+            u32::from(render_size.width),
+            u32::from(render_size.height),
             WebGl2RenderingContext::NEAREST,
             WebGl2RenderingContext::NEAREST,
         );

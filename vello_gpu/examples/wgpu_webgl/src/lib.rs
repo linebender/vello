@@ -102,13 +102,18 @@ impl RendererWrapper {
             &device,
             &RenderTargetConfig {
                 format: surface_format,
-                width,
-                height,
+                width: width.try_into().unwrap(),
+                height: height.try_into().unwrap(),
             },
             settings,
         );
-        let depth_texture_view =
-            Renderer::create_depth_texture_view(&device, &vello_gpu::RenderSize { width, height });
+        let depth_texture_view = Renderer::create_depth_texture_view(
+            &device,
+            &vello_gpu::RenderSize {
+                width: width.try_into().unwrap(),
+                height: height.try_into().unwrap(),
+            },
+        );
 
         Self {
             renderer,
@@ -135,7 +140,10 @@ impl RendererWrapper {
         self.surface.configure(&self.device, &surface_config);
         self.depth_texture_view = Renderer::create_depth_texture_view(
             &self.device,
-            &vello_gpu::RenderSize { width, height },
+            &vello_gpu::RenderSize {
+                width: width.try_into().unwrap(),
+                height: height.try_into().unwrap(),
+            },
         );
         if let Some(gpu_timer) = &mut self.gpu_timer {
             gpu_timer.reset();
@@ -231,8 +239,8 @@ impl AppState {
         let scene_end = now();
 
         let render_size = vello_gpu::RenderSize {
-            width: self.width,
-            height: self.height,
+            width: self.width.try_into().unwrap(),
+            height: self.height.try_into().unwrap(),
         };
 
         let surface_texture = match self.renderer_wrapper.surface.get_current_texture() {
@@ -710,10 +718,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         ..
     } = RendererWrapper::new(canvas).await;
 
-    let render_size = vello_gpu::RenderSize {
-        width: width as u32,
-        height: height as u32,
-    };
+    let render_size = vello_gpu::RenderSize { width, height };
     let surface_texture = match surface.get_current_texture() {
         CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
         e => panic!("Error getting initial surface: {e:?}"),
