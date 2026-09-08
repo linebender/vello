@@ -277,17 +277,15 @@ impl Renderer {
             resources.before_render(
                 self,
                 |renderer, glyph_renderer, atlas_count, atlas_config, atlas_id| {
-                    renderer
-                        .render_to_atlas(
-                            glyph_renderer,
-                            atlas_count,
-                            atlas_config,
-                            device,
-                            queue,
-                            atlas_id,
-                            texture_bindings,
-                        )
-                        .expect("Failed to render glyphs to atlas");
+                    renderer.render_to_atlas(
+                        glyph_renderer,
+                        atlas_count,
+                        atlas_config,
+                        device,
+                        queue,
+                        atlas_id,
+                        texture_bindings,
+                    )
                 },
                 |renderer, image_cache, upload, dst_x, dst_y| {
                     renderer.write_to_atlas(
@@ -299,8 +297,10 @@ impl Renderer {
                         &upload.pixmap,
                         Some([dst_x, dst_y]),
                     );
+
+                    Ok(())
                 },
-            );
+            )?;
         }
 
         let result = self.render_scene(
@@ -321,7 +321,9 @@ impl Renderer {
         #[cfg(feature = "text")]
         resources.after_render(self, |renderer, rect| {
             clear_atlas_region(queue, renderer, rect);
-        });
+
+            Ok::<(), RenderError>(())
+        })?;
         result
     }
 

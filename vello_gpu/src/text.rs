@@ -72,7 +72,10 @@ impl Resources {
         u32::try_from(self.image_cache.atlas_count()).unwrap()
     }
 
-    fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&Scene, AtlasId)) {
+    fn replay_pending_atlas_commands<E>(
+        &mut self,
+        mut f: impl FnMut(&Scene, AtlasId) -> Result<(), E>,
+    ) -> Result<(), E> {
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             glyph_resources
                 .glyph_atlas
@@ -85,22 +88,30 @@ impl Resources {
                     f(
                         &glyph_resources.glyph_renderer,
                         AtlasId::new(recorder.page_index),
-                    );
-                });
+                    )
+                })?;
         }
+
+        Ok(())
     }
 
-    pub(crate) fn before_render<T>(
+    pub(crate) fn before_render<T, E>(
         &mut self,
         backend: &mut T,
-        mut render_to_atlas: impl FnMut(&mut T, &Scene, u32, AtlasConfig, AtlasId),
-        mut upload_to_atlas: impl FnMut(&mut T, &ImageCache, &PendingBitmapUpload, u16, u16),
-    ) {
+        mut render_to_atlas: impl FnMut(&mut T, &Scene, u32, AtlasConfig, AtlasId) -> Result<(), E>,
+        mut upload_to_atlas: impl FnMut(
+            &mut T,
+            &ImageCache,
+            &PendingBitmapUpload,
+            u16,
+            u16,
+        ) -> Result<(), E>,
+    ) -> Result<(), E> {
         let atlas_count = self.atlas_count();
         let atlas_config = self.atlas_config();
         self.replay_pending_atlas_commands(|glyph_renderer, atlas_id| {
-            render_to_atlas(backend, glyph_renderer, atlas_count, atlas_config, atlas_id);
-        });
+            render_to_atlas(backend, glyph_renderer, atlas_count, atlas_config, atlas_id)
+        })?;
 
         const PADDING: u16 = GLYPH_PADDING;
 
@@ -109,23 +120,27 @@ impl Resources {
                 let resource = self.image_cache.get(upload.image_id).unwrap();
                 let dst_x = resource.offset[0] + PADDING;
                 let dst_y = resource.offset[1] + PADDING;
-                upload_to_atlas(backend, &self.image_cache, &upload, dst_x, dst_y);
+                upload_to_atlas(backend, &self.image_cache, &upload, dst_x, dst_y)?;
             }
         }
+
+        Ok(())
     }
 
-    pub(crate) fn after_render<T>(
+    pub(crate) fn after_render<T, E>(
         &mut self,
         backend: &mut T,
-        mut clear_rect: impl FnMut(&mut T, &PendingClearRect),
-    ) {
+        mut clear_rect: impl FnMut(&mut T, &PendingClearRect) -> Result<(), E>,
+    ) -> Result<(), E> {
         self.glyph_prep_cache.maintain();
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             glyph_resources.maintain(&mut self.image_cache);
             for rect in glyph_resources.glyph_atlas.drain_pending_clear_rects() {
-                clear_rect(backend, &rect);
+                clear_rect(backend, &rect)?;
             }
         }
+
+        Ok(())
     }
 }
 
