@@ -4,8 +4,8 @@
 //! Tests for GitHub issues.
 
 use crate::renderer::Renderer;
+use crate::util::layout_glyphs_noto_cbtf;
 use crate::util::stops_blue_green_red_yellow;
-use crate::util::{layout_glyphs_noto_cbtf, render_pixmap};
 use std::sync::Arc;
 use vello_common::color::PremulRgba8;
 use vello_common::color::palette::css::{BLUE, DARK_BLUE, LIME, REBECCA_PURPLE};
@@ -378,7 +378,7 @@ fn render_target_cleared_between_frames(ctx: &mut impl Renderer) {
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 64.0, 64.0));
     ctx.flush();
-    let _ = render_pixmap(ctx);
+    ctx.render();
 
     ctx.reset();
 
