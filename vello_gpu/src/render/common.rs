@@ -1,0 +1,666 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Backend agnostic renderer module.
+
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "GPU paint structures have small, fixed sizes that fit in u32"
+)]
+
+use crate::IntermediateTextureError;
+use crate::blend::GpuBlendInstance;
+use crate::copy::GpuCopyInstance;
+use crate::filter::FILTER_ATLAS_PADDING;
+use crate::scene::{LayersConfig, MemorySettings, RecordedDraw};
+use alloc::vec::Vec;
+use bytemuck::{Pod, Zeroable};
+use vello_common::geometry::SizeU16;
+use vello_common::record::CommandRecorder;
+
+// GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
+pub(crate) const GPU_ENCODED_IMAGE_SIZE_TEXELS: u32 = (size_of::<GpuEncodedImage>() / 16) as u32;
+pub(crate) const GPU_LINEAR_GRADIENT_SIZE_TEXELS: u32 =
+    (size_of::<GpuLinearGradient>() / 16) as u32;
+pub(crate) const GPU_RADIAL_GRADIENT_SIZE_TEXELS: u32 =
+    (size_of::<GpuRadialGradient>() / 16) as u32;
+pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 = (size_of::<GpuSweepGradient>() / 16) as u32;
+pub(crate) const GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS: u32 =
+    (size_of::<GpuBlurredRoundedRect>() / 16) as u32;
+
+// TODO: If we want to use native bilinear sampling for uploaded images,
+// we can pass 1 instead of 0 here.
+pub(crate) const IMAGE_PADDING: u16 = 0;
+
+/// Texture limits reported by the rendering device.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DeviceLimits {
+    /// Maximum width or height of a two-dimensional texture.
+    pub(crate) max_texture_dimension_2d: u16,
+}
+
+impl DeviceLimits {
+    pub(crate) fn resource_texture_dimension_2d(self) -> u32 {
+        // See https://github.com/linebender/vello/pull/1830 for why
+        // we enforce an additional limit on intermediate data textures.
+        const MAX_RESOURCE_TEXTURE_DIMENSION_2D: u16 = 4096;
+
+        u32::from(
+            self.max_texture_dimension_2d
+                .min(MAX_RESOURCE_TEXTURE_DIMENSION_2D),
+        )
+    }
+}
+
+// This new type only serves the purpose of documenting the below invariants in a single place.
+/// A scratch texture.
+///
+/// Right now, for a given scene, we always have _at most_ one scratch texture. At the moment,
+/// it is used for the following purposes:
+/// - Serving as the write destination for a blending operation of two textures.
+/// - Serving as a temporary space for persisting the original version of a filter layer.
+///
+/// The scratch texture has the same dimensions as every intermediate layer page and does not have
+/// separate atlas allocations. Blends and filters use the same rectangle coordinates in scratch as
+/// in the corresponding parent or filter-layer texture. Every area later read from scratch is
+/// therefore fully overwritten first. **Because of this, it is currently safe to never explicitly
+/// clear the scratch texture after it was used, even across frames**. While it would still be best
+/// practice to do so, in the interest of getting the best performance on low-tier devices, we take
+/// this shortcut and explicitly document this constraint.
+///
+/// If the purpose of a scratch texture is ever expanded upon, this needs to be revisited.
+#[derive(Debug)]
+pub(crate) struct ScratchTexture<T>(T);
+
+impl<T> ScratchTexture<T> {
+    pub(crate) fn new(texture: T) -> Self {
+        Self(texture)
+    }
+
+    pub(crate) fn get(&self) -> &T {
+        &self.0
+    }
+}
+
+/// Scratch allocations reused while rendering a frame.
+#[derive(Debug, Default)]
+pub(crate) struct ScratchBuffers {
+    /// Clear instances scratch buffer.
+    #[cfg(feature = "wgpu")]
+    pub(crate) clear_instances: Vec<GpuClearInstance>,
+    /// Blend instances scratch buffer.
+    pub(crate) blend_instances: Vec<GpuBlendInstance>,
+    /// Copy instances scratch buffer.
+    pub(crate) copy_instances: Vec<GpuCopyInstance>,
+}
+
+/// Per-instance data for clearing a rectangle in an intermediate texture.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub(crate) struct GpuClearInstance {
+    /// Atlas-space rectangle origin.
+    pub(crate) origin: [u32; 2],
+    /// Width and height of the cleared rectangle.
+    pub(crate) size: [u32; 2],
+    /// Width and height of the target texture.
+    pub(crate) target_size: [u32; 2],
+}
+
+impl MemorySettings {
+    pub(crate) fn normalize(&mut self, device_limits: &DeviceLimits) {
+        let Self {
+            image_atlas_config,
+            layers_config,
+        } = self;
+
+        image_atlas_config.atlas_size = SizeU16::from(image_atlas_config.atlas_size)
+            .clamp(1, device_limits.max_texture_dimension_2d)
+            .into();
+
+        image_atlas_config.initial_atlas_count = image_atlas_config
+            .initial_atlas_count
+            .min(image_atlas_config.max_atlases);
+
+        layers_config.min_texture_size = layers_config
+            .min_texture_size
+            .clamp(1, device_limits.max_texture_dimension_2d)
+            // In case the user erroneously provided a smaller max size than min size.
+            .min(layers_config.max_texture_size);
+        layers_config.max_texture_size = layers_config
+            .max_texture_size
+            .clamp(1, device_limits.max_texture_dimension_2d);
+    }
+}
+
+impl LayersConfig {
+    pub(crate) fn required_intermediate_texture_size(
+        self,
+        recorder: &CommandRecorder<RecordedDraw>,
+    ) -> Result<SizeU16, IntermediateTextureError> {
+        let min_size = self.min_texture_size;
+        let max_size = self.max_texture_size;
+
+        let checked_size = |width: u32, height: u32| {
+            if width > u32::from(max_size.width()) || height > u32::from(max_size.height()) {
+                return Err(IntermediateTextureError::TooLarge {
+                    width,
+                    height,
+                    max_width: max_size.width(),
+                    max_height: max_size.height(),
+                });
+            }
+
+            Ok(SizeU16::from_wh(
+                u16::try_from(width).unwrap(),
+                u16::try_from(height).unwrap(),
+            ))
+        };
+
+        let filter_padding = u32::from(FILTER_ATLAS_PADDING) * 2;
+        let filter_size = if let Some(size) = recorder.largest_filter_layer_size {
+            checked_size(
+                u32::from(size.width()) + filter_padding,
+                u32::from(size.height()) + filter_padding,
+            )?
+        } else {
+            SizeU16::ZERO
+        };
+
+        let mut layer_size = recorder
+            .largest_layer_size
+            .unwrap_or(SizeU16::ZERO)
+            .max(filter_size);
+
+        // If we are blending into the root we will render the whole root into an
+        // layer texture. Since we don't track the bbox of root draw commands, we need
+        // to reserve space for the full size of the scene.
+        if recorder.root_is_blend_target {
+            layer_size = layer_size.max(recorder.scene_size);
+        }
+
+        Ok(checked_size(
+            u32::from(layer_size.width()),
+            u32::from(layer_size.height()),
+        )?
+        .max(min_size))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DeviceLimits;
+    use crate::scene::RecordedDraw;
+    use crate::{IntermediateTextureError, LayersConfig, MemorySettings, SizeU16};
+    use vello_common::multi_atlas::AtlasConfig;
+    use vello_common::record::CommandRecorder;
+
+    fn device_limits(max_texture_dimension_2d: u16) -> DeviceLimits {
+        DeviceLimits {
+            max_texture_dimension_2d,
+        }
+    }
+
+    #[test]
+    fn normalize_memory_settings_clamps_atlas_dimensions_to_backend_limits() {
+        let mut settings = MemorySettings {
+            image_atlas_config: AtlasConfig {
+                initial_atlas_count: 8,
+                max_atlases: 16,
+                atlas_size: (8192, 2048),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(4096));
+
+        let config = settings.image_atlas_config;
+        assert_eq!(config.initial_atlas_count, 8);
+        assert_eq!(config.max_atlases, 16);
+        assert_eq!(config.atlas_size, (4096, 2048));
+    }
+
+    #[test]
+    fn resource_texture_dimension_is_capped_at_4k() {
+        assert_eq!(device_limits(16384).resource_texture_dimension_2d(), 4096);
+        assert_eq!(device_limits(2048).resource_texture_dimension_2d(), 2048);
+    }
+
+    #[test]
+    fn normalize_memory_settings_allows_lazy_initial_atlas_allocation() {
+        let mut settings = MemorySettings {
+            image_atlas_config: AtlasConfig {
+                initial_atlas_count: 0,
+                atlas_size: (0, 0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(4096));
+
+        let config = settings.image_atlas_config;
+        assert_eq!(config.initial_atlas_count, 0);
+        assert_eq!(config.max_atlases, 8);
+        assert_eq!(config.atlas_size, (1, 1));
+    }
+
+    #[test]
+    fn normalize_memory_settings_clamps_minimum_to_maximum() {
+        let mut settings = MemorySettings {
+            layers_config: LayersConfig {
+                min_texture_size: SizeU16::from_wh(1024, 512),
+                max_texture_size: SizeU16::from_wh(512, 4096),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(8192));
+
+        assert_eq!(
+            settings.layers_config.min_texture_size,
+            SizeU16::from_wh(512, 512)
+        );
+        assert_eq!(
+            settings.layers_config.max_texture_size,
+            SizeU16::from_wh(512, 4096)
+        );
+    }
+
+    #[test]
+    fn normalize_memory_settings_clamps_layer_sizes_to_backend_limit() {
+        let mut settings = MemorySettings {
+            layers_config: LayersConfig {
+                min_texture_size: SizeU16::from_wh(1024, 512),
+                max_texture_size: SizeU16::from_wh(2048, 4096),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(768));
+
+        assert_eq!(
+            settings.layers_config.min_texture_size,
+            SizeU16::from_wh(768, 512)
+        );
+        assert_eq!(settings.layers_config.max_texture_size, SizeU16::new(768));
+    }
+
+    #[test]
+    fn required_intermediate_texture_size_rejects_oversized_layers() {
+        let mut recorder = CommandRecorder::<RecordedDraw>::new(10, 10);
+        recorder.largest_layer_size = Some(SizeU16::from_wh(513, 10));
+
+        let config = LayersConfig {
+            min_texture_size: SizeU16::new(1),
+            max_texture_size: SizeU16::new(512),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            config.required_intermediate_texture_size(&recorder),
+            Err(IntermediateTextureError::TooLarge {
+                width: 513,
+                height: 10,
+                max_width: 512,
+                max_height: 512,
+            })
+        ));
+    }
+
+    #[test]
+    fn required_intermediate_texture_size_rejects_filter_padding_overflow() {
+        let mut recorder = CommandRecorder::<RecordedDraw>::new(10, 10);
+        recorder.largest_filter_layer_size = Some(SizeU16::from_wh(u16::MAX, 10));
+
+        let config = LayersConfig {
+            min_texture_size: SizeU16::new(1),
+            max_texture_size: SizeU16::new(u16::MAX),
+            ..Default::default()
+        };
+
+        let padding = u32::from(crate::filter::FILTER_ATLAS_PADDING) * 2;
+        let error = config
+            .required_intermediate_texture_size(&recorder)
+            .unwrap_err();
+
+        match error {
+            IntermediateTextureError::TooLarge {
+                width,
+                height,
+                max_width,
+                max_height,
+            } => {
+                assert_eq!(width, u32::from(u16::MAX) + padding);
+                assert_eq!(height, 10 + padding);
+                assert_eq!(max_width, u16::MAX);
+                assert_eq!(max_height, u16::MAX);
+            }
+            _ => panic!("expected TooLarge"),
+        }
+    }
+}
+
+/// Dimensions of the rendering target.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct RenderSize {
+    /// Width of the rendering target.
+    pub width: u32,
+    /// Height of the rendering target.
+    pub height: u32,
+}
+
+/// Configuration for the GPU renderer.
+#[repr(C, align(16))]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct Config {
+    /// Width of the rendering target.
+    pub width: u32,
+    /// Height of the rendering target.
+    pub height: u32,
+    /// Height of a strip in the rendering.
+    pub strip_height: u32,
+    /// Number of trailing zeros in `alphas_tex_width` (log2 of width).
+    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
+    pub alphas_tex_width_bits: u32,
+    /// Number of trailing zeros in the encoded paints texture width (log2 of width).
+    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
+    pub encoded_paints_tex_width_bits: u32,
+    /// A horizontal offset to apply to strips.
+    pub strip_offset_x: i32,
+    /// A vertical offset to apply to strips.
+    pub strip_offset_y: i32,
+    /// Whether to flip the y-component of the NDC position.
+    ///
+    /// When transpiling a shader with naga, it applies a y-flip transform when
+    /// compiling to GLSL to account for the difference between the y-down
+    /// coordinate of WebGPU and the y-up coordinate system of WebGL framebuffers.
+    ///
+    /// However, for the native WebGL backend, we want to _avoid_ this transform so that we
+    /// can write directly into the user-provided framebuffer, but still ensure that the scene
+    /// is correctly flipped. Otherwise, we would need to allocate another framebuffer,
+    /// render into that and then pay the cost for flipping it.
+    ///
+    /// Therefore, we optionally negate the coordinates in NDC.
+    /// (Note that naga provides a flag for disabling this behavior. However, the problem
+    /// is that many parts of Vello GPU's code (such as slot textures) also assume a
+    /// y-down coordinate system. Therefore, just disabling this flag causes complications in
+    /// other places. From my experiments, it's much easier to enable the flag by default
+    /// and just apply the second negation manually in case we render to the final output surface
+    /// in the WebGL backend.
+    pub negate_ndc: u32,
+}
+
+/// A GPU strip instance for rendering.
+///
+/// This struct corresponds to the `StripInstance` struct in the shader.
+/// See the `StripInstance` documentation in `render.wesl` for detailed field descriptions.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub struct GpuStrip {
+    /// See `StripInstance::xy` documentation in `render.wesl`.
+    pub x: u16,
+    /// See `StripInstance::xy` documentation in `render.wesl`.
+    pub y: u16,
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wesl`.
+    pub width: u16,
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wesl`.
+    pub dense_width_or_rect_height: u16,
+    /// See `StripInstance::col_idx_or_rect_frac` documentation in `render.wesl`.
+    pub col_idx_or_rect_frac: u32,
+    /// See `StripInstance::payload` documentation in `render.wesl`.
+    pub payload: u32,
+    /// See `StripInstance::paint_and_rect_flag` documentation in `render.wesl`.
+    pub paint_and_rect_flag: u32,
+    /// Painter's-order index used to compute z-depth for early-z rejection in shader.
+    /// In other words, the back-most draw has index 0 and every additional draw in front
+    /// has an incrementing index.
+    pub depth_index: u32,
+}
+
+/// Different types of GPU encoded paints.
+#[derive(Debug)]
+pub(crate) enum GpuEncodedPaint {
+    /// An encoded image.
+    Image(GpuEncodedImage),
+    /// An encoded linear gradient.
+    LinearGradient(GpuLinearGradient),
+    /// An encoded radial gradient.
+    RadialGradient(GpuRadialGradient),
+    /// An encoded sweep gradient.
+    SweepGradient(GpuSweepGradient),
+    /// An encoded blurred rounded rectangle.
+    BlurredRoundedRect(GpuBlurredRoundedRect),
+}
+
+impl GpuEncodedPaint {
+    /// Returns the byte representation of this paint.
+    #[inline]
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Image(paint) => bytemuck::bytes_of(paint),
+            Self::LinearGradient(paint) => bytemuck::bytes_of(paint),
+            Self::RadialGradient(paint) => bytemuck::bytes_of(paint),
+            Self::SweepGradient(paint) => bytemuck::bytes_of(paint),
+            Self::BlurredRoundedRect(paint) => bytemuck::bytes_of(paint),
+        }
+    }
+
+    /// Serialize paint enums directly into the provided buffer. Returns the number of bytes written.
+    pub(crate) fn serialize_to_buffer(paints: &[Self], buffer: &mut [u8]) {
+        let mut offset = 0;
+        for paint in paints {
+            let paint_bytes = paint.as_bytes();
+            let end_offset = offset + paint_bytes.len();
+            buffer[offset..end_offset].copy_from_slice(paint_bytes);
+            offset = end_offset;
+        }
+    }
+}
+
+/// GPU encoded image data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuEncodedImage {
+    /// Packed rendering quality and extend modes.
+    /// Bits 4-5: `extend_y` (2 bits)
+    /// Bits 2-3: `extend_x` (2 bits)  
+    /// Bits 0-1: `quality` (2 bits)
+    pub image_params: u32,
+    /// Packed image width and height.
+    pub image_size: u32,
+    /// The offset of the image in the atlas texture in pixels.
+    pub image_offset: u32,
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+    /// Premultiplied tint color packed as RGBA8 unorm (`pack4x8unorm` layout).
+    pub tint: u32,
+    /// GPU tint mode.
+    pub tint_mode: u32,
+    /// Number of transparent padding pixels around the image in the atlas.
+    pub image_padding: u32,
+}
+
+/// GPU encoded blurred rounded rectangle data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuBlurredRoundedRect {
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+    /// Premultiplied color packed as RGBA8 unorm (`pack4x8unorm` layout).
+    pub color: u32,
+    /// Whether to paint the inverse (`1 - alpha`) of the blur coverage
+    pub invert: u32,
+    /// Blur parameters: exponent, reciprocal exponent, scale, and inverse standard deviation.
+    pub params0: [f32; 4],
+    /// Blur parameters: minimum edge length, adjusted width, adjusted height, and outer radius.
+    pub params1: [f32; 4],
+    /// Blur parameters [width, height].
+    pub size: [f32; 2],
+    /// Padding for 16-byte alignment.
+    pub _padding1: [u32; 2],
+}
+
+/// GPU encoded linear gradient data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuLinearGradient {
+    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
+    pub texture_width_and_extend_mode: u32,
+    /// Start coordinate in the flat gradient texture.
+    pub gradient_start: u32,
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+}
+
+/// GPU encoded radial gradient data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuRadialGradient {
+    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
+    pub texture_width_and_extend_mode: u32,
+    /// Start coordinate in the flat gradient texture for dense packing.
+    pub gradient_start: u32,
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+    /// Packed kind (bits 0-1) and `f_is_swapped` (bit 2): 0=Radial, 1=Strip, 2=Focal; bit 2: swapped flag.
+    pub kind_and_f_is_swapped: u32,
+    /// Bias value for radial gradient calculation.
+    pub bias: f32,
+    /// Scale factor for radial gradient calculation.
+    pub scale: f32,
+    /// Focal point 0 parameter for radial gradient.
+    pub fp0: f32,
+    /// Focal point 1 parameter for radial gradient.
+    pub fp1: f32,
+    /// Focal radius 1 parameter for radial gradient.
+    pub fr1: f32,
+    /// Focal X coordinate for radial gradient.
+    pub f_focal_x: f32,
+    /// Scaled radius 0 squared parameter for radial gradient strip.
+    pub scaled_r0_squared: f32,
+}
+
+/// GPU encoded sweep gradient data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuSweepGradient {
+    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
+    pub texture_width_and_extend_mode: u32,
+    /// Start coordinate in the flat gradient texture for dense packing.
+    pub gradient_start: u32,
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+    /// Starting angle for sweep gradient.
+    pub start_angle: f32,
+    /// Inverse of angle delta for sweep gradient.
+    pub inv_angle_delta: f32,
+    /// Padding for 16-byte alignment.
+    pub _padding: [u32; 2],
+}
+
+// Constants for packing extend_mode and texture_width.
+const EXTEND_MODE_MASK: u32 = 1 << 30;
+const TEXTURE_WIDTH_MASK: u32 = !EXTEND_MODE_MASK;
+
+/// Pack `extend_mode` and `texture_width` into a single u32.
+/// `extend_mode`: 0=Pad, 1=Repeat, 2=Reflect (stored in bits 30 & 31)
+/// `texture_width`: stored in bits 0-29 (max value: 2^30-1)
+#[inline(always)]
+pub(crate) fn pack_texture_width_and_extend_mode(texture_width: u32, extend_mode: u32) -> u32 {
+    debug_assert!(extend_mode <= 2, "extend_mode must be less or equal to 2");
+    debug_assert!(
+        texture_width <= TEXTURE_WIDTH_MASK,
+        "texture_width {texture_width} exceeds maximum value {TEXTURE_WIDTH_MASK}"
+    );
+    (extend_mode << 30) | (texture_width & TEXTURE_WIDTH_MASK)
+}
+
+/// Pack radial gradient `kind` and `f_is_swapped` into a single u32.
+/// `kind`: 0=Radial, 1=Strip, 2=Focal (stored in bits 0-1)
+/// `f_is_swapped`: 0=false, 1=true (stored in bit 2)
+#[inline(always)]
+pub(crate) fn pack_radial_kind_and_swapped(kind: u32, f_is_swapped: u32) -> u32 {
+    debug_assert!(kind <= 2, "kind must be 0, 1, or 2");
+    debug_assert!(f_is_swapped <= 1, "f_is_swapped must be 0 or 1");
+    (f_is_swapped << 2) | (kind & 0x3)
+}
+
+/// Pack image `width` and `height` into a single u32.
+/// `width`: stored in bits 16-31 (upper 16 bits)
+/// `height`: stored in bits 0-15 (lower 16 bits)
+#[inline(always)]
+pub(crate) fn pack_image_size(width: u16, height: u16) -> u32 {
+    ((width as u32) << 16) | (height as u32)
+}
+
+/// Pack image offset coordinates `x` and `y` into a single u32.
+/// `x`: stored in bits 16-31 (upper 16 bits)
+/// `y`: stored in bits 0-15 (lower 16 bits)
+#[inline(always)]
+pub(crate) fn pack_image_offset(x: u16, y: u16) -> u32 {
+    ((x as u32) << 16) | (y as u32)
+}
+
+/// Pack image `quality` and extend modes into a single u32.
+/// `extend_y`: stored in bits 4-5 (2 bits)
+/// `extend_x`: stored in bits 2-3 (2 bits)
+/// `quality`: stored in bits 0-1 (2 bits)
+#[inline(always)]
+pub(crate) fn pack_image_params(quality: u32, extend_x: u32, extend_y: u32) -> u32 {
+    debug_assert!(extend_x <= 3, "extend_x must be 0-3 (2 bits)");
+    debug_assert!(extend_y <= 3, "extend_y must be 0-3 (2 bits)");
+    debug_assert!(quality <= 3, "quality must be 0-3 (2 bits)");
+    (extend_y << 4) | (extend_x << 2) | quality
+}
+
+/// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.
+///
+/// The tint color is premultiplied before packing into a u32 in the same layout
+/// as WGSL `pack4x8unorm`.
+#[inline(always)]
+pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
+    match tint {
+        Some(t) => {
+            let color = t.color.premultiply().to_rgba8().to_u32();
+            (color, t.mode.as_u32())
+        }
+        // With no tint, use `u32::MAX` (which corresponds to 1.0 on all lanes).
+        // Since we use `Multiply` this will essentially just yield the original image
+        // sample, having the same effect as no tinting at all.
+        None => (u32::MAX, vello_common::paint::TintMode::Multiply.as_u32()),
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]
+pub(crate) fn maybe_warn_about_webgl_feature_conflict() {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    static HAS_WARNED: AtomicBool = AtomicBool::new(false);
+
+    if !HAS_WARNED.swap(true, Ordering::Release)
+        && wgpu::Backends::all().contains(wgpu::Backends::GL)
+    {
+        log::warn!(
+            r#"Both WebGL and wgpu with the "webgl" feature are enabled.
+For optimal performance and binary size on web targets, use only the dedicated WebGL renderer."#
+        );
+    }
+}
+
+#[cfg(all(
+    any(feature = "webgl", feature = "wgpu"),
+    not(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))
+))]
+pub(crate) fn maybe_warn_about_webgl_feature_conflict() {}

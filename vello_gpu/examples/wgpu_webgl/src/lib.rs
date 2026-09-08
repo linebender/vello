@@ -1,0 +1,766 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Demonstrates using Vello GPU using a WebGL2 backend in the browser.
+
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "truncation has no appreciable impact in this demo"
+)]
+#![cfg(target_arch = "wasm32")]
+
+use std::{cell::RefCell, rc::Rc};
+use vello_common::{
+    fearless_simd::Level,
+    kurbo::{Affine, Point},
+    paint::{ImageId, ImageSource},
+};
+use vello_example_scenes::{
+    AnyScene,
+    image::ImageScene,
+    performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
+};
+use vello_gpu::{Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
+use wasm_bindgen::prelude::*;
+use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
+use wgpu::{
+    CurrentSurfaceTexture,
+    rwh::{DisplayHandle, HandleError, HasDisplayHandle},
+};
+
+#[derive(Debug)]
+struct OurDisplayHandle;
+impl HasDisplayHandle for OurDisplayHandle {
+    fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+        Ok(DisplayHandle::web())
+    }
+}
+
+struct RendererWrapper {
+    renderer: Renderer,
+    resources: vello_gpu::Resources,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    surface: wgpu::Surface<'static>,
+    depth_texture_view: wgpu::TextureView,
+    gpu_timer: Option<WebGlGpuTimer>,
+}
+
+impl RendererWrapper {
+    async fn new(canvas: HtmlCanvasElement) -> Self {
+        let width = canvas.width();
+        let height = canvas.height();
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::GL,
+            ..wgpu::InstanceDescriptor::new_with_display_handle(Box::new(OurDisplayHandle))
+        });
+        let surface = instance
+            .create_surface(wgpu::SurfaceTarget::Canvas(canvas.clone()))
+            .expect("Canvas surface to be valid");
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                compatible_surface: Some(&surface),
+                ..Default::default()
+            })
+            .await
+            .expect("Adapter to be valid");
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits {
+                    max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
+                    max_buffer_size: adapter.limits().max_buffer_size,
+                    ..wgpu::Limits::downlevel_webgl2_defaults()
+                },
+                ..Default::default()
+            })
+            .await
+            .expect("Device to be valid");
+
+        // Configure the surface
+        let surface_format = wgpu::TextureFormat::Rgba8Unorm;
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            desired_maximum_frame_latency: 2,
+            view_formats: vec![],
+        };
+        surface.configure(&device, &surface_config);
+
+        let settings = RenderSettings {
+            level: Level::try_detect().unwrap_or(Level::baseline()),
+            ..Default::default()
+        };
+        let (renderer, resources) = Renderer::new_with(
+            &device,
+            &RenderTargetConfig {
+                format: surface_format,
+                width,
+                height,
+            },
+            settings,
+        );
+        let depth_texture_view =
+            Renderer::create_depth_texture_view(&device, &vello_gpu::RenderSize { width, height });
+
+        Self {
+            renderer,
+            resources,
+            device,
+            queue,
+            surface,
+            depth_texture_view,
+            gpu_timer: WebGlGpuTimer::new(&canvas),
+        }
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            desired_maximum_frame_latency: 2,
+            view_formats: vec![],
+        };
+        self.surface.configure(&self.device, &surface_config);
+        self.depth_texture_view = Renderer::create_depth_texture_view(
+            &self.device,
+            &vello_gpu::RenderSize { width, height },
+        );
+        if let Some(gpu_timer) = &mut self.gpu_timer {
+            gpu_timer.reset();
+        }
+    }
+}
+
+/// State that handles scene rendering and interactions
+struct AppState {
+    scenes: Box<[AnyScene<Scene>]>,
+    current_scene: usize,
+    scene: Scene,
+    transform: Affine,
+    mouse_down: bool,
+    last_cursor_position: Option<Point>,
+    width: u32,
+    height: u32,
+    renderer_wrapper: RendererWrapper,
+    performance: PerformancePanel<3>,
+    canvas: HtmlCanvasElement,
+}
+
+impl AppState {
+    async fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<Scene>]>) -> Self {
+        let width = canvas.width();
+        let height = canvas.height();
+        let current_scene = initial_scene_index(scenes.len());
+
+        let renderer_wrapper = RendererWrapper::new(canvas.clone()).await;
+        let timing_note = if renderer_wrapper.gpu_timer.is_some() {
+            "GPU queries are asynchronous and may arrive several frames later"
+        } else {
+            "GPU timing unavailable: EXT_disjoint_timer_query_webgl2 is unsupported"
+        };
+
+        let mut app_state = Self {
+            scenes,
+            current_scene,
+            scene: Scene::new(width as u16, height as u16),
+            transform: Affine::IDENTITY,
+            mouse_down: false,
+            last_cursor_position: None,
+            width,
+            height,
+            renderer_wrapper,
+            performance: PerformancePanel::new(
+                "Vello GPU · wgpu → WebGL2",
+                [
+                    PerformanceStage {
+                        label: "Scene build",
+                        description: "CPU time to reset and populate the scene.",
+                        color: "#ef4444",
+                    },
+                    PerformanceStage {
+                        label: "Render/encode",
+                        description: "CPU time to encode the renderer's WebGL commands.",
+                        color: "#f59e0b",
+                    },
+                    PerformanceStage {
+                        label: "Submit/present",
+                        description: "CPU time to submit commands and present the surface; GPU completion is excluded.",
+                        color: "#3b82f6",
+                    },
+                ],
+                timing_note,
+            ),
+            canvas,
+        };
+
+        update_page_url(app_state.current_scene);
+        app_state.update_title();
+        // Upload images to the WebGL atlas
+        app_state.upload_images_to_atlas();
+
+        app_state
+    }
+
+    fn render(&mut self) -> (Option<FrameTiming<3>>, Option<f64>) {
+        let gpu_time = self
+            .renderer_wrapper
+            .gpu_timer
+            .as_mut()
+            .and_then(WebGlGpuTimer::poll);
+        let frame_start = now();
+        self.scene.reset();
+
+        // Render the current scene with transform
+        self.scenes[self.current_scene].render(
+            &mut self.scene,
+            &mut self.renderer_wrapper.resources,
+            self.transform,
+        );
+        let scene_end = now();
+
+        let render_size = vello_gpu::RenderSize {
+            width: self.width,
+            height: self.height,
+        };
+
+        let surface_texture = match self.renderer_wrapper.surface.get_current_texture() {
+            CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+            CurrentSurfaceTexture::Occluded
+            | CurrentSurfaceTexture::Timeout
+            | CurrentSurfaceTexture::Outdated
+            | CurrentSurfaceTexture::Suboptimal(_) => {
+                return (None, gpu_time);
+            }
+            CurrentSurfaceTexture::Lost => panic!("Surface was lost"),
+            CurrentSurfaceTexture::Validation => {
+                panic!("Validation error getting surface")
+            }
+        };
+        let surface_texture_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self
+            .renderer_wrapper
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.begin();
+        }
+        self.renderer_wrapper
+            .renderer
+            .render(
+                &self.scene,
+                &mut self.renderer_wrapper.resources,
+                &self.renderer_wrapper.device,
+                &self.renderer_wrapper.queue,
+                &mut encoder,
+                &render_size,
+                &surface_texture_view,
+                Some(&self.renderer_wrapper.depth_texture_view),
+                &vello_gpu::TextureBindings::new(),
+            )
+            .unwrap();
+        let render_end = now();
+
+        self.renderer_wrapper.queue.submit([encoder.finish()]);
+        surface_texture.present();
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.end();
+        }
+        let frame_end = now();
+
+        (
+            Some(FrameTiming {
+                stages_ms: [
+                    scene_end - frame_start,
+                    render_end - scene_end,
+                    frame_end - render_end,
+                ],
+                total_ms: frame_end - frame_start,
+            }),
+            gpu_time,
+        )
+    }
+
+    fn frame(&mut self, timestamp: f64) {
+        let (timing, gpu_time) = self.render();
+        let scene = self.current_scene + 1;
+        let scene_count = self.scenes.len();
+        self.performance.record_gpu_time(gpu_time);
+        self.performance.record(
+            timestamp,
+            timing,
+            scene,
+            scene_count,
+            self.width,
+            self.height,
+        );
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        self.canvas.set_width(width);
+        self.canvas.set_height(height);
+        self.width = width;
+        self.height = height;
+
+        self.scene.reset_and_resize(width as u16, height as u16);
+        self.renderer_wrapper.resize(width, height);
+        self.performance.reset();
+    }
+
+    fn next_scene(&mut self) {
+        self.current_scene = (self.current_scene + 1) % self.scenes.len();
+        update_page_url(self.current_scene);
+        self.update_title();
+        self.transform = Affine::IDENTITY;
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.reset();
+        }
+        self.performance.reset();
+    }
+
+    fn prev_scene(&mut self) {
+        self.current_scene = if self.current_scene == 0 {
+            self.scenes.len() - 1
+        } else {
+            self.current_scene - 1
+        };
+        update_page_url(self.current_scene);
+        self.update_title();
+        self.transform = Affine::IDENTITY;
+        if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
+            gpu_timer.reset();
+        }
+        self.performance.reset();
+    }
+
+    fn update_title(&self) {
+        web_sys::window()
+            .unwrap()
+            .document()
+            .unwrap()
+            .set_title(&format!(
+                "Vello GPU WGPU WebGL - Page {}/{}",
+                self.current_scene + 1,
+                self.scenes.len()
+            ));
+    }
+
+    fn reset_transform(&mut self) {
+        self.transform = Affine::IDENTITY;
+    }
+
+    fn handle_key(&mut self, key: &str) {
+        if let Some(scene) = self.scenes.get_mut(self.current_scene) {
+            scene.handle_key(key);
+        }
+    }
+
+    fn handle_mouse_down(&mut self, x: f64, y: f64) {
+        self.mouse_down = true;
+        self.last_cursor_position = Some(Point { x, y });
+    }
+
+    fn handle_mouse_up(&mut self) {
+        self.mouse_down = false;
+        self.last_cursor_position = None;
+    }
+
+    fn handle_mouse_move(&mut self, x: f64, y: f64) {
+        let current_pos = Point { x, y };
+
+        if self.mouse_down
+            && let Some(last_pos) = self.last_cursor_position
+        {
+            self.transform = self.transform.then_translate(current_pos - last_pos);
+        }
+
+        self.last_cursor_position = Some(current_pos);
+    }
+
+    fn handle_wheel(&mut self, delta_y: f64) {
+        const ZOOM_STEP: f64 = 0.1;
+        let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
+
+        // Zoom centered at cursor position, or the center if no position is set.
+        self.transform = self.transform.then_scale_about(
+            zoom_factor,
+            self.last_cursor_position.unwrap_or(Point {
+                x: 0.5 * self.width as f64,
+                y: 0.5 * self.height as f64,
+            }),
+        );
+    }
+
+    fn upload_images_to_atlas(&mut self) {
+        let mut encoder =
+            self.renderer_wrapper
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Upload Image pass"),
+                });
+
+        // 1st example — uploading pixmap directly to WebGL atlas
+        let pixmap1 = ImageScene::read_flower_image();
+        self.renderer_wrapper.renderer.upload_image(
+            &mut self.renderer_wrapper.resources,
+            &self.renderer_wrapper.device,
+            &self.renderer_wrapper.queue,
+            &mut encoder,
+            &pixmap1,
+        );
+
+        // 2nd example — uploading from a WebGL texture
+        let pixmap2 = ImageScene::read_cowboy_image();
+        let texture2 = self.upload_image_to_texture(
+            &self.renderer_wrapper.device,
+            &self.renderer_wrapper.queue,
+            &pixmap2,
+        );
+        self.renderer_wrapper.renderer.upload_image(
+            &mut self.renderer_wrapper.resources,
+            &self.renderer_wrapper.device,
+            &self.renderer_wrapper.queue,
+            &mut encoder,
+            &texture2,
+        );
+
+        self.renderer_wrapper.queue.submit([encoder.finish()]);
+    }
+
+    fn upload_image_to_texture(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image: &Pixmap,
+    ) -> wgpu::Texture {
+        let image_width = image.width() as u32;
+        let image_height = image.height() as u32;
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Uploaded Image Texture"),
+            size: wgpu::Extent3d {
+                width: image_width,
+                height: image_height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            image.data_as_u8_slice(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                // 4 bytes per RGBA pixel
+                bytes_per_row: Some(4 * image_width),
+                rows_per_image: Some(image_height),
+            },
+            wgpu::Extent3d {
+                width: image_width,
+                height: image_height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        texture
+    }
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = requestAnimationFrame)]
+    fn request_animation_frame(f: &Closure<dyn FnMut(f64)>);
+}
+
+/// Creates a `HTMLCanvasElement` of the given dimensions and renders the given scenes into it,
+/// with interactive controls for panning, zooming, and switching between scenes.
+pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
+    let canvas = web_sys::Window::document(&web_sys::window().unwrap())
+        .unwrap()
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into::<HtmlCanvasElement>()
+        .unwrap();
+    canvas.set_width(canvas_width as u32);
+    canvas.set_height(canvas_height as u32);
+    canvas.style().set_property("width", "100%").unwrap();
+    canvas.style().set_property("height", "100%").unwrap();
+
+    let body = web_sys::Window::document(&web_sys::window().unwrap())
+        .unwrap()
+        .body()
+        .unwrap();
+    // Apply background color so white text can be seen.
+    body.style()
+        .set_property("background-color", "#111")
+        .unwrap();
+
+    // Add canvas to body
+    web_sys::Window::document(&web_sys::window().unwrap())
+        .unwrap()
+        .body()
+        .unwrap()
+        .append_child(&canvas)
+        .unwrap();
+
+    let scenes = vello_example_scenes::get_example_scenes(
+        vello_example_scenes::Capabilities::default(),
+        vec![
+            ImageSource::opaque_id(ImageId::new(0)),
+            ImageSource::opaque_id(ImageId::new(1)),
+        ],
+    );
+
+    let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));
+
+    // Set up animation frame loop
+    {
+        let f = Rc::new(RefCell::new(None::<Closure<dyn FnMut(f64)>>));
+        let g = f.clone();
+        let app_state = app_state.clone();
+
+        *g.borrow_mut() = Some(Closure::wrap(Box::new(move |timestamp: f64| {
+            app_state.borrow_mut().frame(timestamp);
+            request_animation_frame(f.borrow().as_ref().unwrap());
+        }) as Box<dyn FnMut(f64)>));
+
+        request_animation_frame(g.borrow().as_ref().unwrap());
+    }
+
+    // Set up window resize event handler
+    {
+        let app_state = app_state.clone();
+        let closure = Closure::wrap(Box::new(move |_: Event| {
+            let window = web_sys::window().unwrap();
+            let dpr = window.device_pixel_ratio();
+
+            let width = window.inner_width().unwrap().as_f64().unwrap() as u32 * dpr as u32;
+            let height = window.inner_height().unwrap().as_f64().unwrap() as u32 * dpr as u32;
+
+            app_state.borrow_mut().resize(width, height);
+        }) as Box<dyn FnMut(_)>);
+
+        let window = web_sys::window().unwrap();
+        window
+            .add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Set up event handlers
+
+    // Mouse down
+    {
+        let app_state = app_state.clone();
+        let closure = Closure::wrap(Box::new(move |event: MouseEvent| {
+            app_state
+                .borrow_mut()
+                .handle_mouse_down(event.client_x() as f64, event.client_y() as f64);
+        }) as Box<dyn FnMut(_)>);
+        canvas
+            .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Mouse up
+    {
+        let app_state = app_state.clone();
+        let closure = Closure::wrap(Box::new(move |_event: MouseEvent| {
+            app_state.borrow_mut().handle_mouse_up();
+        }) as Box<dyn FnMut(_)>);
+        canvas
+            .add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Mouse move
+    {
+        let app_state = app_state.clone();
+        let closure = Closure::wrap(Box::new(move |event: MouseEvent| {
+            app_state
+                .borrow_mut()
+                .handle_mouse_move(event.client_x() as f64, event.client_y() as f64);
+        }) as Box<dyn FnMut(_)>);
+        canvas
+            .add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Mouse wheel
+    {
+        let app_state = app_state.clone();
+        let closure = Closure::wrap(Box::new(move |event: WheelEvent| {
+            event.prevent_default();
+            let delta = -event.delta_y() / 100.0; // Normalize and invert
+            app_state.borrow_mut().handle_wheel(delta);
+        }) as Box<dyn FnMut(_)>);
+        canvas
+            .add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Keyboard events (document level)
+    {
+        let app_state = app_state.clone();
+        let document = web_sys::window().unwrap().document().unwrap();
+        let closure = Closure::wrap(Box::new(move |event: KeyboardEvent| {
+            let key = event.key();
+            match key.as_str() {
+                "ArrowRight" => app_state.borrow_mut().next_scene(),
+                "ArrowLeft" => app_state.borrow_mut().prev_scene(),
+                " " => app_state.borrow_mut().reset_transform(),
+                _ => app_state.borrow_mut().handle_key(key.as_str()),
+            }
+        }) as Box<dyn FnMut(_)>);
+        document
+            .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Create instructions element
+    let document = web_sys::window().unwrap().document().unwrap();
+    let instructions = document.create_element("div").unwrap();
+    instructions.set_inner_html(
+        "Left/Right Arrow: Change scene | Space: Reset view | Mouse Drag: Pan | Mouse Wheel: Zoom",
+    );
+    let style = instructions
+        .dyn_ref::<web_sys::HtmlElement>()
+        .unwrap()
+        .style();
+    style.set_property("position", "fixed").unwrap();
+    style.set_property("bottom", "10px").unwrap();
+    style.set_property("left", "10px").unwrap();
+    style
+        .set_property("background", "rgba(0, 0, 0, 0.5)")
+        .unwrap();
+    style.set_property("color", "white").unwrap();
+    style.set_property("padding", "5px 10px").unwrap();
+    style.set_property("border-radius", "5px").unwrap();
+    style.set_property("font-family", "sans-serif").unwrap();
+    style.set_property("pointer-events", "none").unwrap();
+
+    document
+        .body()
+        .unwrap()
+        .append_child(&instructions)
+        .unwrap();
+}
+
+/// Creates a `HTMLCanvasElement` and renders a single scene into it
+pub async fn render_scene(scene: Scene, width: u16, height: u16) {
+    let canvas = web_sys::Window::document(&web_sys::window().unwrap())
+        .unwrap()
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into::<HtmlCanvasElement>()
+        .unwrap();
+    canvas.set_width(width as u32);
+    canvas.set_height(height as u32);
+    canvas.style().set_property("width", "100%").unwrap();
+    canvas.style().set_property("height", "100%").unwrap();
+
+    // Add canvas to body
+    web_sys::Window::document(&web_sys::window().unwrap())
+        .unwrap()
+        .body()
+        .unwrap()
+        .append_child(&canvas)
+        .unwrap();
+
+    let RendererWrapper {
+        mut renderer,
+        mut resources,
+        device,
+        queue,
+        surface,
+        depth_texture_view,
+        ..
+    } = RendererWrapper::new(canvas).await;
+
+    let render_size = vello_gpu::RenderSize {
+        width: width as u32,
+        height: height as u32,
+    };
+    let surface_texture = match surface.get_current_texture() {
+        CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+        e => panic!("Error getting initial surface: {e:?}"),
+    };
+    let surface_texture_view = surface_texture
+        .texture
+        .create_view(&wgpu::TextureViewDescriptor::default());
+
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+    renderer
+        .render(
+            &scene,
+            &mut resources,
+            &device,
+            &queue,
+            &mut encoder,
+            &render_size,
+            &surface_texture_view,
+            Some(&depth_texture_view),
+            &vello_gpu::TextureBindings::new(),
+        )
+        .unwrap();
+
+    queue.submit([encoder.finish()]);
+    surface_texture.present();
+}
+
+fn initial_scene_index(scene_count: usize) -> usize {
+    web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .and_then(|search| web_sys::UrlSearchParams::new_with_str(&search).ok())
+        .and_then(|params| params.get("page"))
+        .and_then(|page| page.parse::<usize>().ok())
+        .filter(|page| (1..=scene_count).contains(page))
+        .map_or(0, |page| page - 1)
+}
+
+fn update_page_url(scene_index: usize) {
+    web_sys::window()
+        .unwrap()
+        .history()
+        .unwrap()
+        .replace_state_with_url(
+            &JsValue::NULL,
+            "",
+            Some(&format!("?page={}", scene_index + 1)),
+        )
+        .unwrap();
+}

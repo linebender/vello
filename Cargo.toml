@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "research/vello",
+    "research/vello_research",
     "research/vello_encoding",
     "research/vello_shaders",
-    "research/vello_tests",
+    "research/vello_research_tests",
     "research/xtask",
 
     "research/examples/headless",
@@ -16,18 +16,18 @@ members = [
     "vello_cpu",
     "vello_cpu/examples/wasm_cpu",
     "vello_cpu/examples/winit",
-    "vello_hybrid",
-    "vello_hybrid/examples/native_webgl",
-    "vello_hybrid/examples/wgpu_webgl",
-    "vello_hybrid/examples/winit",
+    "vello_gpu",
+    "vello_gpu/examples/native_webgl",
+    "vello_gpu/examples/wgpu_webgl",
+    "vello_gpu/examples/winit",
 
     "vello_bench",
     "vello_common",
-    "vello_sparse_shaders",
+    "vello_gpu_shaders",
     "vello_toy",
-    "vello_sparse_tests",
-    "vello_sparse_tests/vello_dev_macros",
-    "vello_sparse_tests/vello_example_scenes",
+    "vello_tests",
+    "vello_tests/vello_dev_macros",
+    "vello_tests/vello_example_scenes",
     "glifo",
 ]
 
@@ -95,7 +95,7 @@ clippy.wildcard_dependencies = "warn"
 # END LINEBENDER LINT SET
 
 [workspace.dependencies]
-vello = { version = "0.10.0", path = "research/vello" }
+vello = { version = "0.10.0", path = "research/vello_research" }
 vello_encoding = { version = "0.10.0", path = "research/vello_encoding" }
 vello_shaders = { version = "0.10.0", path = "research/vello_shaders" }
 bytemuck = { version = "1.25.0", features = ["derive"] }
@@ -131,14 +131,14 @@ web-sys = "0.3.91"
 
 vello_common = { version = "0.2.0", path = "vello_common", default-features = false }
 vello_cpu = { version = "0.2.0", path = "vello_cpu" }
-vello_hybrid = { version = "0.2.0", path = "vello_hybrid", default-features = false }
-vello_sparse_shaders = { version = "0.2.0", path = "vello_sparse_shaders" }
+vello_gpu = { version = "0.2.0", path = "vello_gpu", default-features = false }
+vello_gpu_shaders = { version = "0.2.0", path = "vello_gpu_shaders" }
 glifo = { version = "0.3.0", path = "glifo", default-features = false }
-vello_example_scenes = { path = "vello_sparse_tests/vello_example_scenes" }
-vello_dev_macros = { path = "vello_sparse_tests/vello_dev_macros" }
+vello_example_scenes = { path = "vello_tests/vello_example_scenes" }
+vello_dev_macros = { path = "vello_tests/vello_dev_macros" }
 
 # NOTE: The wgpu and naga versions should be kept in sync, and make sure to keep this
-# in sync with the version badge in README.md and research/vello/README.md
+# in sync with the version badge in README.md and research/vello_research/README.md
 wgpu = { version = "29.0.3", default-features = false, features = ["std", "wgsl"] }
 naga = { version = "29.0.3", default-features = false }
 log = "0.4.29"

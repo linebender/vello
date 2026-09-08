@@ -12,17 +12,17 @@ env:
   RUST_MIN_VER: "1.89"
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
-  RUST_MIN_VER_PKGS: "-p vello -p vello_encoding -p vello_shaders -p vello_common -p vello_cpu -p vello_hybrid -p glifo"
+  RUST_MIN_VER_PKGS: "-p vello -p vello_encoding -p vello_shaders -p vello_common -p vello_cpu -p vello_gpu -p glifo"
   # List of packages that will be checked for `no_std` builds.
   # This should be limited to packages that are intended for publishing.
   RUST_NO_STD_PKGS: "-p vello_common -p vello_cpu -p glifo"
   # List of features that depend on the standard library and will be excluded from no_std checks.
   FEATURES_DEPENDING_ON_STD: "std,default,png,pico_svg,multithreading,probe"
   # List of packages that can not target Wasm.
-  # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
-  NO_WASM_PKGS: "--exclude vello_tests --exclude xtask"
+  # `vello_research_tests` uses `nv-flip`, which doesn't support Wasm.
+  NO_WASM_PKGS: "--exclude vello_research_tests --exclude xtask"
   # The files stored in LFS the tests need to access, in JSON format
-  LFS_FILES: '["research/vello_tests/snapshots/*.png", "vello_sparse_tests/snapshots/*.png"]'
+  LFS_FILES: '["research/vello_research_tests/snapshots/*.png", "vello_tests/snapshots/*.png"]'
 
 
 # Rationale
@@ -118,8 +118,8 @@ jobs:
       - name: Run cargo rdme (vello_common)
         run: cargo rdme --check --workspace-project=vello_common
     
-      - name: Run cargo rdme (vello_hybrid)
-        run: cargo rdme --check --workspace-project=vello_hybrid
+      - name: Run cargo rdme (vello_gpu)
+        run: cargo rdme --check --workspace-project=vello_gpu
 
       - name: Run cargo rdme (glifo)
         run: cargo rdme --check --workspace-project=glifo
@@ -203,7 +203,7 @@ jobs:
         run: cargo hack clippy --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features std,u8_pipeline,f32_pipeline --tests --benches --examples -- -D warnings
 
   wasm-size:
-    name: sparse strips wasm size
+    name: Vello renderer wasm size
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -224,8 +224,8 @@ jobs:
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
 
-      - name: check sparse strips wasm sizes
-        run: ./vello_sparse_tests/web/check_wasm_sizes.sh
+      - name: check Vello renderer wasm sizes
+        run: ./vello_tests/web/check_wasm_sizes.sh
 
   prime-lfs-cache:
     name: Prime LFS Cache
@@ -340,9 +340,9 @@ jobs:
         with:
           name: vello-snapshot-tests-${{ matrix.os }}
           path: |
-            research/vello_tests/comparisons
-            research/vello_tests/current
-            vello_sparse_tests/diffs
+            research/vello_research_tests/comparisons
+            research/vello_research_tests/current
+            vello_tests/diffs
 
       - name: cargo test --doc
         run: cargo test --doc --workspace --locked --all-features --no-fail-fast
@@ -350,12 +350,12 @@ jobs:
   test-avx512:
     # Since GitHub runners don't support AVX-512, we need to run the tests with Intel SDE. This
     # setup mirrors https://github.com/linebender/fearless_simd/blob/30c7f38cd545b20ec98624bbf62d1357cd8814e3/.github/workflows/ci.yml#L222
-    name: vello_sparse_tests (AVX-512)
+    name: vello_tests (AVX-512)
     needs: prime-lfs-cache
     runs-on: ubuntu-latest
     env:
       CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
-      CARGO_TEST_ARGS: -p vello_sparse_tests --locked --release --test tests
+      CARGO_TEST_ARGS: -p vello_tests --locked --release --test tests
       SDE_PKG: sde-external-10.8.0-2026-03-15
       SDE_SHA256: 50b320cd226acef7a491f5b321fc1be3c3c7984f9e27a456e64894b5b0979dd3
       VELLO_TEST_AVX512: "true"
@@ -394,7 +394,7 @@ jobs:
       - name: build tests
         run: cargo test --no-run $CARGO_TEST_ARGS
 
-      - name: run vello_sparse_tests with AVX-512
+      - name: run vello_tests with AVX-512
         run: ${SDE_PKG}-lin/sde64 -icl -- cargo test $CARGO_TEST_ARGS avx512
 
   test-stable-wasm:
@@ -450,11 +450,11 @@ jobs:
         with:
           tool: wasm-pack
 
-      - name: Run vello_sparse_tests on Chrome
+      - name: Run vello_tests on Chrome
         # We need to run in release mode, because otherwise wasm_parser can't read the
         # blob, see <https://github.com/linebender/vello/pull/1078#issuecomment-3029336905>
         run: wasm-pack test --headless --chrome --features webgl --release
-        working-directory: vello_sparse_tests
+        working-directory: vello_tests
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
 
@@ -480,13 +480,13 @@ jobs:
         with:
           tool: wasm-pack
 
-      - name: check vello_hybrid is wgpu webgl compatible
+      - name: check vello_gpu is wgpu webgl compatible
         run: wasm-pack test --headless --chrome
-        working-directory: vello_hybrid/examples/wgpu_webgl
+        working-directory: vello_gpu/examples/wgpu_webgl
 
-      - name: check vello_hybrid is native webgl compatible
+      - name: check vello_gpu is native webgl compatible
         run: wasm-pack test --headless --chrome
-        working-directory: vello_hybrid/examples/native_webgl
+        working-directory: vello_gpu/examples/native_webgl
 
 
   check-stable-android:

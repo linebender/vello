@@ -5,7 +5,7 @@
 //!
 //! Unlike the filters defines in [`crate::filter_effects`], the filters in this module
 //! represent a special representation of each filter to be used as the basis for rendering in
-//! `vello_hybrid` and `vello_cpu`.
+//! `vello_gpu` and `vello_cpu`.
 
 use crate::filter::drop_shadow::{DropShadow, transform_shadow_params};
 use crate::filter::flood::Flood;
@@ -216,7 +216,7 @@ impl FilterData {
             // TODO: We technically shouldn't need to snap here. `source_padding` is only
             // used to shift the contents when rendering into the render context, and the
             // final pixmap bbox (which is derived from `filter_expansion` will be snapped
-            // separately. However, not snapping here causes larger mismatches with Vello Hybrid
+            // separately. However, not snapping here causes larger mismatches with Vello GPU
             // since the size of the final pixmap determines in which way we decimate for the
             // gaussian blur filter. Therefore, we keep this for compatibility.
             PaddingU16::new(

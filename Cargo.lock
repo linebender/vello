@@ -2477,7 +2477,7 @@ dependencies = [
  "log",
  "vello_common",
  "vello_example_scenes",
- "vello_hybrid",
+ "vello_gpu",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -4553,13 +4553,13 @@ dependencies = [
  "smallvec",
  "vello_common",
  "vello_cpu",
- "vello_hybrid",
+ "vello_gpu",
  "wasm-bindgen",
  "web-sys",
 ]
 
 [[package]]
-name = "vello_hybrid"
+name = "vello_gpu"
 version = "0.2.0"
 dependencies = [
  "bytemuck",
@@ -4572,21 +4572,47 @@ dependencies = [
  "roxmltree 0.20.0",
  "thiserror 2.0.18",
  "vello_common",
- "vello_sparse_shaders",
+ "vello_gpu_shaders",
  "web-sys",
  "wgpu",
 ]
 
 [[package]]
-name = "vello_hybrid_winit"
+name = "vello_gpu_shaders"
+version = "0.2.0"
+dependencies = [
+ "naga",
+ "wesl",
+ "wesl-macros",
+ "wgsl-parse",
+ "wgsl-types",
+]
+
+[[package]]
+name = "vello_gpu_winit"
 version = "0.0.0"
 dependencies = [
  "pollster",
  "vello_common",
  "vello_example_scenes",
- "vello_hybrid",
+ "vello_gpu",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "vello_research_tests"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "futures-intrusive",
+ "image",
+ "nv-flip",
+ "oxipng",
+ "png",
+ "pollster",
+ "scenes",
+ "vello",
 ]
 
 [[package]]
@@ -4601,18 +4627,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vello_sparse_shaders"
-version = "0.2.0"
-dependencies = [
- "naga",
- "wesl",
- "wesl-macros",
- "wgsl-parse",
- "wgsl-types",
-]
-
-[[package]]
-name = "vello_sparse_tests"
+name = "vello_tests"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
@@ -4628,28 +4643,13 @@ dependencies = [
  "vello_common",
  "vello_cpu",
  "vello_dev_macros",
- "vello_hybrid",
+ "vello_gpu",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "wasmparser 0.235.0",
  "web-sys",
  "wgpu",
-]
-
-[[package]]
-name = "vello_tests"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "futures-intrusive",
- "image",
- "nv-flip",
- "oxipng",
- "png",
- "pollster",
- "scenes",
- "vello",
 ]
 
 [[package]]
@@ -5265,7 +5265,7 @@ dependencies = [
  "log",
  "vello_common",
  "vello_example_scenes",
- "vello_hybrid",
+ "vello_gpu",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

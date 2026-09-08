@@ -1,0 +1,49 @@
+[package]
+name = "vello_example_scenes"
+description = "Vello Example Scenes."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+default = []
+cpu = ["dep:vello_cpu"]
+webgl_gpu_timing = [
+    "web-sys/ExtDisjointTimerQuery",
+    "web-sys/HtmlCanvasElement",
+    "web-sys/WebGl2RenderingContext",
+    "web-sys/WebGlQuery",
+]
+
+[dependencies]
+bytemuck = { workspace = true, features = [] }
+smallvec = { workspace = true }
+glifo = { workspace = true }
+skrifa = { workspace = true }
+vello_gpu = { workspace = true, default-features = false, features = ["text"] }
+vello_common = { workspace = true, features = ["pico_svg", "png"] }
+image = { workspace = true, features = ["jpeg"] }
+vello_cpu = { workspace = true, optional = true }
+console_error_panic_hook = { workspace = true }
+console_log = { workspace = true }
+log = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+parley = { version = "0.11.0", default-features = false, features = ["std"] }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = [
+    "Window",
+    "Performance",
+    "Document",
+    "Node",
+    "Element",
+    "HtmlElement",
+    "CssStyleDeclaration",
+] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+parley = { version = "0.11.0", default-features = true }
