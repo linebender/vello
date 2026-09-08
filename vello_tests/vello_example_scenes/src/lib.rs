@@ -32,8 +32,8 @@ pub use vello_common::paint::{Paint, PaintType};
 pub use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
 #[cfg(feature = "cpu")]
 use vello_cpu::{RenderContext, Resources as CpuResources};
-pub use vello_hybrid::TextureId;
-use vello_hybrid::{Resources as HybridResources, Scene};
+pub use vello_gpu::TextureId;
+use vello_gpu::{Resources as HybridResources, Scene};
 
 /// Renderer capability flags controlling which scenes are listed by [`get_example_scenes`].
 ///
@@ -207,7 +207,7 @@ impl RenderingContext for RenderContext {
 
 impl RenderingContext for Scene {
     type Resources = HybridResources;
-    type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
+    type GlyphRunBackend<'a> = vello_gpu::HybridGlyphRunBackend<'a>;
 
     fn width(&self) -> u16 {
         self.width()

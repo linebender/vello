@@ -23,7 +23,7 @@ fn main() {
     )
     .unwrap();
 
-    for &(name, wgsl_source) in vello_sparse_shaders::wgsl::ALL {
+    for &(name, wgsl_source) in vello_gpu_shaders::wgsl::ALL {
         let shader = compile::compile_wgsl_shader(
             wgsl_source,
             name,

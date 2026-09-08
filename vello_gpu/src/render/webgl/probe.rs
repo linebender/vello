@@ -56,11 +56,11 @@ impl WebGlRenderer {
     /// Conduct a probing operation.
     ///
     /// The WebGL drivers of certain devices are known to be buggy and might therefore not work correctly
-    /// with Vello Hybrid. In the best case, it will simply result in a program crash, but in the worst
+    /// with Vello GPU. In the best case, it will simply result in a program crash, but in the worst
     /// case it can instead result in a silent failure, meaning that no explicit error is
-    /// thrown, but the rendered contents of Vello Hybrid will either be completely empty or look glitchy.
+    /// thrown, but the rendered contents of Vello GPU will either be completely empty or look glitchy.
     ///
-    /// The purpose of this method is to run a sanity check to ensure that running Vello Hybrid on this
+    /// The purpose of this method is to run a sanity check to ensure that running Vello GPU on this
     /// device actually results in visible and correct output. How this achieved is by drawing a selection
     /// of small elements into a small canvas, and comparing the final output against a reference image.
     ///

@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Gradient ramp cache for `vello_hybrid` renderer.
+//! Gradient ramp cache for the `vello_gpu` renderer.
 
 use alloc::vec::Vec;
 use hashbrown::HashMap;

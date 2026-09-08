@@ -291,7 +291,7 @@ mod linear {
         ctx.fill_path(&path);
     }
 
-    // vello_hybrid:
+    // vello_gpu:
     // - diff_pixels = 2: It’s likely that the issue comes from accumulated rounding errors.
     // When the gradient’s t-value falls right on the edge of the texture ramp, it may yield
     // a different result than in vello_cpu.

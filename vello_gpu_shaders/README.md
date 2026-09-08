@@ -1,6 +1,6 @@
 <div align="center">
 
-# Vello Sparse Shaders
+# Vello GPU Shaders
 
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
 \
@@ -10,7 +10,7 @@
 </div>
 
 This crate contains the WESL programs and linked WGSL output, plus optionally generated GLSL
-shader programs, used by the Vello Hybrid renderer.
+shader programs, used by the Vello GPU renderer.
 
 ## Features
 - Single source of truth authored as [WESL](https://wesl-lang.dev/) programs.
@@ -24,13 +24,13 @@ hybrid rendering engine.
 
 Whenever the WESL shaders are updated, the build script automatically relinks and minifies the
 WGSL. When the `glsl` feature is enabled, it also regenerates the minified GLSL programs and
-reflection metadata used by `vello_hybrid`.
+reflection metadata used by `vello_gpu`.
 
 To inspect the generated WebGL GLSL and the embedded `compiled_shaders.rs` module used by
-`vello_hybrid`, create local copies by running:
+`vello_gpu`, create local copies by running:
 
 ```sh
-cargo run -p vello_sparse_shaders --features glsl
+cargo run -p vello_gpu_shaders --features glsl
 ```
 
 The generated files will be written into the `generated_glsl` folder.
@@ -39,20 +39,20 @@ To retain authored identifiers and Naga's readable formatting for debugging, ena
 `unminified` feature as well:
 
 ```sh
-cargo run -p vello_sparse_shaders --features glsl,unminified
+cargo run -p vello_gpu_shaders --features glsl,unminified
 ```
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Vello Hybrid Shaders has been verified to compile with **Rust 1.89** and later.
+This version of Vello GPU Shaders has been verified to compile with **Rust 1.89** and later.
 
-Future versions of Vello Hybrid might increase the Rust version requirement.
+Future versions of Vello GPU might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.
 
 <details>
 <summary>Click here if compiling fails.</summary>
 
-As time has passed, some of Vello Hybrid's dependencies could have released versions with a higher Rust requirement.
+As time has passed, some of Vello GPU's dependencies could have released versions with a higher Rust requirement.
 If you encounter a compilation issue due to a dependency and don't want to upgrade your Rust toolchain, then you could downgrade the dependency.
 
 ```sh
@@ -64,7 +64,7 @@ cargo update -p package_name --precise 0.1.1
 
 ## Community
 
-Discussion of Vello Hybrid development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#vello channel](https://xi.zulipchat.com/#narrow/channel/197075-vello).
+Discussion of Vello GPU development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#vello channel](https://xi.zulipchat.com/#narrow/channel/197075-vello).
 All public content can be read without logging in.
 
 Contributions are welcome by pull request.

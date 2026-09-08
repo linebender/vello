@@ -171,7 +171,7 @@ pub use render::{
     CompositeMode, PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources,
 };
 // Note: The first one is not something that should be
-// exposed, but is currently needed by vello_sparse_tests.
+// exposed, but is currently needed by vello_tests.
 #[cfg(feature = "text")]
 pub use glifo::Glyph;
 #[cfg(feature = "text")]

@@ -1,6 +1,6 @@
 ## WebGL Demo
 
-Uses Vello Hybrid with a native WebGL2 backend in the browser. This example does not use wgpu.
+Uses Vello GPU with a native WebGL2 backend in the browser. This example does not use wgpu.
 
 ## Development
 

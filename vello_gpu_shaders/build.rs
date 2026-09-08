@@ -128,7 +128,7 @@ fn generate_compiled_shaders_module(shader_infos: &[ShaderInfo]) -> String {
     let mut buf = String::new();
     writeln!(
         buf,
-        "// Generated code by `vello_sparse_shaders` - DO NOT EDIT"
+        "// Generated code by `vello_gpu_shaders` - DO NOT EDIT"
     )
     .unwrap();
 

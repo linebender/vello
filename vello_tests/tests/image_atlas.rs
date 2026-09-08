@@ -10,7 +10,7 @@ use vello_common::{
     peniko::ImageSampler,
     pixmap::Pixmap,
 };
-use vello_hybrid::{
+use vello_gpu::{
     AtlasConfig, AtlasId, AtlasTextureInfo, MemorySettings, RenderError, RenderSettings, Scene,
     TextureId, WebGlRenderer, WebGlTextureBindings, WebGlTextureWithDimensions,
 };

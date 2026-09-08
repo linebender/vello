@@ -9,7 +9,7 @@ if [[ "$target_dir" != /* ]]; then
     target_dir="$repo_root/$target_dir"
 fi
 
-for module in vello_cpu vello_hybrid_webgl vello_hybrid_wgpu; do
+for module in vello_cpu vello_gpu_webgl vello_gpu_wgpu; do
     "$script_dir/build_wasm.sh" "$module" simd
 done
 
@@ -55,12 +55,12 @@ check_size \
     "$target_dir/sparse-strips-wasm/vello_cpu/simd/vello_cpu_bg.wasm" \
     3774874 # 3.6 MiB
 check_size \
-    "vello_hybrid_webgl" \
-    "$target_dir/sparse-strips-wasm/vello_hybrid_webgl/simd/vello_hybrid_webgl_bg.wasm" \
+    "vello_gpu_webgl" \
+    "$target_dir/sparse-strips-wasm/vello_gpu_webgl/simd/vello_gpu_webgl_bg.wasm" \
     3774874 # 3.6 MiB
 check_size \
-    "vello_hybrid_wgpu" \
-    "$target_dir/sparse-strips-wasm/vello_hybrid_wgpu/simd/vello_hybrid_wgpu_bg.wasm" \
+    "vello_gpu_wgpu" \
+    "$target_dir/sparse-strips-wasm/vello_gpu_wgpu/simd/vello_gpu_wgpu_bg.wasm" \
     7340032 # 7 MiB
 
 exit "$failed"

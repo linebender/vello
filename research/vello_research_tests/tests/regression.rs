@@ -13,7 +13,7 @@ use vello::{
         color::palette,
     },
 };
-use vello_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
+use vello_research_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
 
 /// Test created from <https://github.com/linebender/vello/issues/616>
 #[test]
@@ -223,7 +223,7 @@ fn many_bins(use_cpu: bool) {
         use_cpu,
         ..TestParams::new("many_bins", 256 * 17, 256 * 17)
     };
-    let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
+    let image = vello_research_tests::render_then_debug_sync(&scene, &params).unwrap();
     assert_eq!(image.format, ImageFormat::Rgba8, "image should be Rgba8");
     let mut red_count = 0;
     let mut black_count = 0;

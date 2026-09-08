@@ -8,7 +8,7 @@
 //! Or `cargo run -p with_winit --release -- --test-scenes`
 //!
 //! Many of these are also tested automatically in
-//! `research/vello_tests/tests/snapshot_test_scenes.rs`.
+//! `research/vello_research_tests/tests/snapshot_test_scenes.rs`.
 //! If you're adding a new test scene, also add a corresponding test in that file.
 //!
 //! Architecturally, this module consists of:

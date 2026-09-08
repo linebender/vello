@@ -66,7 +66,7 @@ fn snapshots_command(dir: &str, args: Args) -> kompari::Result<()> {
     let tests_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("vello_tests");
+        .join("vello_research_tests");
 
     let snapshots_path = tests_path.join("snapshots");
     let current_path = tests_path.join("current").join(dir);
@@ -83,7 +83,7 @@ fn comparisons_command(args: ComparisonsArgs) -> kompari::Result<()> {
     let tests_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("vello_tests")
+        .join("vello_research_tests")
         .join("comparisons");
 
     let cpu_path = tests_path.join("cpu");

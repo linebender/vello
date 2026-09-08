@@ -147,7 +147,7 @@ impl TextureBindings {
     }
 }
 
-/// Vello Hybrid's Renderer.
+/// Vello GPU's renderer.
 #[derive(Debug)]
 pub struct Renderer {
     /// Programs for rendering.
@@ -226,7 +226,7 @@ impl Renderer {
     pub fn create_depth_texture_view(device: &Device, render_size: &RenderSize) -> TextureView {
         device
             .create_texture(&wgpu::TextureDescriptor {
-                label: Some("Vello Hybrid Depth Texture"),
+                label: Some("Vello GPU Depth Texture"),
                 size: Extent3d {
                     width: render_size.width.max(1),
                     height: render_size.height.max(1),
@@ -715,7 +715,7 @@ impl Renderer {
                             self.encode_external_texture_paint(img, *source_region)
                         }
                         ImageSource::Pixmap(_) => {
-                            panic!("pixmap image sources are not supported by Vello Hybrid")
+                            panic!("pixmap image sources are not supported by Vello GPU")
                         }
                     };
                     self.encoded_paints[encoded_paint_idx] = image_paint;
@@ -1165,12 +1165,12 @@ impl Programs {
 
         let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Strip Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::RENDER.into()),
+            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::RENDER.into()),
         });
 
         let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Clear Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::CLEAR.into()),
+            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::CLEAR.into()),
         });
 
         let strip_pipeline_layout =
@@ -1390,7 +1390,7 @@ impl Programs {
 
         let filter_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Filter Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::FILTER.into()),
+            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::FILTER.into()),
         });
         let filter_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1498,11 +1498,11 @@ impl Programs {
             });
         let blend_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Blend Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::BLEND.into()),
+            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::BLEND.into()),
         });
         let copy_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Copy Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::COPY.into()),
+            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::COPY.into()),
         });
         let blend_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

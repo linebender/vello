@@ -1,6 +1,6 @@
 ## WebGL Demo
 
-Uses Vello Hybrid with a `wgpu` powered WebGL2 backend in the browser.
+Uses Vello GPU with a `wgpu` powered WebGL2 backend in the browser.
 
 ## Development
 

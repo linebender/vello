@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Renders our example scenes with Vello Hybrid.
+//! Renders our example scenes with Vello GPU.
 
 mod render_context;
 use render_context::{RenderContext, RenderSurface, create_vello_renderer, create_winit_window};
@@ -15,7 +15,7 @@ use vello_common::paint::ImageSource;
 use vello_example_scenes::image::ImageScene;
 use vello_example_scenes::spritesheet::{SPRITESHEET_TEXTURE_ID, SpritesheetScene};
 use vello_example_scenes::{AnyScene, Capabilities, get_example_scenes};
-use vello_hybrid::{Pixmap, RenderSize, Renderer, Resources, Scene, TextureBindings};
+use vello_gpu::{Pixmap, RenderSize, Renderer, Resources, Scene, TextureBindings};
 use wgpu::CurrentSurfaceTexture;
 use winit::{
     application::ApplicationHandler,
@@ -323,7 +323,7 @@ impl ApplicationHandler for App<'_> {
                             "FPS: {avg_fps:.1} | render: {avg_render_time:.2}ms | frame: {avg_frame_time:.2}ms{status}"
                         );
                         window.set_title(&format!(
-                            "Vello Hybrid - Scene {} - {:.1} FPS (render {:.2}ms){status}",
+                            "Vello GPU - Scene {} - {:.1} FPS (render {:.2}ms){status}",
                             self.current_scene, avg_fps, avg_render_time
                         ));
 

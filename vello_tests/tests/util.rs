@@ -68,13 +68,11 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-static REFS_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/snapshots")
-});
+static REFS_PATH: std::sync::LazyLock<PathBuf> =
+    std::sync::LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("snapshots"));
 #[cfg(not(target_arch = "wasm32"))]
-static DIFFS_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs")
-});
+static DIFFS_PATH: std::sync::LazyLock<PathBuf> =
+    std::sync::LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("diffs"));
 
 /// Helper for loading png images contained within "tests/assets/**".
 #[macro_export]

@@ -1,8 +1,8 @@
 [package]
-name = "vello_sparse_shaders"
+name = "vello_gpu_shaders"
 # When updating, also update the version in the workspace dependency in the root Cargo.toml
 version = "0.2.0"
-description = "Provide WESL shaders linked to WGSL and GLSL for the `vello_hybrid` backends."
+description = "Provide WESL shaders linked to WGSL and GLSL for the `vello_gpu` backends."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
 edition.workspace = true
@@ -38,7 +38,7 @@ glsl = ["dep:naga"]
 unminified = []
 
 [[bin]]
-name = "vello_sparse_shaders"
+name = "vello_gpu_shaders"
 path = "src/main.rs"
 test = false
 

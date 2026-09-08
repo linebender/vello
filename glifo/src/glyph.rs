@@ -417,7 +417,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             // We assume that the backend calculates the absolute paint transform
             // by concatenating scene transform and (relative) paint transform.
-            // (This is currently the case for Vello CPU / Vello Hybrid, but will
+            // (This is currently the case for Vello CPU / Vello GPU, but will
             // also be assumed to be the case for any other potential backend.)
             // Therefore, we can calculate the relative paint transform for
             // the glyph by pre-concatenating it with the inverted outline transform.

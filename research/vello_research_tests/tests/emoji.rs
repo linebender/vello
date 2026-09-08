@@ -19,7 +19,7 @@ use vello::peniko::color::palette;
 #[cfg(target_os = "macos")]
 use vello::peniko::{Blob, Brush, FontData};
 use vello::{Scene, kurbo::Affine, peniko::Fill};
-use vello_tests::{TestParams, snapshot_test_sync};
+use vello_research_tests::{TestParams, snapshot_test_sync};
 
 fn encode_noto_colr(text: &str, font_size: f32) -> Scene {
     let mut scene = Scene::new();

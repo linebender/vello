@@ -4,7 +4,7 @@
 //! Snapshot tests using the test scenes from [`scenes`].
 
 use scenes::{ExampleScene, test_scenes};
-use vello_tests::{TestParams, encode_test_scene, snapshot_test_sync};
+use vello_research_tests::{TestParams, encode_test_scene, snapshot_test_sync};
 
 /// Make sure the CPU and GPU renderers match on the test scenes
 fn snapshot_test_scene(test_scene: ExampleScene, mut params: TestParams) {

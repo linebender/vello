@@ -126,11 +126,11 @@ mod tests {
 
         assert_eq!(
             committed_rgba, reference.rgba,
-            "probe.rgba is out of date; run `cargo run -p vello_sparse_tests --bin regenerate_probe_reference`",
+            "probe.rgba is out of date; run `cargo run -p vello_tests --bin regenerate_probe_reference`",
         );
         assert_eq!(
             committed_png, reference.png,
-            "probe.png is out of date; run `cargo run -p vello_sparse_tests --bin regenerate_probe_reference`",
+            "probe.png is out of date; run `cargo run -p vello_tests --bin regenerate_probe_reference`",
         );
     }
 }

@@ -21,20 +21,20 @@ use vello_example_scenes::{
     AnyScene,
     performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
 };
-use vello_hybrid::{RenderSettings, Scene};
+use vello_gpu::{RenderSettings, Scene};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 struct RendererWrapper {
-    renderer: vello_hybrid::WebGlRenderer,
-    resources: vello_hybrid::Resources,
+    renderer: vello_gpu::WebGlRenderer,
+    resources: vello_gpu::Resources,
     gpu_timer: Option<WebGlGpuTimer>,
 }
 
 impl RendererWrapper {
     fn new(canvas: HtmlCanvasElement) -> Self {
         let settings = RenderSettings::default();
-        let (renderer, resources) = vello_hybrid::WebGlRenderer::new_with(&canvas, settings, true);
+        let (renderer, resources) = vello_gpu::WebGlRenderer::new_with(&canvas, settings, true);
 
         Self {
             renderer,
@@ -101,7 +101,7 @@ impl AppState {
             height,
             renderer_wrapper,
             performance: PerformancePanel::new(
-                "Vello Hybrid · native WebGL2",
+                "Vello GPU · native WebGL2",
                 [
                     PerformanceStage {
                         label: "Scene build",
@@ -143,7 +143,7 @@ impl AppState {
         );
         let scene_end = now();
 
-        let render_size = vello_hybrid::RenderSize {
+        let render_size = vello_gpu::RenderSize {
             width: self.width,
             height: self.height,
         };
@@ -157,7 +157,7 @@ impl AppState {
                 &self.scene,
                 &mut self.renderer_wrapper.resources,
                 &render_size,
-                &vello_hybrid::WebGlTextureBindings::new(),
+                &vello_gpu::WebGlTextureBindings::new(),
             )
             .unwrap();
         if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
@@ -234,7 +234,7 @@ impl AppState {
             .document()
             .unwrap()
             .set_title(&format!(
-                "Vello Hybrid WebGL - Page {}/{}",
+                "Vello GPU WebGL - Page {}/{}",
                 self.current_scene + 1,
                 self.scenes.len()
             ));
@@ -325,8 +325,8 @@ impl AppState {
     /// Convert a pixmap to WebGL texture
     fn pixmap_to_webgl_texture(
         &self,
-        pixmap: &vello_hybrid::Pixmap,
-    ) -> vello_hybrid::WebGlTextureWithDimensions {
+        pixmap: &vello_gpu::Pixmap,
+    ) -> vello_gpu::WebGlTextureWithDimensions {
         let width = pixmap.width();
         let height = pixmap.height();
         let rgba_data = pixmap.data_as_u8_slice();
@@ -371,7 +371,7 @@ impl AppState {
             web_sys::WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
         );
 
-        vello_hybrid::WebGlTextureWithDimensions {
+        vello_gpu::WebGlTextureWithDimensions {
             texture,
             width,
             height,
@@ -602,7 +602,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         ..
     } = RendererWrapper::new(canvas);
 
-    let render_size = vello_hybrid::RenderSize {
+    let render_size = vello_gpu::RenderSize {
         width: width as u32,
         height: height as u32,
     };
@@ -611,7 +611,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             &scene,
             &mut resources,
             &render_size,
-            &vello_hybrid::WebGlTextureBindings::new(),
+            &vello_gpu::WebGlTextureBindings::new(),
         )
         .unwrap();
 }

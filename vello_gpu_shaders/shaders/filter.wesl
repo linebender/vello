@@ -43,7 +43,7 @@ const PASS_UPSCALE: u32 = 6u;
 const PASS_COMPOSITE_DROP_SHADOW: u32 = 7u;
 const PASS_COLORIZE: u32 = 8u;
 
-// Keep in sync with FILTER_ATLAS_PADDING in vello_hybrid/src/filter.rs.
+// Keep in sync with FILTER_ATLAS_PADDING in vello_gpu/src/filter.rs.
 const FILTER_ATLAS_PADDING: u32 = 6u;
 
 // The layout of the header:

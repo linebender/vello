@@ -675,7 +675,7 @@ fn issue_1509(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(232.0, 30.0, 536.0, 70.0));
 }
 
-// This test exists because blending wouldn't properly preserve anti-aliasing in `vello_hybrid`.
+// This test exists because blending wouldn't properly preserve anti-aliasing in `vello_gpu`.
 #[vello_test(skip_multithreaded)]
 fn issue_flush_fast_path_with_blending(ctx: &mut impl Renderer) {
     let rect1 = Rect::new(10.5, 10.5, 70.5, 70.5);

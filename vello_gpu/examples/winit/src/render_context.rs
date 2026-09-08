@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use vello_hybrid::{RenderSize, RenderTargetConfig, Renderer, Resources};
+use vello_gpu::{RenderSize, RenderTargetConfig, Renderer, Resources};
 use wgpu::{
     Adapter, Device, Features, Instance, Limits, Queue, Surface, SurfaceConfiguration,
     SurfaceTarget, TextureFormat, TextureView,
@@ -31,7 +31,7 @@ pub(crate) fn create_winit_window(
     Arc::new(event_loop.create_window(attr).unwrap())
 }
 
-/// Helper function that creates a Vello Hybrid renderer
+/// Helper function that creates a Vello GPU renderer
 pub(crate) fn create_vello_renderer(
     render_cx: &RenderContext,
     surface: &RenderSurface<'_>,

@@ -132,12 +132,12 @@ pub struct MemorySettings {
 /// composited into the main scene. This configuration allows you to specify some limits to prevent
 /// excessive allocations for complex or adversarial scenes.
 ///
-/// In general, Vello Hybrid has the following priorities in that specific order:
+/// In general, Vello GPU has the following priorities in that specific order:
 /// - Render as many scenes as possible successfully.
 /// - Use as little memory as possible.
 /// - Be as performant as possible.
 ///
-/// Vello Hybrid will by default prefer minimizing memory usage, even if at the cost of worse
+/// Vello GPU will by default prefer minimizing memory usage, even if at the cost of worse
 /// performance. However, since the exact tradeoff is very application-dependent,
 /// this configuration still allows you to tune the exact parameters such that better performance
 /// is accepted at the cost of larger memory consumption.
@@ -161,7 +161,7 @@ pub struct LayersConfig {
     ///
     /// By default, textures only grow to fit the largest required layer,
     /// up to [`Self::max_texture_size`], and do not currently shrink between frames. By increasing
-    /// the minimum texture size, you can force Vello Hybrid to more aggressively batch layer draws,
+    /// the minimum texture size, you can force Vello GPU to more aggressively batch layer draws,
     /// at the cost of larger memory consumption.
     ///
     /// Desktop GPUs may benefit from a larger minimum when rendering scenes with many layers. On
@@ -292,7 +292,7 @@ impl Scene {
     fn encode_current_paint(&mut self) -> Paint {
         // Note: In vello_cpu, during fine rasterization we apply a 0.5 offset to the location
         // to account for the fact that we want to sample the pixel center instead of the top-left
-        // corner. For vello_hybrid, we don't need this, because the GPU itself already applies
+        // corner. For vello_gpu, we don't need this, because the GPU itself already applies
         // this shift automatically.
         let transform = self.effective_paint_transform();
         match self.render_state.paint.clone() {

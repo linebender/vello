@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 // After you edit the crate's doc comment, run this command, then check README.md for any missing links
-// cargo rdme --workspace-project=vello_hybrid
+// cargo rdme --workspace-project=vello_gpu
 
 //! A hybrid CPU/GPU renderer for 2D vector graphics.
 //!
@@ -42,14 +42,14 @@
 //!
 //! # Current state
 //!
-//! Vello Hybrid is a solid GPU-accelerated 2D renderer with broad, reliable
+//! Vello GPU is a solid GPU-accelerated 2D renderer with broad, reliable
 //! feature support. Although it does not match Vello Classic's raw performance
 //! on dynamic and vector-heavy workloads, it provides excellent performance
 //! on workloads that benefit from GPU acceleration, such as images,
 //! gradients, and filters. Overall, we still consider it to be slightly less
 //! mature than its CPU-only counterpart Vello CPU.
 //!
-//! Vello Hybrid remains under active development. Known limitations include:
+//! Vello GPU remains under active development. Known limitations include:
 //!
 //! - The following features are not yet supported and will panic: Mask layers,
 //!   complex filter graphs as well as certain blend modes for non-isolated
@@ -63,7 +63,7 @@
 //!   the wgpu backend, but also other aspects.
 //! - Some failures panic instead of being reported through a user-facing error.
 //!
-//! With that said, we are continuously improving Vello Hybrid and will address
+//! With that said, we are continuously improving Vello GPU and will address
 //! these and other limitations in future releases.
 
 #![no_std]
@@ -168,5 +168,5 @@ pub enum IntermediateTextureError {
 
 #[cfg(test)]
 const _: () = if vello_common::tile::Tile::HEIGHT != 4 {
-    panic!("`vello_hybrid` shaders currently require `Tile::HEIGHT` to be `4`");
+    panic!("`vello_gpu` shaders currently require `Tile::HEIGHT` to be `4`");
 };

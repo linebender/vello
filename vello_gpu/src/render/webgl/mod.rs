@@ -76,7 +76,7 @@ use vello_common::{
     pixmap::Pixmap,
     tile::Tile,
 };
-use vello_sparse_shaders::{blend, copy, filter as filter_shader, render};
+use vello_gpu_shaders::{blend, copy, filter as filter_shader, render};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
@@ -114,7 +114,7 @@ pub enum WebGlRendererInitStatus {
     Complete(WebGlRenderer),
 }
 
-/// Vello Hybrid's WebGL2 Renderer.
+/// Vello GPU's WebGL2 renderer.
 #[derive(Debug)]
 pub struct WebGlRenderer {
     /// Programs for rendering.
@@ -264,7 +264,7 @@ impl WebGlRenderer {
         // context.
         let context_options = js_sys::Object::new();
         js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
-        // Avoid running Vello Hybrid if it's gonna be super slow.
+        // Avoid running Vello GPU if it's gonna be super slow.
         js_sys::Reflect::set(
             &context_options,
             &"failIfMajorPerformanceCaveat".into(),
@@ -350,7 +350,7 @@ impl WebGlRenderer {
                 .unwrap();
             debug_assert!(
                 !antialias,
-                "WebGL context must be created with `antialias: false` for vello_hybrid to work correctly."
+                "WebGL context must be created with `antialias: false` for vello_gpu to work correctly."
             );
         }
 
@@ -836,7 +836,7 @@ impl WebGlRenderer {
                             Self::encode_external_texture_paint(img, *source_region)
                         }
                         ImageSource::Pixmap(_) => {
-                            panic!("pixmap image sources are not supported by Vello Hybrid")
+                            panic!("pixmap image sources are not supported by Vello GPU")
                         }
                     };
                     self.encoded_paints[encoded_paint_idx] = gpu_image;

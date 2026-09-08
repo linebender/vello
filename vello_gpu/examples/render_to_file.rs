@@ -11,7 +11,7 @@ use vello_common::kurbo::{Affine, Stroke};
 use vello_common::peniko::ImageAlphaType;
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::{PixelMetadata, Pixmap};
-use vello_hybrid::{DimensionConstraints, Scene};
+use vello_gpu::{DimensionConstraints, Scene};
 
 /// Main entry point for the headless rendering example.
 /// Takes two command line arguments:
@@ -75,20 +75,19 @@ async fn run() {
     let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
     // Create renderer and render the scene to the texture
-    let (mut renderer, mut resources) = vello_hybrid::Renderer::new(
+    let (mut renderer, mut resources) = vello_gpu::Renderer::new(
         &device,
-        &vello_hybrid::RenderTargetConfig {
+        &vello_gpu::RenderTargetConfig {
             format: texture.format(),
             width: width.into(),
             height: height.into(),
         },
     );
-    let render_size = vello_hybrid::RenderSize {
+    let render_size = vello_gpu::RenderSize {
         width: width.into(),
         height: height.into(),
     };
-    let depth_texture_view =
-        vello_hybrid::Renderer::create_depth_texture_view(&device, &render_size);
+    let depth_texture_view = vello_gpu::Renderer::create_depth_texture_view(&device, &render_size);
     // Copy texture to buffer
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
@@ -103,7 +102,7 @@ async fn run() {
             &render_size,
             &texture_view,
             Some(&depth_texture_view),
-            &vello_hybrid::TextureBindings::new(),
+            &vello_gpu::TextureBindings::new(),
         )
         .unwrap();
 

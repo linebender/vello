@@ -33,13 +33,13 @@ The repository is structured as such:
 
 - `research/doc/` - Historical documents detailing the vision for the compute renderer as it was developed.
 - `research/examples/` - Example projects using the compute renderer. Each example is its own crate, with its own dependencies. The simplest example is called `simple`.
-- `research/vello/` - Code for the main `vello` crate.
+- `research/vello_research/` - Code for the main `vello` crate.
 - `research/vello_encoding/` - Types that represent the data that needs to be rendered.
 - `research/vello_shaders/` - Infrastructure to preprocess and cross-compile shaders at compile time; see "Shader templating".
   - `shader/` - This is where the magic happens. WGSL shaders that define the compute operations (often variations of prefix sum) that Vello does to render a scene.
     - `shared/` - Shared types, functions and constants included in other shaders through non-standard `#import` preprocessor directives (see "Shader templating").
   - `cpu/` - Functions that perform the same work as their equivalently-named WGSL shaders for the CPU fallbacks. The name is a bit loose; they're "shaders" in the sense that they work on resource bindings with the exact same layout as actual GPU shaders.
-- `research/vello_tests/` - Helper code for writing tests; current has a single smoke test and not much else.
+- `research/vello_research_tests/` - Helper code for writing research renderer tests.
 
 
 ## Shader templating

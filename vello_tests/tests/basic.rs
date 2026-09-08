@@ -610,7 +610,7 @@ fn render_src_over_with_offset() {
 
     // Uncomment to save the spritesheet as PNG for visual inspection
     // let diffs_path =
-    //     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs");
+    //     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("diffs");
     // let _ = std::fs::create_dir_all(&diffs_path);
     // let png_data = spritesheet.clone().into_png().unwrap();
     // std::fs::write(diffs_path.join("render_src_over_with_offset.png"), png_data).unwrap();

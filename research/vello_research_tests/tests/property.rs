@@ -16,7 +16,7 @@ use vello::peniko::color::palette::css::TRANSPARENT;
 use vello::peniko::{Brush, Color, ImageFormat, color::palette};
 use vello::peniko::{ImageAlphaType, ImageData, ImageSampler};
 use vello::{AaConfig, Scene};
-use vello_tests::TestParams;
+use vello_research_tests::TestParams;
 
 fn simple_square(use_cpu: bool) {
     let mut scene = Scene::new();
@@ -31,7 +31,7 @@ fn simple_square(use_cpu: bool) {
         use_cpu,
         ..TestParams::new("simple_square", 150, 150)
     };
-    let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
+    let image = vello_research_tests::render_then_debug_sync(&scene, &params).unwrap();
     assert_eq!(image.format, ImageFormat::Rgba8);
     let mut red_count = 0;
     let mut black_count = 0;
@@ -65,7 +65,7 @@ fn empty_scene(use_cpu: bool) {
         base_color: Some(color),
         ..TestParams::new("simple_square", 150, 150)
     };
-    let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
+    let image = vello_research_tests::render_then_debug_sync(&scene, &params).unwrap();
     assert_eq!(image.format, ImageFormat::Rgba8);
     for pixel in image.data.data().chunks_exact(4) {
         let &[r, g, b, a] = pixel else { unreachable!() };
@@ -136,7 +136,8 @@ fn bgra_image() {
     };
     scene.draw_image(&image, Affine::IDENTITY);
     let scene_image =
-        vello_tests::render_then_debug_sync(&scene, &TestParams::new("bgra", 2, 2)).unwrap();
+        vello_research_tests::render_then_debug_sync(&scene, &TestParams::new("bgra", 2, 2))
+            .unwrap();
     assert_eq!(scene_image.format, ImageFormat::Rgba8);
     for (i, pixel) in scene_image.data.data().chunks_exact(4).enumerate() {
         let &[r, g, b, a] = pixel else { unreachable!() };
@@ -184,7 +185,7 @@ fn premultiplied_image() {
         name: "bgra".into(),
         anti_aliasing: AaConfig::Area,
     };
-    let scene_image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
+    let scene_image = vello_research_tests::render_then_debug_sync(&scene, &params).unwrap();
     assert_eq!(scene_image.format, ImageFormat::Rgba8);
     for (i, pixel) in scene_image.data.data().chunks_exact(4).enumerate() {
         let &[r, g, b, a] = pixel else { unreachable!() };

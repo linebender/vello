@@ -198,8 +198,8 @@ fn mix_saturation_with_solid(ctx: &mut impl Renderer) {
     mix_solid(ctx, Mix::Saturation);
 }
 
-// Currently `vello_hybrid` does not support gradients. This test ensure mix is tested in
-// `vello_hybrid` by using solid colors.
+// Currently `vello_gpu` does not support gradients. This test ensures mix is tested in
+// `vello_gpu` by using solid colors.
 #[vello_test(width = 80, height = 160)]
 fn mix_modes_non_gradient_test_matrix(ctx: &mut impl Renderer) {
     let mix_modes = [

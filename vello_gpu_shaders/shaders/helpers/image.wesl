@@ -12,7 +12,7 @@ const IMAGE_QUALITY_HIGH: u32 = 2u;
 const TINT_MODE_ALPHA_MASK: u32 = 0u;
 const TINT_MODE_MULTIPLY: u32 = 1u;
 
-// Encoded image layout. Must match `GpuEncodedImage` in `vello_hybrid/src/render/common.rs`.
+// Encoded image layout. Must match `GpuEncodedImage` in `vello_gpu/src/render/common.rs`.
 //
 // texel0.x: image_params
 //   bits 0-1: quality

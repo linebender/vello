@@ -10,7 +10,7 @@ use glifo::GlyphPrepCache;
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasConfig;
 
-/// Persistent resources required by Vello Hybrid for rendering.
+/// Persistent resources required by Vello GPU for rendering.
 ///
 /// A set of resources must only be used with the renderer instance associated with it.
 #[derive(Debug)]

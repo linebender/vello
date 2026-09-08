@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! WESL shader sources linked to WGSL and optionally compiled to GLSL for `vello_hybrid`.
+//! WESL shader sources linked to WGSL and optionally compiled to GLSL for `vello_gpu`.
 
 #[cfg(feature = "glsl")]
 mod compile;

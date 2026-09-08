@@ -385,7 +385,7 @@ pub struct Config {
     ///
     /// Therefore, we optionally negate the coordinates in NDC.
     /// (Note that naga provides a flag for disabling this behavior. However, the problem
-    /// is that many parts of Vello Hybrid's code (such as slot textures) also assume a
+    /// is that many parts of Vello GPU's code (such as slot textures) also assume a
     /// y-down coordinate system. Therefore, just disabling this flag causes complications in
     /// other places. From my experiments, it's much easier to enable the flag by default
     /// and just apply the second negation manually in case we render to the final output surface

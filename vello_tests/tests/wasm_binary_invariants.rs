@@ -45,7 +45,7 @@ async fn no_simd_instruction_inclusion() {
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
 async fn webgl_probe_succeeds() {
-    use vello_hybrid::WebGlProbeStatus;
+    use vello_gpu::WebGlProbeStatus;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
     use web_sys::HtmlCanvasElement;
@@ -69,7 +69,7 @@ async fn webgl_probe_succeeds() {
     canvas.set_width(200);
     canvas.set_height(200);
 
-    let (mut renderer, _) = vello_hybrid::WebGlRenderer::new(&canvas);
+    let (mut renderer, _) = vello_gpu::WebGlRenderer::new(&canvas);
     let mut pending = renderer
         .probe()
         .unwrap_or_else(|error| panic!("WebGlRenderer::probe() failed to render: {error:?}"));
@@ -99,7 +99,7 @@ async fn webgl_probe_succeeds() {
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
 async fn webgl_pending_renderer_init_completes() {
-    use vello_hybrid::WebGlRendererInitStatus;
+    use vello_gpu::WebGlRendererInitStatus;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
     use web_sys::HtmlCanvasElement;
@@ -123,7 +123,7 @@ async fn webgl_pending_renderer_init_completes() {
     canvas.set_width(16);
     canvas.set_height(16);
 
-    let (mut init, _) = vello_hybrid::WebGlRenderer::begin(&canvas);
+    let (mut init, _) = vello_gpu::WebGlRenderer::begin(&canvas);
     const MAX_FRAMES: u32 = 600;
 
     for _ in 0..MAX_FRAMES {
@@ -148,7 +148,7 @@ async fn webgl_pending_renderer_init_completes() {
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
 fn webgl_create_renderer_twice() {
-    use vello_hybrid::WebGlRenderer;
+    use vello_gpu::WebGlRenderer;
     use wasm_bindgen::JsCast;
     use web_sys::HtmlCanvasElement;
 

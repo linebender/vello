@@ -4,7 +4,7 @@
 // After you edit the crate's doc comment, run this command, then check README.md for any missing links
 // cargo rdme --workspace-project=vello_common
 
-//! This crate includes common geometry representations, tiling logic, and other fundamental components used by both [Vello CPU][vello_cpu] and Vello Hybrid.
+//! This crate includes common geometry representations, tiling logic, and other fundamental components used by both [Vello CPU][vello_cpu] and Vello GPU.
 //!
 //! # Usage
 //!
@@ -32,7 +32,7 @@
 //! - Geometry processing utilities
 //! - Common logic for rendering stages
 //!
-//! This crate acts as a foundation for `vello_cpu` and `vello_hybrid`, providing essential components to minimize duplication.
+//! This crate acts as a foundation for `vello_cpu` and `vello_gpu`, providing essential components to minimize duplication.
 //!
 //! [vello_cpu]: https://crates.io/crates/vello_cpu
 #![cfg_attr(feature = "libm", doc = "[libm]: libm")]

@@ -22,7 +22,7 @@ You can do something as follows to get it up and running (on Linux/MacOS):
 ```bash
 curl -L -o /tmp/Noto-COLRv1.ttf https://github.com/googlefonts/noto-emoji/raw/main/fonts/Noto-COLRv1.ttf
 
-NOTO_COLR_PATH=/tmp/Noto-COLRv1.ttf cargo run -p vello_hybrid_winit --release
+NOTO_COLR_PATH=/tmp/Noto-COLRv1.ttf cargo run -p vello_gpu_winit --release
 # OR
 NOTO_COLR_PATH=/tmp/Noto-COLRv1.ttf cargo run -p vello_cpu_winit --release
 ```

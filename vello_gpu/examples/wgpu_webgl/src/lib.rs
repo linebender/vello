@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Demonstrates using Vello Hybrid using a WebGL2 backend in the browser.
+//! Demonstrates using Vello GPU using a WebGL2 backend in the browser.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -20,7 +20,7 @@ use vello_example_scenes::{
     image::ImageScene,
     performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
 };
-use vello_hybrid::{Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
+use vello_gpu::{Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 use wgpu::{
@@ -38,7 +38,7 @@ impl HasDisplayHandle for OurDisplayHandle {
 
 struct RendererWrapper {
     renderer: Renderer,
-    resources: vello_hybrid::Resources,
+    resources: vello_gpu::Resources,
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
@@ -107,10 +107,8 @@ impl RendererWrapper {
             },
             settings,
         );
-        let depth_texture_view = Renderer::create_depth_texture_view(
-            &device,
-            &vello_hybrid::RenderSize { width, height },
-        );
+        let depth_texture_view =
+            Renderer::create_depth_texture_view(&device, &vello_gpu::RenderSize { width, height });
 
         Self {
             renderer,
@@ -137,7 +135,7 @@ impl RendererWrapper {
         self.surface.configure(&self.device, &surface_config);
         self.depth_texture_view = Renderer::create_depth_texture_view(
             &self.device,
-            &vello_hybrid::RenderSize { width, height },
+            &vello_gpu::RenderSize { width, height },
         );
         if let Some(gpu_timer) = &mut self.gpu_timer {
             gpu_timer.reset();
@@ -184,7 +182,7 @@ impl AppState {
             height,
             renderer_wrapper,
             performance: PerformancePanel::new(
-                "Vello Hybrid · wgpu → WebGL2",
+                "Vello GPU · wgpu → WebGL2",
                 [
                     PerformanceStage {
                         label: "Scene build",
@@ -232,7 +230,7 @@ impl AppState {
         );
         let scene_end = now();
 
-        let render_size = vello_hybrid::RenderSize {
+        let render_size = vello_gpu::RenderSize {
             width: self.width,
             height: self.height,
         };
@@ -273,7 +271,7 @@ impl AppState {
                 &render_size,
                 &surface_texture_view,
                 Some(&self.renderer_wrapper.depth_texture_view),
-                &vello_hybrid::TextureBindings::new(),
+                &vello_gpu::TextureBindings::new(),
             )
             .unwrap();
         let render_end = now();
@@ -356,7 +354,7 @@ impl AppState {
             .document()
             .unwrap()
             .set_title(&format!(
-                "Vello Hybrid WGPU WebGL - Page {}/{}",
+                "Vello GPU WGPU WebGL - Page {}/{}",
                 self.current_scene + 1,
                 self.scenes.len()
             ));
@@ -711,7 +709,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         ..
     } = RendererWrapper::new(canvas).await;
 
-    let render_size = vello_hybrid::RenderSize {
+    let render_size = vello_gpu::RenderSize {
         width: width as u32,
         height: height as u32,
     };
@@ -736,7 +734,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             &render_size,
             &surface_texture_view,
             Some(&depth_texture_view),
-            &vello_hybrid::TextureBindings::new(),
+            &vello_gpu::TextureBindings::new(),
         )
         .unwrap();
 

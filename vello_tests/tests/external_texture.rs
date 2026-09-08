@@ -13,7 +13,7 @@ mod tests {
     use vello_common::peniko::{Color, Extend, ImageAlphaType, ImageQuality, ImageSampler};
     use vello_common::pixmap::{PixelMetadata, Pixmap};
     use vello_dev_macros::vello_test;
-    use vello_hybrid::TextureId;
+    use vello_gpu::TextureId;
 
     use crate::load_image;
     use crate::renderer::Renderer;

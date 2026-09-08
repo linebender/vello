@@ -1,4 +1,4 @@
 # LFS settings
 # If changing, also change in .github/workflows/ci.yml
-research/vello_tests/snapshots/*.png filter=lfs diff=lfs merge=lfs -text
-vello_sparse_tests/snapshots/*.png filter=lfs diff=lfs merge=lfs -text
+research/vello_research_tests/snapshots/*.png filter=lfs diff=lfs merge=lfs -text
+vello_tests/snapshots/*.png filter=lfs diff=lfs merge=lfs -text

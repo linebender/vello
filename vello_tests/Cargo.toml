@@ -1,6 +1,6 @@
 [package]
-name = "vello_sparse_tests"
-description = "The test suite for vello_cpu and vello_hybrid"
+name = "vello_tests"
+description = "The test suite for vello_cpu and vello_gpu"
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
 edition.workspace = true
@@ -22,7 +22,7 @@ path = "src/regenerate_probe_reference.rs"
 glifo = { workspace = true }
 vello_common = { workspace = true, features = ["std", "probe"] }
 vello_cpu = { workspace = true, features = ["multithreading", "std", "f32_pipeline"] }
-vello_hybrid = { workspace = true, features = ["text", "wgpu", "wgpu_default"] }
+vello_gpu = { workspace = true, features = ["text", "wgpu", "wgpu_default"] }
 fearless_simd = { workspace = true, features = [
     "force_support_fallback", # We require the `force_support_callback` feature to test the fallback path.
 ] }
@@ -60,7 +60,7 @@ wasm-bindgen-futures = { workspace = true }
 wasmparser = "0.235.0"
 
 [features]
-webgl = ["vello_hybrid/webgl", "vello_hybrid/probe"]
+webgl = ["vello_gpu/webgl", "vello_gpu/probe"]
 
 [lints]
 workspace = true

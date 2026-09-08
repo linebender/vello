@@ -3,12 +3,12 @@
 
 //! Recording rendering commands.
 //!
-//! Vello CPU and Vello Hybrid share a recording stage before their pipelines diverge. Their
+//! Vello CPU and Vello GPU share a recording stage before their pipelines diverge. Their
 //! pipelines can be split into roughly three parts:
 //!
 //! 1. Record rendering commands into a scene-graph-like structure.
 //! 2. Turn the complete recording into renderer-specific work. Vello CPU buckets commands by
-//!    strip row, while Vello Hybrid schedules draws and layer operations
+//!    strip row, while Vello GPU schedules draws and layer operations
 //!    across intermediate textures and render passes.
 //! 3. Execute that work using CPU fine rasterization or GPU render passes, respectively.
 //!
@@ -20,7 +20,7 @@
 //!   spatial filters might sample neighboring pixels. The complete layer must be rendered before
 //!   the filter can be applied and its result composited into the parent.
 //!
-//! - Vello Hybrid needs to render *every* layer separately. Its scheduler therefore
+//! - Vello GPU needs to render *every* layer separately. Its scheduler therefore
 //!   needs the complete layer hierarchy and bounds before it can allocate intermediate textures and
 //!   order draws, filters, and composition operations.
 //!

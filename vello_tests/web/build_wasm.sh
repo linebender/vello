@@ -15,11 +15,11 @@ case "$module" in
         package=wasm_cpu
         binary=wasm_cpu
         ;;
-    vello_hybrid_webgl)
+    vello_gpu_webgl)
         package=native_webgl
         binary=native_webgl
         ;;
-    vello_hybrid_wgpu)
+    vello_gpu_wgpu)
         package=wgpu_webgl
         binary=wgpu_webgl
         ;;

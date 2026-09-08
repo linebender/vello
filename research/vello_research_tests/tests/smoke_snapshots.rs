@@ -9,7 +9,7 @@ use vello::{
     kurbo::{Affine, Circle, Rect},
     peniko::{Brush, Fill, Gradient, color::palette},
 };
-use vello_tests::{TestParams, smoke_snapshot_test_sync};
+use vello_research_tests::{TestParams, smoke_snapshot_test_sync};
 
 fn filled_square(use_cpu: bool) {
     let mut scene = Scene::new();

@@ -26,7 +26,7 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 [crate::pixmap::Pixmap]: https://docs.rs/vello_common/latest/vello_common/pixmap/struct.Pixmap.html
 <!-- cargo-rdme start -->
 
-This crate includes common geometry representations, tiling logic, and other fundamental components used by both [Vello CPU][vello_cpu] and Vello Hybrid.
+This crate includes common geometry representations, tiling logic, and other fundamental components used by both [Vello CPU][vello_cpu] and Vello GPU.
 
 ## Usage
 
@@ -54,7 +54,7 @@ At least one of `std` and `libm` is required; `std` overrides `libm`.
 - Geometry processing utilities
 - Common logic for rendering stages
 
-This crate acts as a foundation for `vello_cpu` and `vello_hybrid`, providing essential components to minimize duplication.
+This crate acts as a foundation for `vello_cpu` and `vello_gpu`, providing essential components to minimize duplication.
 
 [vello_cpu]: https://crates.io/crates/vello_cpu
 

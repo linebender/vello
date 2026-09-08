@@ -1,5 +1,5 @@
 [package]
-name = "vello_tests"
+name = "vello_research_tests"
 description = "Integration tests for Vello."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]

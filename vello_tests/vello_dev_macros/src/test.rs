@@ -29,11 +29,11 @@ struct Arguments {
     skip_cpu: bool,
     /// Whether the test should not be run on the multi-threaded CPU (`vello_cpu`).
     skip_multithreaded: bool,
-    /// Whether the test should not be run on the GPU (`vello_hybrid`).
+    /// Whether the test should not be run on the GPU (`vello_gpu`).
     skip_hybrid: bool,
-    /// Whether only `vello_hybrid` should run and generate the reference image.
+    /// Whether only `vello_gpu` should run and generate the reference image.
     hybrid_only: bool,
-    /// Whether to additionally run `vello_hybrid` with depth buffering disabled.
+    /// Whether to additionally run `vello_gpu` with depth buffering disabled.
     hybrid_no_depth: bool,
     /// The maximum number of pixels that are allowed to completely deviate from the reference
     /// images. This attribute mainly exists because there are some test cases (like gradients),
@@ -244,7 +244,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let cpu_f32_tolerance_simd = DEFAULT_CPU_F32_TOLERANCE + DEFAULT_SIMD_TOLERANCE;
     hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
 
-    // These tests currently don't work with `vello_hybrid`.
+    // These tests currently don't work with `vello_gpu`.
     skip_hybrid |= {
         input_fn_name_str.contains("layer_multiple_properties")
             || input_fn_name_str.contains("mask")

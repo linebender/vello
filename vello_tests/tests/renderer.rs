@@ -13,7 +13,7 @@ use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
-use vello_hybrid::{
+use vello_gpu::{
     RenderSettings as HybridRenderSettings, Resources as HybridResources, Scene, TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -281,7 +281,7 @@ pub(crate) struct HybridRenderer {
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     depth_texture_view: Option<wgpu::TextureView>,
-    renderer: vello_hybrid::Renderer,
+    renderer: vello_gpu::Renderer,
     external_textures: HashMap<TextureId, wgpu::TextureView>,
     next_external_texture_id: u64,
 }
@@ -329,21 +329,21 @@ impl HybridRenderer {
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create renderer and render the scene to the texture
-        let (renderer, resources) = vello_hybrid::Renderer::new_with(
+        let (renderer, resources) = vello_gpu::Renderer::new_with(
             &device,
-            &vello_hybrid::RenderTargetConfig {
+            &vello_gpu::RenderTargetConfig {
                 format: texture.format(),
                 width: width.into(),
                 height: height.into(),
             },
             settings,
         );
-        let render_size = vello_hybrid::RenderSize {
+        let render_size = vello_gpu::RenderSize {
             width: width.into(),
             height: height.into(),
         };
         let depth_texture_view = use_depth_buffer
-            .then(|| vello_hybrid::Renderer::create_depth_texture_view(&device, &render_size));
+            .then(|| vello_gpu::Renderer::create_depth_texture_view(&device, &render_size));
 
         Self {
             scene,
@@ -381,7 +381,7 @@ impl HybridRenderer {
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl Renderer for HybridRenderer {
-    type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
+    type GlyphRunBackend<'a> = vello_gpu::HybridGlyphRunBackend<'a>;
 
     fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         Self::new_with_depth_buffer(
@@ -410,10 +410,10 @@ impl Renderer for HybridRenderer {
         }
         let mut settings = HybridRenderSettings::default();
         // Most of the tests are 100x100 by default, and we want to make sure that some visual
-        // tests have the chance to cover more complex parts of the Vello Hybrid scheduler
+        // tests have the chance to cover more complex parts of the Vello GPU scheduler
         // (for example situations where we need to spill to a new page, etc.). Therefore,
         // we make the minimum size smaller than the default.
-        settings.memory_settings.layers_config.min_texture_size = vello_hybrid::SizeU16::new(100);
+        settings.memory_settings.layers_config.min_texture_size = vello_gpu::SizeU16::new(100);
         Self::new_with_settings(width, height, settings, use_depth_buffer)
     }
 
@@ -562,12 +562,12 @@ impl Renderer for HybridRenderer {
         let width = self.scene.width();
         let height = self.scene.height();
 
-        let render_size = vello_hybrid::RenderSize {
+        let render_size = vello_gpu::RenderSize {
             width: width.into(),
             height: height.into(),
         };
 
-        let mut texture_bindings = vello_hybrid::TextureBindings::new();
+        let mut texture_bindings = vello_gpu::TextureBindings::new();
         for (texture_id, texture) in &self.external_textures {
             texture_bindings.insert(*texture_id, texture.clone());
         }
@@ -718,9 +718,9 @@ impl Renderer for HybridRenderer {
 pub(crate) struct HybridRenderer {
     scene: Scene,
     resources: HybridResources,
-    renderer: vello_hybrid::WebGlRenderer,
+    renderer: vello_gpu::WebGlRenderer,
     gl: WebGl2RenderingContext,
-    external_textures: vello_hybrid::WebGlTextureBindings,
+    external_textures: vello_gpu::WebGlTextureBindings,
     next_external_texture_id: u64,
 }
 
@@ -733,7 +733,7 @@ impl HybridRenderer {
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl Renderer for HybridRenderer {
-    type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
+    type GlyphRunBackend<'a> = vello_gpu::HybridGlyphRunBackend<'a>;
 
     fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         Self::new_with_depth_buffer(
@@ -767,7 +767,7 @@ impl Renderer for HybridRenderer {
 
         let mut settings = HybridRenderSettings::default();
         // See the comment above for why we change the `min_texture_size`.
-        settings.memory_settings.layers_config.min_texture_size = vello_hybrid::SizeU16::new(100);
+        settings.memory_settings.layers_config.min_texture_size = vello_gpu::SizeU16::new(100);
         let scene = Scene::new_with(width, height, settings.level);
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
@@ -780,7 +780,7 @@ impl Renderer for HybridRenderer {
         canvas.set_width(width.into());
         canvas.set_height(height.into());
         let (renderer, resources) =
-            vello_hybrid::WebGlRenderer::new_with(&canvas, settings, use_depth_buffer);
+            vello_gpu::WebGlRenderer::new_with(&canvas, settings, use_depth_buffer);
         let gl = canvas
             .get_context("webgl2")
             .unwrap()
@@ -792,7 +792,7 @@ impl Renderer for HybridRenderer {
             resources,
             renderer,
             gl,
-            external_textures: vello_hybrid::WebGlTextureBindings::new(),
+            external_textures: vello_gpu::WebGlTextureBindings::new(),
             next_external_texture_id: 1,
         }
     }
@@ -919,14 +919,14 @@ impl Renderer for HybridRenderer {
         self.scene.reset();
     }
 
-    // vello_hybrid WebGL renderer backend.
+    // vello_gpu WebGL renderer backend.
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
         use web_sys::WebGl2RenderingContext;
 
         let width = self.scene.width();
         let height = self.scene.height();
 
-        let render_size = vello_hybrid::RenderSize {
+        let render_size = vello_gpu::RenderSize {
             width: width.into(),
             height: height.into(),
         };

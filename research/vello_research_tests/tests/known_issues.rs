@@ -15,7 +15,7 @@
 use vello::Scene;
 use vello::kurbo::{Affine, Rect, Triangle};
 use vello::peniko::{Mix, color::palette};
-use vello_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
+use vello_research_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
 
 /// Test for <https://github.com/linebender/vello/issues/1061>
 #[test]

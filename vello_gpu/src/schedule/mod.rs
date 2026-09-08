@@ -11,7 +11,7 @@
 //! final intended visual result.
 //!
 //! There are many different ways of finding such a schedule, each with different advantages and
-//! disadvantages. Vello Hybrid's scheduling algorithm has the following core properties:
+//! disadvantages. Vello GPU's scheduling algorithm has the following core properties:
 //!
 //! - It always finds a valid schedule for any scene whose individual layers fit within the given
 //!   texture page dimensions.

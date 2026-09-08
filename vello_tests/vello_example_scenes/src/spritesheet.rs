@@ -10,7 +10,7 @@ use vello_common::kurbo::{Affine, Rect};
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::TextureId;
+use vello_gpu::TextureId;
 
 use crate::{ExampleScene, RenderingContext};
 

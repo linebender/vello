@@ -4,7 +4,7 @@
 #![allow(rustdoc::private_intra_doc_links, reason = "not a public-facing crate")]
 #![allow(rustdoc::broken_intra_doc_links, reason = "not a public-facing crate")]
 
-//! Proc-macros for testing `vello_cpu` and `vello_hybrid`.
+//! Proc-macros for testing `vello_cpu` and `vello_gpu`.
 
 mod bench;
 mod test;

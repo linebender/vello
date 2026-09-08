@@ -117,7 +117,7 @@ const _: () = assert!(
     "Gaussian filter parameters overlap the composite_original bit"
 );
 
-// To a large degree, the vello_hybrid implementation of gaussian blur follows the one in vello_cpu.
+// To a large degree, the vello_gpu implementation of gaussian blur follows the one in vello_cpu.
 // However, we apply a specific optimization, where instead of averaging and weighting each sample
 // one after the other, we use linear sampling to sample two pixels at once, and adjust the
 // weights accordingly so the gaussian blur filter is still valid. See

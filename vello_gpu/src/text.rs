@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors and the Parley Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Vello Hybrid (GPU) glyph rendering backend.
+//! Vello GPU glyph rendering backend.
 //!
 //! Provides [`GlyphAtlas`] and the [`GlyphRenderer`](glifo::GlyphRenderer)
 //! implementation for [`Scene`].

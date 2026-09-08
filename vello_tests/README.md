@@ -1,6 +1,6 @@
 <div align="center">
 
-# Vello Sparse Tests
+# Vello Tests
 
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
 \
@@ -44,7 +44,7 @@ See all the attributes that can be passed to `vello_test` in `vello_dev_macros/t
 Requirements:
  - on MacOS, a minimum Clang major version of 20 is required.
 
-To run the `vello_sparse_tests` suite including the WebGL tests:
+To run the `vello_tests` suite including the WebGL tests:
 
 ```sh
 wasm-pack test --headless --chrome --features webgl --release
