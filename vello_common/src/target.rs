@@ -9,6 +9,10 @@ pub enum TargetInit<C> {
     /// Composite rendered content over the existing target contents with src-over blending.
     SrcOver,
     /// Clear the drawing surface with the specified color before drawing.
+    ///
+    /// The clear color is treated as an isolated background on top of which the fully
+    /// rendered scene is composited. In particular, it will not be used as the backdrop
+    /// for blending operations in the main scene.
     Clear(C),
 }
 
