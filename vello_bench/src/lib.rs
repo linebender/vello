@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
+pub mod allocations;
 pub mod allocator;
 pub mod data;
 pub mod fine;
