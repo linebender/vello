@@ -20,7 +20,7 @@ env:
   FEATURES_DEPENDING_ON_STD: "std,default,png,pico_svg,multithreading,probe"
   # List of packages that can not target Wasm.
   # `vello_research_tests` uses `nv-flip`, which doesn't support Wasm.
-  NO_WASM_PKGS: "--exclude vello_research_tests --exclude xtask"
+  NO_WASM_PKGS: "--exclude vello_research_tests --exclude xtask --exclude simple_sdl3"
   # The files stored in LFS the tests need to access, in JSON format
   LFS_FILES: '["research/vello_research_tests/snapshots/*.png", "vello_tests/snapshots/*.png"]'
 
@@ -325,7 +325,7 @@ jobs:
 
       - name: cargo nextest
         # TODO: Maybe use --release; the CPU shaders are extremely slow when unoptimised
-        run: cargo nextest run --workspace --locked --all-features --no-fail-fast --release
+        run: cargo nextest run --workspace --exclude simple_sdl3 --locked --all-features --no-fail-fast --release
         env:
           CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
           VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
@@ -345,7 +345,7 @@ jobs:
             vello_tests/diffs
 
       - name: cargo test --doc
-        run: cargo test --doc --workspace --locked --all-features --no-fail-fast
+        run: cargo test --doc --workspace --exclude simple_sdl3 --locked --all-features --no-fail-fast
 
   test-avx512:
     # Since GitHub runners don't support AVX-512, we need to run the tests with Intel SDE. This
