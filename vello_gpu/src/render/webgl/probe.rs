@@ -3,11 +3,11 @@
 
 use crate::render::webgl::resource::{Framebuffer, Renderbuffer};
 use crate::render::webgl::{
-    ViewFramebuffer, WebGlStateConfig, WebGlStateGuard, WebGlTextureBindings,
-    create_framebuffer_for_texture, create_texture_storage,
+    ViewFramebuffer, WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlStateConfig,
+    WebGlStateGuard, WebGlTextureBindings, create_framebuffer_for_texture, create_texture_storage,
 };
 use crate::target::RootTarget;
-use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlRenderer};
+use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlError, WebGlRenderer};
 use alloc::{borrow::Cow, format};
 use core::ops::Deref;
 use thiserror::Error;
@@ -36,12 +36,12 @@ pub struct WebGlPendingProbe {
 /// Error returned while running a WebGL probe.
 #[derive(Debug, Clone, Error)]
 pub enum WebGlProbeError {
-    /// Rendering the probe scene failed.
-    #[error("probe render failed: {0}")]
-    Render(RenderError),
     /// Finishing the probe failed.
     #[error("probe failed to finish: {}", webgl_error_name(*.0))]
     FinishFailed(u32),
+    /// A WebGL operation failed.
+    #[error(transparent)]
+    WebGl(#[from] WebGlError),
 }
 
 /// Result of polling the WebGL probe.
@@ -69,10 +69,13 @@ impl WebGlRenderer {
     /// results of the probe scene can be copied back from GPU to CPU. For performance reasons,
     /// anything in-between mostly happens asynchronously.
     pub fn probe(&mut self) -> Result<WebGlPendingProbe, WebGlProbeError> {
-        self.probe_inner().map_err(WebGlProbeError::Render)
+        self.probe_inner().map_err(WebGlProbeError::WebGl)
     }
 
-    fn probe_inner(&mut self) -> Result<WebGlPendingProbe, RenderError> {
+    fn probe_inner(&mut self) -> Result<WebGlPendingProbe, WebGlError> {
+        // IMPORTANT NOTE: When making any changes to the probe, make sure to
+        // unignore and rerun the "webgl_probe_succeeds" test locally.
+
         let _state_guard = WebGlStateGuard::with_config(
             &self.gl,
             WebGlStateConfig {
@@ -95,11 +98,11 @@ impl WebGlRenderer {
             u32::from(render_size.height),
             WebGl2RenderingContext::NEAREST,
             WebGl2RenderingContext::NEAREST,
-        );
-        let probe_framebuffer = create_framebuffer_for_texture(&self.gl, &probe_texture);
+        )?;
+        let probe_framebuffer = create_framebuffer_for_texture(&self.gl, &probe_texture)?;
         // We need to keep the renderbuffer around until we finished rendering!
         let _probe_depth = if use_depth_buffer {
-            let probe_depth = Renderbuffer::new(&self.gl);
+            let probe_depth = Renderbuffer::new(&self.gl)?;
             self.gl
                 .bind_renderbuffer(WebGl2RenderingContext::RENDERBUFFER, Some(&probe_depth));
             self.gl.renderbuffer_storage(
@@ -127,7 +130,7 @@ impl WebGlRenderer {
             u32::from(probe_image.height()),
             WebGl2RenderingContext::NEAREST,
             WebGl2RenderingContext::NEAREST,
-        );
+        )?;
 
         self.gl
             .tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
@@ -141,7 +144,7 @@ impl WebGlRenderer {
                 WebGl2RenderingContext::UNSIGNED_BYTE,
                 Some(probe_image.data_as_u8_slice()),
             )
-            .unwrap();
+            .map_js_error(WebGlOperation::Probe(WebGlProbeOperation::ImageUpload))?;
 
         let probe_texture_id = TextureId(0);
         let mut texture_bindings = WebGlTextureBindings::new();
@@ -179,7 +182,7 @@ impl WebGlRenderer {
         // Propagate render failures only after restoring the previous framebuffer.
         render_result?;
 
-        let pending = launch_probe(&self.gl, &probe_framebuffer, width, height);
+        let pending = launch_probe(&self.gl, &probe_framebuffer, width, height)?;
 
         Ok(pending)
     }
@@ -288,8 +291,11 @@ fn launch_probe(
     framebuffer: &Framebuffer,
     width: u16,
     height: u16,
-) -> WebGlPendingProbe {
-    let pixel_pack_buffer = gl.create_buffer().unwrap();
+) -> Result<WebGlPendingProbe, WebGlError> {
+    let pixel_pack_buffer = gl.create_buffer().ok_or(WebGlError::OperationFailed {
+        operation: WebGlOperation::Probe(WebGlProbeOperation::BufferCreation),
+        message: None,
+    })?;
     let byte_len = i32::from(width) * i32::from(height) * 4;
 
     gl.bind_buffer(
@@ -314,25 +320,28 @@ fn launch_probe(
         WebGl2RenderingContext::UNSIGNED_BYTE,
         0,
     )
-    .unwrap();
+    .map_js_error(WebGlOperation::Probe(WebGlProbeOperation::Readback))?;
     // Create a fence that notifies us once rendering is complete and the contents have been
     // transferred from the framebuffer to the pixel pack buffer.
     let sync = gl
         .fence_sync(WebGl2RenderingContext::SYNC_GPU_COMMANDS_COMPLETE, 0)
-        .unwrap();
+        .ok_or(WebGlError::OperationFailed {
+            operation: WebGlOperation::Probe(WebGlProbeOperation::Synchronization),
+            message: None,
+        })?;
     // https://wikis.khronos.org/opengl/Sync_Object
     // "It is important that syncs are properly flushed into the GPU's command queue. Without
     // proper flushing, the sync object may never be signaled."
     gl.flush();
     gl.bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, None);
 
-    WebGlPendingProbe {
+    Ok(WebGlPendingProbe {
         gl: gl.clone(),
         sync: Some(sync),
         buffer: Some(pixel_pack_buffer),
         width,
         height,
-    }
+    })
 }
 
 impl vello_common::probe::ProbeRenderer for Scene {

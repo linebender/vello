@@ -34,7 +34,8 @@ struct RendererWrapper {
 impl RendererWrapper {
     fn new(canvas: HtmlCanvasElement) -> Self {
         let settings = RenderSettings::default();
-        let (renderer, resources) = vello_gpu::WebGlRenderer::new_with(&canvas, settings, true);
+        let (renderer, resources) = vello_gpu::WebGlRenderer::new_with(&canvas, settings, true)
+            .expect("failed to create WebGL renderer");
 
         Self {
             renderer,
@@ -313,14 +314,16 @@ impl AppState {
         let pixmap1 = ImageScene::read_flower_image();
         self.renderer_wrapper
             .renderer
-            .upload_image(&mut self.renderer_wrapper.resources, &pixmap1);
+            .upload_image(&mut self.renderer_wrapper.resources, &pixmap1)
+            .expect("failed to upload pixmap to WebGL atlas");
 
         // 2nd example — uploading from a WebGL texture
         let pixmap2 = ImageScene::read_cowboy_image();
         let texture2 = self.pixmap_to_webgl_texture(&pixmap2);
         self.renderer_wrapper
             .renderer
-            .upload_image(&mut self.renderer_wrapper.resources, &texture2);
+            .upload_image(&mut self.renderer_wrapper.resources, &texture2)
+            .expect("failed to upload texture to WebGL atlas");
     }
 
     /// Convert a pixmap to WebGL texture
