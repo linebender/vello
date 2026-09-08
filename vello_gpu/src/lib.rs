@@ -97,14 +97,17 @@ pub mod util;
 
 #[cfg(feature = "webgl")]
 pub use render::{
-    AtlasTextureInfo, WebGlAtlasWriter, WebGlRenderer, WebGlRendererInit, WebGlRendererInitStatus,
-    WebGlTextureBindings, WebGlTextureWithDimensions,
+    AtlasTextureInfo, IncompatibleContextReason, WebGlAtlasWriter, WebGlContextOperation,
+    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlRenderer, WebGlRendererInit,
+    WebGlRendererInitStatus, WebGlResourceKind, WebGlShaderInterfaceOperation,
+    WebGlShaderProgramOperation, WebGlShaderStage, WebGlTextureBindings,
+    WebGlTextureWithDimensions,
 };
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
 pub use render::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(all(feature = "webgl", feature = "probe"))]
-pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
+pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeOperation, WebGlProbeStatus};
 pub use resources::Resources;
 pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
 #[cfg(feature = "text")]
@@ -116,6 +119,7 @@ use thiserror::Error;
 
 /// Errors that can occur during rendering.
 #[derive(Error, Debug, Clone)]
+#[non_exhaustive]
 pub enum RenderError {
     /// An image atlas allocation failed.
     #[error("Atlas allocation failed: {0}")]
@@ -126,10 +130,12 @@ pub enum RenderError {
     /// A texture binding aliases the active render target.
     #[error("Texture binding {0:?} aliases the active render target")]
     TextureFeedbackLoop(TextureId),
+    /// An image paint referenced an image that has not been uploaded.
+    #[error("Missing image cache entry for {0:?}")]
+    MissingImage(ImageId),
     /// An intermediate texture allocation failed.
     #[error(transparent)]
     IntermediateTexture(#[from] IntermediateTextureError),
-    // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 
 /// Errors that can occur while allocating intermediate textures.
