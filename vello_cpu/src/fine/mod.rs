@@ -28,6 +28,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
+use vello_common::TargetInit;
+use vello_common::color::AlphaColor;
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
@@ -469,7 +471,7 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
     region: &mut Region<'_>,
     bucketer: &CommandBucketer,
     resources: FineResources<'_>,
-    mut unpack_dest: bool,
+    mut target_init: TargetInit<PremulColor>,
     root_is_blend_target: bool,
 ) {
     let scene_y = region.row_idx as u16 * Tile::HEIGHT;
@@ -480,12 +482,17 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
     depth.clear();
 
     let has_cmds = !row.depth_cmds.is_empty() || !row.render_cmds.is_empty();
-    let isolate_bg = unpack_dest && root_is_blend_target && has_cmds;
+    let isolate_bg = root_is_blend_target
+        && has_cmds
+        && match target_init {
+            TargetInit::SrcOver => true,
+            TargetInit::Clear(color) => !color.is_transparent(),
+        };
     if isolate_bg {
-        fine.init_uncovered_range(span, region, unpack_dest, depth);
+        fine.init_uncovered_range(span, region, target_init, depth);
         fine.push_buf(None);
 
-        unpack_dest = false;
+        target_init = TargetInit::Clear(PremulColor::from_alpha_color(AlphaColor::TRANSPARENT));
     }
 
     // Render depth-buffer commands front-to-back, with depth-buffer read and write.
@@ -498,8 +505,8 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
         });
     }
 
-    // Clear any regions in the fine buffer that haven't been filled with an opaque fill.
-    fine.init_uncovered_range(span, region, unpack_dest, depth);
+    // Initialize any regions in the fine buffer that haven't been filled with an opaque fill.
+    fine.init_uncovered_range(span, region, target_init, depth);
 
     // Render the main commands back-to-front, with depth-buffer read.
     for cmd in &row.render_cmds {
@@ -581,29 +588,56 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     // a certain range of pixels is already filled with an opaque paint. Therefore, we only
     // need to clear (or unpack) the parts that are not covered by such a paint.
     /// Initialize every range in the buffer that has not been filled yet
-    /// with a solid paint.
-    ///
-    /// In case [`ComositeMode::SrcOver`] was chosen, it will be initialized with
-    /// the pixels from the user-supplied pixmap. Otherwise, the range will simply be zeroed.
+    /// with a paint.
     fn init_uncovered_range(
         &mut self,
         scratch_span: Span,
         region: &mut Region<'_>,
-        use_src_over: bool,
+        target_init: TargetInit<PremulColor>,
         depth: &DepthBuffer,
     ) {
-        depth.for_each_unset_run(scratch_span, |span| {
-            let x = span.pixel_x();
-            let end = span.pixel_end();
-
-            if use_src_over {
-                let mut region = region.sub_span(x, end - x);
-                self.unpack(x, &mut region);
-            } else {
-                let range = Self::scratch_range(Span::new(x, end - x));
-                self.blend_buffers.last_mut().unwrap()[range].fill(T::Numeric::ZERO);
+        match target_init {
+            TargetInit::SrcOver => {
+                depth.for_each_unset_run(
+                    scratch_span,
+                    #[inline]
+                    |span| {
+                        let (x, end) = (span.pixel_x(), span.pixel_end());
+                        let mut region = region.sub_span(x, end - x);
+                        self.unpack(x, &mut region);
+                    },
+                );
             }
-        });
+            // We can hint the compiler to lower this into a memory-zeroing operation,
+            // hence why we handle this case explicitly.
+            TargetInit::Clear(color) if color.is_transparent() => {
+                depth.for_each_unset_run(
+                    scratch_span,
+                    #[inline]
+                    |span| {
+                        let (x, end) = (span.pixel_x(), span.pixel_end());
+                        let range = Self::scratch_range(Span::new(x, end - x));
+                        self.blend_buffers.last_mut().unwrap()[range].fill(T::Numeric::ZERO);
+                    },
+                );
+            }
+            TargetInit::Clear(color) => {
+                let color = T::extract_color(color);
+                depth.for_each_unset_run(
+                    scratch_span,
+                    #[inline]
+                    |span| {
+                        let (x, end) = (span.pixel_x(), span.pixel_end());
+                        let range = Self::scratch_range(Span::new(x, end - x));
+                        T::copy_solid(
+                            self.simd,
+                            &mut self.blend_buffers.last_mut().unwrap()[range],
+                            color,
+                        );
+                    },
+                );
+            }
+        }
     }
 
     fn push_buf(&mut self, span: Option<Span>) {

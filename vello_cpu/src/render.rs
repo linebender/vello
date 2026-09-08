@@ -20,6 +20,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
+use vello_common::color::{AlphaColor, Srgb};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter::FilterData;
@@ -89,22 +90,8 @@ impl Resources {
     }
 }
 
-// TODO: Consider changing `Replace` to overwrite only the rendered region, leaving pixels outside
-// it unchanged. See https://github.com/linebender/vello/pull/1665#issuecomment-4667033939
-
-/// The composition mode that should be used when rendering into a pixmap.
-///
-/// For performance reason it is _highly_ recommended that you use `CompositeMode::Replace`, even
-/// if you know that the pixmap is already cleared. Only use `SrcOver` if you really have to
-/// preserve existing contents.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-pub enum CompositeMode {
-    /// Clear the destination pixmap and render the scene into it.
-    #[default]
-    Replace,
-    /// Render the scene into the pixmap using src-over compositing.
-    SrcOver,
-}
+/// How the destination pixmap is initialized before rendering.
+pub type TargetInit = vello_common::TargetInit<AlphaColor<Srgb>>;
 
 /// The pixel format to assume for the destination pixmap.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -115,7 +102,7 @@ pub enum PixelFormat {
 }
 
 /// Settings used when rasterizing a scene into a pixmap.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct RasterizerSettings {
     /// Whether to prioritize speed or quality when rendering.
     ///
@@ -127,8 +114,8 @@ pub struct RasterizerSettings {
     /// rasterization will happen using u8/u16,
     /// while [`RenderMode::OptimizeQuality`] will use a f32-based pipeline.
     pub render_mode: RenderMode,
-    /// How rendered content is composited into the destination.
-    pub composite_mode: CompositeMode,
+    /// How the destination is initialized before drawing.
+    pub target_init: TargetInit,
     /// Pixel format of the destination.
     pub pixel_format: PixelFormat,
     /// Offset in destination pixels where the render context origin is placed.
@@ -141,7 +128,7 @@ impl Default for RasterizerSettings {
     fn default() -> Self {
         Self {
             render_mode: RenderMode::OptimizeSpeed,
-            composite_mode: CompositeMode::Replace,
+            target_init: TargetInit::Clear(AlphaColor::TRANSPARENT),
             pixel_format: PixelFormat::Rgba8,
             offset: (0, 0),
         }
@@ -780,8 +767,8 @@ impl RenderContext {
     ///
     /// 2. In case the pixmap width/height is larger than the offset plus the width/height of the
     ///    [`RenderContext`], any remaining rows/columns are simply treated as padding (**however**,
-    ///    when using [`CompositeMode::Replace`], then the _whole_ destination pixmap will
-    ///    be cleared, not just the area covered by the scene). One potential reason for doing this
+    ///    when using [`TargetInit::Clear`], then the _whole_ destination pixmap will
+    ///    be cleared to the requested color, not just the area covered by the scene). One potential reason for doing this
     ///    is that certain platforms, for example macOS, require a specific byte stride for buffers.
     ///    For example, let's say that a byte stride of 128 is imposed by the platform, but the actual
     ///    size of the scene you are drawing is only 20x20. In this case, you can create a pixmap
@@ -810,8 +797,21 @@ impl RenderContext {
         // If the scene covers the whole pixmap than packing will take care
         // of clearing everything anyway, so no reason to clear it explicitly
         // here.
-        if settings.composite_mode == CompositeMode::Replace && !target_fully_covered {
-            target.data_mut().fill(0);
+        if let TargetInit::Clear(color) = settings.target_init
+            && !target_fully_covered
+        {
+            let color = color.premultiply().to_rgba8().to_u32();
+            let data = target.data_mut();
+            if color == 0 {
+                data.fill(0);
+            } else {
+                // TODO: Optimize with SIMD? Unfortunately we can't just cast to u32 and use
+                // `fill` because the user-provided slice might not have the correct alignment.
+                let color = color.to_ne_bytes();
+                for pixel in data.chunks_exact_mut(4) {
+                    pixel.copy_from_slice(&color);
+                }
+            }
         }
 
         self.dispatcher.rasterize(
@@ -962,7 +962,7 @@ impl ImageResolver for ImageRegistry {
 mod tests {
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
-    use crate::{CompositeMode, RasterizerSettings, RenderContext, Resources};
+    use crate::{RasterizerSettings, RenderContext, Resources, TargetInit};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     use alloc::vec;
@@ -1165,7 +1165,7 @@ mod tests {
     }
 
     #[test]
-    fn render_src_over_opaque() {
+    fn render_preserves_target_under_opaque_draw() {
         let ctx = red_rect_context(2, 1, Rect::new(0.0, 0.0, 1.0, 1.0));
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(2, 1, blue_pixel());
@@ -1174,7 +1174,7 @@ mod tests {
             &mut pixmap,
             &mut resources,
             RasterizerSettings {
-                composite_mode: CompositeMode::SrcOver,
+                target_init: TargetInit::SrcOver,
                 ..Default::default()
             },
         );
@@ -1184,7 +1184,7 @@ mod tests {
     }
 
     #[test]
-    fn render_src_over_transparent() {
+    fn render_preserves_target_under_translucent_draw() {
         let mut ctx = RenderContext::new(1, 1);
         ctx.set_paint(RED.with_alpha(0.5));
         ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
@@ -1197,7 +1197,7 @@ mod tests {
             &mut pixmap,
             &mut resources,
             RasterizerSettings {
-                composite_mode: CompositeMode::SrcOver,
+                target_init: TargetInit::SrcOver,
                 ..Default::default()
             },
         );
