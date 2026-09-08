@@ -79,8 +79,6 @@ impl WebGlRenderer {
             &self.gl,
             WebGlStateConfig {
                 framebuffer: true,
-                active_texture: true,
-                texture_2d: true,
                 pixel_pack_buffer: true,
                 ..Default::default()
             },
