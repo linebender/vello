@@ -747,6 +747,39 @@ fn image_spritesheet_tinted(ctx: &mut impl Renderer) {
 }
 
 #[vello_test]
+fn image_sampler_alpha(ctx: &mut impl Renderer) {
+    let source = rgb_img_10x10(ctx);
+
+    let tinted = Some(Tint {
+        color: REBECCA_PURPLE,
+        mode: TintMode::Multiply,
+    });
+    let masked = Some(Tint {
+        color: REBECCA_PURPLE,
+        mode: TintMode::AlphaMask,
+    });
+
+    for (x, y, alpha, tint) in [
+        (0.0, 0.0, 0.5, None),
+        (50.0, 0.0, 0.5, tinted),
+        (0.0, 50.0, 1.0, None),
+        (50.0, 50.0, 0.5, masked),
+    ] {
+        ctx.set_transform(Affine::translate((x, y)) * Affine::scale(5.0));
+        ctx.set_tint(tint);
+        ctx.set_paint(Image {
+            image: source.clone(),
+            sampler: ImageSampler {
+                quality: ImageQuality::Low,
+                alpha,
+                ..ImageSampler::default()
+            },
+        });
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
+    }
+}
+
+#[vello_test]
 fn image_fully_transparent_tint(ctx: &mut impl Renderer) {
     let image = Image {
         image: rgb_img_10x10(ctx),

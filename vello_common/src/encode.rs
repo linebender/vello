@@ -8,7 +8,7 @@ use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::{FloatExt, compute_erf7};
-use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor, Tint};
+use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor, Tint, TintMode};
 use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind, ImageQuality};
 use crate::util::f32_to_u8;
 use alloc::borrow::Cow;
@@ -481,15 +481,20 @@ impl EncodeExt for Image {
         &self,
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
-        tint: Option<Tint>,
+        mut tint: Option<Tint>,
     ) -> Paint {
         let idx = paints.len();
 
         let mut sampler = self.sampler;
 
         if sampler.alpha != 1.0 {
-            // If the sampler alpha is not 1.0, we need to force alpha compositing.
-            unimplemented!("Applying opacity to image commands");
+            let tint = tint.get_or_insert(Tint {
+                color: peniko::Color::WHITE,
+                mode: TintMode::Multiply,
+            });
+            let alpha = (tint.color.components[3] * sampler.alpha).min(1.0);
+            tint.color = tint.color.with_alpha(alpha);
+            sampler.alpha = 1.0;
         }
 
         let c = transform.as_coeffs();
@@ -512,9 +517,7 @@ impl EncodeExt for Image {
 
         // If the tint color has alpha < 1.0, the image will have opacities
         // even if the source pixels are all opaque.
-        let has_opacity = tint.as_ref().is_some_and(|t| t.color.components[3] < 1.0)
-            // Not supported yet, but just to future-proof.
-            || sampler.alpha != 1.0;
+        let has_opacity = tint.as_ref().is_some_and(|t| t.color.components[3] < 1.0);
 
         let encoded = EncodedImage {
             may_have_transparency: self.image.may_have_transparency() || has_opacity,
@@ -1160,13 +1163,14 @@ mod private {
 
 #[cfg(test)]
 mod tests {
-    use super::{EncodeExt, Gradient};
+    use super::{EncodeExt, EncodedPaint, Gradient};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point};
+    use crate::paint::{Image, ImageId, ImageSource, Tint, TintMode};
     use crate::peniko::{ColorStop, ColorStops};
     use alloc::vec;
-    use peniko::{LinearGradientPosition, RadialGradientPosition};
+    use peniko::{Color, ImageSampler, LinearGradientPosition, RadialGradientPosition};
     use smallvec::smallvec;
 
     #[test]
@@ -1358,6 +1362,69 @@ mod tests {
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
             GREEN.into()
+        );
+    }
+
+    #[test]
+    fn image_sampler_alpha_with_tint() {
+        let image = Image {
+            image: ImageSource::opaque_id_with_transparency_hint(ImageId::new(1), false),
+            sampler: ImageSampler {
+                alpha: 0.5,
+                ..ImageSampler::default()
+            },
+        };
+
+        for mode in [TintMode::AlphaMask, TintMode::Multiply] {
+            let mut paints = vec![];
+            let tint = Tint {
+                color: Color::new([0.2, 0.4, 0.6, 0.8]),
+                mode,
+            };
+            image.encode_into(&mut paints, Affine::IDENTITY, Some(tint));
+
+            let EncodedPaint::Image(encoded) = &paints[0] else {
+                panic!("expected an image paint");
+            };
+            assert_eq!(encoded.sampler.alpha, 1.0);
+            assert_eq!(
+                encoded.tint,
+                Some(Tint {
+                    color: Color::new([0.2, 0.4, 0.6, 0.4]),
+                    mode,
+                })
+            );
+            assert!(encoded.may_have_transparency);
+        }
+    }
+
+    #[test]
+    fn image_sampler_alpha_with_tint_is_clamped() {
+        let image = Image {
+            image: ImageSource::opaque_id_with_transparency_hint(ImageId::new(1), false),
+            sampler: ImageSampler {
+                alpha: 2.0,
+                ..ImageSampler::default()
+            },
+        };
+        let mut paints = vec![];
+        let tint = Tint {
+            color: Color::new([0.2, 0.4, 0.6, 0.8]),
+            mode: TintMode::Multiply,
+        };
+
+        image.encode_into(&mut paints, Affine::IDENTITY, Some(tint));
+
+        let EncodedPaint::Image(encoded) = &paints[0] else {
+            panic!("expected an image paint");
+        };
+        assert_eq!(encoded.sampler.alpha, 1.0);
+        assert_eq!(
+            encoded.tint,
+            Some(Tint {
+                color: Color::new([0.2, 0.4, 0.6, 1.0]),
+                mode: TintMode::Multiply,
+            })
         );
     }
 }
