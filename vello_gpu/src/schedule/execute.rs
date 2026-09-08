@@ -17,6 +17,9 @@ use vello_common::geometry::{RectU16, SizeU16};
 
 /// A backend for executing GPU render passes.
 pub(crate) trait Backend {
+    /// The error returned while executing a render pass.
+    type Error;
+
     /// Execute the opaque pass against the root target with the given strips. If this method is
     /// ever called, it's called before any of the other ones and only once.
     ///
@@ -25,7 +28,7 @@ pub(crate) trait Backend {
         &mut self,
         strips: &[GpuStrip],
         external_texture_runs: &[ExternalTextureRun],
-    );
+    ) -> Result<(), Self::Error>;
 
     /// Execute a draw pass against the given target.
     ///
@@ -35,12 +38,12 @@ pub(crate) trait Backend {
         strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
         bindings: DrawPassBindings,
-    );
+    ) -> Result<(), Self::Error>;
 
     /// Execute a clear pass with the given rectangles against the target.
     ///
     /// The clear rectangles are guaranteed to be non-empty.
-    fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]);
+    fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) -> Result<(), Self::Error>;
 
     /// Execute a blend pass between a parent and child texture.
     ///
@@ -50,12 +53,16 @@ pub(crate) trait Backend {
         blends: RangedSlice<'_, BlendOp>,
         blend_strips: &[BlendStrip],
         bindings: BlendPassBindings,
-    );
+    ) -> Result<(), Self::Error>;
 
     /// Execute a filter pass according to the filter plan between two textures.
     ///
     /// The filter pass plan is guaranteed to be non-empty.
-    fn filter_pass(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings);
+    fn filter_pass(
+        &mut self,
+        plan: &FilterPassPlan,
+        bindings: FilterPassBindings,
+    ) -> Result<(), Self::Error>;
 }
 
 pub(crate) fn execute<R: Backend>(
@@ -63,14 +70,14 @@ pub(crate) fn execute<R: Backend>(
     storage: &mut ScheduleStorage,
     schedule: Schedule,
     root_output_target: RootTarget,
-) {
+) -> Result<(), R::Error> {
     let ScheduleStorage {
         buffers,
         filter_pass_plan,
         ..
     } = storage;
 
-    schedule.execute(renderer, root_output_target, buffers, filter_pass_plan);
+    schedule.execute(renderer, root_output_target, buffers, filter_pass_plan)
 }
 
 impl Schedule {
@@ -80,14 +87,14 @@ impl Schedule {
         root_output_target: RootTarget,
         buffers: &ScheduleBuffers,
         filter_plan: &mut FilterPassPlan,
-    ) {
+    ) -> Result<(), R::Error> {
         if DrawPassTarget::Root(root_output_target).enable_opaque()
             && !buffers.draw_buffers.opaque.is_empty()
         {
             renderer.opaque_draw_pass(
                 buffers.draw_buffers.opaque.strips(),
                 buffers.draw_buffers.opaque.external_texture_runs(),
-            );
+            )?;
         }
 
         self.rounds.execute(
@@ -96,7 +103,7 @@ impl Schedule {
             buffers,
             filter_plan,
             self.intermediate_textures.size,
-        );
+        )
     }
 }
 
@@ -108,7 +115,7 @@ impl Rounds {
         buffers: &ScheduleBuffers,
         filter_plan: &mut FilterPassPlan,
         texture_size: SizeU16,
-    ) {
+    ) -> Result<(), R::Error> {
         // This is the core loop that ties everything together.
 
         // TODO: Currently, we upload data for layers when executing each round. It might be
@@ -125,33 +132,35 @@ impl Rounds {
                 // For each layer texture target, first perform the draws of all layers that are
                 // allocated in this texture.
                 if let Some(pass) = layer_passes.draw {
-                    backend.draw_pass(pass.strips, pass.external_texture_runs, pass.bindings);
+                    backend.draw_pass(pass.strips, pass.external_texture_runs, pass.bindings)?;
                 }
 
                 // Next, we apply all filters for layers in this texture.
                 if let Some(pass) = layer_passes.filter {
                     filter_plan.init(pass.filters.iter().copied(), texture_size);
 
-                    backend.filter_pass(filter_plan, pass.bindings);
+                    backend.filter_pass(filter_plan, pass.bindings)?;
                 }
 
                 // Finally, we apply all blend operations of layers in the current texture
                 // that form the backdrop of some child texture.
                 if let Some(pass) = layer_passes.blend {
-                    backend.blend_pass(pass.blends, pass.blend_strips, pass.bindings);
+                    backend.blend_pass(pass.blends, pass.blend_strips, pass.bindings)?;
                 }
             }
 
             // Once layers are done, we perform draws against the root target.
             if let Some(pass) = round.root_draw_pass(buffers, root_output_target) {
-                backend.draw_pass(pass.strips, pass.external_texture_runs, pass.bindings);
+                backend.draw_pass(pass.strips, pass.external_texture_runs, pass.bindings)?;
             }
 
             // And in the end, clear all layer regions that are deallocated in this round.
             for props in round.clear_passes() {
-                backend.clear_pass(props.target, props.rects);
+                backend.clear_pass(props.target, props.rects)?;
             }
         }
+
+        Ok(())
     }
 }
 
@@ -216,12 +225,16 @@ mod tests {
     }
 
     impl Backend for Recorder {
+        type Error = core::convert::Infallible;
+
         fn opaque_draw_pass(
             &mut self,
             _strips: &[GpuStrip],
             _external_texture_runs: &[ExternalTextureRun],
-        ) {
+        ) -> Result<(), Self::Error> {
             self.calls.push(Call::Opaque);
+
+            Ok(())
         }
 
         fn draw_pass(
@@ -229,12 +242,20 @@ mod tests {
             _strips: RangedSlice<'_, GpuStrip>,
             _external_texture_runs: &[ExternalTextureRun],
             bindings: DrawPassBindings,
-        ) {
+        ) -> Result<(), Self::Error> {
             self.calls.push(Call::Draw(bindings.target, bindings.child));
+
+            Ok(())
         }
 
-        fn clear_pass(&mut self, target: LayerTextureId, _rects: &[RectU16]) {
+        fn clear_pass(
+            &mut self,
+            target: LayerTextureId,
+            _rects: &[RectU16],
+        ) -> Result<(), Self::Error> {
             self.calls.push(Call::Clear(target));
+
+            Ok(())
         }
 
         fn blend_pass(
@@ -242,13 +263,21 @@ mod tests {
             _blends: RangedSlice<'_, BlendOp>,
             _blend_strips: &[BlendStrip],
             bindings: BlendPassBindings,
-        ) {
+        ) -> Result<(), Self::Error> {
             self.calls
                 .push(Call::Blend(bindings.target().texture_parity));
+
+            Ok(())
         }
 
-        fn filter_pass(&mut self, _plan: &FilterPassPlan, bindings: FilterPassBindings) {
+        fn filter_pass(
+            &mut self,
+            _plan: &FilterPassPlan,
+            bindings: FilterPassBindings,
+        ) -> Result<(), Self::Error> {
             self.calls.push(Call::Filter(bindings.target()));
+
+            Ok(())
         }
     }
 

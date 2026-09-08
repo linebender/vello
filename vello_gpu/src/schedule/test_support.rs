@@ -139,8 +139,11 @@ pub(super) struct ScheduledCase {
 }
 
 impl ScheduledCase {
-    pub(super) fn execute<R: Backend>(mut self, renderer: &mut R) {
-        super::execute(renderer, &mut self.storage, self.schedule, self.root_target);
+    pub(super) fn execute<R: Backend>(mut self, renderer: &mut R)
+    where
+        R::Error: core::fmt::Debug,
+    {
+        super::execute(renderer, &mut self.storage, self.schedule, self.root_target).unwrap();
     }
 
     pub(super) fn page_counts(&self) -> [usize; 2] {
