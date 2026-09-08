@@ -492,7 +492,8 @@ impl EncodeExt for Image {
                 color: peniko::Color::WHITE,
                 mode: TintMode::Multiply,
             });
-            tint.color = tint.color.multiply_alpha(sampler.alpha);
+            let alpha = (tint.color.components[3] * sampler.alpha).min(1.0);
+            tint.color = tint.color.with_alpha(alpha);
             sampler.alpha = 1.0;
         }
 
@@ -1395,5 +1396,35 @@ mod tests {
             );
             assert!(encoded.may_have_transparency);
         }
+    }
+
+    #[test]
+    fn image_sampler_alpha_with_tint_is_clamped() {
+        let image = Image {
+            image: ImageSource::opaque_id_with_transparency_hint(ImageId::new(1), false),
+            sampler: ImageSampler {
+                alpha: 2.0,
+                ..ImageSampler::default()
+            },
+        };
+        let mut paints = vec![];
+        let tint = Tint {
+            color: Color::new([0.2, 0.4, 0.6, 0.8]),
+            mode: TintMode::Multiply,
+        };
+
+        image.encode_into(&mut paints, Affine::IDENTITY, Some(tint));
+
+        let EncodedPaint::Image(encoded) = &paints[0] else {
+            panic!("expected an image paint");
+        };
+        assert_eq!(encoded.sampler.alpha, 1.0);
+        assert_eq!(
+            encoded.tint,
+            Some(Tint {
+                color: Color::new([0.2, 0.4, 0.6, 1.0]),
+                mode: TintMode::Multiply,
+            })
+        );
     }
 }
