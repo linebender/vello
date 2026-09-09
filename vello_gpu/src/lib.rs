@@ -104,18 +104,13 @@ pub use render::{
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
 pub use render::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(all(feature = "webgl", feature = "probe"))]
-pub use render::{PROBE_ELEMENTS, Probe, ProbeFeature, ProbeResult, ProbeStatistics};
-#[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 pub use resources::Resources;
 pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
 #[cfg(feature = "text")]
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
 pub use util::DimensionConstraints;
-pub use vello_common::TextureId;
-pub use vello_common::geometry::{RectU16, SizeU16};
-pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
-pub use vello_common::pixmap::{Pixels, Pixmap};
+pub use vello_common::reexports::hybrid::*;
 
 use thiserror::Error;
 
@@ -124,7 +119,7 @@ use thiserror::Error;
 pub enum RenderError {
     /// An image atlas allocation failed.
     #[error("Atlas allocation failed: {0}")]
-    AtlasError(#[from] vello_common::multi_atlas::AtlasError),
+    AtlasError(#[from] AtlasError),
     /// A draw referenced a [`TextureId`] that was not provided at render time.
     #[error("Missing texture binding for {0:?}")]
     MissingTextureBinding(TextureId),

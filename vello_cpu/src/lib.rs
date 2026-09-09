@@ -176,11 +176,7 @@ pub use render::{
 pub use glifo::Glyph;
 #[cfg(feature = "text")]
 pub use text::{CpuGlyphRunBackend, GlyphRunBuilder};
-pub use vello_common::fearless_simd::Level;
-pub use vello_common::mask::Mask;
-pub use vello_common::paint::{Image, ImageSource, Paint, PaintType};
-pub use vello_common::pixmap::{Pixels, Pixmap, PixmapMut};
-pub use vello_common::{color, kurbo, peniko};
+pub use vello_common::reexports::cpu::*;
 
 /// The selected rendering mode.
 /// For using [`RenderMode::OptimizeQuality`] you also need to enable `f32_pipeline` feature.
