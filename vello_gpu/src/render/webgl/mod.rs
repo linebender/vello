@@ -3080,7 +3080,6 @@ impl WebGlRendererContext<'_> {
             }
         };
 
-        self.gl.viewport(0, 0, i32::from(width), i32::from(height));
         let [r, g, b, a] = color.premultiply().components;
         self.gl.clear_color(r, g, b, a);
 
