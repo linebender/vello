@@ -135,6 +135,9 @@ jobs:
         with:
           toolchain: ${{ env.RUST_STABLE_VER }}
 
+      - name: install native dependencies
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libfontconfig-dev
+
       - name: restore cache
         uses: Swatinem/rust-cache@v2
 
