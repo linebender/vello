@@ -186,7 +186,10 @@ impl Resources {
                         ..Default::default()
                     },
                 );
-            });
+
+                Ok::<(), core::convert::Infallible>(())
+            })
+            .unwrap_or_else(|error| match error {});
 
         for (page_index, pixmap) in glyph_resources.pixmaps.iter().enumerate() {
             self.image_registry

@@ -435,15 +435,13 @@ impl WebGlRenderer {
             resources.before_render(
                 self,
                 |renderer, glyph_renderer, atlas_count, atlas_config, atlas_id| {
-                    renderer
-                        .render_to_atlas(
-                            glyph_renderer,
-                            atlas_count,
-                            atlas_config,
-                            atlas_id,
-                            texture_bindings,
-                        )
-                        .expect("Failed to render glyphs to atlas");
+                    renderer.render_to_atlas(
+                        glyph_renderer,
+                        atlas_count,
+                        atlas_config,
+                        atlas_id,
+                        texture_bindings,
+                    )
                 },
                 |renderer, image_cache, upload, dst_x, dst_y| {
                     renderer.write_to_atlas(
@@ -452,8 +450,10 @@ impl WebGlRenderer {
                         &upload.pixmap,
                         Some([dst_x, dst_y]),
                     );
+
+                    Ok(())
                 },
-            );
+            )?;
         }
 
         self.render_scene(
@@ -472,7 +472,9 @@ impl WebGlRenderer {
             // page and then clear per atlas page instead of per rect.
             resources.after_render(self, |renderer, rect| {
                 clear_atlas_region(renderer, rect);
-            });
+
+                Ok::<(), RenderError>(())
+            })?;
         }
 
         Ok(())
