@@ -3,8 +3,8 @@
 
 use crate::render::webgl::resource::Framebuffer;
 use crate::render::webgl::{
-    WebGlStateConfig, WebGlStateGuard, WebGlTextureBindings, create_framebuffer_for_texture,
-    create_texture_storage,
+    ViewFramebuffer, WebGlStateConfig, WebGlStateGuard, WebGlTextureBindings,
+    create_framebuffer_for_texture, create_texture_storage,
 };
 use crate::target::RootTarget;
 use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlRenderer};
@@ -134,11 +134,10 @@ impl WebGlRenderer {
             ),
         );
 
-        let previous_view_framebuffer = self
-            .programs
-            .resources
-            .view_framebuffer_override
-            .replace(probe_framebuffer);
+        let previous_view_framebuffer = core::mem::replace(
+            &mut self.programs.resources.view_framebuffer,
+            ViewFramebuffer::offscreen(probe_framebuffer, false),
+        );
         let render_result = self.render_scene(
             &scene,
             &ImageCache::new_dummy(),
@@ -148,15 +147,14 @@ impl WebGlRenderer {
             &texture_bindings,
             Some(&probe_texture),
         );
-        let probe_framebuffer = self
-            .programs
-            .resources
-            .view_framebuffer_override
-            .take()
-            .expect("probe framebuffer must be restored after rendering");
-        self.programs.resources.view_framebuffer_override = previous_view_framebuffer;
+        let probe_framebuffer = core::mem::replace(
+            &mut self.programs.resources.view_framebuffer,
+            previous_view_framebuffer,
+        )
+        .into_framebuffer()
+        .unwrap();
 
-        // Propagate render failures only after restoring the framebuffer override.
+        // Propagate render failures only after restoring the previous framebuffer.
         render_result?;
 
         let pending = launch_probe(&self.gl, &probe_framebuffer, width, height);
