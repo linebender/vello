@@ -110,7 +110,7 @@ pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
 #[cfg(feature = "text")]
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
 pub use util::DimensionConstraints;
-pub use vello_common::exports::hybrid::*;
+pub use vello_common::reexports::hybrid::*;
 
 use thiserror::Error;
 

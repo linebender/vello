@@ -176,7 +176,7 @@ pub use render::{
 pub use glifo::Glyph;
 #[cfg(feature = "text")]
 pub use text::{CpuGlyphRunBackend, GlyphRunBuilder};
-pub use vello_common::exports::cpu::*;
+pub use vello_common::reexports::cpu::*;
 
 /// The selected rendering mode.
 /// For using [`RenderMode::OptimizeQuality`] you also need to enable `f32_pipeline` feature.

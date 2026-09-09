@@ -103,7 +103,7 @@ pub use target::TargetInit;
 
 /// Public API types re-exported by Vello CPU and Vello Hybrid.
 #[doc(hidden)]
-pub mod exports {
+pub mod reexports {
     mod shared {
         pub use crate::filter_effects;
         pub use crate::geometry;
