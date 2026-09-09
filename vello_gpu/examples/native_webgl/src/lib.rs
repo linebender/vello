@@ -144,8 +144,8 @@ impl AppState {
         let scene_end = now();
 
         let render_size = vello_gpu::RenderSize {
-            width: self.width,
-            height: self.height,
+            width: self.width.try_into().unwrap(),
+            height: self.height.try_into().unwrap(),
         };
 
         if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
@@ -603,10 +603,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         ..
     } = RendererWrapper::new(canvas);
 
-    let render_size = vello_gpu::RenderSize {
-        width: width as u32,
-        height: height as u32,
-    };
+    let render_size = vello_gpu::RenderSize { width, height };
     renderer
         .render(
             &scene,

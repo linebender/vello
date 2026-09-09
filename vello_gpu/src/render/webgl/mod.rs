@@ -423,8 +423,8 @@ impl WebGlRenderer {
     ) -> Result<(), RenderError> {
         debug_assert_eq!(
             RenderSize {
-                width: self.gl.drawing_buffer_width() as u32,
-                height: self.gl.drawing_buffer_height() as u32
+                width: self.gl.drawing_buffer_width().try_into().unwrap(),
+                height: self.gl.drawing_buffer_height().try_into().unwrap()
             },
             *render_size,
             "Render size must match drawing buffer size"
@@ -512,8 +512,8 @@ impl WebGlRenderer {
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
-            width: u32::from(atlas_width),
-            height: u32::from(atlas_height),
+            width: atlas_width,
+            height: atlas_height,
         };
         let render_target_texture = self.atlas_texture(atlas_id).clone();
 
@@ -1744,8 +1744,8 @@ impl WebGlPrograms {
         // condition in case we add new fields in the future.
         if self.render_size != *new_render_size || self.negate_ndc != negate_ndc {
             let config = Config {
-                width: new_render_size.width,
-                height: new_render_size.height,
+                width: u32::from(new_render_size.width),
+                height: u32::from(new_render_size.height),
                 strip_height: u32::from(Tile::HEIGHT),
                 alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
                 encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
@@ -2671,7 +2671,7 @@ impl WebGlRendererContext<'_> {
                 );
                 let width = self.programs.render_size.width;
                 let height = self.programs.render_size.height;
-                self.gl.viewport(0, 0, width as i32, height as i32);
+                self.gl.viewport(0, 0, i32::from(width), i32::from(height));
 
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
@@ -3069,8 +3069,8 @@ impl WebGlRendererContext<'_> {
                     self.programs.resources.view_framebuffer_override.as_deref(),
                 );
                 (
-                    u16::try_from(self.programs.render_size.width).unwrap(),
-                    u16::try_from(self.programs.render_size.height).unwrap(),
+                    self.programs.render_size.width,
+                    self.programs.render_size.height,
                 )
             }
             DrawPassTarget::Layer(target) => {

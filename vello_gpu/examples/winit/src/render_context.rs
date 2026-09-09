@@ -38,8 +38,8 @@ pub(crate) fn create_vello_renderer(
 ) -> (Renderer, Resources, RenderSize, TextureView) {
     let device = &render_cx.devices[surface.dev_id].device;
     let render_size = RenderSize {
-        width: surface.config.width,
-        height: surface.config.height,
+        width: surface.config.width.try_into().unwrap(),
+        height: surface.config.height.try_into().unwrap(),
     };
     let (renderer, resources) = Renderer::new(
         device,
