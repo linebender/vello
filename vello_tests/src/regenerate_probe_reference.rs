@@ -11,6 +11,8 @@ use std::{
 #[cfg(not(target_arch = "wasm32"))]
 use oxipng::Options;
 use vello_common::{
+    TargetInit,
+    color::palette::css,
     filter_effects::Filter,
     kurbo::{Affine, BezPath, Rect},
     paint::{ImageSource, PaintType},
@@ -93,6 +95,7 @@ fn render_probe_pixmap() -> Pixmap {
         &mut resources,
         RasterizerSettings {
             render_mode: RenderMode::OptimizeQuality,
+            target_init: TargetInit::Clear(css::WHITE),
             ..Default::default()
         },
     );

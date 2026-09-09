@@ -12,6 +12,7 @@ use alloc::{borrow::Cow, format};
 use core::ops::Deref;
 use thiserror::Error;
 use vello_common::TextureId;
+use vello_common::color::palette::css;
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
 use vello_common::image_cache::ImageCache;
@@ -146,7 +147,7 @@ impl WebGlRenderer {
             &scene,
             &ImageCache::new_dummy(),
             &render_size,
-            TargetInit::Clear(ClearSettings::default()),
+            TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
             RootTarget::AtlasLayer,
             &texture_bindings,
             Some(&probe_texture),
