@@ -182,25 +182,22 @@ pub(crate) fn pack_color(color: AlphaColor<Srgb>) -> u32 {
     color.premultiply().to_rgba8().to_u32()
 }
 
-/// Quantize a fractional pixel offset into one of [`SUBPIXEL_BUCKETS`] buckets.
+/// Quantize a fractional pixel offset in `[0, 1]` into one of
+/// [`SUBPIXEL_BUCKETS`] buckets.
 ///
-/// Values near 1.0 (>= 0.875 with 4 buckets) are clamped to the last bucket
-/// rather than wrapping to 0. Wrapping to bucket 0 without also incrementing the
-/// integer pixel coordinate would shift the glyph by ~0.75px in the wrong
-/// direction. Clamping keeps the worst-case error to 0.125px.
+/// Values near 1.0 (>= 0.875 with 4 buckets, including exactly 1.0 — the
+/// `f32` narrowing of [`crate::util::biased_fract`] can produce it) are
+/// clamped to the last bucket rather than wrapping to 0. Wrapping to bucket 0
+/// without also incrementing the integer pixel coordinate would shift the
+/// glyph by ~0.75px in the wrong direction. Clamping keeps the worst-case
+/// error to 0.125px.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "result is clamped to SUBPIXEL_BUCKETS-1 which fits in u8"
 )]
 #[inline]
 fn quantize_subpixel(frac: f32) -> u8 {
-    let normalized = frac.fract();
-    let normalized = if normalized < 0.0 {
-        normalized + 1.0
-    } else {
-        normalized
-    };
-    ((normalized * SUBPIXEL_BUCKETS as f32).round() as u8).min(SUBPIXEL_BUCKETS - 1)
+    ((frac * SUBPIXEL_BUCKETS as f32).round() as u8).min(SUBPIXEL_BUCKETS - 1)
 }
 
 /// Convert a quantized bucket index back to the fractional pixel offset it represents.
@@ -228,7 +225,35 @@ mod tests {
         assert_eq!(quantize_subpixel(0.7), 3);
         assert_eq!(quantize_subpixel(0.75), 3);
         assert_eq!(quantize_subpixel(0.9), 3);
-        assert_eq!(quantize_subpixel(1.0), 0);
+        // Exactly 1.0 (the f32 narrowing of a biased fract just below an
+        // integer) clamps to the last bucket instead of wrapping to 0, which
+        // would shift the glyph in the wrong direction.
+        assert_eq!(quantize_subpixel(1.0), 3);
+    }
+
+    /// The end-to-end decision chain: the subpixel bucket derived from
+    /// `biased_fract` (through the `f32` narrowing) must be stable under
+    /// last-ulp noise at integer glyph origins, in lockstep with
+    /// `biased_floor`.
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "mirrors the production f32 narrowing of the cache key"
+    )]
+    fn subpixel_bucket_is_stable_at_integer_origins() {
+        use crate::util::{biased_floor, biased_fract};
+        const DUST: f64 = 1e-9;
+        for k in [-1234.0, -3.0, 0.0, 7.0, 341.0, 4096.0] {
+            for d in [-DUST, 0.0, DUST] {
+                let v = k + d;
+                assert_eq!(biased_floor(v), k, "floor stable at {k} + {d}");
+                assert_eq!(
+                    quantize_subpixel(biased_fract(v) as f32),
+                    0,
+                    "bucket stable at {k} + {d}"
+                );
+            }
+        }
     }
 
     #[test]
