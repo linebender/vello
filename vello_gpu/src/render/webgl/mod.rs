@@ -3069,8 +3069,8 @@ impl WebGlRendererContext<'_> {
                     self.programs.resources.view_framebuffer_override.as_deref(),
                 );
                 (
-                    u16::try_from(self.programs.render_size.width).unwrap(),
-                    u16::try_from(self.programs.render_size.height).unwrap(),
+                    self.programs.render_size.width,
+                    self.programs.render_size.height,
                 )
             }
             DrawPassTarget::Layer(target) => {

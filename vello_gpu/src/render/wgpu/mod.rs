@@ -2991,8 +2991,8 @@ impl RendererContext<'_> {
         let (target_size, pipeline) = match target {
             DrawPassTarget::Root(_) => (
                 [
-                    u16::try_from(self.programs.render_size.width).unwrap(),
-                    u16::try_from(self.programs.render_size.height).unwrap(),
+                    self.programs.render_size.width,
+                    self.programs.render_size.height,
                 ],
                 &self.programs.root_clear_pipeline,
             ),
