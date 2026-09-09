@@ -496,7 +496,8 @@ impl Renderer {
             &mut self.schedule_storage,
             schedule,
             root_output_target,
-        );
+        )
+        .unwrap_or_else(|error| match error {});
 
         self.gradient_cache.maintain();
 
@@ -2974,11 +2975,13 @@ impl RendererContext<'_> {
 }
 
 impl Backend for RendererContext<'_> {
+    type Error = core::convert::Infallible;
+
     fn opaque_draw_pass(
         &mut self,
         strips: &[GpuStrip],
         external_texture_runs: &[ExternalTextureRun],
-    ) {
+    ) -> Result<(), Self::Error> {
         self.strip_pass_inner(
             strips,
             RangedSlice::empty(),
@@ -2986,6 +2989,8 @@ impl Backend for RendererContext<'_> {
             DrawPassTarget::Root(RootTarget::UserSurface),
             None,
         );
+
+        Ok(())
     }
 
     fn draw_pass(
@@ -2993,7 +2998,7 @@ impl Backend for RendererContext<'_> {
         strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
         bindings: DrawPassBindings,
-    ) {
+    ) -> Result<(), Self::Error> {
         self.strip_pass_inner(
             &[],
             strips,
@@ -3001,6 +3006,8 @@ impl Backend for RendererContext<'_> {
             bindings.target,
             bindings.child,
         );
+
+        Ok(())
     }
 
     fn blend_pass(
@@ -3008,16 +3015,26 @@ impl Backend for RendererContext<'_> {
         blends: RangedSlice<'_, BlendOp>,
         blend_strips: &[BlendStrip],
         bindings: BlendPassBindings,
-    ) {
+    ) -> Result<(), Self::Error> {
         self.blend_pass_inner(blends, blend_strips, bindings);
+
+        Ok(())
     }
 
-    fn filter_pass(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings) {
+    fn filter_pass(
+        &mut self,
+        plan: &FilterPassPlan,
+        bindings: FilterPassBindings,
+    ) -> Result<(), Self::Error> {
         self.filter_pass_inner(plan, bindings);
+
+        Ok(())
     }
 
-    fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) {
+    fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) -> Result<(), Self::Error> {
         self.clear_pass_inner(target, rects);
+
+        Ok(())
     }
 }
 
