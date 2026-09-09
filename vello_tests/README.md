@@ -9,11 +9,13 @@
 
 </div>
 
-This is a development-only crate for testing the sparse_strip renderers across a corpus of reference
+This is a development-only crate for testing the Sparse Strips renderers across a corpus of reference
 images:
 - CPU
 - WGPU
 - WASM32 WebGL
+
+It is distinct from [`research/vello_research_tests`](../research/vello_research_tests), which tests the compute-centric `vello` renderer.
 
 The `vello_test` proc macro will create a snapshot test for each supported renderer target. See the
 below example usage.
@@ -37,7 +39,7 @@ fn filled_triangle(ctx: &mut impl Renderer) {
 }
 ```
 
-See all the attributes that can be passed to `vello_test` in `vello_dev_macros/test.rs`.
+See all the attributes that can be passed to `vello_test` in [`vello_dev_macros/src/test.rs`](vello_dev_macros/src/test.rs).
 
 ## Testing WebGL on the Browser
 

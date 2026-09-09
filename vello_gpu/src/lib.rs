@@ -4,15 +4,13 @@
 // After you edit the crate's doc comment, run this command, then check README.md for any missing links
 // cargo rdme --workspace-project=vello_gpu
 
-//! A hybrid CPU/GPU renderer for 2D vector graphics.
+//! A GPU renderer for 2D vector graphics with CPU-side preprocessing.
 //!
-//! This crate provides a rendering API that combines CPU and GPU operations for efficient
-//! vector graphics processing.
-//! The hybrid approach balances flexibility and performance by:
+//! Vello GPU uses the Sparse Strips architecture to divide work between CPU preprocessing and GPU rendering:
 //!
-//! - Using the CPU for path processing and initial geometry setup
-//! - Leveraging the GPU for fast rendering and compositing
-//! - Minimizing data transfer between CPU and GPU
+//! - The CPU processes paths, tiles, and schedules sparse strips.
+//! - The GPU rasterizes those strips and performs compositing.
+//! - The compact strip representation limits data transfer between them.
 //!
 //! # Key Features
 //!
@@ -22,7 +20,7 @@
 //!
 //! # Feature Flags
 //!
-//! - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
+//! - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required Vello GPU shaders.
 //! - `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
 //! - `text` (enabled by default): Enables glyph rendering ([`Scene::glyph_run`]).
 //! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL shaders for compatibility.
@@ -40,14 +38,13 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 //!
+//! # Package rename
+//!
+//! This package was previously named `vello_hybrid`. New dependencies and Rust imports should use `vello_gpu`; no compatibility re-export package is provided in this repository. Existing crates.io releases under `vello_hybrid` remain available, and publication under the new name may lag behind the repository rename.
+//!
 //! # Current state
 //!
-//! Vello GPU is a solid GPU-accelerated 2D renderer with broad, reliable
-//! feature support. Although it does not match Vello Classic's raw performance
-//! on dynamic and vector-heavy workloads, it provides excellent performance
-//! on workloads that benefit from GPU acceleration, such as images,
-//! gradients, and filters. Overall, we still consider it to be slightly less
-//! mature than its CPU-only counterpart Vello CPU.
+//! Vello GPU is a solid GPU-accelerated 2D renderer with broad, reliable feature support. Although it does not match the compute-centric `vello` renderer's raw performance on dynamic and vector-heavy workloads, it provides excellent performance on workloads that benefit from GPU acceleration, such as images, gradients, and filters. Overall, we still consider it to be slightly less mature than its CPU-only counterpart Vello CPU.
 //!
 //! Vello GPU remains under active development. Known limitations include:
 //!

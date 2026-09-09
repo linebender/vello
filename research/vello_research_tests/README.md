@@ -1,11 +1,12 @@
-# Vello Tests
+# Vello Research Tests
 
-This folder contains the infrastructure used for testing Vello.
-The kinds of test currently used are:
+This development-only package contains test infrastructure for the compute-centric [`vello`](../vello_research) renderer. Its package name is `vello_research_tests`; it is distinct from the root-level [`vello_tests`](../../vello_tests) package used by Vello CPU and Vello GPU.
+
+The kinds of tests currently used are:
 
 - Property tests
     - These tests are run on both the GPU and CPU.
-    - These create scenes with
+    - These generate scenes and compare the renderer pathways.
 - Snapshot tests
     - These tests use the GPU shaders as a source of truth, but the CPU shaders are also ran for these tests.
     - These have a non-exact comparison metric, because of small differences between rendering on different platforms.

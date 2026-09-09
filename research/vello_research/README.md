@@ -2,12 +2,12 @@
 
 # Vello
 
-**A GPU compute-centric 2D renderer**
+**Compute-centric 2D renderer research**
 
 [![Latest published version.](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello)
 [![Documentation build status.](https://img.shields.io/docsrs/vello.svg)](https://docs.rs/vello)
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
-[![Required wgpu version.](https://img.shields.io/badge/wgpu-v29.0.1-orange.svg)](https://crates.io/crates/wgpu)
+[![Required wgpu version.](https://img.shields.io/badge/wgpu-v29.0.3-orange.svg)](https://crates.io/crates/wgpu)
 \
 [![Linebender Zulip chat.](https://img.shields.io/badge/Linebender-%23vello-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/channel/197075-vello)
 [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/linebender/vello/ci.yml?logo=github&label=CI)](https://github.com/linebender/vello/actions)
@@ -18,6 +18,8 @@
 Vello is a 2D graphics rendering engine written in Rust, with a focus on GPU compute.
 It can draw large 2D scenes with interactive or near-interactive performance, using [`wgpu`] for GPU access.
 
+The source for this package now lives in `research/vello_research/` to identify its compute-centric research role within the repository. Its published Cargo package and Rust crate name remain `vello`; existing crates.io users do not need to rename their dependencies or imports. See the [research overview](../README.md) for the folder map and migration details.
+
 Quickstart to run an example program:
 
 ```shell
@@ -25,8 +27,6 @@ cargo run -p with_winit
 ```
 
 ![image](https://github.com/linebender/vello/assets/8573618/cc2b742e-2135-4b70-8051-c49aeddb5d19)
-
-It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
 
 ## Features
 
@@ -226,7 +226,7 @@ VELLO_STATIC_LOG="vello=trace" VELLO_STATIC_ARGS="--test-scenes" cargo apk run -
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Vello has been verified to compile with **Rust 1.92** and later.
+This version of Vello has been verified to compile with **Rust 1.89** and later.
 
 Future versions of Vello might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.
@@ -279,14 +279,13 @@ Vello takes inspiration from many other rendering projects, including:
 
 Licensed under either of
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+- Apache License, Version 2.0 ([LICENSE-APACHE](../../LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](../../LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
 
 [piet-metal]: https://github.com/linebender/piet-metal
 [`wgpu`]: https://wgpu.rs/
-[Xilem]: https://github.com/linebender/xilem/
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
 [`custom-hal-archive-with-shaders`]: https://github.com/linebender/piet-gpu/tree/custom-hal-archive-with-shaders
 [`custom-hal-archive`]: https://github.com/linebender/piet-gpu/tree/custom-hal-archive

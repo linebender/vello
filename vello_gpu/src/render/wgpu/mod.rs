@@ -1,16 +1,14 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! GPU rendering module for the sparse strips CPU/GPU rendering engine.
+//! wgpu backend for Vello GPU's Sparse Strips renderer.
 //!
-//! This module provides the GPU-side implementation of the hybrid rendering system.
+//! This module consumes paths and strips prepared on the CPU and performs
+//! rasterization and compositing on the GPU.
 //! It handles:
 //! - GPU resource management (buffers, textures, pipelines)
 //! - Surface/window management and presentation
 //! - Shader execution and rendering
-//!
-//! The hybrid approach combines CPU-side path processing with efficient GPU rendering
-//! to balance flexibility and performance.
 
 #![expect(
     clippy::cast_possible_truncation,

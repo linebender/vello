@@ -19,8 +19,7 @@ shader programs, used by the Vello GPU renderer.
 - Optional generation of minified GLSL and reflection metadata for WebGL.
 
 ## Usage
-This crate provides linked WGSL programs and the build step for GLSL programs used by the optimized
-hybrid rendering engine.
+This crate provides linked WGSL programs and the build step for GLSL programs used by Vello GPU.
 
 Whenever the WESL shaders are updated, the build script automatically relinks and minifies the
 WGSL. When the `glsl` feature is enabled, it also regenerates the minified GLSL programs and
@@ -42,11 +41,15 @@ To retain authored identifiers and Naga's readable formatting for debugging, ena
 cargo run -p vello_gpu_shaders --features glsl,unminified
 ```
 
+## Package rename
+
+This package was previously named `vello_sparse_shaders`. Dependencies and commands that track this repository should now use `vello_gpu_shaders`. Existing crates.io releases under the old name remain available, and publication under the new name may lag behind the repository rename.
+
 ## Minimum supported Rust Version (MSRV)
 
 This version of Vello GPU Shaders has been verified to compile with **Rust 1.89** and later.
 
-Future versions of Vello GPU might increase the Rust version requirement.
+Future versions of Vello GPU Shaders might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.
 
 <details>
@@ -80,5 +83,3 @@ Licensed under either of
 at your option.
 
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[Vello]: https://github.com/linebender/vello
-[the changelog]: https://github.com/linebender/vello/tree/main/research/CHANGELOG.md

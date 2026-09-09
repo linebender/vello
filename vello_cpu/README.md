@@ -35,10 +35,9 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 
 <!-- cargo-rdme start -->
 
-Vello CPU is a 2D graphics rendering engine written in Rust, for devices with no or underpowered GPUs.
+Vello CPU is a 2D graphics rendering engine written in Rust for devices with no or underpowered GPUs.
 
-We also develop [Vello](https://crates.io/crates/vello), which makes use of the GPU for 2D rendering and has higher performance than Vello CPU.
-Vello CPU is being developed as part of work to address shortcomings in Vello.
+Vello CPU shares its Sparse Strips architecture and common infrastructure with [Vello GPU](https://github.com/linebender/vello/tree/main/vello_gpu), which moves rasterization and compositing to the GPU. The separate compute-centric [`vello`](https://crates.io/crates/vello) renderer is developed under the repository's `research/` directory.
 
 ## Usage
 
