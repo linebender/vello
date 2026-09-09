@@ -29,7 +29,7 @@ const IMAGE_SOURCE_SIZE: f64 = 5.0;
 const PATH_TOLERANCE: f64 = 0.1;
 
 /// The active elements used in the probe.
-pub const PROBE_ELEMENTS: [ProbeFeature; 8] = [
+pub const PROBE_ELEMENTS: [ProbeFeature; 9] = [
     ProbeFeature::SolidRect,
     ProbeFeature::AlphaBlending,
     ProbeFeature::Gradient,
@@ -40,6 +40,7 @@ pub const PROBE_ELEMENTS: [ProbeFeature; 8] = [
     ProbeFeature::OpacityLayer,
     ProbeFeature::Blending,
     ProbeFeature::Transformed,
+    ProbeFeature::DepthBuffer,
 ];
 /// Per-channel absolute tolerance used when comparing probe pixels.
 const CHANNEL_TOLERANCE: u8 = 3;
@@ -89,6 +90,8 @@ pub enum ProbeFeature {
     Blending = 7,
     /// Drawing with a non-identity transform.
     Transformed = 8,
+    /// Layering opaque draws and a transparent foreground to exercise depth buffering.
+    DepthBuffer = 9,
 }
 
 /// Summary of the differences between the expected and actual probe images.
@@ -296,7 +299,8 @@ impl ProbeFeature {
             | Self::ImageNearest
             | Self::ImageBilinear
             | Self::Filter
-            | Self::OpacityLayer => (RECT_SIZE, RECT_SIZE),
+            | Self::OpacityLayer
+            | Self::DepthBuffer => (RECT_SIZE, RECT_SIZE),
             Self::Transformed => (
                 RECT_SIZE * core::f64::consts::SQRT_2,
                 RECT_SIZE * core::f64::consts::SQRT_2,
@@ -415,6 +419,7 @@ fn draw_probe_element(
             draw_opacity_layer_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE));
         }
         ProbeFeature::Blending => draw_layered_difference_circles(ctx, cell),
+        ProbeFeature::DepthBuffer => draw_depth_buffer_rects(ctx, cell),
     }
 }
 
@@ -469,6 +474,38 @@ fn draw_opacity_layer_rect(ctx: &mut impl ProbeRenderer, rect: Rect) {
     ctx.set_paint(css::ORANGE_RED.into());
     ctx.fill_rect(&rect);
     ctx.pop_layer();
+}
+
+fn draw_depth_buffer_rects(ctx: &mut impl ProbeRenderer, cell: Rect) {
+    let cell_center = cell.center();
+    let center = Point::new(cell_center.x.round(), cell_center.y.round());
+    let rect = |half_size: f64| {
+        Rect::new(
+            center.x - half_size,
+            center.y - half_size,
+            center.x + half_size,
+            center.y + half_size,
+        )
+    };
+    let blue_rect = rect(5.0);
+    let red_rect = rect(4.0);
+    let pink_rect = rect(3.0);
+    let yellow_rect = rect(2.0);
+    let green_rect = rect(1.0);
+
+    ctx.set_paint(css::BLUE.into());
+    ctx.fill_rect(&blue_rect);
+    ctx.set_paint(css::RED.with_alpha(0.5).into());
+    ctx.fill_rect(&red_rect);
+    ctx.set_paint(css::PINK.into());
+    ctx.fill_rect(&pink_rect);
+    ctx.set_paint(css::YELLOW.with_alpha(0.5).into());
+    ctx.fill_rect(&yellow_rect);
+    ctx.set_paint(css::GREEN.into());
+    ctx.fill_rect(&green_rect);
+    // Unlike the other two translucent rectangles, this one should be visible!
+    ctx.set_paint(css::CYAN.with_alpha(0.5).into());
+    ctx.fill_rect(&green_rect);
 }
 
 fn draw_layered_difference_circles(ctx: &mut impl ProbeRenderer, cell: Rect) {
