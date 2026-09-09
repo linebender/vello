@@ -103,6 +103,7 @@ async fn run() {
             &texture_view,
             Some(&depth_texture_view),
             &vello_gpu::TextureBindings::new(),
+            vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
         )
         .unwrap();
 
