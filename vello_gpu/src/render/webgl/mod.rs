@@ -1456,12 +1456,8 @@ impl WebGlPrograms {
         self.maybe_resize_alphas_tex(gl, resource_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(gl, resource_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_data_tex(gl, filter_context);
-        self.maybe_update_config_buffer(
-            gl,
-            resource_texture_dimension_2d,
-            render_size,
-            DrawPassTarget::Root(root_target),
-        );
+        let negate_ndc = DrawPassTarget::Root(root_target).negate_ndc();
+        self.maybe_update_config_buffer(gl, resource_texture_dimension_2d, render_size, negate_ndc);
 
         self.upload_alpha_texture(gl, alphas);
         self.upload_encoded_paints_texture(gl, encoded_paints, paint_idxs);
@@ -1739,10 +1735,8 @@ impl WebGlPrograms {
         gl: &WebGl2RenderingContext,
         resource_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
-        target: DrawPassTarget,
+        negate_ndc: bool,
     ) {
-        let negate_ndc = target.negate_ndc();
-
         // TODO: Collect all attributes that influence the config buffer into a
         // single struct and compare that, such that we cannot forget to update the
         // condition in case we add new fields in the future.
