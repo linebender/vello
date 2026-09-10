@@ -460,6 +460,7 @@ impl WebGlRenderer {
             render_size,
             TargetInit::Clear(ClearSettings::Viewport { color: clear_color }),
             RootTarget::UserSurface,
+            true,
             texture_bindings,
             None,
         )?;
@@ -549,6 +550,7 @@ impl WebGlRenderer {
             &atlas_render_size,
             TargetInit::SrcOver,
             RootTarget::AtlasLayer,
+            false,
             texture_bindings,
             Some(&render_target_texture),
         );
@@ -588,6 +590,7 @@ impl WebGlRenderer {
         render_size: &RenderSize,
         target_init: TargetInit<'_>,
         root_output_target: RootTarget,
+        root_negate_ndc: bool,
         texture_bindings: &WebGlTextureBindings,
         render_target_texture: Option<&WebGlTexture>,
     ) -> Result<(), RenderError> {
@@ -641,7 +644,7 @@ impl WebGlRenderer {
             render_size,
             &self.paint_idxs,
             &self.schedule_storage.filter_context,
-            root_output_target,
+            root_negate_ndc,
         );
         self.programs.resources.depth_cleared_this_frame = false;
         let mut ctx = WebGlRendererContext {
@@ -650,6 +653,7 @@ impl WebGlRenderer {
             texture_bindings,
             scratch_buffers: &mut self.scratch_buffers,
             use_depth_buffer,
+            root_negate_ndc,
         };
         if let TargetInit::Clear(clear) = target_init {
             ctx.clear_pass_inner(DrawPassTarget::Root(root_output_target), clear);
@@ -1521,15 +1525,19 @@ impl WebGlPrograms {
         render_size: &RenderSize,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
-        root_target: RootTarget,
+        root_negate_ndc: bool,
     ) {
         let resource_texture_dimension_2d = self.resources.resource_texture_dimension_2d;
 
         self.maybe_resize_alphas_tex(gl, resource_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(gl, resource_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_data_tex(gl, filter_context);
-        let negate_ndc = DrawPassTarget::Root(root_target).negate_ndc();
-        self.maybe_update_config_buffer(gl, resource_texture_dimension_2d, render_size, negate_ndc);
+        self.maybe_update_config_buffer(
+            gl,
+            resource_texture_dimension_2d,
+            render_size,
+            root_negate_ndc,
+        );
 
         self.upload_alpha_texture(gl, alphas);
         self.upload_encoded_paints_texture(gl, encoded_paints, paint_idxs);
@@ -2621,6 +2629,7 @@ struct WebGlRendererContext<'a> {
     texture_bindings: &'a WebGlTextureBindings,
     scratch_buffers: &'a mut ScratchBuffers,
     use_depth_buffer: bool,
+    root_negate_ndc: bool,
 }
 
 impl WebGlRendererContext<'_> {
@@ -3132,7 +3141,10 @@ impl WebGlRendererContext<'_> {
     fn clear_pass_inner(&self, target: DrawPassTarget, settings: ClearSettings<'_>) {
         let color = settings.clear_color();
 
-        let negate_ndc = target.negate_ndc();
+        let negate_ndc = match target {
+            DrawPassTarget::Root(_) => self.root_negate_ndc,
+            DrawPassTarget::Layer(_) => false,
+        };
         let (width, height) = match target {
             DrawPassTarget::Root(_) => {
                 self.gl.bind_framebuffer(
@@ -3510,11 +3522,4 @@ fn upload_rgba32ui_rows(
         Some(&packed_array),
     )
     .unwrap();
-}
-
-impl DrawPassTarget {
-    fn negate_ndc(self) -> bool {
-        // Only negate if we are rendering to the main frame buffer.
-        matches!(self, Self::Root(RootTarget::UserSurface))
-    }
 }

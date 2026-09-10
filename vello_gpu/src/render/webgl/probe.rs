@@ -145,6 +145,10 @@ impl WebGlRenderer {
             &render_size,
             TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
             RootTarget::AtlasLayer,
+            // We don't want to undo the naga NDC flip because for the
+            // probe, we will later on read the pixels with `readPixels`, which
+            // will return the pixels in the correct order.
+            false,
             &texture_bindings,
             Some(&probe_texture),
         );
