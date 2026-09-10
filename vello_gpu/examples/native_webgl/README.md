@@ -11,7 +11,7 @@ If you don't want to enable SIMD, you can remove the `RUSTFLAGS="-Ctarget-featur
 ## Testing
 
 In order to test this crate, you need to have [`wasm-pack`] installed. Install it using
-the steps found in https://rustwasm.github.io/wasm-pack/installer/.
+the steps found in https://wasm-bindgen.github.io/wasm-pack/installer/.
 
 Thereafter, for interactive test sessions, run:
 
@@ -20,4 +20,4 @@ wasm-pack test --chrome
 # Navigate to printed URL
 ```
 
-[`wasm-pack`]: https://rustwasm.github.io/wasm-pack/
+[`wasm-pack`]: https://wasm-bindgen.github.io/wasm-pack/
