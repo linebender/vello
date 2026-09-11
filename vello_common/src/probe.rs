@@ -261,11 +261,6 @@ impl GridLayout {
         (width.ceil() as u16, height.ceil() as u16)
     }
 
-    fn canvas_rect(self) -> Rect {
-        let (width, height) = self.canvas_size();
-        Rect::new(0.0, 0.0, f64::from(width), f64::from(height))
-    }
-
     fn cell_stride(self) -> (f64, f64) {
         (
             self.cell_width + ELEMENT_MARGIN,
@@ -357,8 +352,6 @@ pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource) {
     let image_nearest = image_paint(image.clone(), ImageQuality::Low);
     let image_bilinear = image_paint(image, ImageQuality::Medium);
     ctx.set_transform(Affine::IDENTITY);
-    ctx.set_paint(css::WHITE.into());
-    ctx.fill_rect(&layout.canvas_rect());
 
     for (index, element) in PROBE_ELEMENTS.iter().copied().enumerate() {
         draw_probe_element(
