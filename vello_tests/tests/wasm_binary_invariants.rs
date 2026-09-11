@@ -42,7 +42,18 @@ async fn no_simd_instruction_inclusion() {
 
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
-async fn webgl_probe_succeeds() {
+async fn webgl_probe_succeeds_with_depth_buffer() {
+    run_webgl_probe(true).await;
+}
+
+#[cfg(feature = "webgl")]
+#[wasm_bindgen_test]
+async fn webgl_probe_succeeds_without_depth_buffer() {
+    run_webgl_probe(false).await;
+}
+
+#[cfg(feature = "webgl")]
+async fn run_webgl_probe(use_depth_buffer: bool) {
     use vello_gpu::WebGlProbeStatus;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
@@ -67,7 +78,11 @@ async fn webgl_probe_succeeds() {
     canvas.set_width(200);
     canvas.set_height(200);
 
-    let (mut renderer, _) = vello_gpu::WebGlRenderer::new(&canvas);
+    let (mut renderer, _) = vello_gpu::WebGlRenderer::new_with(
+        &canvas,
+        vello_gpu::RenderSettings::default(),
+        use_depth_buffer,
+    );
     let mut pending = renderer
         .probe()
         .unwrap_or_else(|error| panic!("WebGlRenderer::probe() failed to render: {error:?}"));

@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::render::webgl::resource::Framebuffer;
+use crate::render::webgl::resource::{Framebuffer, Renderbuffer};
 use crate::render::webgl::{
     ViewFramebuffer, WebGlStateConfig, WebGlStateGuard, WebGlTextureBindings,
     create_framebuffer_for_texture, create_texture_storage,
@@ -73,9 +73,6 @@ impl WebGlRenderer {
     }
 
     fn probe_inner(&mut self) -> Result<WebGlPendingProbe, RenderError> {
-        // IMPORTANT NOTE: When making any changes to the probe, make sure to
-        // unignore and rerun the "webgl_probe_succeeds" test locally.
-
         let _state_guard = WebGlStateGuard::with_config(
             &self.gl,
             WebGlStateConfig {
@@ -87,6 +84,9 @@ impl WebGlRenderer {
 
         let (width, height) = vello_common::probe::canvas_size();
         let render_size = RenderSize { width, height };
+        // Check whether the canvas framebuffer was configured by the user to
+        // hold a depth buffer, and apply the same to the probe.
+        let use_depth_buffer = self.programs.resources.view_framebuffer.use_depth_buffer();
 
         let probe_texture = create_texture_storage(
             &self.gl,
@@ -97,6 +97,27 @@ impl WebGlRenderer {
             WebGl2RenderingContext::NEAREST,
         );
         let probe_framebuffer = create_framebuffer_for_texture(&self.gl, &probe_texture);
+        // We need to keep the renderbuffer around until we finished rendering!
+        let _probe_depth = if use_depth_buffer {
+            let probe_depth = Renderbuffer::new(&self.gl);
+            self.gl
+                .bind_renderbuffer(WebGl2RenderingContext::RENDERBUFFER, Some(&probe_depth));
+            self.gl.renderbuffer_storage(
+                WebGl2RenderingContext::RENDERBUFFER,
+                WebGl2RenderingContext::DEPTH_COMPONENT24,
+                i32::from(width),
+                i32::from(height),
+            );
+            self.gl.framebuffer_renderbuffer(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                WebGl2RenderingContext::DEPTH_ATTACHMENT,
+                WebGl2RenderingContext::RENDERBUFFER,
+                Some(&probe_depth),
+            );
+            Some(probe_depth)
+        } else {
+            None
+        };
 
         let probe_image = vello_common::probe::probe_image_pixmap();
         let probe_image_texture = create_texture_storage(
@@ -137,14 +158,14 @@ impl WebGlRenderer {
 
         let previous_view_framebuffer = core::mem::replace(
             &mut self.programs.resources.view_framebuffer,
-            ViewFramebuffer::offscreen(probe_framebuffer, false),
+            ViewFramebuffer::offscreen(probe_framebuffer, use_depth_buffer),
         );
         let render_result = self.render_scene(
             &scene,
             &ImageCache::new_dummy(),
             &render_size,
             TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
-            RootTarget::AtlasLayer,
+            RootTarget::UserSurface,
             &texture_bindings,
             Some(&probe_texture),
         );
@@ -216,6 +237,16 @@ impl WebGlPendingProbe {
             &readback,
         );
         readback.copy_to(pixmap.data_as_u8_slice_mut());
+
+        // Need to flip the resulting image upside down.
+        let row_len = usize::from(self.width) * 4;
+        let height = usize::from(self.height);
+        let pixels = pixmap.data_as_u8_slice_mut();
+        for row in 0..height / 2 {
+            let opposite_row = height - 1 - row;
+            let (top, bottom) = pixels.split_at_mut(opposite_row * row_len);
+            top[row * row_len..(row + 1) * row_len].swap_with_slice(&mut bottom[..row_len]);
+        }
 
         Probe::from_actual(pixmap)
     }

@@ -7,6 +7,8 @@ use super::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader, WebGlTexture,
     WebGlVertexArrayObject,
 };
+#[cfg(feature = "probe")]
+use web_sys::WebGlRenderbuffer;
 
 pub(crate) trait GlResource {
     const LABEL: &'static str;
@@ -110,6 +112,19 @@ impl GlResource for WebGlFramebuffer {
     }
 }
 
+#[cfg(feature = "probe")]
+impl GlResource for WebGlRenderbuffer {
+    const LABEL: &'static str = "renderbuffer";
+
+    fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
+        gl.create_renderbuffer()
+    }
+
+    fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
+        gl.delete_renderbuffer(Some(raw));
+    }
+}
+
 impl GlResource for WebGlProgram {
     const LABEL: &'static str = "program";
 
@@ -163,6 +178,8 @@ impl GlResource for WebGlVertexArrayObject {
 pub(crate) type Texture = Resource<WebGlTexture>;
 pub(crate) type Buffer = Resource<WebGlBuffer>;
 pub(crate) type Framebuffer = Resource<WebGlFramebuffer>;
+#[cfg(feature = "probe")]
+pub(crate) type Renderbuffer = Resource<WebGlRenderbuffer>;
 pub(crate) type Program = Resource<WebGlProgram>;
 pub(crate) type VertexShader = Resource<WebGlVertexShader>;
 pub(crate) type FragmentShader = Resource<WebGlFragmentShader>;
