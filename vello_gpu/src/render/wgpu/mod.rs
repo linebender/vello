@@ -52,7 +52,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
-use core::{fmt::Debug, num::NonZeroU64};
+use core::{fmt::Debug, num::NonZeroU64, ops::Range};
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use hashbrown::{HashMap, hash_map::Entry};
@@ -72,10 +72,10 @@ use vello_common::{
     tile::Tile,
 };
 use wgpu::{
-    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
-    Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, Sampler, Texture, TextureView, TextureViewDescriptor,
-    util::DeviceExt,
+    BindGroup, BindGroupLayout, BlendState, Buffer, BufferDescriptor, COPY_BUFFER_ALIGNMENT,
+    ColorTargetState, ColorWrites, CommandEncoder, Device, Extent3d, PipelineCompilationOptions,
+    Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, Sampler, Texture,
+    TextureView, TextureViewDescriptor, util::DeviceExt,
 };
 
 /// Placeholder value for uninitialized GPU encoded paints.
@@ -477,6 +477,18 @@ impl Renderer {
             &self.paint_idxs,
             &self.schedule_storage.filter_context,
         );
+
+        let strip_count = self
+            .schedule_storage
+            .buffers
+            .draw_buffers
+            .opaque
+            .strips()
+            .len()
+            + self.schedule_storage.buffers.draw_buffers.strips.len();
+        self.programs
+            .strips_arena
+            .begin_frame(device, (strip_count * size_of::<GpuStrip>()) as u64);
 
         let mut ctx = RendererContext {
             programs: &mut self.programs,
@@ -952,6 +964,8 @@ struct Programs {
     copy_pipeline: RenderPipeline,
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
+    /// Arena holding all [`GpuStrip`] data.
+    strips_arena: StripsArena,
     /// Dimensions of the rendering target
     render_size: RenderSize,
     /// Scratch buffer for staging encoded paints texture data.
@@ -960,11 +974,52 @@ struct Programs {
     filter_data: Vec<u8>,
 }
 
+#[derive(Debug)]
+struct StripsArena {
+    buffer: Buffer,
+    capacity: u64,
+    cursor: u64,
+}
+
+fn create_arena_buffer(device: &Device, size: u64) -> Buffer {
+    device.create_buffer(&BufferDescriptor {
+        label: Some("Strips Arena"),
+        size,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+impl StripsArena {
+    fn new(device: &Device) -> Self {
+        Self {
+            buffer: create_arena_buffer(device, 0),
+            capacity: 0,
+            cursor: 0,
+        }
+    }
+
+    fn begin_frame(&mut self, device: &Device, frame_size: u64) {
+        self.cursor = 0;
+        if frame_size > self.capacity {
+            let new_capacity = frame_size
+                .max(self.capacity * 2)
+                .min(device.limits().max_buffer_size);
+            self.buffer = create_arena_buffer(device, new_capacity);
+            self.capacity = new_capacity;
+        }
+    }
+
+    fn alloc(&mut self, len: u64) -> u64 {
+        let offset = self.cursor.next_multiple_of(COPY_BUFFER_ALIGNMENT);
+        self.cursor = offset + len;
+        offset
+    }
+}
+
 /// Contains all GPU resources needed for rendering
 #[derive(Debug)]
 struct GpuResources {
-    /// Buffer for [`GpuStrip`] data
-    strips_buffer: Buffer,
     /// Alpha texture.
     alphas_texture: Texture,
     /// Maximum width or height of packed resource textures.
@@ -1688,7 +1743,6 @@ impl Programs {
         );
 
         let resources = GpuResources {
-            strips_buffer: Self::create_strips_buffer(device, 0),
             layer_textures,
             scratch_texture,
             filter_original_bind_group,
@@ -1726,6 +1780,7 @@ impl Programs {
             blend_pipeline,
             copy_pipeline,
             resources,
+            strips_arena: StripsArena::new(device),
             encoded_paints_data,
             filter_data,
             render_size: RenderSize {
@@ -1743,15 +1798,6 @@ impl Programs {
             blend_layer_bind_groups: HashMap::new(),
             filter_pair_bind_groups: HashMap::new(),
         }
-    }
-
-    fn create_strips_buffer(device: &Device, required_strips_size: u64) -> Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Strips Buffer"),
-            size: required_strips_size,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
     }
 
     fn create_intermediate_texture(
@@ -2510,37 +2556,40 @@ impl Programs {
         }
     }
 
-    /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
+    /// Uploads two strip slices (opaque then alpha) into the frame arena and
+    /// returns the byte range of the uploaded data.
     fn upload_strip_pair(
         &mut self,
-        device: &Device,
         queue: &Queue,
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
-    ) {
+    ) -> Range<u64> {
         let opaque_len = size_of_val(opaque_strips) as u64;
         let alpha_len = (alpha_strips.len() * size_of::<GpuStrip>()) as u64;
         let total_len = opaque_len + alpha_len;
-        self.resources.strips_buffer = Self::create_strips_buffer(device, total_len);
-        // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
-        let mut buffer_view = queue
-            .write_buffer_with(
-                &self.resources.strips_buffer,
-                0,
-                total_len.try_into().unwrap(),
-            )
+        if total_len == 0 {
+            return 0..0;
+        }
+
+        let arena = &mut self.strips_arena;
+        let offset = arena.alloc(total_len);
+        let size = NonZeroU64::new(total_len).expect("total length is non-zero");
+        let mut view = queue
+            .write_buffer_with(&arena.buffer, offset, size)
             .expect("Capacity handled in creation");
-        buffer_view
-            .slice(..opaque_len as usize)
-            .copy_from_slice(bytemuck::cast_slice(opaque_strips));
-        let mut offset = opaque_len as usize;
+        if opaque_len > 0 {
+            view.slice(..opaque_len as usize)
+                .copy_from_slice(bytemuck::cast_slice(opaque_strips));
+        }
+        let mut pos = opaque_len as usize;
         for strips in alpha_strips.slices() {
             let bytes = bytemuck::cast_slice(strips);
-            buffer_view
-                .slice(offset..offset + bytes.len())
-                .copy_from_slice(bytes);
-            offset += bytes.len();
+            view.slice(pos..pos + bytes.len()).copy_from_slice(bytes);
+            pos += bytes.len();
         }
+        drop(view);
+
+        offset..offset + total_len
     }
 }
 
@@ -2649,15 +2698,14 @@ impl RendererContext<'_> {
         if opaque_count == 0 && alpha_count == 0 {
             return;
         }
-        // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
-        // approach would be to re-use buffers or slices of a larger buffer.
         // Create bind groups for all external textures used by this pass.
         for run in external_texture_runs {
             self.external_texture_bind_group_for_textures(run.bindings);
         }
 
-        self.programs
-            .upload_strip_pair(self.device, self.queue, opaque_strips, alpha_strips);
+        let strips_range = self
+            .programs
+            .upload_strip_pair(self.queue, opaque_strips, alpha_strips);
         let opaque_count = opaque_count as u32;
         let alpha_count = alpha_count as u32;
 
@@ -2750,7 +2798,13 @@ impl RendererContext<'_> {
         render_pass.set_bind_group(0, bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
+        render_pass.set_vertex_buffer(
+            0,
+            self.programs
+                .strips_arena
+                .buffer
+                .slice(strips_range.clone()),
+        );
 
         let draw_strip_runs = |render_pass: &mut wgpu::RenderPass<'_>, first_instance, count| {
             if external_texture_runs.is_empty() {
