@@ -4,16 +4,12 @@
 // After you edit the crate's doc comment, run this command, then check README.md for any missing links
 // cargo rdme --workspace-project=vello_common
 
-//! This crate includes common geometry representations, tiling logic, and other fundamental components used by both [Vello CPU][vello_cpu] and Vello GPU.
+//! This crate includes common geometry representations, tiling logic, and other fundamental components used by both [Vello CPU][vello_cpu] and [Vello GPU][vello_gpu].
 //!
 //! # Usage
 //!
 //! This crate should not be used on its own, and you should instead use one of the renderers which use it.
-//! At the moment, only [Vello CPU][vello_cpu] is published, and you probably want to use that.
-//!
-//! We also develop [Vello](https://crates.io/crates/vello), which makes use of the GPU for 2D rendering and has higher performance than Vello CPU.
-//! Vello CPU is being developed as part of work to address shortcomings in Vello.
-//! Vello does not use this crate.
+//! Choose [Vello CPU][vello_cpu] for CPU-only rendering or [Vello GPU][vello_gpu] for GPU rasterization with CPU-side preprocessing. The compute-centric [`vello`](https://crates.io/crates/vello) renderer is a separate architecture and does not use this crate.
 //!
 //! # Features
 //!
@@ -35,6 +31,7 @@
 //! This crate acts as a foundation for `vello_cpu` and `vello_gpu`, providing essential components to minimize duplication.
 //!
 //! [vello_cpu]: https://crates.io/crates/vello_cpu
+//! [vello_gpu]: https://crates.io/crates/vello_gpu
 #![cfg_attr(feature = "libm", doc = "[libm]: libm")]
 #![cfg_attr(not(feature = "libm"), doc = "[libm]: https://crates.io/crates/libm")]
 // LINEBENDER LINT SET - lib.rs - v3

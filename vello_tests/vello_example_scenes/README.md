@@ -1,6 +1,6 @@
 # vello_example_scenes
 
-A collection of scenes used for Vello Sparse Strips examples.
+A collection of scenes shared by Vello CPU and Vello GPU examples.
 
 This crate provides various scene implementations including:
 - Basic shapes and paths

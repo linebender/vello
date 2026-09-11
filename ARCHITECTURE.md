@@ -1,96 +1,119 @@
 # Architecture
 
-This document should be updated semi-regularly. Feel free to open an issue if it hasn't been updated in more than a year.
+Vello contains two renderer families:
+
+1. [`vello_cpu`](vello_cpu), a CPU-only renderer, and
+   [`vello_gpu`](vello_gpu), a GPU-accelerated renderer, both based on the
+   Sparse Strips architecture.
+2. The experimental [`vello`](research/vello_research) renderer, which is based
+   on compute shaders.
+
+See the [project README](README.md) for renderer selection and package
+migration guidance.
 
 ## Goals
 
-The major goal of Vello is to provide a high quality GPU accelerated renderer suitable for a range of 2D graphics applications, including rendering for GUI applications, creative tools, and scientific visualization.
+The project aims to provide high-quality, high-performance 2D rendering for GUI
+applications, creative tools, scientific visualization, and similar workloads.
+Its implementations explore how CPU SIMD, multithreading, conventional GPU
+rasterization, and GPU compute can be applied to vector graphics.
 
-Vello emerges from being a research project, which attempts to answer these hypotheses:
+## Sparse Strips renderers
 
-- To what extent is a compute-centered approach better than rasterization ([Direct2D])?
-- To what extent do advanced GPU features (subgroups, descriptor arrays, device-scoped barriers) help?
-- Can we improve quality and extend the imaging model in useful ways?
+Vello CPU and Vello GPU share a CPU-side pipeline implemented primarily in
+`vello_common`. Paths are flattened, binned into tiles, and represented as
+sparse horizontal strips. Coverage data is retained where it is needed around
+path boundaries, while fully covered regions can be represented compactly. This
+limits intermediate work and memory to the parts of the scene that affect the
+final image.
 
-Another goal of the overall project is to explain how the renderer is built, and to advance the state of building applications on GPU compute shaders more generally.
-Much of the progress on Vello is documented in blog entries.
-See [blogs.md](research/doc/blogs.md) for pointers to those.
+The resulting representation can be consumed by different backends:
 
-Ideally, we'd like our documentation to be more structured; we may refactor it in the future (see [#488]).
+- `vello_cpu` rasterizes and composites the strips into a CPU pixmap. It uses
+  SIMD and can use multiple threads, but requires no GPU.
+- `vello_gpu` performs the same broad preprocessing on the CPU, then uploads
+  scheduled strips and paint data for GPU rasterization and compositing. Its
+  wgpu and WebGL2 backends use vertex and fragment rendering rather than
+  requiring compute shaders.
 
+The two renderers share geometry, tiling, paint, image, filter, and strip data
+structures through `vello_common`, as well as test scenes and snapshot
+infrastructure under `vello_tests`. Text and glyph-run support is shared through
+`glifo`.
 
-## Roadmap
+The design grew from the sparse rendering approach described in
+[*Potato: a hybrid CPU/GPU 2D renderer design*][potato]. The
+[Vello CPU thesis][vello-cpu-thesis] provides a more detailed explanation of
+the pipeline, although parts of the description in the thesis are already
+outdated and implementation details continue to evolve.
 
-The [roadmap for 2023](research/doc/roadmap_2023.md) is still largely applicable.
-The "Semi-stable encoding format" section and most of the "CPU fallback" section can be considered implemented.
+## Compute-centric research renderer
 
-Our current priority is to fill in missing features and to fix rendering artifacts, so that Vello can reach feature parity with other 2D graphics engines.
+The package published as `vello` is the original compute-centric renderer. A
+scene is encoded into compact path, draw, transform, and resource buffers. Those
+buffers are resolved into a `Recording` of GPU operations, and `WgpuEngine`
+uploads resources and dispatches the compute pipeline. Prefix-scan algorithms
+parallelize work that traditional renderers often perform sequentially.
 
+This approach can perform very well on dynamic, vector-heavy scenes, but it
+requires compute shader support and has different compatibility and memory
+trade-offs from the Sparse Strips renderers. It remains under `research/`
+together with its dedicated shaders, examples, tests, and design history.
 
-## File structure
+CPU implementations of parts of the compute pipeline live in
+`research/vello_shaders/src/cpu`. They are used for testing and debugging; they
+do not provide a complete standalone CPU renderer. Use `vello_cpu` for that.
 
-The repository is structured as such:
+## Repository structure
 
-- `research/doc/` - Historical documents detailing the vision for the compute renderer as it was developed.
-- `research/examples/` - Example projects using the compute renderer. Each example is its own crate, with its own dependencies. The simplest example is called `simple`.
-- `research/vello_research/` - Code for the main `vello` crate.
-- `research/vello_encoding/` - Types that represent the data that needs to be rendered.
-- `research/vello_shaders/` - Infrastructure to preprocess and cross-compile shaders at compile time; see "Shader templating".
-  - `shader/` - This is where the magic happens. WGSL shaders that define the compute operations (often variations of prefix sum) that Vello does to render a scene.
-    - `shared/` - Shared types, functions and constants included in other shaders through non-standard `#import` preprocessor directives (see "Shader templating").
-  - `cpu/` - Functions that perform the same work as their equivalently-named WGSL shaders for the CPU fallbacks. The name is a bit loose; they're "shaders" in the sense that they work on resource bindings with the exact same layout as actual GPU shaders.
-- `research/vello_research_tests/` - Helper code for writing research renderer tests.
+The user-facing Sparse Strips implementation is organized at the root:
 
+- `vello_common/` — shared geometry, tiling, paint, and strip infrastructure.
+- `vello_cpu/` — CPU renderer.
+- `vello_gpu/` — GPU renderer with CPU-side preprocessing.
+- `vello_gpu_shaders/` — WESL sources and generated WGSL/GLSL used by
+  `vello_gpu`.
+- `glifo/` — text and glyph-run support shared by the Sparse Strips renderers.
+- `vello_tests/` — shared integration tests, snapshots, scenes, and browser
+  tooling.
+- `vello_bench/` — Sparse Strips benchmarks.
 
-## Shader templating
+Compute-centric packages and support code are grouped under `research/`:
 
-WGSL has no meta-programming support, which limits code-sharing.
-We use a strategy common to many projects (eg Bevy) which is to implement a limited, simple preprocessor for our shaders.
+- `research/vello_research/` — source for the published `vello` package.
+- `research/vello_encoding/` — compact scene encoding used by `vello`.
+- `research/vello_shaders/` — compute shaders, preprocessing, and CPU
+  reference kernels.
+- `research/vello_research_tests/` — compute-renderer tests and snapshots.
+- `research/examples/` — standalone compute-renderer examples.
+- `research/xtask/` — snapshot and comparison maintenance tooling.
+- `research/doc/` — historical design documents, roadmaps, and blog links.
 
-This preprocessor implements the following directives:
+## Shader source systems
 
-1. `import`, which imports from `shader/shared`
-2. `ifdef`, `ifndef`, `else` and `endif`, as standard.
-  These must be at the start of their lines.  
-  Note that there is no support for creating definitions in-shader, these are only specified externally (in `src/shaders.rs`).
-  Note also that this definitions cannot currently be used in-code (`import`s may be used instead)
+Vello GPU shaders are authored as WESL in `vello_gpu_shaders/shaders`. The crate
+links them into WGSL and can generate GLSL plus reflection metadata for the
+WebGL2 backend.
 
-This format is compatible with [`wgsl-analyzer`], which we recommend using.
-If you run into any issues, please report them on Zulip ([#vello > wgsl-analyzer issues](https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/wgsl-analyzer.20issues/with/429480999)), and/or on the [`wgsl-analyzer`] issue tracker.  
-Note that new imports must currently be added to `.vscode/settings.json` for this support to work correctly.
-`wgsl-analyzer` only supports imports in very few syntactic locations, so we limit their use to these places.
+The compute renderer uses WGSL sources in `research/vello_shaders/shader`.
+Because WGSL has no built-in metaprogramming, these shaders use a small
+preprocessor supporting:
 
+1. `import`, which imports shared code from `shader/shared`.
+2. `ifdef`, `ifndef`, `else`, and `endif`, controlled by definitions supplied
+   outside the shader.
 
-## Path encoding
+This format is compatible with [`wgsl-analyzer`]. New imports must also be
+listed in `.vscode/settings.json` for editor support.
 
-See the [Path segment encoding](research/doc/pathseg.md) document.
+## Research history
 
-
-## Intermediary layers
-
-There are multiple layers of separation between "draw shape in Scene" and "commands are sent to wgpu":
-
-- First, everything you do in `Scene` appends data to an `Encoding`.
-The encoding owns multiple buffers representing compressed path commands, draw commands, transforms, etc. It's a linearized representation of the things you asked the `Scene` to draw.
-- From that encoding, we generate a `Recording`, which is an array of commands; each `Command` represents an operation interacting with the GPU (think "upload buffer", "dispatch", "download buffer", etc).
-- We then use `WgpuEngine` to send these commands to the actual GPU.
-
-In principle, other backends could consume a `Recording`, but for now the only implemented wgpu backend is `WgpuEngine`.
-
-
-### CPU rendering
-
-The code in `research/vello_shaders/src/cpu/*.rs` and `research/vello_shaders/src/cpu.rs` provides *some* support for CPU-side rendering. It's in an awkward place right now:
-
-- It's called through WgpuEngine, so the dependency on wgpu is still there.
-- Fine rasterization (the part at the end that puts pixels on screen) doesn't work in CPU yet (see [#386]).
-- Every single WGSL shader needs a CPU equivalent, which is pretty cumbersome.
-
-Still, it's useful for testing and debugging.
-
+Historical documents about the compute renderer are in `research/doc/`.
+[blogs.md](research/doc/blogs.md) links to development articles, and the
+[2023 roadmap](research/doc/roadmap_2023.md) records earlier project goals. The
+[path segment encoding](research/doc/pathseg.md) document describes the compute
+renderer's compact path representation.
 
 [`wgsl-analyzer`]: https://marketplace.visualstudio.com/items?itemName=wgsl-analyzer.wgsl-analyzer
-[direct2d]: https://docs.microsoft.com/en-us/windows/win32/direct2d/direct2d-portal
-[#488]: https://github.com/linebender/vello/issues/488
-[#467]: https://github.com/linebender/vello/issues/467
-[#386]: https://github.com/linebender/vello/issues/386
+[potato]: https://docs.google.com/document/d/1gEqf7ehTzd89Djf_VpkL0B_Fb15e0w5fuv_UzyacAPU/edit
+[vello-cpu-thesis]: https://ethz.ch/content/dam/ethz/special-interest/infk/inst-pls/plf-dam/documents/StudentProjects/MasterTheses/2025-Laurenz-Thesis.pdf

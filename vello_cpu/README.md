@@ -8,8 +8,7 @@
 [![Documentation build status.](https://img.shields.io/docsrs/vello_cpu.svg)](https://docs.rs/vello_cpu)
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
 \
-[![Linebender Zulip chat.](https://img.shields.io/badge/Linebender-%23vello-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/channel/197075-vello)
-[![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/linebender/vello/ci.yml?logo=github&label=CI)](https://github.com/linebender/vello/actions)
+[![Linebender Zulip chat.](https://img.shields.io/badge/Linebender-%23vello-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/channel/197075-vello) [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/linebender/vello/ci.yml?logo=github&label=CI)](https://github.com/linebender/vello/actions)
 [![Dependency staleness status.](https://deps.rs/crate/vello_cpu/latest/status.svg)](https://deps.rs/crate/vello_cpu)
 
 </div>
@@ -22,33 +21,50 @@ Full documentation at https://github.com/orium/cargo-rdme -->
 <!-- Intra-doc links used in lib.rs should be evaluated here.
 See https://linebender.org/blog/doc-include/ for related discussion. -->
 
-[`RenderContext`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html
-[RenderContext::set_paint]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.set_paint
-[RenderContext::fill_path]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.fill_path
-[RenderContext::stroke_path]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.stroke_path
-[RenderContext::glyph_run]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.glyph_run
-[RenderMode::OptimizeSpeed]: https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeSpeed
-[RenderMode::OptimizeQuality]: https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeQuality
-[`RenderContext::render`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.render
+[`RenderContext`]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html
+[RenderContext::set_paint]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.set_paint
+[RenderContext::fill_path]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.fill_path
+[RenderContext::stroke_path]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.stroke_path
+[RenderContext::glyph_run]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.glyph_run
+[RenderMode::OptimizeSpeed]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeSpeed
+[RenderMode::OptimizeQuality]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeQuality
+[`RenderContext::render`]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.render
 [`Pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.Pixmap.html
 [`Resources`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.Resources.html
 
 <!-- cargo-rdme start -->
 
-Vello CPU is a 2D graphics rendering engine written in Rust, for devices with no or underpowered GPUs.
+Vello CPU is a 2D graphics rendering engine written in Rust for devices with no
+or underpowered GPUs.
 
-We also develop [Vello](https://crates.io/crates/vello), which makes use of the GPU for 2D rendering and has higher performance than Vello CPU.
-Vello CPU is being developed as part of work to address shortcomings in Vello.
+We also develop:
 
-## Usage
+1. [Vello GPU](https://crates.io/crates/vello_gpu), which shares Vello CPU's
+   architecture but moves rasterization and compositing to the GPU.
+2. [Vello Research], an experimental, high-performance, compute-centric GPU
+   renderer.
+
+### Usage
 
 To use Vello CPU, you need to:
 
-- Create a [`RenderContext`][], a 2D drawing context for a fixed-size scene area.
+- Create a [`RenderContext`][], a 2D drawing context for a fixed-size scene
+  area.
 - For each object in your scene:
-  - Set how the object will be painted, using [`set_paint`][RenderContext::set_paint].
-  - Set the shape to be drawn for that object, using methods like [`fill_path`][RenderContext::fill_path],
-    [`stroke_path`][RenderContext::stroke_path], or [`glyph_run`][RenderContext::glyph_run].
+  - Set how the object will be painted, using
+    [`set_paint`][RenderContext::set_paint].
+  - Set the shape to be drawn for that object, using methods like
+    [`fill_path`][RenderContext::fill_path],
+    [`stroke_path`][RenderContext::stroke_path], or
+    [`glyph_run`][RenderContext::glyph_run].
 - Render it to an image using [`RenderContext::render`][].
 
 ```rust
@@ -89,84 +105,96 @@ assert_eq!(&result, expected_render);
 ```
 
 See the
-[examples](https://github.com/linebender/vello/tree/main/vello_cpu/examples)
-for more complete demonstrations of Vello CPU's API.
+[examples](https://github.com/linebender/vello/tree/main/vello_cpu/examples) for
+more complete demonstrations of Vello CPU's API.
 
-## Features
+### Features
 
-- `std` (enabled by default): Get floating point functions from the standard library
-  (likely using your target's libc).
+- `std` (enabled by default): Get floating point functions from the standard
+  library (likely using your target's libc).
 - `libm`: Use floating point implementations from [libm][].
-- `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
-  Also required for rendering glyphs with an embedded PNG. Implies `std`.
+- `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images. Also
+  required for rendering glyphs with an embedded PNG. Implies `std`.
 - `multithreading`: Enable multi-threaded rendering. Implies `std`.
-- `text` (enabled by default): Enables glyph rendering ([`glyph_run`][RenderContext::glyph_run]).
-- `u8_pipeline` (enabled by default): Enable the u8 pipeline, for speed focused rendering using u8 math.
-  The `u8` pipeline will be used for [`OptimizeSpeed`][RenderMode::OptimizeSpeed], if both pipelines are enabled.
-  If you're using Vello CPU for application rendering, you should prefer this pipeline.
-- `f32_pipeline`: Enable the `f32` pipeline, which is slower but has more accurate
-  results. This is espectially useful for rendering test snapshots.
-  The `f32` pipeline will be used for [`OptimizeQuality`][RenderMode::OptimizeQuality], if both pipelines are enabled.
+- `text` (enabled by default): Enables glyph rendering
+  ([`glyph_run`][RenderContext::glyph_run]).
+- `u8_pipeline` (enabled by default): Enable the u8 pipeline, for speed focused
+  rendering using u8 math. The `u8` pipeline will be used for
+  [`OptimizeSpeed`][RenderMode::OptimizeSpeed], if both pipelines are enabled.
+  If you're using Vello CPU for application rendering, you should prefer this
+  pipeline.
+- `f32_pipeline`: Enable the `f32` pipeline, which is slower but has more
+  accurate results. This is espectially useful for rendering test snapshots. The
+  `f32` pipeline will be used for
+  [`OptimizeQuality`][RenderMode::OptimizeQuality], if both pipelines are
+  enabled.
 
-At least one of `std` and `libm` is required; `std` overrides `libm`.
-At least one of `u8_pipeline` and `f32_pipeline` must be enabled.
-You might choose to disable one of these pipelines if your application
-won't use it, so as to reduce binary size.
+At least one of `std` and `libm` is required; `std` overrides `libm`. At least
+one of `u8_pipeline` and `f32_pipeline` must be enabled. You might choose to
+disable one of these pipelines if your application won't use it, so as to reduce
+binary size.
 
-## Current state
+### Current state
 
-Vello CPU is a solid CPU-only 2D renderer with broad, reliable feature
-support. It provides excellent performance across a wide range of workloads,
-with optimized SIMD implementations for all major architectures. The
-renderer is still under active development, however, and a few limitations
-remain:
+Vello CPU is a solid CPU-only 2D renderer with broad, reliable feature support.
+It provides excellent performance across a wide range of workloads, with
+optimized SIMD implementations for all major architectures. The renderer is
+still under active development, however, and a few limitations remain:
 
-- Complex filter graphs are currently not supported at all and will panic.
-  In multi-threaded mode, even simple filters are currently unsupported.
-- Parts of the API and its documentation are still suboptimal, for example
-  the [`Resources`][] lifecycle.
+- Complex filter graphs are currently not supported at all and will panic. In
+  multi-threaded mode, even simple filters are currently unsupported.
+- Parts of the API and its documentation are still suboptimal, for example the
+  [`Resources`][] lifecycle.
 - Some exposed features remain experimental and are not recommended for use,
   including glyph caching. Experimental APIs are identified in their method
   documentation.
-- There is still more room for performance improvements, in particular on
-  x86 systems and also for multi-threaded rendering.
+- There is still more room for performance improvements, in particular on x86
+  systems and also for multi-threaded rendering.
 
-With that said, we are continuously improving Vello CPU and will address
-these and other limitations in future releases.
+With that said, we are continuously improving Vello CPU and will address these
+and other limitations in future releases.
 
-## Performance
+### Performance
 
-Performance benchmarks can be found [here](https://laurenzv.github.io/vello_chart/),
-As can be seen, Vello CPU achieves compelling performance on both,
-aarch64 and x86 platforms. We also have SIMD optimizations for WASM SIMD,
-meaning that you can expect good performance there as well.
+Performance benchmarks can be found
+[here](https://laurenzv.github.io/vello_chart/), As can be seen, Vello CPU
+achieves compelling performance on both, aarch64 and x86 platforms. We also have
+SIMD optimizations for WASM SIMD, meaning that you can expect good performance
+there as well.
 
-## Implementation
+### Implementation
 
-If you want to gain a better understanding of Vello CPU and the
-sparse strips paradigm, you can take a look at the [accompanying
-master's thesis](https://ethz.ch/content/dam/ethz/special-interest/infk/inst-pls/plf-dam/documents/StudentProjects/MasterTheses/2025-Laurenz-Thesis.pdf)
-that was written on the topic. Note that parts of the descriptions might
-become outdated as the implementation changes, but it should give a good
-overview nevertheless.
+If you want to gain a better understanding of Vello CPU and the sparse strips
+paradigm, you can take a look at the
+[accompanying master's thesis](https://ethz.ch/content/dam/ethz/special-interest/infk/inst-pls/plf-dam/documents/StudentProjects/MasterTheses/2025-Laurenz-Thesis.pdf)
+that was written on the topic. Note that parts of the descriptions might become
+outdated as the implementation changes, but it should give a good overview
+nevertheless.
 
 <!-- We can't directly link to the libm crate built locally, because our feature is only a pass-through  -->
+
 [libm]: https://crates.io/crates/libm
+[Vello Research]:
+  https://github.com/linebender/vello/tree/main/research/vello_research
 
 <!-- cargo-rdme end -->
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Vello CPU has been verified to compile with **Rust 1.89** and later.
+This version of Vello CPU has been verified to compile with **Rust 1.89** and
+later.
 
-Future versions of Vello CPU might increase the Rust version requirement.
-It will not be treated as a breaking change and as such can even happen with small patch releases.
+Future versions of Vello CPU might increase the Rust version requirement. It
+will not be treated as a breaking change and as such can even happen with small
+patch releases.
 
 <details>
 <summary>Click here if compiling fails.</summary>
 
-As time has passed, some of Vello CPU's dependencies could have released versions with a higher Rust requirement.
-If you encounter a compilation issue due to a dependency and don't want to upgrade your Rust toolchain, then you could downgrade the dependency.
+As time has passed, some of Vello CPU's dependencies could have released
+versions with a higher Rust requirement. If you encounter a compilation issue
+due to a dependency and don't want to upgrade your Rust toolchain, then you
+could downgrade the dependency.
 
 ```sh
 # Use the problematic dependency's name and version
@@ -177,18 +205,21 @@ cargo update -p package_name --precise 0.1.1
 
 ## Community
 
-Discussion of Vello CPU development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#vello channel](https://xi.zulipchat.com/#narrow/channel/197075-vello).
-All public content can be read without logging in.
+Discussion of Vello CPU development happens in the
+[Linebender Zulip](https://xi.zulipchat.com/), specifically the
+[#vello channel](https://xi.zulipchat.com/#narrow/channel/197075-vello). All
+public content can be read without logging in.
 
-Contributions are welcome by pull request.
-The [Rust code of conduct] applies.
+Contributions are welcome by pull request. The [Rust code of conduct] applies.
 
 ## License
 
 Licensed under either of
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or
+  <http://opensource.org/licenses/MIT>)
 
 at your option.
 
