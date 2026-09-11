@@ -1,14 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! wgpu backend for Vello GPU's Sparse Strips renderer.
-//!
-//! This module consumes paths and strips prepared on the CPU and performs
-//! rasterization and compositing on the GPU.
-//! It handles:
-//! - GPU resource management (buffers, textures, pipelines)
-//! - Surface/window management and presentation
-//! - Shader execution and rendering
+//! `wgpu` backend for Vello GPU.
 
 #![expect(
     clippy::cast_possible_truncation,

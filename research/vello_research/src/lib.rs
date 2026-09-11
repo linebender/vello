@@ -6,9 +6,6 @@
 //! It efficiently draws large 2D scenes with interactive or near-interactive
 //! performance.
 //!
-//! The source lives in the repository's `research/vello_research/` directory,
-//! but its published package and Rust crate name remain `vello`.
-//!
 //! ![image](https://github.com/linebender/vello/assets/8573618/cc2b742e-2135-4b70-8051-c49aeddb5d19)
 //!
 //!
