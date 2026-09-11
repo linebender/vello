@@ -67,7 +67,7 @@ async fn webgl_probe_succeeds() {
     canvas.set_width(200);
     canvas.set_height(200);
 
-    let (mut renderer, _) = vello_gpu::WebGlRenderer::new(&canvas);
+    let (mut renderer, _) = vello_gpu::WebGlRenderer::new(&canvas).unwrap();
     let mut pending = renderer
         .probe()
         .unwrap_or_else(|error| panic!("WebGlRenderer::probe() failed to render: {error:?}"));
@@ -121,11 +121,11 @@ async fn webgl_pending_renderer_init_completes() {
     canvas.set_width(16);
     canvas.set_height(16);
 
-    let (mut init, _) = vello_gpu::WebGlRenderer::begin(&canvas);
+    let (mut init, _) = vello_gpu::WebGlRenderer::begin(&canvas).unwrap();
     const MAX_FRAMES: u32 = 600;
 
     for _ in 0..MAX_FRAMES {
-        match init.try_finish() {
+        match init.try_finish().unwrap() {
             WebGlRendererInitStatus::Complete(_) => return,
             WebGlRendererInitStatus::Pending(next_init) => {
                 init = next_init;
@@ -159,6 +159,6 @@ fn webgl_create_renderer_twice() {
     canvas.set_width(16);
     canvas.set_height(16);
 
-    let _ = WebGlRenderer::new(&canvas);
-    let _ = WebGlRenderer::new(&canvas);
+    let _ = WebGlRenderer::new(&canvas).unwrap();
+    let _ = WebGlRenderer::new(&canvas).unwrap();
 }

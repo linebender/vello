@@ -12,7 +12,7 @@ use vello_common::{
 };
 use vello_gpu::{
     AtlasConfig, AtlasId, AtlasTextureInfo, MemorySettings, RenderError, RenderSettings, Scene,
-    TextureId, WebGlRenderer, WebGlTextureBindings,
+    TextureId, WebGlError, WebGlRenderer, WebGlTextureBindings,
 };
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
@@ -47,7 +47,7 @@ fn image_atlas_texture_is_created_on_first_upload() {
         },
         ..RenderSettings::default()
     };
-    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings, true);
+    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings, true).unwrap();
 
     assert_eq!(
         renderer.atlas_info(),
@@ -64,7 +64,9 @@ fn image_atlas_texture_is_created_on_first_upload() {
         "renderer initialization should not produce a WebGL error"
     );
 
-    renderer.upload_image(&mut resources, &Pixmap::new(2, 2));
+    renderer
+        .upload_image(&mut resources, &Pixmap::new(2, 2))
+        .unwrap();
 
     assert_eq!(
         renderer.atlas_info(),
@@ -88,7 +90,6 @@ fn image_atlas_texture_is_created_on_first_upload() {
 /// The renderer constructor configures the allocator in the returned resources, which runs the
 /// `TextureTooLarge` check.
 #[wasm_bindgen_test]
-#[should_panic(expected = "TextureTooLarge")]
 fn image_atlas_upload_larger_than_atlas_fails() {
     let canvas = create_canvas();
     canvas.set_width(100);
@@ -106,11 +107,17 @@ fn image_atlas_upload_larger_than_atlas_fails() {
         ..RenderSettings::default()
     };
 
-    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings, true);
+    let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings, true).unwrap();
 
     // The image is much larger than the 10x10 atlas, so the upload must fail.
     let image = Pixmap::new(64, 64);
-    renderer.upload_image(&mut resources, &image);
+    assert!(
+        matches!(
+            renderer.upload_image(&mut resources, &image),
+            Err(WebGlError::Render(RenderError::AtlasError(_)))
+        ),
+        "oversized image upload should return an atlas error"
+    );
 }
 
 #[wasm_bindgen_test]
@@ -128,7 +135,7 @@ fn image_atlas_rejects_sampling_from_its_render_target() {
         },
         ..RenderSettings::default()
     };
-    let (mut renderer, _) = WebGlRenderer::new_with(&canvas, settings, false);
+    let (mut renderer, _) = WebGlRenderer::new_with(&canvas, settings, false).unwrap();
     let texture_id = TextureId(0);
     let mut bindings = WebGlTextureBindings::new();
     bindings.insert(texture_id, renderer.atlas_texture(AtlasId::new(0)).clone());
@@ -143,7 +150,7 @@ fn image_atlas_rejects_sampling_from_its_render_target() {
     assert!(
         matches!(
             renderer.render_to_atlas(&scene, 1, atlas_config, AtlasId::new(0), &bindings),
-            Err(RenderError::TextureFeedbackLoop(id)) if id == texture_id
+            Err(WebGlError::Render(RenderError::TextureFeedbackLoop(id))) if id == texture_id
         ),
         "sampling from the render target should fail"
     );
