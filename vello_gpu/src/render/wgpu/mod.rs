@@ -2375,12 +2375,16 @@ impl Programs {
 
         let texture_width = self.resources.alphas_texture.width();
         let texture_height = self.resources.alphas_texture.height();
-        let total_size = texture_width as usize * texture_height as usize * 16;
+        let row_bytes = (texture_width << 4) as usize;
+        let rows = alphas
+            .len()
+            .div_ceil(row_bytes)
+            .min(texture_height as usize);
 
         let original_len = alphas.len();
 
-        // Temporarily pad the length of the alphas to the texture size before uploading.
-        alphas.resize(total_size, 0);
+        // Temporarily pad the last row with zeros before uploading.
+        alphas.resize(rows * row_bytes, 0);
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -2395,11 +2399,11 @@ impl Programs {
                 // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), which is equivalent to
                 // a bit shift of 4.
                 bytes_per_row: Some(texture_width << 4),
-                rows_per_image: Some(texture_height),
+                rows_per_image: Some(rows as u32),
             },
             Extent3d {
                 width: texture_width,
-                height: texture_height,
+                height: rows as u32,
                 depth_or_array_layers: 1,
             },
         );
@@ -2410,11 +2414,27 @@ impl Programs {
 
     /// Upload encoded paints to the texture.
     fn upload_encoded_paints_texture(&mut self, queue: &Queue, encoded_paints: &[GpuEncodedPaint]) {
+        if encoded_paints.is_empty() {
+            return;
+        }
+
         let encoded_paints_texture = &self.resources.encoded_paints_texture;
         let encoded_paints_texture_width = encoded_paints_texture.width();
         let encoded_paints_texture_height = encoded_paints_texture.height();
 
-        GpuEncodedPaint::serialize_to_buffer(encoded_paints, &mut self.encoded_paints_data);
+        let used_texels = encoded_paints
+            .iter()
+            .map(|paint| paint.as_bytes().len())
+            .sum::<usize>()
+            / 16;
+        let rows = used_texels
+            .div_ceil(encoded_paints_texture_width as usize)
+            .min(encoded_paints_texture_height as usize);
+
+        GpuEncodedPaint::serialize_to_buffer(
+            encoded_paints,
+            &mut self.encoded_paints_data[..rows * encoded_paints_texture_width as usize * 16],
+        );
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: encoded_paints_texture,
@@ -2422,16 +2442,16 @@ impl Programs {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &self.encoded_paints_data,
+            &self.encoded_paints_data[..rows * encoded_paints_texture_width as usize * 16],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), equivalent to bit shift of 4
                 bytes_per_row: Some(encoded_paints_texture_width << 4),
-                rows_per_image: Some(encoded_paints_texture_height),
+                rows_per_image: Some(rows as u32),
             },
             Extent3d {
                 width: encoded_paints_texture_width,
-                height: encoded_paints_texture_height,
+                height: rows as u32,
                 depth_or_array_layers: 1,
             },
         );
@@ -2446,7 +2466,10 @@ impl Programs {
         let width = filter_texture.width();
         let height = filter_texture.height();
 
-        filter_context.serialize_to_buffer(&mut self.filter_data);
+        let used_texels = filter_context.total_texels() as usize;
+        let rows = used_texels.div_ceil(width as usize).min(height as usize);
+
+        filter_context.serialize_to_buffer(&mut self.filter_data[..rows * width as usize * 16]);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: filter_texture,
@@ -2454,15 +2477,15 @@ impl Programs {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &self.filter_data,
+            &self.filter_data[..rows * width as usize * 16],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(width << 4),
-                rows_per_image: Some(height),
+                rows_per_image: Some(rows as u32),
             },
             Extent3d {
                 width,
-                height,
+                height: rows as u32,
                 depth_or_array_layers: 1,
             },
         );
