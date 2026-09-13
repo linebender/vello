@@ -48,21 +48,3 @@ Other entry points include the `simple`, `simple_sdl2`, and `headless` example
 packages under [`examples/`](examples). The package README in
 [`vello_research/`](vello_research) has API setup, features, WebAssembly
 instructions, integrations, current limitations, and additional examples.
-
-## Repository migration
-
-The source directories moved as follows:
-
-- `vello/` → `research/vello_research/`
-- `vello_encoding/` → `research/vello_encoding/`
-- `vello_shaders/` → `research/vello_shaders/`
-- the former compute-renderer `vello_tests/` →
-  `research/vello_research_tests/`
-- `examples/`, `doc/`, and `xtask/` → their corresponding paths under
-  `research/`
-
-These are repository path changes. The published `vello`, `vello_encoding`, and
-`vello_shaders` package identities remain unchanged.
-
-The current root-level `vello_tests/` is a different, development-only package
-for Vello CPU and Vello GPU. It was formerly named `vello_sparse_tests`.

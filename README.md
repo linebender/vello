@@ -37,7 +37,7 @@ CPU is currently overall more mature.
 The [`vello`](research/vello_research) crate is the original compute-centric
 renderer. It performs most rendering work in GPU compute shaders and remains an
 experimental implementation for compute-capable GPUs. Its source and supporting
-crates now live under [`research/`](research/README.md).
+crates live under [`research/`](research/README.md).
 
 Vello CPU and Vello GPU share the Sparse Strips architecture and common
 infrastructure in [`vello_common`](vello_common). See
