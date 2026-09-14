@@ -38,9 +38,9 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        LIVE_BYTES.fetch_sub(layout.size(), Relaxed);
         // SAFETY: The caller upholds `GlobalAlloc::dealloc`'s contract.
         unsafe { System.dealloc(ptr, layout) };
+        LIVE_BYTES.fetch_sub(layout.size(), Relaxed);
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
