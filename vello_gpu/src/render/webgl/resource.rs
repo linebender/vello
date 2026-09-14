@@ -3,6 +3,8 @@
 
 use core::ops::Deref;
 
+use crate::{WebGlError, WebGlOperation, WebGlResourceKind, WebGlShaderStage};
+
 use super::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader, WebGlTexture,
     WebGlVertexArrayObject,
@@ -11,7 +13,7 @@ use super::{
 use web_sys::WebGlRenderbuffer;
 
 pub(crate) trait GlResource {
-    const LABEL: &'static str;
+    const KIND: WebGlResourceKind;
 
     fn create(gl: &WebGl2RenderingContext) -> Option<Self>
     where
@@ -31,12 +33,16 @@ pub(crate) struct Resource<T: GlResource> {
 // unique ownership and we don't end up deleting the same resource
 // twice.
 impl<T: GlResource> Resource<T> {
-    pub(super) fn new(gl: &WebGl2RenderingContext) -> Self {
-        let raw = T::create(gl).unwrap_or_else(|| panic!("failed to create WebGL {}", T::LABEL));
-        Self {
+    pub(super) fn new(gl: &WebGl2RenderingContext) -> Result<Self, WebGlError> {
+        let raw = T::create(gl).ok_or(WebGlError::OperationFailed {
+            operation: WebGlOperation::ResourceCreation(T::KIND),
+            message: None,
+        })?;
+
+        Ok(Self {
             gl: gl.clone(),
             raw,
-        }
+        })
     }
 }
 
@@ -77,7 +83,7 @@ impl Deref for WebGlFragmentShader {
 }
 
 impl GlResource for WebGlTexture {
-    const LABEL: &'static str = "texture";
+    const KIND: WebGlResourceKind = WebGlResourceKind::Texture;
 
     fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
         gl.create_texture()
@@ -89,7 +95,7 @@ impl GlResource for WebGlTexture {
 }
 
 impl GlResource for WebGlBuffer {
-    const LABEL: &'static str = "buffer";
+    const KIND: WebGlResourceKind = WebGlResourceKind::Buffer;
 
     fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
         gl.create_buffer()
@@ -101,7 +107,7 @@ impl GlResource for WebGlBuffer {
 }
 
 impl GlResource for WebGlFramebuffer {
-    const LABEL: &'static str = "framebuffer";
+    const KIND: WebGlResourceKind = WebGlResourceKind::Framebuffer;
 
     fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
         gl.create_framebuffer()
@@ -114,7 +120,7 @@ impl GlResource for WebGlFramebuffer {
 
 #[cfg(feature = "probe")]
 impl GlResource for WebGlRenderbuffer {
-    const LABEL: &'static str = "renderbuffer";
+    const KIND: WebGlResourceKind = WebGlResourceKind::Renderbuffer;
 
     fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
         gl.create_renderbuffer()
@@ -126,7 +132,7 @@ impl GlResource for WebGlRenderbuffer {
 }
 
 impl GlResource for WebGlProgram {
-    const LABEL: &'static str = "program";
+    const KIND: WebGlResourceKind = WebGlResourceKind::Program;
 
     fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
         gl.create_program()
@@ -138,7 +144,7 @@ impl GlResource for WebGlProgram {
 }
 
 impl GlResource for WebGlVertexShader {
-    const LABEL: &'static str = "vertex shader";
+    const KIND: WebGlResourceKind = WebGlResourceKind::Shader(WebGlShaderStage::Vertex);
 
     fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
         gl.create_shader(WebGl2RenderingContext::VERTEX_SHADER)
@@ -151,7 +157,7 @@ impl GlResource for WebGlVertexShader {
 }
 
 impl GlResource for WebGlFragmentShader {
-    const LABEL: &'static str = "fragment shader";
+    const KIND: WebGlResourceKind = WebGlResourceKind::Shader(WebGlShaderStage::Fragment);
 
     fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
         gl.create_shader(WebGl2RenderingContext::FRAGMENT_SHADER)
@@ -164,7 +170,7 @@ impl GlResource for WebGlFragmentShader {
 }
 
 impl GlResource for WebGlVertexArrayObject {
-    const LABEL: &'static str = "vertex array";
+    const KIND: WebGlResourceKind = WebGlResourceKind::VertexArray;
 
     fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
         gl.create_vertex_array()

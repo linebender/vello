@@ -116,6 +116,7 @@ impl Resources {
         const PADDING: u16 = GLYPH_PADDING;
 
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
+            // TODO: An upload error drops all remaining pending uploads.
             for upload in glyph_resources.glyph_atlas.drain_pending_uploads() {
                 let resource = self.image_cache.get(upload.image_id).unwrap();
                 let dst_x = resource.offset[0] + PADDING;
@@ -135,6 +136,7 @@ impl Resources {
         self.glyph_prep_cache.maintain();
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             glyph_resources.maintain(&mut self.image_cache);
+            // TODO: A clear error drops pending clears after their slots were deallocated.
             for rect in glyph_resources.glyph_atlas.drain_pending_clear_rects() {
                 clear_rect(backend, &rect)?;
             }
