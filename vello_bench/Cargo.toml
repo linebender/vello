@@ -27,5 +27,9 @@ extended = []
 name = "main"
 harness = false
 
+[[bench]]
+name = "allocations"
+harness = false
+
 [lints]
 workspace = true

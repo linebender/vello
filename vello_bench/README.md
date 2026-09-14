@@ -13,6 +13,22 @@ cargo bench --features extended
 You can also provide a filter for the name of the benchmarks you want to run, like
 `cargo bench -- fine/fill`.
 
+Run the deterministic CPU allocation regression benchmarks with:
+
+```shell
+cargo bench --bench allocations
+```
+
+These benchmarks use fixed workloads, fallback SIMD, and single-threaded rendering. They fail when
+an allocation metric exceeds its recorded limit; update a limit only after verifying that the
+increase is intentional. One frame is measured by default; pass `--frames` to measure a longer run:
+
+```shell
+cargo bench --bench allocations -- --frames 1,10,100
+# Space-separated counts are also accepted:
+cargo bench --bench allocations -- --frames 1 10 100
+```
+
 ## Workflow
 
 Save a control run with:
