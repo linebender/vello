@@ -791,7 +791,7 @@ impl WebGlRenderer {
         resources: &mut Resources,
         image_id: ImageId,
     ) -> Result<(), WebGlError> {
-        if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
+        if let Some(image_resource) = resources.image_cache.get(image_id) {
             let padding = image_resource.padding;
             self.clear_atlas_region(
                 image_resource.atlas_id,
@@ -802,6 +802,8 @@ impl WebGlRenderer {
                 image_resource.width + padding * 2,
                 image_resource.height + padding * 2,
             )?;
+
+            let _ = resources.image_cache.deallocate(image_id);
         }
 
         Ok(())
