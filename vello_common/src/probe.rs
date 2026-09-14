@@ -31,20 +31,23 @@ const CIRCLE_RADIUS: f64 = RECT_SIZE * 0.5 - CIRCLE_CENTER_OFFSET_X;
 const IMAGE_SOURCE_SIZE: f64 = 5.0;
 const PATH_TOLERANCE: f64 = 0.1;
 
-/// The active elements used in the probe.
-pub const PROBE_ELEMENTS: [ProbeFeature; 9] = [
+/// All elements available for use in a probe.
+pub const ALL_PROBE_ELEMENTS: &[ProbeFeature] = &[
+    // Important: Those elements must have the same index as their
+    // assigned discriminant in the enum!
     ProbeFeature::SolidRect,
     ProbeFeature::AlphaBlending,
     ProbeFeature::Gradient,
     ProbeFeature::ImageNearest,
-    // Temporarily disabled.
-    // ProbeFeature::Filter,
+    ProbeFeature::Filter,
     ProbeFeature::ImageBilinear,
     ProbeFeature::OpacityLayer,
     ProbeFeature::Blending,
     ProbeFeature::Transformed,
     ProbeFeature::DepthBuffer,
 ];
+
+const REFERENCE_ELEMENTS: &[ProbeFeature] = ALL_PROBE_ELEMENTS;
 /// Per-channel absolute tolerance used when comparing probe pixels.
 const CHANNEL_TOLERANCE: u8 = 3;
 
@@ -66,6 +69,8 @@ pub struct ProbeResult {
     pub expected: ProbeImage,
     /// The actual probe image.
     pub actual: ProbeImage,
+    /// The elements included in the probe, in cell order.
+    pub elements: Vec<ProbeFeature>,
 }
 
 /// A feature exercised by the renderer probe.
@@ -124,9 +129,9 @@ impl ProbeStatistics {
 impl ProbeResult {
     /// Return the statistics of the probe.
     pub fn statistics(&self) -> ProbeStatistics {
-        let layout = GridLayout::from_elements(&PROBE_ELEMENTS);
+        let layout = GridLayout::from_elements(&self.elements);
         let mut statistics = ProbeStatistics {
-            element_count: PROBE_ELEMENTS.len() as u8,
+            element_count: self.elements.len() as u8,
             actual_size: (self.actual.width, self.actual.height),
             ..Default::default()
         };
@@ -152,7 +157,7 @@ impl ProbeResult {
                 statistics.different_pixel_count += 1;
 
                 let cell_index = layout.cell_index_for_pixel(pixel_index);
-                if let Some(feature) = PROBE_ELEMENTS.get(cell_index) {
+                if let Some(feature) = self.elements.get(cell_index) {
                     statistics.difference_mask |= 1_u32 << *feature as u8;
                 }
             }
@@ -181,13 +186,8 @@ impl<E> Probe<E> {
 
     /// Construct a new probe result by inspecting the provided pixmap and comparing it
     /// against the reference output.
-    pub fn from_actual(actual: Pixmap) -> Self {
-        let (width, height) = canvas_size();
-        let expected = ProbeImage {
-            width,
-            height,
-            data: REFERENCE_RGBA.to_vec(),
-        };
+    pub fn from_actual(actual: Pixmap, elements: &[ProbeFeature]) -> Self {
+        let expected = selected_reference_image(elements);
         let actual = ProbeImage::from_pixmap(actual);
         let matches_reference = expected.width == actual.width
             && expected.height == actual.height
@@ -203,7 +203,11 @@ impl<E> Probe<E> {
         if matches_reference {
             Self::Success
         } else {
-            Self::Error(ProbeResult { expected, actual })
+            Self::Error(ProbeResult {
+                expected,
+                actual,
+                elements: elements.to_vec(),
+            })
         }
     }
 }
@@ -240,7 +244,11 @@ struct GridLayout {
 impl GridLayout {
     fn from_elements(elements: &[ProbeFeature]) -> Self {
         let columns = ELEMENTS_PER_ROW.min(elements.len());
-        let rows = elements.len().div_ceil(columns);
+        let rows = if columns == 0 {
+            0
+        } else {
+            elements.len().div_ceil(columns)
+        };
 
         Self { columns, rows }
     }
@@ -252,11 +260,16 @@ impl GridLayout {
     }
 
     fn cell_rect(self, index: usize) -> Rect {
+        let (x, y) = self.cell_origin(index);
+        let x0 = x as f64;
+        let y0 = y as f64;
+        Rect::new(x0, y0, x0 + CELL_SIZE, y0 + CELL_SIZE)
+    }
+
+    fn cell_origin(self, index: usize) -> (usize, usize) {
         let column = index % self.columns;
         let row = index / self.columns;
-        let x0 = column as f64 * CELL_SIZE;
-        let y0 = row as f64 * CELL_SIZE;
-        Rect::new(x0, y0, x0 + CELL_SIZE, y0 + CELL_SIZE)
+        (column * CELL_SIZE as usize, row * CELL_SIZE as usize)
     }
 
     fn cell_index_for_pixel(self, pixel_index: usize) -> usize {
@@ -269,9 +282,54 @@ impl GridLayout {
     }
 }
 
-/// Return the canvas size of the shared probe scene.
-pub fn canvas_size() -> (u16, u16) {
-    GridLayout::from_elements(&PROBE_ELEMENTS).canvas_size()
+fn selected_reference_image(elements: &[ProbeFeature]) -> ProbeImage {
+    let layout = GridLayout::from_elements(elements);
+    let (width, height) = layout.canvas_size();
+    // Need to initialize with white for incomplete rows since the background
+    // is white as well.
+    let mut data = alloc::vec![255; usize::from(width) * usize::from(height) * 4];
+    let reference_layout = GridLayout::from_elements(REFERENCE_ELEMENTS);
+    let reference_width = usize::from(reference_layout.canvas_size().0);
+
+    for (index, element) in elements.iter().copied().enumerate() {
+        copy_cell(
+            REFERENCE_RGBA,
+            reference_width,
+            reference_layout.cell_origin(element as usize),
+            &mut data,
+            usize::from(width),
+            layout.cell_origin(index),
+        );
+    }
+
+    ProbeImage {
+        width,
+        height,
+        data,
+    }
+}
+
+fn copy_cell(
+    source: &[u8],
+    source_width: usize,
+    source_origin: (usize, usize),
+    destination: &mut [u8],
+    destination_width: usize,
+    destination_origin: (usize, usize),
+) {
+    let row_len = CELL_SIZE as usize * 4;
+    for row in 0..CELL_SIZE as usize {
+        let source_start = ((source_origin.1 + row) * source_width + source_origin.0) * 4;
+        let destination_start =
+            ((destination_origin.1 + row) * destination_width + destination_origin.0) * 4;
+        destination[destination_start..destination_start + row_len]
+            .copy_from_slice(&source[source_start..source_start + row_len]);
+    }
+}
+
+/// Return the canvas size needed to draw `elements`.
+pub fn canvas_size(elements: &[ProbeFeature]) -> (u16, u16) {
+    GridLayout::from_elements(elements).canvas_size()
 }
 
 /// Return the pixmap that is referenced when drawing images in the scene.
@@ -305,14 +363,14 @@ fn image_paint(image: ImageSource, quality: ImageQuality) -> PaintType {
     .into()
 }
 
-/// Draw the full shared probe scene into a rendering context.
-pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource) {
-    let layout = GridLayout::from_elements(&PROBE_ELEMENTS);
+/// Draw `elements` into a rendering context.
+pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource, elements: &[ProbeFeature]) {
+    let layout = GridLayout::from_elements(elements);
     let image_nearest = image_paint(image.clone(), ImageQuality::Low);
     let image_bilinear = image_paint(image, ImageQuality::Medium);
     ctx.set_transform(Affine::IDENTITY);
 
-    for (index, element) in PROBE_ELEMENTS.iter().copied().enumerate() {
+    for (index, element) in elements.iter().copied().enumerate() {
         draw_probe_element(
             ctx,
             layout.cell_rect(index),
@@ -421,7 +479,6 @@ fn draw_transformed_rect(ctx: &mut impl ProbeRenderer, rect: Rect) {
     ctx.set_transform(Affine::IDENTITY);
 }
 
-#[allow(dead_code, reason = "Will be re-enabled in the future.")]
 fn draw_blurred_rect(ctx: &mut impl ProbeRenderer, rect: Rect) {
     let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 0.5,
@@ -520,8 +577,13 @@ mod tests {
     use alloc::vec;
 
     #[test]
-    fn probe_result_reports_pixel_and_cell_differences() {
-        let (width, height) = canvas_size();
+    fn probe_result_reports_selected_cell_differences() {
+        let elements = vec![
+            ProbeFeature::DepthBuffer,
+            ProbeFeature::AlphaBlending,
+            ProbeFeature::OpacityLayer,
+        ];
+        let (width, height) = canvas_size(&elements);
         let pixel_count = usize::from(width) * usize::from(height);
         let expected = ProbeImage {
             width,
@@ -529,7 +591,7 @@ mod tests {
             data: vec![255; pixel_count * 4],
         };
         let mut actual = expected.clone();
-        let layout = GridLayout::from_elements(&PROBE_ELEMENTS);
+        let layout = GridLayout::from_elements(&elements);
 
         let set_channel = |actual: &mut ProbeImage, cell_index: usize, channel: usize, value| {
             let center = layout.cell_rect(cell_index).center();
@@ -542,15 +604,19 @@ mod tests {
         set_channel(&mut actual, 0, 0, 254);
 
         set_channel(&mut actual, 1, 0, 249);
-        set_channel(&mut actual, 5, 1, 0);
-        set_channel(&mut actual, 5, 3, 100);
+        set_channel(&mut actual, 2, 1, 0);
+        set_channel(&mut actual, 2, 3, 100);
 
-        let result = ProbeResult { expected, actual };
+        let result = ProbeResult {
+            expected,
+            actual,
+            elements,
+        };
         let statistics = result.statistics();
         assert_eq!(
             statistics,
             ProbeStatistics {
-                element_count: PROBE_ELEMENTS.len() as u8,
+                element_count: 3,
                 actual_size: (width, height),
                 different_pixel_count: 2,
                 max_channel_discrepancy: [6, 255, 0, 155],
@@ -559,6 +625,7 @@ mod tests {
         );
         assert!(statistics.differs(ProbeFeature::AlphaBlending));
         assert!(statistics.differs(ProbeFeature::OpacityLayer));
+        assert!(!statistics.differs(ProbeFeature::DepthBuffer));
         assert!(!statistics.differs(ProbeFeature::Filter));
         assert!(!statistics.differs(ProbeFeature::ImageBilinear));
     }
@@ -576,6 +643,7 @@ mod tests {
                 height: 1,
                 data: vec![0; 8],
             },
+            elements: vec![ProbeFeature::SolidRect],
         };
 
         assert_eq!(result.statistics().actual_size, (2, 1));
