@@ -10,6 +10,27 @@ use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::geometry::SizeU16;
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
+#[cfg(all(feature = "probe", feature = "webgl"))]
+use vello_common::{TextureId, geometry::RectU16, paint::ImageSource, probe};
+
+#[cfg(all(feature = "probe", feature = "webgl"))]
+#[test]
+fn probe_scene_uses_depth_buffer_when_enabled() {
+    let (width, height) = probe::canvas_size();
+    let mut case = SceneCase::new(width, height);
+    let image = probe::probe_image_pixmap();
+    probe::draw_scene(
+        &mut case.scene,
+        ImageSource::external_texture(
+            TextureId(0),
+            RectU16::new(0, 0, image.width(), image.height()),
+            image.may_have_transparency(),
+        ),
+    );
+
+    assert!(!case.schedule_root(true).opaque_x().is_empty());
+    assert!(case.schedule_root(false).opaque_x().is_empty());
+}
 
 #[test]
 fn intermediate_texture_requirements_validate_limit() {
