@@ -956,7 +956,7 @@ struct Programs {
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Arena holding all [`GpuStrip`] data.
-    strips_arena: StripsArena,
+    strips_arena: StripBufferArena,
     /// Dimensions of the rendering target
     render_size: RenderSize,
     /// Scratch buffer for staging encoded paints texture data.
@@ -966,7 +966,7 @@ struct Programs {
 }
 
 #[derive(Debug)]
-struct StripsArena {
+struct StripBufferArena {
     buffer: Buffer,
     capacity: u64,
     cursor: u64,
@@ -981,7 +981,7 @@ fn create_arena_buffer(device: &Device, size: u64) -> Buffer {
     })
 }
 
-impl StripsArena {
+impl StripBufferArena {
     fn new(device: &Device) -> Self {
         Self {
             buffer: create_arena_buffer(device, 0),
@@ -1771,7 +1771,7 @@ impl Programs {
             blend_pipeline,
             copy_pipeline,
             resources,
-            strips_arena: StripsArena::new(device),
+            strips_arena: StripBufferArena::new(device),
             encoded_paints_data,
             filter_data,
             render_size: RenderSize {
