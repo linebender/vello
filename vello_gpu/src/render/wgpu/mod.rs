@@ -2579,7 +2579,6 @@ impl Programs {
             view.slice(pos..pos + bytes.len()).copy_from_slice(bytes);
             pos += bytes.len();
         }
-        drop(view);
 
         offset..offset + total_len
     }
