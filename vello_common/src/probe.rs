@@ -20,11 +20,14 @@ use alloc::vec::Vec;
 const REFERENCE_RGBA: &[u8] = include_bytes!("../assets/probe.rgba");
 
 const ELEMENTS_PER_ROW: usize = 3;
-const ELEMENT_MARGIN: f64 = 1.0;
+const CELL_SIZE: f64 = 14.0;
+const CELL_MARGIN: f64 = 1.0;
 
-const RECT_SIZE: f64 = 10.0;
-const CIRCLE_RADIUS: f64 = 5.0;
+const RECT_SIZE: f64 = CELL_SIZE - CELL_MARGIN * 2.0;
+const ANTI_ALIASED_RECT_SIZE: f64 = RECT_SIZE - 1.0;
+const TRANSFORMED_RECT_SIZE: f64 = RECT_SIZE / core::f64::consts::SQRT_2;
 const CIRCLE_CENTER_OFFSET_X: f64 = 1.5;
+const CIRCLE_RADIUS: f64 = RECT_SIZE * 0.5 - CIRCLE_CENTER_OFFSET_X;
 const IMAGE_SOURCE_SIZE: f64 = 5.0;
 const PATH_TOLERANCE: f64 = 0.1;
 
@@ -232,85 +235,37 @@ pub trait ProbeRenderer {
 struct GridLayout {
     columns: usize,
     rows: usize,
-    cell_width: f64,
-    cell_height: f64,
 }
 
 impl GridLayout {
     fn from_elements(elements: &[ProbeFeature]) -> Self {
         let columns = ELEMENTS_PER_ROW.min(elements.len());
         let rows = elements.len().div_ceil(columns);
-        let (cell_width, cell_height) = elements
-            .iter()
-            .copied()
-            .map(ProbeFeature::bounds)
-            .fold((0.0_f64, 0.0_f64), |(max_w, max_h), (w, h)| {
-                (max_w.max(w), max_h.max(h))
-            });
 
-        Self {
-            columns,
-            rows,
-            cell_width,
-            cell_height,
-        }
+        Self { columns, rows }
     }
 
     fn canvas_size(self) -> (u16, u16) {
-        let (cell_stride_x, cell_stride_y) = self.cell_stride();
-        // Margin only exists between cells, so subtract one.
-        let width = self.columns as f64 * cell_stride_x - ELEMENT_MARGIN;
-        let height = self.rows as f64 * cell_stride_y - ELEMENT_MARGIN;
+        let width = self.columns as f64 * CELL_SIZE;
+        let height = self.rows as f64 * CELL_SIZE;
         (width.ceil() as u16, height.ceil() as u16)
-    }
-
-    fn cell_stride(self) -> (f64, f64) {
-        (
-            self.cell_width + ELEMENT_MARGIN,
-            self.cell_height + ELEMENT_MARGIN,
-        )
     }
 
     fn cell_rect(self, index: usize) -> Rect {
         let column = index % self.columns;
         let row = index / self.columns;
-        let (cell_stride_x, cell_stride_y) = self.cell_stride();
-        let x0 = column as f64 * cell_stride_x;
-        let y0 = row as f64 * cell_stride_y;
-        Rect::new(x0, y0, x0 + self.cell_width, y0 + self.cell_height)
+        let x0 = column as f64 * CELL_SIZE;
+        let y0 = row as f64 * CELL_SIZE;
+        Rect::new(x0, y0, x0 + CELL_SIZE, y0 + CELL_SIZE)
     }
 
     fn cell_index_for_pixel(self, pixel_index: usize) -> usize {
-        let (cell_stride_x, cell_stride_y) = self.cell_stride();
         let image_width = usize::from(self.canvas_size().0);
         let x = pixel_index % image_width;
         let y = pixel_index / image_width;
-        let column = x / cell_stride_x as usize;
-        let row = y / cell_stride_y as usize;
+        let column = x / CELL_SIZE as usize;
+        let row = y / CELL_SIZE as usize;
         row * self.columns + column
-    }
-}
-
-impl ProbeFeature {
-    fn bounds(self) -> (f64, f64) {
-        let (width, height) = match self {
-            Self::SolidRect
-            | Self::Gradient
-            | Self::ImageNearest
-            | Self::ImageBilinear
-            | Self::Filter
-            | Self::OpacityLayer
-            | Self::DepthBuffer => (RECT_SIZE, RECT_SIZE),
-            Self::Transformed => (
-                RECT_SIZE * core::f64::consts::SQRT_2,
-                RECT_SIZE * core::f64::consts::SQRT_2,
-            ),
-            Self::AlphaBlending | Self::Blending => (
-                CIRCLE_RADIUS * 2.0 + CIRCLE_CENTER_OFFSET_X * 2.0,
-                CIRCLE_RADIUS * 2.0,
-            ),
-        };
-        (width + ELEMENT_MARGIN * 2.0, height + ELEMENT_MARGIN * 2.0)
     }
 }
 
@@ -389,10 +344,17 @@ fn draw_probe_element(
     match element {
         ProbeFeature::SolidRect => {
             ctx.set_paint(css::BLUE.into());
-            ctx.fill_rect(&centered_rect(cell, RECT_SIZE, RECT_SIZE));
+            ctx.fill_rect(&centered_rect(
+                cell,
+                ANTI_ALIASED_RECT_SIZE,
+                ANTI_ALIASED_RECT_SIZE,
+            ));
         }
         ProbeFeature::Transformed => {
-            draw_transformed_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE));
+            draw_transformed_rect(
+                ctx,
+                centered_rect(cell, TRANSFORMED_RECT_SIZE, TRANSFORMED_RECT_SIZE),
+            );
         }
         ProbeFeature::AlphaBlending => {
             let center = cell.center();
@@ -413,7 +375,9 @@ fn draw_probe_element(
             ctx.fill_rect(&rect);
         }
         ProbeFeature::ImageNearest => draw_centered_padded_image(ctx, cell, image_nearest),
-        ProbeFeature::Filter => draw_blurred_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE)),
+        ProbeFeature::Filter => {
+            draw_blurred_rect(ctx, centered_rect(cell, 10.0, 10.0));
+        }
         ProbeFeature::ImageBilinear => draw_centered_padded_image(ctx, cell, image_bilinear),
         ProbeFeature::OpacityLayer => {
             draw_opacity_layer_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE));
@@ -487,11 +451,11 @@ fn draw_depth_buffer_rects(ctx: &mut impl ProbeRenderer, cell: Rect) {
             center.y + half_size,
         )
     };
-    let blue_rect = rect(5.0);
-    let red_rect = rect(4.0);
-    let pink_rect = rect(3.0);
-    let yellow_rect = rect(2.0);
-    let green_rect = rect(1.0);
+    let blue_rect = rect(RECT_SIZE * 0.5);
+    let red_rect = rect(RECT_SIZE * 0.5 - 1.0);
+    let pink_rect = rect(RECT_SIZE * 0.5 - 2.0);
+    let yellow_rect = rect(RECT_SIZE * 0.5 - 3.0);
+    let green_rect = rect(RECT_SIZE * 0.5 - 4.0);
 
     ctx.set_paint(css::BLUE.into());
     ctx.fill_rect(&blue_rect);
