@@ -10,7 +10,7 @@ use super::{
     WebGlVertexArrayObject,
 };
 #[cfg(feature = "probe")]
-use web_sys::WebGlRenderbuffer;
+use web_sys::{WebGlRenderbuffer, WebGlSync};
 
 pub(crate) trait GlResource {
     const KIND: WebGlResourceKind;
@@ -131,6 +131,19 @@ impl GlResource for WebGlRenderbuffer {
     }
 }
 
+#[cfg(feature = "probe")]
+impl GlResource for WebGlSync {
+    const KIND: WebGlResourceKind = WebGlResourceKind::Sync;
+
+    fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
+        gl.fence_sync(WebGl2RenderingContext::SYNC_GPU_COMMANDS_COMPLETE, 0)
+    }
+
+    fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
+        gl.delete_sync(Some(raw));
+    }
+}
+
 impl GlResource for WebGlProgram {
     const KIND: WebGlResourceKind = WebGlResourceKind::Program;
 
@@ -186,6 +199,8 @@ pub(crate) type Buffer = Resource<WebGlBuffer>;
 pub(crate) type Framebuffer = Resource<WebGlFramebuffer>;
 #[cfg(feature = "probe")]
 pub(crate) type Renderbuffer = Resource<WebGlRenderbuffer>;
+#[cfg(feature = "probe")]
+pub(crate) type SyncFence = Resource<WebGlSync>;
 pub(crate) type Program = Resource<WebGlProgram>;
 pub(crate) type VertexShader = Resource<WebGlVertexShader>;
 pub(crate) type FragmentShader = Resource<WebGlFragmentShader>;
