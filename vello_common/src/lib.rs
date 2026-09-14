@@ -129,7 +129,9 @@ pub mod reexports {
             AtlasSpaceDiagnostics,
         };
         #[cfg(feature = "probe")]
-        pub use crate::probe::{PROBE_ELEMENTS, Probe, ProbeFeature, ProbeResult, ProbeStatistics};
+        pub use crate::probe::{
+            ALL_PROBE_ELEMENTS, CellStatistics, Probe, ProbeFeature, ProbeResult,
+        };
     }
 }
 

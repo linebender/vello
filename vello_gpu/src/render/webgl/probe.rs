@@ -8,7 +8,7 @@ use crate::render::webgl::{
 };
 use crate::target::RootTarget;
 use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlError, WebGlRenderer};
-use alloc::{borrow::Cow, format};
+use alloc::{borrow::Cow, format, vec::Vec};
 use core::ops::Deref;
 use thiserror::Error;
 use vello_common::TextureId;
@@ -20,7 +20,7 @@ use vello_common::kurbo::{Affine, BezPath, Rect};
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::BlendMode;
 use vello_common::pixmap::Pixmap;
-use vello_common::probe::Probe;
+use vello_common::probe::{Probe, ProbeFeature};
 use web_sys::WebGl2RenderingContext;
 
 /// A WebGL probe whose pixel readback has been queued but not completed.
@@ -31,11 +31,15 @@ pub struct WebGlPendingProbe {
     buffer: Buffer,
     width: u16,
     height: u16,
+    elements: Vec<ProbeFeature>,
 }
 
 /// Error returned while running a WebGL probe.
 #[derive(Debug, Clone, Error)]
 pub enum WebGlProbeError {
+    /// The probe was requested without any elements.
+    #[error("probe requires at least one element")]
+    NoElements,
     /// Finishing the probe failed.
     #[error("probe failed to finish: {}", webgl_error_name(*.0))]
     FinishFailed(u32),
@@ -68,11 +72,18 @@ impl WebGlRenderer {
     /// This method will return a handle that allows inspecting the results of the probe once the
     /// results of the probe scene can be copied back from GPU to CPU. For performance reasons,
     /// anything in-between mostly happens asynchronously.
-    pub fn probe(&mut self) -> Result<WebGlPendingProbe, WebGlProbeError> {
-        self.probe_inner().map_err(WebGlProbeError::WebGl)
+    pub fn probe(
+        &mut self,
+        elements: &[ProbeFeature],
+    ) -> Result<WebGlPendingProbe, WebGlProbeError> {
+        if elements.is_empty() {
+            return Err(WebGlProbeError::NoElements);
+        }
+
+        self.probe_inner(elements).map_err(WebGlProbeError::WebGl)
     }
 
-    fn probe_inner(&mut self) -> Result<WebGlPendingProbe, WebGlError> {
+    fn probe_inner(&mut self, elements: &[ProbeFeature]) -> Result<WebGlPendingProbe, WebGlError> {
         // Whenever making changes here, make sure to unignore the `webgl_probe_succeeds_` and
         // run them locally!
         let _state_guard = WebGlStateGuard::with_config(
@@ -84,7 +95,7 @@ impl WebGlRenderer {
             },
         );
 
-        let (width, height) = vello_common::probe::canvas_size();
+        let (width, height) = vello_common::probe::canvas_size(elements);
         let render_size = RenderSize { width, height };
         // Check whether the canvas framebuffer was configured by the user to
         // hold a depth buffer, and apply the same to the probe.
@@ -156,6 +167,7 @@ impl WebGlRenderer {
                 RectU16::new(0, 0, probe_image.width(), probe_image.height()),
                 probe_image.may_have_transparency(),
             ),
+            elements,
         );
 
         let previous_view_framebuffer = core::mem::replace(
@@ -181,7 +193,7 @@ impl WebGlRenderer {
         // Propagate render failures only after restoring the previous framebuffer.
         render_result?;
 
-        let pending = launch_probe(&self.gl, &probe_framebuffer, width, height)?;
+        let pending = launch_probe(&self.gl, &probe_framebuffer, width, height, elements)?;
 
         Ok(pending)
     }
@@ -246,7 +258,7 @@ impl WebGlPendingProbe {
             top[row * row_len..(row + 1) * row_len].swap_with_slice(&mut bottom[..row_len]);
         }
 
-        Probe::from_actual(pixmap)
+        Probe::from_actual(pixmap, &self.elements)
     }
 
     fn finish_failure(&self) -> WebGlProbeError {
@@ -275,6 +287,7 @@ fn launch_probe(
     framebuffer: &Framebuffer,
     width: u16,
     height: u16,
+    elements: &[ProbeFeature],
 ) -> Result<WebGlPendingProbe, WebGlError> {
     let pixel_pack_buffer = Buffer::new(gl)?;
     let byte_len = i32::from(width) * i32::from(height) * 4;
@@ -317,6 +330,7 @@ fn launch_probe(
         buffer: pixel_pack_buffer,
         width,
         height,
+        elements: elements.to_vec(),
     })
 }
 
