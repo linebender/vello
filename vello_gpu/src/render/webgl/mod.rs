@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Native WebGL2 rendering module for the sparse strips CPU/GPU rendering engine.
+//! Native WebGL2 backend for Vello GPU's Sparse Strips renderer.
 //!
 //! This module provides identical functionality as the [`wgpu`] module, however the graphics
 //! context is the browser's native [`WebGl2RenderingContext`]. Hence, this module is only available

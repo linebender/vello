@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Example scenes for Vello Sparse Strips.
+//! Example scenes shared by Vello CPU and Vello GPU.
 
 pub mod blend;
 pub mod blurred_rounded_rect;

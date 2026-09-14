@@ -1,7 +1,7 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// This file is a modified version of the vello/src/util.rs file.
+// This file is a modified version of research/vello_research/src/util.rs.
 
 //! A number of utility helper methods.
 
