@@ -2215,7 +2215,7 @@ fn required_uniform_location(
     name: &'static str,
 ) -> Result<WebGlUniformLocation, WebGlError> {
     gl.get_uniform_location(program, name)
-        .ok_or(WebGlError::OperationFailed {
+        .ok_or_else(|| WebGlError::OperationFailed {
             operation: WebGlOperation::ShaderInterface(WebGlShaderInterfaceOperation::Uniform),
             message: Some(name.into()),
         })
