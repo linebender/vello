@@ -1809,6 +1809,12 @@ impl WebGlPrograms {
 
         let current_alpha_height = self.resources.alpha_texture_height;
         if required_alpha_height > current_alpha_height {
+            validate_resource_texture_size(
+                resource_texture_dimension_2d,
+                required_alpha_height,
+                resource_texture_dimension_2d,
+            )?;
+
             // We need to resize the alpha texture to fit the new alpha data.
             self.resources.alphas_texture = create_data_texture_storage(
                 gl,
@@ -1834,6 +1840,12 @@ impl WebGlPrograms {
             required_texels.div_ceil(resource_texture_dimension_2d);
         let current_encoded_paints_height = self.resources.encoded_paints_texture_height;
         if required_encoded_paints_height > current_encoded_paints_height {
+            validate_resource_texture_size(
+                resource_texture_dimension_2d,
+                required_encoded_paints_height,
+                resource_texture_dimension_2d,
+            )?;
+
             let required_encoded_paints_size =
                 (resource_texture_dimension_2d * required_encoded_paints_height) << 4;
             self.encoded_paints_data
@@ -1868,6 +1880,12 @@ impl WebGlPrograms {
 
         let current_gradient_height = self.resources.gradient_texture_height;
         if required_gradient_height > current_gradient_height {
+            validate_resource_texture_size(
+                resource_texture_dimension_2d,
+                required_gradient_height,
+                resource_texture_dimension_2d,
+            )?;
+
             self.resources.gradient_texture = create_data_texture_storage(
                 gl,
                 WebGl2RenderingContext::RGBA8,
@@ -2456,6 +2474,23 @@ pub(crate) fn create_texture_storage(
         height as i32,
     );
     Ok(texture)
+}
+
+/// Validate that a resource texture fits within its configured dimension limit.
+fn validate_resource_texture_size(
+    width: u32,
+    height: u32,
+    max_dimension: u32,
+) -> Result<(), WebGlError> {
+    if width > max_dimension || height > max_dimension {
+        return Err(WebGlError::ResourceTextureTooLarge {
+            width,
+            height,
+            max_dimension,
+        });
+    }
+
+    Ok(())
 }
 
 /// Create a zero-initialized data texture backed by immutable storage (`texStorage2D`).
@@ -3659,5 +3694,23 @@ impl DrawPassTarget {
     fn negate_ndc(self) -> bool {
         // Only negate if we are rendering to the main frame buffer.
         matches!(self, Self::Root(RootTarget::UserSurface))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_texture_size_must_fit_dimension_limit() {
+        assert!(validate_resource_texture_size(4096, 4096, 4096).is_ok());
+        assert!(matches!(
+            validate_resource_texture_size(4096, 4097, 4096),
+            Err(WebGlError::ResourceTextureTooLarge {
+                width: 4096,
+                height: 4097,
+                max_dimension: 4096,
+            })
+        ));
     }
 }
