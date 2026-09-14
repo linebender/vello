@@ -28,7 +28,7 @@ fn probe_scene_uses_depth_buffer_when_enabled() {
         ),
     );
 
-    assert!(!case.schedule_root(true).opaque_x().is_empty());
+    assert_eq!(case.schedule_root(true).opaque_x().len(), 4);
     assert!(case.schedule_root(false).opaque_x().is_empty());
 }
 
