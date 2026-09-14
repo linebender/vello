@@ -296,11 +296,18 @@ fn launch_probe(
         operation: WebGlOperation::Probe(WebGlProbeOperation::BufferCreation),
         message: None,
     })?;
+    let mut pending = WebGlPendingProbe {
+        gl: gl.clone(),
+        sync: None,
+        buffer: Some(pixel_pack_buffer),
+        width,
+        height,
+    };
     let byte_len = i32::from(width) * i32::from(height) * 4;
 
     gl.bind_buffer(
         WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-        Some(&pixel_pack_buffer),
+        pending.buffer.as_ref(),
     );
     gl.buffer_data_with_i32(
         WebGl2RenderingContext::PIXEL_PACK_BUFFER,
@@ -323,25 +330,20 @@ fn launch_probe(
     .map_js_error(WebGlOperation::Probe(WebGlProbeOperation::Readback))?;
     // Create a fence that notifies us once rendering is complete and the contents have been
     // transferred from the framebuffer to the pixel pack buffer.
-    let sync = gl
-        .fence_sync(WebGl2RenderingContext::SYNC_GPU_COMMANDS_COMPLETE, 0)
-        .ok_or(WebGlError::OperationFailed {
-            operation: WebGlOperation::Probe(WebGlProbeOperation::Synchronization),
-            message: None,
-        })?;
+    pending.sync = Some(
+        gl.fence_sync(WebGl2RenderingContext::SYNC_GPU_COMMANDS_COMPLETE, 0)
+            .ok_or(WebGlError::OperationFailed {
+                operation: WebGlOperation::Probe(WebGlProbeOperation::Synchronization),
+                message: None,
+            })?,
+    );
     // https://wikis.khronos.org/opengl/Sync_Object
     // "It is important that syncs are properly flushed into the GPU's command queue. Without
     // proper flushing, the sync object may never be signaled."
     gl.flush();
     gl.bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, None);
 
-    Ok(WebGlPendingProbe {
-        gl: gl.clone(),
-        sync: Some(sync),
-        buffer: Some(pixel_pack_buffer),
-        width,
-        height,
-    })
+    Ok(pending)
 }
 
 impl vello_common::probe::ProbeRenderer for Scene {
