@@ -187,7 +187,7 @@ fn clip_rect_cull_alignment(ctx: &mut impl Renderer) {
     path.curve_to((45.0, top_y - 0.5), (55.0, top_y - 0.5), (70.0, top_y));
     path.line_to((70.0, bot_y));
     path.curve_to((55.0, bot_y + 0.5), (45.0, bot_y + 0.5), (30.0, bot_y));
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_path(&path);
     ctx.pop_clip_path();
@@ -353,7 +353,7 @@ fn clip_exceeding_viewport(ctx: &mut impl Renderer) {
 fn clip_non_isolated_outside_canvas(ctx: &mut impl Renderer) {
     // Should be completely clipped.
     let clip_rect = Rect::new(0.0, 0.0, 16.0, 16.0);
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
 
     let rect = Rect::new(16.0, -16.0, 32.0, 0.0);
     ctx.set_paint(REBECCA_PURPLE);

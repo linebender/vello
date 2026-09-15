@@ -1828,11 +1828,12 @@ fn filter_nested_with_outer_clip_path(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(skip_multithreaded)]
-fn filter_with_clip_paths_outside_of_viewport(ctx: &mut impl Renderer) {
+fn filter_with_clip_rects_outside_of_viewport(ctx: &mut impl Renderer) {
     // This test draws 100x100 rectangles at the border of each viewport side, but
     // clips them to a smaller 10x60 (or 60x10) rectangle. The drop shadow is drawn with such
     // an offset that it becomes visible in the viewport. This test checks that only the parts
-    // visible in the clip path of the drop shadow cast the shadow, instead of the whole rectangle.
+    // visible in the clip rectangle of the drop shadow cast the shadow, instead of the whole
+    // rectangle.
 
     for (i, color) in [GREEN, BLUE, RED, YELLOW].into_iter().enumerate() {
         let horizontal = i % 2 == 0;
@@ -1864,9 +1865,7 @@ fn filter_with_clip_paths_outside_of_viewport(ctx: &mut impl Renderer) {
             color,
             edge_mode: EdgeMode::None,
         });
-        let clip_path = clip_rect.to_path(0.1);
-
-        ctx.push_clip_path(&clip_path);
+        ctx.push_clip_rect(&clip_rect);
         ctx.push_filter_layer(filter);
         ctx.set_paint(BLACK);
         ctx.fill_rect(&rect);
