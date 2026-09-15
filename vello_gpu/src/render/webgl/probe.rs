@@ -3,8 +3,8 @@
 
 use crate::render::webgl::resource::{Buffer, Framebuffer, Renderbuffer, SyncFence};
 use crate::render::webgl::{
-    ViewFramebuffer, WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlStateConfig,
-    WebGlStateGuard, WebGlTextureBindings, create_framebuffer_for_texture, create_texture_storage,
+    ViewFramebuffer, WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlTextureBindings,
+    create_framebuffer_for_texture, create_texture_storage,
 };
 use crate::target::RootTarget;
 use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlError, WebGlRenderer};
@@ -75,15 +75,6 @@ impl WebGlRenderer {
     fn probe_inner(&mut self) -> Result<WebGlPendingProbe, WebGlError> {
         // Whenever making changes here, make sure to unignore the `webgl_probe_succeeds_` and
         // run them locally!
-        let _state_guard = WebGlStateGuard::with_config(
-            &self.gl,
-            WebGlStateConfig {
-                framebuffer: true,
-                pixel_pack_buffer: true,
-                ..Default::default()
-            },
-        );
-
         let (width, height) = vello_common::probe::canvas_size();
         let render_size = RenderSize { width, height };
         // Check whether the canvas framebuffer was configured by the user to
@@ -211,13 +202,6 @@ impl WebGlPendingProbe {
     }
 
     fn finish_success(&mut self) -> Probe<RenderError> {
-        let _state_guard = WebGlStateGuard::with_config(
-            &self.gl,
-            WebGlStateConfig {
-                pixel_pack_buffer: true,
-                ..Default::default()
-            },
-        );
         let mut pixmap = Pixmap::new(self.width, self.height);
 
         self.gl.bind_buffer(
