@@ -31,7 +31,7 @@ use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::transforms::{RootTransforms, Transforms};
-use vello_common::util::{RectExt, can_use_fast_rect, strip_bbox};
+use vello_common::util::{RectExt, into_fast_path_rect, strip_bbox};
 use vello_common::viewport::ViewportState;
 
 /// Default tolerance for curve flattening
@@ -361,8 +361,7 @@ impl Scene {
     pub fn push_clip_rect(&mut self, rect: &Rect) {
         let transform = self.transforms().clip_path_transform();
 
-        if can_use_fast_rect(&transform, self.aliasing_threshold) {
-            let rect = transform.transform_rect_bbox(*rect);
+        if let Some(rect) = into_fast_path_rect(*rect, &transform, self.aliasing_threshold) {
             self.viewport_state.push_clip_rect(&rect);
         } else {
             self.push_clip_path(&rect.to_path(DEFAULT_TOLERANCE));
@@ -447,8 +446,9 @@ impl Scene {
             }
 
             let transform = ctx.effective_path_transform();
-            if can_use_fast_rect(&transform, ctx.aliasing_threshold) {
-                let transformed_rect = transform.transform_rect_bbox(*rect);
+            if let Some(transformed_rect) =
+                into_fast_path_rect(*rect, &transform, ctx.aliasing_threshold)
+            {
                 ctx.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
                     strip_generator.generate_filled_rect_fast(
                         &transformed_rect,
@@ -493,18 +493,15 @@ impl Scene {
     }
 
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
-        let transform = self.effective_path_transform();
-        if self.viewport_state.clip().is_some()
-            || !can_use_fast_rect(&transform, self.aliasing_threshold)
-        {
+        if self.viewport_state.clip().is_some() {
             return None;
         }
 
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
 
-        let transformed_rect = transform
-            .transform_rect_bbox(*rect)
+        let transform = self.effective_path_transform();
+        let transformed_rect = into_fast_path_rect(*rect, &transform, self.aliasing_threshold)?
             .intersect(self.active_rect());
 
         // Can't handle mirrored or zero-sized rectangles.
@@ -565,8 +562,9 @@ impl Scene {
             }
 
             let path_transform = ctx.effective_path_transform();
-            if can_use_fast_rect(&path_transform, ctx.aliasing_threshold) {
-                let transformed_rect = path_transform.transform_rect_bbox(inflated_rect);
+            if let Some(transformed_rect) =
+                into_fast_path_rect(inflated_rect, &path_transform, ctx.aliasing_threshold)
+            {
                 ctx.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
                     strip_generator.generate_filled_rect_fast(
                         &transformed_rect,
