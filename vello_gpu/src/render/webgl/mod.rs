@@ -349,15 +349,6 @@ impl WebGlRenderer {
                 .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?;
         }
 
-        let cloned_gl = gl.clone();
-        let _state_guard = WebGlStateGuard::with_config(
-            &cloned_gl,
-            WebGlStateConfig {
-                framebuffer: true,
-                ..Default::default()
-            },
-        );
-
         // Note: It is not entirely clear whether we really _have_ to ensure anti-aliasing is disabled.
         // This code is inherited from a similar snippet in wgpu
         // (https://github.com/gfx-rs/wgpu/blob/56e4a389ddd02403e232beef3d3ff305625e6485/wgpu-hal/src/gles/web.rs#L101-L106),
@@ -843,7 +834,6 @@ impl WebGlRenderer {
         width: u16,
         height: u16,
     ) -> Result<(), WebGlError> {
-        let _state_guard = WebGlStateGuard::for_clear_atlas_region(&self.gl);
         let temp_framebuffer = Framebuffer::new(&self.gl)?;
 
         // Bind our temporary framebuffer
@@ -2104,117 +2094,6 @@ impl WebGlPrograms {
             offset += bytes.len();
         }
     }
-}
-
-/// RAII guard for WebGL state management.
-/// Automatically saves state on creation and restores it on drop.
-/// Only saves/restores the state specified in the configuration.
-pub(crate) struct WebGlStateGuard {
-    gl: WebGl2RenderingContext,
-    config: WebGlStateConfig,
-    original_framebuffer: Option<WebGlFramebuffer>,
-    original_read_framebuffer: Option<WebGlFramebuffer>,
-    original_pixel_pack_buffer: Option<WebGlBuffer>,
-}
-
-impl WebGlStateGuard {
-    /// Create a new state guard with custom configuration.
-    pub(crate) fn with_config(gl: &WebGl2RenderingContext, config: WebGlStateConfig) -> Self {
-        // Save current framebuffer binding if requested
-        let original_framebuffer = if config.framebuffer {
-            gl.get_parameter(WebGl2RenderingContext::FRAMEBUFFER_BINDING)
-                .ok()
-                .and_then(|v| v.dyn_into::<WebGlFramebuffer>().ok())
-        } else {
-            None
-        };
-
-        // Save current read framebuffer binding if requested
-        let original_read_framebuffer = if config.read_framebuffer {
-            gl.get_parameter(WebGl2RenderingContext::READ_FRAMEBUFFER_BINDING)
-                .ok()
-                .and_then(|v| v.dyn_into::<WebGlFramebuffer>().ok())
-        } else {
-            None
-        };
-
-        let original_pixel_pack_buffer = if config.pixel_pack_buffer {
-            gl.get_parameter(WebGl2RenderingContext::PIXEL_PACK_BUFFER_BINDING)
-                .ok()
-                .and_then(|v| v.dyn_into::<WebGlBuffer>().ok())
-        } else {
-            None
-        };
-
-        Self {
-            gl: gl.clone(),
-            config,
-            original_framebuffer,
-            original_read_framebuffer,
-            original_pixel_pack_buffer,
-        }
-    }
-
-    /// Create a state guard for clearing an atlas region operations.
-    fn for_clear_atlas_region(gl: &WebGl2RenderingContext) -> Self {
-        Self::with_config(
-            gl,
-            WebGlStateConfig {
-                framebuffer: true,
-                ..Default::default()
-            },
-        )
-    }
-
-    /// Create a state guard for texture copying operations.
-    fn for_texture_copy(gl: &WebGl2RenderingContext) -> Self {
-        Self::with_config(
-            gl,
-            WebGlStateConfig {
-                read_framebuffer: true,
-                ..Default::default()
-            },
-        )
-    }
-}
-
-impl Drop for WebGlStateGuard {
-    /// Restore WebGL state when the guard goes out of scope.
-    /// Only restores state that was configured to be saved.
-    fn drop(&mut self) {
-        // Restore original framebuffer if it was saved
-        if self.config.framebuffer {
-            self.gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                self.original_framebuffer.as_ref(),
-            );
-        }
-
-        // Restore original read framebuffer if it was saved
-        if self.config.read_framebuffer {
-            self.gl.bind_framebuffer(
-                WebGl2RenderingContext::READ_FRAMEBUFFER,
-                self.original_read_framebuffer.as_ref(),
-            );
-        }
-
-        if self.config.pixel_pack_buffer {
-            self.gl.bind_buffer(
-                WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-                self.original_pixel_pack_buffer.as_ref(),
-            );
-        }
-    }
-}
-/// Configuration for which WebGL state to save/restore.
-#[derive(Debug, Default)]
-pub(crate) struct WebGlStateConfig {
-    /// Save/restore framebuffer binding (`FRAMEBUFFER_BINDING`)
-    pub(crate) framebuffer: bool,
-    /// Save/restore read framebuffer binding (`READ_FRAMEBUFFER_BINDING`)
-    pub(crate) read_framebuffer: bool,
-    /// Save/restore pixel pack buffer binding (`PIXEL_PACK_BUFFER_BINDING`)
-    pub(crate) pixel_pack_buffer: bool,
 }
 
 fn required_uniform_location(
@@ -3614,7 +3493,6 @@ fn copy_to_texture(
     copy_size: [u32; 2],
 ) -> Result<(), WebGlError> {
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-    let _state_guard = WebGlStateGuard::for_texture_copy(gl);
     let read_framebuffer = Framebuffer::new(gl)?;
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(dest_texture));
 
