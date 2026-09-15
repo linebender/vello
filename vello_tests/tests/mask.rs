@@ -78,7 +78,7 @@ fn mask_luminance(ctx: &mut impl Renderer) {
     mask(ctx, false);
 }
 
-#[vello_test(skip_hybrid)]
+#[vello_test(skip_gpu)]
 fn mask_non_isolated(ctx: &mut impl Renderer) {
     let mask = example_mask(false);
 

@@ -593,7 +593,7 @@ pub(crate) fn calculate_raster_metrics(bounds: &Rect) -> RasterMetrics {
     // extra pixel to accommodate the horizontal subpixel offset (up to 0.75 px)
     // applied when rasterising into the atlas; the Y axis has no subpixel shift
     // so floor/ceil alone is sufficient. GLYPH_PADDING in the atlas allocator
-    // provides the guard band needed by the hybrid renderer's Extend::Pad sampling.
+    // provides the guard band needed by the GPU renderer's Extend::Pad sampling.
     let min_x = bounds.x0.floor() as i32;
     let max_x = bounds.x1.ceil() as i32 + 1;
 

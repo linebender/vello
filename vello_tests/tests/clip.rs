@@ -18,7 +18,7 @@ use vello_cpu::peniko::{
 };
 use vello_dev_macros::vello_test;
 
-#[vello_test(hybrid_tolerance = 1)]
+#[vello_test(gpu_tolerance = 1)]
 fn clip_triangle_with_star(ctx: &mut impl Renderer) {
     let mut triangle_path = BezPath::new();
     triangle_path.move_to((10.0, 10.0));
@@ -294,7 +294,7 @@ fn clip_with_multiple_transforms(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(hybrid_tolerance = 1)]
+#[vello_test(gpu_tolerance = 1)]
 fn clip_with_save_restore(ctx: &mut impl Renderer) {
     // Create first clipping region - a rectangle on the left side
     let clip_rect1 = Rect::new(10.0, 30.0, 50.0, 70.0);

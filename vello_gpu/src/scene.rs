@@ -201,7 +201,7 @@ impl Default for RenderSettings {
     }
 }
 
-/// A render context for hybrid CPU/GPU rendering.
+/// A render context for GPU rendering.
 ///
 /// This context maintains the state for path rendering and manages the rendering
 /// pipeline from paths to strips that can be rendered by the GPU.
@@ -593,7 +593,7 @@ impl Scene {
             font.clone(),
             self.transforms().scene_transform(),
             *self.transforms().paint_transform(),
-            crate::text::HybridGlyphRunBackend {
+            crate::text::GpuGlyphRunBackend {
                 scene: self,
                 resources,
                 atlas_cache_enabled: false,

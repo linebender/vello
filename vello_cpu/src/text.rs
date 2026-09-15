@@ -7,7 +7,7 @@
 //! [`GlyphRenderer`](glifo::GlyphRenderer) implementation for [`RenderContext`] that
 //! rasterises glyphs into CPU-accessible pixel buffers.
 //!
-//! The key difference from the hybrid backend is that atlas pages are owned as
+//! The key difference from the GPU backend is that atlas pages are owned as
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
 //! any GPU upload step.
 
