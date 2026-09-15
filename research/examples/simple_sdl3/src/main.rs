@@ -2,38 +2,41 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Vello can also be used with non-Winit crates which provide a `RawWindowHandle`.
-//! This example uses it with [`sdl2`].
+//! This example uses it with [`sdl3`].
 //!
 //! Vello however is primarily designed for Xilem, which uses Winit, and so support for non-Winit crates
 //! is on a tier-2 basis, i.e. it is checked in CI, but is not rarely manually validated.
-extern crate sdl2;
 
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
+use sdl3::event::Event;
+use sdl3::keyboard::Keycode;
 
 use std::num::NonZeroUsize;
 
 use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
-use vello::peniko::Color;
 use vello::peniko::color::palette;
+use vello::peniko::{Color, Fill};
 use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, Renderer, RendererOptions, Scene};
 
-use vello::wgpu;
+use vello::wgpu::{
+    CommandEncoderDescriptor, CurrentSurfaceTexture, PresentMode, SurfaceTargetUnsafe,
+    TextureViewDescriptor,
+};
 
 fn main() {
-    let sdl_context = sdl2::init().unwrap();
+    let sdl_context = sdl3::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
     let width: u32 = 800;
     let height: u32 = 600;
 
-    let window = video_subsystem
-        .window("Vello SDL2 Demo", width, height)
-        .position_centered()
-        .metal_view()
-        .build()
-        .unwrap();
+    let mut window_builder = video_subsystem.window("Vello SDL3 Demo", width, height);
+    window_builder.position_centered();
+    #[cfg(target_os = "macos")]
+    window_builder.metal_view();
+    #[cfg(not(target_os = "macos"))]
+    window_builder.vulkan();
+    let window = window_builder.build().unwrap();
 
     let mut context = RenderContext::new();
 
@@ -41,11 +44,13 @@ fn main() {
         context.create_render_surface(
             context
                 .instance
-                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window).unwrap())
+                .create_surface_unsafe(
+                    SurfaceTargetUnsafe::from_display_and_window(&window, &window).unwrap(),
+                )
                 .unwrap(),
             width,
             height,
-            wgpu::PresentMode::AutoVsync,
+            PresentMode::AutoVsync,
         )
     };
 
@@ -84,24 +89,24 @@ fn main() {
             )
             .expect("failed to render to surface");
 
-        let surface_texture = surface
-            .surface
-            .get_current_texture()
-            .expect("failed to get surface texture");
+        let surface_texture = match surface.surface.get_current_texture() {
+            CurrentSurfaceTexture::Success(texture)
+            | CurrentSurfaceTexture::Suboptimal(texture) => texture,
+            status => panic!("failed to get surface texture: {status:?}"),
+        };
 
-        let mut encoder =
-            device_handle
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Surface Blit"),
-                });
+        let mut encoder = device_handle
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("Surface Blit"),
+            });
         surface.blitter.copy(
             &device_handle.device,
             &mut encoder,
             &surface.target_view,
             &surface_texture
                 .texture
-                .create_view(&wgpu::TextureViewDescriptor::default()),
+                .create_view(&TextureViewDescriptor::default()),
         );
         device_handle.queue.submit([encoder.finish()]);
         for event in event_pump.poll_iter() {
@@ -143,7 +148,7 @@ fn add_shapes_to_scene(scene: &mut Scene) {
     let circle = Circle::new((420.0, 200.0), 120.0);
     let circle_fill_color = Color::new([0.9529, 0.5451, 0.6588, 1.]);
     scene.fill(
-        vello::peniko::Fill::NonZero,
+        Fill::NonZero,
         Affine::IDENTITY,
         circle_fill_color,
         None,
@@ -154,7 +159,7 @@ fn add_shapes_to_scene(scene: &mut Scene) {
     let ellipse = Ellipse::new((250.0, 420.0), (100.0, 160.0), -90.0);
     let ellipse_fill_color = Color::new([0.7961, 0.651, 0.9686, 1.]);
     scene.fill(
-        vello::peniko::Fill::NonZero,
+        Fill::NonZero,
         Affine::IDENTITY,
         ellipse_fill_color,
         None,
