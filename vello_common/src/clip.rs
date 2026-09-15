@@ -291,6 +291,8 @@ impl ClipState {
 
     /// Push a rectangular clip path.
     pub fn push_clip_rect(&mut self, rect: &Rect, strip_generator: &mut StripGenerator) {
+        // Active shift is only ever a translation (as opposed to a skew), so we can
+        // safely transform the bbox directly.
         let transformed_rect = self.active_shift().transform_rect_bbox(*rect);
 
         self.context
@@ -344,6 +346,7 @@ impl ClipState {
                     *aliasing_threshold,
                 ),
                 RawClip::Rect(rect) => {
+                    // See comment in `push_clip_rect`.
                     let rect = active_shift.transform_rect_bbox(*rect);
                     self.context.push_clip_rect(&rect, strip_generator);
                 }
