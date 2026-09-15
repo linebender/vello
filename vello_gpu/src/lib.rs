@@ -125,9 +125,9 @@ pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeOperation, WebGlP
 pub use resources::Resources;
 pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
 #[cfg(feature = "text")]
-pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
+pub use text::{GlyphRunBuilder, GpuGlyphRunBackend};
 pub use util::DimensionConstraints;
-pub use vello_common::reexports::hybrid::*;
+pub use vello_common::reexports::gpu::*;
 
 use thiserror::Error;
 

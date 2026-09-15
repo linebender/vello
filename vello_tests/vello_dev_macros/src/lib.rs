@@ -20,7 +20,7 @@ mod test;
 const DEFAULT_CPU_U8_TOLERANCE: u8 = 2;
 const DEFAULT_SIMD_TOLERANCE: u8 = 1;
 const DEFAULT_CPU_F32_TOLERANCE: u8 = 0;
-const DEFAULT_HYBRID_TOLERANCE: u8 = 1;
+const DEFAULT_GPU_TOLERANCE: u8 = 1;
 
 use crate::bench::vello_bench_inner;
 use crate::test::vello_test_inner;

@@ -89,8 +89,8 @@ fn image_pad_x_pad_y(ctx: &mut impl Renderer) {
     repeat(ctx, Extend::Pad, Extend::Pad);
 }
 
-// TODO: Doesn't work correctly in Hybrid due to a difference in sampling behavior.
-#[vello_test(skip_hybrid)]
+// TODO: Doesn't work correctly in the GPU renderer due to a difference in sampling behavior.
+#[vello_test(skip_gpu)]
 fn image_bilinear_repeat_x_pad_y(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     let image_source = rgb_img_2x2(ctx);
@@ -541,7 +541,7 @@ fn image_bicubic_identity(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 3)]
+#[vello_test(gpu_tolerance = 3)]
 fn image_bicubic_2x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -553,7 +553,7 @@ fn image_bicubic_2x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 5)]
+#[vello_test(gpu_tolerance = 5)]
 fn image_bicubic_5x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -565,7 +565,7 @@ fn image_bicubic_5x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 7)]
+#[vello_test(gpu_tolerance = 7)]
 fn image_bicubic_10x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -577,7 +577,7 @@ fn image_bicubic_10x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 7)]
+#[vello_test(gpu_tolerance = 7)]
 fn image_bicubic_with_rotation(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -589,7 +589,7 @@ fn image_bicubic_with_rotation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 5)]
+#[vello_test(gpu_tolerance = 5)]
 fn image_bicubic_with_translation(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -601,7 +601,7 @@ fn image_bicubic_with_translation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 7)]
+#[vello_test(gpu_tolerance = 7)]
 fn image_bicubic_10x_scale_2(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x3(ctx);
     quality(
@@ -679,7 +679,7 @@ const HELLO_WORLD: &[Sprite] = &[
 
 /// Test rendering "hello" from a glyph atlas (spritesheet-style).
 /// Uses `ImageSource::OpaqueId` to demonstrate the image registry pattern.
-#[vello_test(width = 60, height = 30, skip_hybrid)]
+#[vello_test(width = 60, height = 30, skip_gpu)]
 fn image_spritesheet(ctx: &mut impl Renderer) {
     let atlas_id = ctx.register_image(load_image!("glyph_atlas"));
     let atlas_src = ImageSource::opaque_id(atlas_id);

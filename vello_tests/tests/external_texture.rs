@@ -119,7 +119,7 @@ mod tests {
         ctx.fill_path(&circle.to_path(0.1));
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only)]
+    #[vello_test(width = 96, height = 96, gpu_only)]
     fn external_texture_composite(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         ctx.set_paint_transform(Affine::translate((12., 15.)));
@@ -130,7 +130,7 @@ mod tests {
         fill_sprite_rect(ctx, texture_id, SPRITES[3], 25., 25., ImageQuality::Low);
     }
 
-    #[vello_test(hybrid_only)]
+    #[vello_test(gpu_only)]
     fn external_texture_circle(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
@@ -142,7 +142,7 @@ mod tests {
         ctx.fill_path(&Circle::new((50., 50.), 40.).to_path(0.1));
     }
 
-    #[vello_test(hybrid_only)]
+    #[vello_test(gpu_only)]
     fn external_texture_repeat(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
@@ -158,7 +158,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(5., 5., 95., 95.));
     }
 
-    #[vello_test(hybrid_only)]
+    #[vello_test(gpu_only)]
     fn external_texture_with_paint_transform(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
@@ -175,7 +175,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(5., 5., 95., 95.));
     }
 
-    #[vello_test(hybrid_only)]
+    #[vello_test(gpu_only)]
     fn external_texture_with_scene_transform_2(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
@@ -192,7 +192,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(0., 0., 16., 16.));
     }
 
-    #[vello_test(hybrid_only)]
+    #[vello_test(gpu_only)]
     fn external_texture_with_cropped_source(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
@@ -209,7 +209,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(5., 5., 95., 95.));
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only, hybrid_no_depth)]
+    #[vello_test(width = 96, height = 96, gpu_only, gpu_no_depth)]
     fn external_texture_opaque_interleaving(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(solid_pixmap(192, 0, 0, 192));
 
@@ -222,7 +222,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(48., 16., 88., 56.));
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only, hybrid_no_depth)]
+    #[vello_test(width = 96, height = 96, gpu_only, gpu_no_depth)]
     fn external_texture_runs_with_opaque_prefix(ctx: &mut impl Renderer) {
         let red_texture = ctx.register_external_texture(solid_pixmap(255, 0, 0, 255));
         let green_texture = ctx.register_external_texture(solid_pixmap(0, 255, 0, 255));
@@ -239,7 +239,7 @@ mod tests {
         fill_texture_rect(ctx, red_texture, 48., 48., 40., 40., true);
     }
 
-    #[vello_test(hybrid_only, hybrid_no_depth)]
+    #[vello_test(gpu_only, gpu_no_depth)]
     fn external_texture_root_painter_order(ctx: &mut impl Renderer) {
         let coral = ctx.register_external_texture(solid_pixmap(225, 87, 89, 255));
         let teal = ctx.register_external_texture(solid_pixmap(42, 157, 143, 255));
@@ -264,7 +264,7 @@ mod tests {
         fill_texture_rect(ctx, coral, 44., 44., 12., 12., false);
     }
 
-    #[vello_test(hybrid_only)]
+    #[vello_test(gpu_only)]
     fn external_texture_atlas_interleaving(ctx: &mut impl Renderer) {
         let atlas_red = ctx.get_image_source(solid_pixmap(254, 0, 0, 254));
         let external_green = ctx.register_external_texture(solid_pixmap(0, 254, 0, 254));
@@ -279,7 +279,7 @@ mod tests {
         draw_atlas_rect(ctx, atlas_magenta, Rect::new(66., 66., 90., 90.));
     }
 
-    #[vello_test(hybrid_only)]
+    #[vello_test(gpu_only)]
     fn external_texture_layer_before_external(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(solid_pixmap(128, 0, 0, 128));
 
@@ -293,7 +293,7 @@ mod tests {
         ctx.pop_layer();
     }
 
-    #[vello_test(hybrid_only)]
+    #[vello_test(gpu_only)]
     fn external_texture_external_before_layer(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(solid_pixmap(0, 255, 0, 255));
 
@@ -307,7 +307,7 @@ mod tests {
         ctx.pop_layer();
     }
 
-    #[vello_test(hybrid_only)]
+    #[vello_test(gpu_only)]
     fn external_texture_layer_circle_orders(ctx: &mut impl Renderer) {
         let blue_texture = ctx.register_external_texture(solid_pixmap(0, 0, 255, 255));
         let red_texture = ctx.register_external_texture(solid_pixmap(255, 0, 0, 255));
@@ -384,7 +384,7 @@ mod tests {
         );
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only, hybrid_tolerance = 1)]
+    #[vello_test(width = 96, height = 96, gpu_only, gpu_tolerance = 1)]
     fn external_texture_skewed(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let source_region = SPRITES[0];
@@ -402,7 +402,7 @@ mod tests {
         ));
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only)]
+    #[vello_test(width = 96, height = 96, gpu_only)]
     fn external_texture_clipped(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let clip = Circle::new((48., 48.), 24.).to_path(0.1);
@@ -415,7 +415,7 @@ mod tests {
         ctx.pop_layer();
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only, hybrid_tolerance = 2)]
+    #[vello_test(width = 96, height = 96, gpu_only, gpu_tolerance = 2)]
     fn external_texture_blurred(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
@@ -429,7 +429,7 @@ mod tests {
         ctx.pop_layer();
     }
 
-    #[vello_test(width = 192, height = 132, hybrid_only)]
+    #[vello_test(width = 192, height = 132, gpu_only)]
     fn external_texture_many_sprites(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let placements = [
@@ -453,7 +453,7 @@ mod tests {
         }
     }
 
-    #[vello_test(width = 96, height = 96, hybrid_only, hybrid_tolerance = 2)]
+    #[vello_test(width = 96, height = 96, gpu_only, gpu_tolerance = 2)]
     fn external_texture_with_scene_transform(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
 
