@@ -66,7 +66,8 @@ use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, BufferDescriptor, COPY_BUFFER_ALIGNMENT,
     ColorTargetState, ColorWrites, CommandEncoder, Device, Extent3d, PipelineCompilationOptions,
     Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, Sampler, Texture,
-    TextureView, TextureViewDescriptor, util::DeviceExt,
+    TextureView, TextureViewDescriptor,
+    util::{DeviceExt, StagingBelt},
 };
 
 /// Placeholder value for uninitialized GPU encoded paints.
@@ -484,7 +485,6 @@ impl Renderer {
         let mut ctx = RendererContext {
             programs: &mut self.programs,
             device,
-            queue,
             encoder,
             view,
             depth_view,
@@ -505,6 +505,10 @@ impl Renderer {
         .unwrap_or_else(|error| match error {});
 
         ctx.finish_root_clear();
+        self.programs
+            .strips_arena
+            .staging_belt
+            .finish_and_recall_on_submit(encoder);
 
         self.gradient_cache.maintain();
 
@@ -970,6 +974,7 @@ struct StripBufferArena {
     buffer: Buffer,
     capacity: u64,
     cursor: u64,
+    staging_belt: StagingBelt,
 }
 
 fn create_arena_buffer(device: &Device, size: u64) -> Buffer {
@@ -987,24 +992,33 @@ impl StripBufferArena {
             buffer: create_arena_buffer(device, 0),
             capacity: 0,
             cursor: 0,
+            staging_belt: StagingBelt::new(device.clone(), COPY_BUFFER_ALIGNMENT),
         }
     }
 
     fn begin_frame(&mut self, device: &Device, frame_size: u64) {
         self.cursor = 0;
-        if frame_size > self.capacity {
+        let max_buffer_size = device.limits().max_buffer_size;
+        if frame_size > self.capacity && self.capacity < max_buffer_size {
             let new_capacity = frame_size
-                .max(self.capacity * 2)
-                .min(device.limits().max_buffer_size);
+                .max(self.capacity.saturating_mul(2))
+                .min(max_buffer_size);
             self.buffer = create_arena_buffer(device, new_capacity);
+            self.staging_belt = StagingBelt::new(device.clone(), new_capacity);
             self.capacity = new_capacity;
         }
     }
 
     fn alloc(&mut self, len: u64) -> u64 {
         let offset = self.cursor.next_multiple_of(COPY_BUFFER_ALIGNMENT);
-        self.cursor = offset + len;
-        offset
+        let end = offset.saturating_add(len);
+        if end > self.capacity {
+            self.cursor = len;
+            0
+        } else {
+            self.cursor = end;
+            offset
+        }
     }
 }
 
@@ -2575,7 +2589,7 @@ impl Programs {
     /// returns the byte range of the uploaded data.
     fn upload_strip_pair(
         &mut self,
-        queue: &Queue,
+        encoder: &mut CommandEncoder,
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
     ) -> Range<u64> {
@@ -2589,10 +2603,9 @@ impl Programs {
         let arena = &mut self.strips_arena;
         let offset = arena.alloc(total_len);
         let size = NonZeroU64::new(total_len).expect("total length is non-zero");
-        // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
-        let mut view = queue
-            .write_buffer_with(&arena.buffer, offset, size)
-            .expect("Capacity handled in creation");
+        let mut view = arena
+            .staging_belt
+            .write_buffer(encoder, &arena.buffer, offset, size);
         if opaque_len > 0 {
             view.slice(..opaque_len as usize)
                 .copy_from_slice(bytemuck::cast_slice(opaque_strips));
@@ -2613,7 +2626,6 @@ impl Programs {
 struct RendererContext<'a> {
     programs: &'a mut Programs,
     device: &'a Device,
-    queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
     depth_view: Option<&'a TextureView>,
@@ -2718,9 +2730,9 @@ impl RendererContext<'_> {
             self.external_texture_bind_group_for_textures(run.bindings);
         }
 
-        let strips_range = self
-            .programs
-            .upload_strip_pair(self.queue, opaque_strips, alpha_strips);
+        let strips_range =
+            self.programs
+                .upload_strip_pair(self.encoder, opaque_strips, alpha_strips);
         let opaque_count = opaque_count as u32;
         let alpha_count = alpha_count as u32;
 
