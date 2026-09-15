@@ -1736,7 +1736,47 @@ fn filter_with_outer_clip_path(ctx: &mut impl Renderer) {
         edge_mode: EdgeMode::None,
     });
 
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
+    ctx.push_filter_layer(blur);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+    ctx.pop_clip_path();
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
+fn filter_with_outer_scaled_clip_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.0, 20.0, 40.0, 80.0);
+    let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 5.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.set_transform(Affine::scale_non_uniform(2.0, 1.0));
+    ctx.push_clip_rect(&clip_rect);
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.push_filter_layer(blur);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
+    ctx.pop_layer();
+    ctx.pop_clip_path();
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
+fn filter_with_outer_rotated_clip_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(25.0, 25.0, 75.0, 75.0);
+    let rect = clip_rect.inflate(15.0, 15.0);
+    let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 5.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.set_transform(Affine::rotate_about(
+        std::f64::consts::PI / 4.0,
+        Point::new(50.0, 50.0),
+    ));
+    ctx.push_clip_rect(&clip_rect);
+    ctx.set_transform(Affine::IDENTITY);
     ctx.push_filter_layer(blur);
     ctx.set_paint(RED);
     ctx.fill_rect(&rect);
@@ -1754,7 +1794,7 @@ fn filter_with_inner_clip_path(ctx: &mut impl Renderer) {
     });
 
     ctx.push_filter_layer(blur);
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
     ctx.set_paint(RED);
     ctx.fill_rect(&rect);
     ctx.pop_clip_path();
@@ -1788,11 +1828,12 @@ fn filter_nested_with_outer_clip_path(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(skip_multithreaded)]
-fn filter_with_clip_paths_outside_of_viewport(ctx: &mut impl Renderer) {
+fn filter_with_clip_rects_outside_of_viewport(ctx: &mut impl Renderer) {
     // This test draws 100x100 rectangles at the border of each viewport side, but
     // clips them to a smaller 10x60 (or 60x10) rectangle. The drop shadow is drawn with such
     // an offset that it becomes visible in the viewport. This test checks that only the parts
-    // visible in the clip path of the drop shadow cast the shadow, instead of the whole rectangle.
+    // visible in the clip rectangle of the drop shadow cast the shadow, instead of the whole
+    // rectangle.
 
     for (i, color) in [GREEN, BLUE, RED, YELLOW].into_iter().enumerate() {
         let horizontal = i % 2 == 0;
@@ -1824,9 +1865,7 @@ fn filter_with_clip_paths_outside_of_viewport(ctx: &mut impl Renderer) {
             color,
             edge_mode: EdgeMode::None,
         });
-        let clip_path = clip_rect.to_path(0.1);
-
-        ctx.push_clip_path(&clip_path);
+        ctx.push_clip_rect(&clip_rect);
         ctx.push_filter_layer(filter);
         ctx.set_paint(BLACK);
         ctx.fill_rect(&rect);
@@ -1845,7 +1884,7 @@ fn filter_with_inner_clip_that_stays_alive(ctx: &mut impl Renderer) {
     });
 
     ctx.push_filter_layer(blur);
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
     ctx.set_paint(AlphaColor::from_rgba8(0, 0, 0, 0));
     ctx.fill_rect(&viewport);
     ctx.pop_layer();
@@ -1856,6 +1895,43 @@ fn filter_with_inner_clip_that_stays_alive(ctx: &mut impl Renderer) {
     ctx.set_paint(RED);
     ctx.fill_rect(&viewport);
     ctx.pop_clip_path();
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+fn filter_with_mixed_clip_stack(ctx: &mut impl Renderer) {
+    let viewport = Rect::new(0.0, 0.0, 100.0, 100.0);
+    let outer_clip = Circle::new((50.0, 50.0), 45.0).to_path(0.1);
+    let middle_clip = Rect::new(15.0, 15.0, 85.0, 85.0);
+    let inner_clip = Circle::new((50.0, 50.0), 20.0).to_path(0.1);
+    let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.push_clip_path(&outer_clip);
+    ctx.push_clip_rect(&middle_clip);
+    ctx.push_clip_path(&inner_clip);
+    ctx.push_filter_layer(blur);
+
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&viewport);
+
+    ctx.pop_clip_path();
+    ctx.set_paint(GREEN);
+    ctx.fill_rect(&Rect::new(10.0, 15.0, 90.0, 35.0));
+
+    ctx.pop_clip_path();
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(5.0, 45.0, 95.0, 55.0));
+
+    ctx.pop_layer();
+
+    ctx.set_paint(YELLOW);
+    ctx.fill_rect(&Rect::new(0.0, 75.0, 100.0, 95.0));
+    ctx.pop_clip_path();
+
+    ctx.set_paint(VIOLET.with_alpha(0.2));
+    ctx.fill_path(&Circle::new((50.0, 50.0), 48.0).to_path(0.1));
 }
 
 #[vello_test(

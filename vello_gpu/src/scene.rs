@@ -31,7 +31,7 @@ use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::transforms::{RootTransforms, Transforms};
-use vello_common::util::{RectExt, is_axis_aligned, strip_bbox};
+use vello_common::util::{RectExt, into_fast_path_rect, strip_bbox};
 use vello_common::viewport::ViewportState;
 
 /// Default tolerance for curve flattening
@@ -349,12 +349,23 @@ impl Scene {
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
         let transform = self.transforms().clip_path_transform();
-        self.viewport_state.push_clip(
+        self.viewport_state.push_clip_path(
             path,
             self.render_state.fill_rule,
             transform,
             self.aliasing_threshold,
         );
+    }
+
+    /// Push a rectangular clip path.
+    pub fn push_clip_rect(&mut self, rect: &Rect) {
+        let transform = self.transforms().clip_path_transform();
+
+        if let Some(rect) = into_fast_path_rect(*rect, &transform, self.aliasing_threshold) {
+            self.viewport_state.push_clip_rect(&rect);
+        } else {
+            self.push_clip_path(&rect.to_path(DEFAULT_TOLERANCE));
+        }
     }
 
     /// Pop a clip path from the clip stack.
@@ -435,8 +446,9 @@ impl Scene {
             }
 
             let transform = ctx.effective_path_transform();
-            if is_axis_aligned(&transform) && ctx.aliasing_threshold.is_none() {
-                let transformed_rect = transform.transform_rect_bbox(*rect);
+            if let Some(transformed_rect) =
+                into_fast_path_rect(*rect, &transform, ctx.aliasing_threshold)
+            {
                 ctx.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
                     strip_generator.generate_filled_rect_fast(
                         &transformed_rect,
@@ -480,27 +492,16 @@ impl Scene {
         self.recorder.push_draw(draw, &strip_storage.strips[strips]);
     }
 
-    #[inline]
-    fn can_emit_fast_strips(&self) -> bool {
-        self.viewport_state.clip().is_none() && self.aliasing_threshold.is_none()
-    }
-
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
-        if !self.can_emit_fast_strips() {
+        if self.viewport_state.clip().is_some() {
             return None;
         }
-
-        // TODO: Either bail out or properly implement the case where `aliasing_threshold` is set.
 
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
-        let transform = self.effective_path_transform();
-        if !is_axis_aligned(&transform) {
-            return None;
-        }
 
-        let transformed_rect = transform
-            .transform_rect_bbox(*rect)
+        let transform = self.effective_path_transform();
+        let transformed_rect = into_fast_path_rect(*rect, &transform, self.aliasing_threshold)?
             .intersect(self.active_rect());
 
         // Can't handle mirrored or zero-sized rectangles.
@@ -561,8 +562,9 @@ impl Scene {
             }
 
             let path_transform = ctx.effective_path_transform();
-            if is_axis_aligned(&path_transform) && ctx.aliasing_threshold.is_none() {
-                let transformed_rect = path_transform.transform_rect_bbox(inflated_rect);
+            if let Some(transformed_rect) =
+                into_fast_path_rect(inflated_rect, &path_transform, ctx.aliasing_threshold)
+            {
                 ctx.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
                     strip_generator.generate_filled_rect_fast(
                         &transformed_rect,

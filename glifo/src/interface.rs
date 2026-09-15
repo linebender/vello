@@ -5,7 +5,7 @@
 
 use crate::atlas::{AtlasPaint, AtlasSlot};
 use crate::color::{AlphaColor, Srgb};
-use crate::kurbo::{Affine, BezPath, Rect};
+use crate::kurbo::{Affine, BezPath, Rect, Shape};
 use crate::peniko::BlendMode;
 use vello_common::paint::{Image, ImageSource, PaintType, Tint};
 
@@ -38,6 +38,10 @@ pub trait DrawSink {
     /// needs to be overridden correspondingly.
     fn push_clip_path(&mut self, clip: &BezPath) {
         self.push_clip_layer(clip);
+    }
+    /// Push a rectangular clip path.
+    fn push_clip_rect(&mut self, clip: &Rect) {
+        self.push_clip_path(&clip.to_path(0.1));
     }
     /// Push a blend/compositing layer.
     fn push_blend_layer(&mut self, blend_mode: BlendMode);
