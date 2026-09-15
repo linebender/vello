@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{
-    Attribute, AttributeInput, DEFAULT_CPU_F32_TOLERANCE, DEFAULT_CPU_U8_TOLERANCE,
-    DEFAULT_HYBRID_TOLERANCE, DEFAULT_SIMD_TOLERANCE, parse_int_lit, parse_string_lit,
+    DEFAULT_CPU_F32_TOLERANCE, DEFAULT_CPU_U8_TOLERANCE, DEFAULT_HYBRID_TOLERANCE,
+    DEFAULT_SIMD_TOLERANCE,
 };
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::quote;
-use syn::{ItemFn, parse_macro_input};
+use syn::parse::Parser;
+use syn::{ItemFn, LitInt, LitStr, parse_macro_input};
 
 struct Arguments {
     /// The width of the scene.
@@ -74,8 +75,6 @@ impl Default for Arguments {
 }
 
 pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let attrs = parse_macro_input!(attr as AttributeInput);
-
     // TODO: Refactor this method to have less duplication.
 
     let input_fn = parse_macro_input!(item as ItemFn);
@@ -197,7 +196,10 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         no_ref,
         glyph,
         diff_pixels,
-    } = parse_args(&attrs);
+    } = match parse_args(attr) {
+        Ok(args) => args,
+        Err(error) => return error.into_compile_error().into(),
+    };
 
     let invoke_test = match (glyph, input_arity) {
         (false, 1) => quote! { #input_fn_name(&mut ctx); },
@@ -751,57 +753,50 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     expanded.into()
 }
 
-fn parse_args(attribute_input: &AttributeInput) -> Arguments {
+fn parse_args(attr: TokenStream) -> syn::Result<Arguments> {
     let mut args = Arguments::default();
-
-    for arg in &attribute_input.args {
-        match arg {
-            Attribute::KeyValue { key, expr, .. } => {
-                let key_str = key.to_string();
-                match key_str.as_str() {
-                    "ignore" => {
-                        args.skip_cpu = true;
-                        args.skip_multithreaded = true;
-                        args.skip_hybrid = true;
-                        args.ignore_reason = Some(parse_string_lit(expr, "ignore"));
-                    }
-                    "width" => args.width = parse_int_lit(expr, "width"),
-                    "diff_pixels" => args.diff_pixels = parse_int_lit(expr, "diff_pixels"),
-                    "height" => args.height = parse_int_lit(expr, "height"),
-                    "cpu_u8_tolerance" => {
-                        args.cpu_u8_tolerance = parse_int_lit::<u8>(expr, "cpu_u8_tolerance");
-                    }
-                    "hybrid_tolerance" => {
-                        args.hybrid_tolerance = parse_int_lit::<u8>(expr, "hybrid_tolerance");
-                    }
-                    _ => panic!("unknown pair attribute {key_str}"),
-                }
+    let parser = syn::meta::parser(|meta| {
+        if meta.path.is_ident("width") {
+            args.width = meta.value()?.parse::<LitInt>()?.base10_parse()?;
+        } else if meta.path.is_ident("height") {
+            args.height = meta.value()?.parse::<LitInt>()?.base10_parse()?;
+        } else if meta.path.is_ident("diff_pixels") {
+            args.diff_pixels = meta.value()?.parse::<LitInt>()?.base10_parse()?;
+        } else if meta.path.is_ident("cpu_u8_tolerance") {
+            args.cpu_u8_tolerance = meta.value()?.parse::<LitInt>()?.base10_parse()?;
+        } else if meta.path.is_ident("hybrid_tolerance") {
+            args.hybrid_tolerance = meta.value()?.parse::<LitInt>()?.base10_parse()?;
+        } else if meta.path.is_ident("transparent") {
+            args.transparent = true;
+        } else if meta.path.is_ident("skip_cpu") {
+            args.skip_cpu = true;
+        } else if meta.path.is_ident("skip_multithreaded") {
+            args.skip_multithreaded = true;
+        } else if meta.path.is_ident("skip_hybrid") {
+            args.skip_hybrid = true;
+        } else if meta.path.is_ident("skip_webgl") {
+            args.skip_webgl = true;
+        } else if meta.path.is_ident("hybrid_only") {
+            args.skip_cpu = true;
+            args.hybrid_only = true;
+        } else if meta.path.is_ident("hybrid_no_depth") {
+            args.hybrid_no_depth = true;
+        } else if meta.path.is_ident("no_ref") {
+            args.no_ref = true;
+        } else if meta.path.is_ident("glyph") {
+            args.glyph = true;
+        } else if meta.path.is_ident("ignore") {
+            args.skip_cpu = true;
+            args.skip_multithreaded = true;
+            args.skip_hybrid = true;
+            if meta.input.peek(syn::Token![=]) {
+                args.ignore_reason = Some(meta.value()?.parse::<LitStr>()?.value());
             }
-            Attribute::Flag(flag_ident) => {
-                let flag_str = flag_ident.to_string();
-                match flag_str.as_str() {
-                    "transparent" => args.transparent = true,
-                    "skip_cpu" => args.skip_cpu = true,
-                    "skip_multithreaded" => args.skip_multithreaded = true,
-                    "skip_hybrid" => args.skip_hybrid = true,
-                    "skip_webgl" => args.skip_webgl = true,
-                    "hybrid_only" => {
-                        args.skip_cpu = true;
-                        args.hybrid_only = true;
-                    }
-                    "hybrid_no_depth" => args.hybrid_no_depth = true,
-                    "no_ref" => args.no_ref = true,
-                    "glyph" => args.glyph = true,
-                    "ignore" => {
-                        args.skip_cpu = true;
-                        args.skip_multithreaded = true;
-                        args.skip_hybrid = true;
-                    }
-                    _ => panic!("unknown flag attribute {flag_str}"),
-                }
-            }
+        } else {
+            return Err(meta.error("unknown `vello_test` attribute"));
         }
-    }
-
-    args
+        Ok(())
+    });
+    parser.parse(attr)?;
+    Ok(args)
 }
