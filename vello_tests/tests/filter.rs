@@ -1898,6 +1898,43 @@ fn filter_with_inner_clip_that_stays_alive(ctx: &mut impl Renderer) {
     ctx.pop_clip_path();
 }
 
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+fn filter_with_mixed_clip_stack(ctx: &mut impl Renderer) {
+    let viewport = Rect::new(0.0, 0.0, 100.0, 100.0);
+    let outer_clip = Circle::new((50.0, 50.0), 45.0).to_path(0.1);
+    let middle_clip = Rect::new(15.0, 15.0, 85.0, 85.0);
+    let inner_clip = Circle::new((50.0, 50.0), 20.0).to_path(0.1);
+    let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.push_clip_path(&outer_clip);
+    ctx.push_clip_rect(&middle_clip);
+    ctx.push_clip_path(&inner_clip);
+    ctx.push_filter_layer(blur);
+
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&viewport);
+
+    ctx.pop_clip_path();
+    ctx.set_paint(GREEN);
+    ctx.fill_rect(&Rect::new(10.0, 15.0, 90.0, 35.0));
+
+    ctx.pop_clip_path();
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(5.0, 45.0, 95.0, 55.0));
+
+    ctx.pop_layer();
+
+    ctx.set_paint(YELLOW);
+    ctx.fill_rect(&Rect::new(0.0, 75.0, 100.0, 95.0));
+    ctx.pop_clip_path();
+
+    ctx.set_paint(VIOLET.with_alpha(0.2));
+    ctx.fill_path(&Circle::new((50.0, 50.0), 48.0).to_path(0.1));
+}
+
 #[vello_test(
     skip_multithreaded,
     width = 600,
