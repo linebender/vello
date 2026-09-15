@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Visual regression tests specifically designed to exercise hybrid scheduler paths.
+//! Visual regression tests specifically designed to exercise GPU scheduler paths.
 //!
 //! Note that these tests were designed to work with the initial version of the scheduler.
 //! It's possible that, if the scheduling algorithm changes, those paths aren't exercised anymore
@@ -21,8 +21,8 @@ use vello_dev_macros::vello_test;
 // scheduler documentation for more information.
 
 /// Test blending a child whose bounds extend beyond its clipped parent's allocation.
-#[vello_test(hybrid_tolerance = 1, hybrid_no_depth)]
-fn hybrid_schedule_blended_child_outside_clipped_parent(ctx: &mut impl Renderer) {
+#[vello_test(gpu_tolerance = 1, gpu_no_depth)]
+fn gpu_schedule_blended_child_outside_clipped_parent(ctx: &mut impl Renderer) {
     let parent_clip = Rect::new(40.0, 12.0, 92.0, 88.0).to_path(0.1);
 
     ctx.push_layer(Some(&parent_clip), None, None, None, None);
@@ -39,8 +39,8 @@ fn hybrid_schedule_blended_child_outside_clipped_parent(ctx: &mut impl Renderer)
 }
 
 /// Test that cropping a blended child also advances its source texture origin.
-#[vello_test(hybrid_tolerance = 1)]
-fn hybrid_schedule_cropped_blend_preserves_child_source_offset(ctx: &mut impl Renderer) {
+#[vello_test(gpu_tolerance = 1)]
+fn gpu_schedule_cropped_blend_preserves_child_source_offset(ctx: &mut impl Renderer) {
     let parent_clip = Rect::new(40.0, 12.0, 92.0, 88.0).to_path(0.1);
 
     ctx.push_layer(Some(&parent_clip), None, None, None, None);
@@ -59,8 +59,8 @@ fn hybrid_schedule_cropped_blend_preserves_child_source_offset(ctx: &mut impl Re
 }
 
 /// Test an empty destructive child inside a filter layer with a non-zero source shift.
-#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
-fn hybrid_schedule_empty_destructive_child_in_shifted_filter(ctx: &mut impl Renderer) {
+#[vello_test(skip_multithreaded, gpu_tolerance = 1)]
+fn gpu_schedule_empty_destructive_child_in_shifted_filter(ctx: &mut impl Renderer) {
     ctx.set_paint(Color::from_rgb8(50, 66, 104));
     ctx.fill_rect(&Rect::new(8.0, 8.0, 92.0, 92.0));
 
@@ -77,8 +77,8 @@ fn hybrid_schedule_empty_destructive_child_in_shifted_filter(ctx: &mut impl Rend
 }
 
 /// Test the behavior when a spill to a page 1 is forced and that page is later reused.
-#[vello_test(cpu_u8_tolerance = 2, hybrid_tolerance = 1)]
-fn hybrid_schedule_atlas_page_one_reuse(ctx: &mut impl Renderer) {
+#[vello_test(cpu_u8_tolerance = 2, gpu_tolerance = 1)]
+fn gpu_schedule_atlas_page_one_reuse(ctx: &mut impl Renderer) {
     const BOUNDS: Rect = Rect::new(6.0, 6.0, 94.0, 94.0);
     let clip = Rect::new(6.5, 6.5, 93.5, 93.5).to_path(0.1);
 
@@ -140,8 +140,8 @@ fn hybrid_schedule_atlas_page_one_reuse(ctx: &mut impl Renderer) {
 }
 
 /// Test the behavior when forcing even deeper spills (in this case to page index 2).
-#[vello_test(cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
-fn hybrid_schedule_atlas_page_index_two(ctx: &mut impl Renderer) {
+#[vello_test(cpu_u8_tolerance = 1, gpu_tolerance = 1)]
+fn gpu_schedule_atlas_page_index_two(ctx: &mut impl Renderer) {
     const BOUNDS: Rect = Rect::new(6.0, 6.0, 94.0, 94.0);
 
     ctx.push_layer(None, None, None, None, None); // Depth one.
@@ -183,8 +183,8 @@ fn hybrid_schedule_atlas_page_index_two(ctx: &mut impl Renderer) {
 }
 
 /// Test the behavior when a whole filter layer needs to be processed on page 1.
-#[vello_test(skip_multithreaded, cpu_u8_tolerance = 3, hybrid_tolerance = 1)]
-fn hybrid_schedule_filter_atlas_page_one(ctx: &mut impl Renderer) {
+#[vello_test(skip_multithreaded, cpu_u8_tolerance = 3, gpu_tolerance = 1)]
+fn gpu_schedule_filter_atlas_page_one(ctx: &mut impl Renderer) {
     const BOUNDS: Rect = Rect::new(6.0, 6.0, 94.0, 94.0);
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 
@@ -224,8 +224,8 @@ fn hybrid_schedule_filter_atlas_page_one(ctx: &mut impl Renderer) {
 }
 
 /// Test the behavior when multiple filter layers are batched together in a single layer texture.
-#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
-fn hybrid_schedule_filter_batch_page_zero(ctx: &mut impl Renderer) {
+#[vello_test(skip_multithreaded, gpu_tolerance = 2)]
+fn gpu_schedule_filter_batch_page_zero(ctx: &mut impl Renderer) {
     let blur_two = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
         edge_mode: EdgeMode::None,

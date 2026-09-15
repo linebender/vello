@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{
-    DEFAULT_CPU_F32_TOLERANCE, DEFAULT_CPU_U8_TOLERANCE, DEFAULT_HYBRID_TOLERANCE,
+    DEFAULT_CPU_F32_TOLERANCE, DEFAULT_CPU_U8_TOLERANCE, DEFAULT_GPU_TOLERANCE,
     DEFAULT_SIMD_TOLERANCE,
 };
 use proc_macro::TokenStream;
@@ -22,8 +22,8 @@ struct Arguments {
     /// to the currently existing threshold. See the top of the file for an explanation of
     /// how exactly the tolerance is interpreted.
     cpu_u8_tolerance: u8,
-    /// Same as above, but for the hybrid renderer.
-    hybrid_tolerance: u8,
+    /// Same as above, but for the gpu renderer.
+    gpu_tolerance: u8,
     /// Whether the background should be transparent (the default is white).
     transparent: bool,
     /// Whether the test should not be run on the CPU (`vello_cpu`).
@@ -31,13 +31,13 @@ struct Arguments {
     /// Whether the test should not be run on the multi-threaded CPU (`vello_cpu`).
     skip_multithreaded: bool,
     /// Whether the test should not be run on the GPU (`vello_gpu`).
-    skip_hybrid: bool,
+    skip_gpu: bool,
     /// Whether the test should not be run using the WebGL backend.
     skip_webgl: bool,
     /// Whether only `vello_gpu` should run and generate the reference image.
-    hybrid_only: bool,
+    gpu_only: bool,
     /// Whether to additionally run `vello_gpu` with depth buffering disabled.
-    hybrid_no_depth: bool,
+    gpu_no_depth: bool,
     /// The maximum number of pixels that are allowed to completely deviate from the reference
     /// images. This attribute mainly exists because there are some test cases (like gradients),
     /// where, due to floating point inaccuracies, some pixels might land on a different color
@@ -58,14 +58,14 @@ impl Default for Arguments {
             width: 100,
             height: 100,
             cpu_u8_tolerance: 0,
-            hybrid_tolerance: 0,
+            gpu_tolerance: 0,
             transparent: false,
             skip_cpu: false,
             skip_multithreaded: false,
-            skip_hybrid: false,
+            skip_gpu: false,
             skip_webgl: false,
-            hybrid_only: false,
-            hybrid_no_depth: false,
+            gpu_only: false,
+            gpu_no_depth: false,
             no_ref: false,
             glyph: false,
             diff_pixels: 0,
@@ -211,7 +211,7 @@ struct Tolerances {
     cpu_u8_simd: u8,
     cpu_f32_scalar: u8,
     cpu_f32_simd: u8,
-    hybrid: u8,
+    gpu: u8,
 }
 
 impl Tolerances {
@@ -222,7 +222,7 @@ impl Tolerances {
                 + DEFAULT_SIMD_TOLERANCE.max(DEFAULT_CPU_U8_TOLERANCE),
             cpu_f32_scalar: DEFAULT_CPU_F32_TOLERANCE,
             cpu_f32_simd: DEFAULT_CPU_F32_TOLERANCE + DEFAULT_SIMD_TOLERANCE,
-            hybrid: args.hybrid_tolerance + DEFAULT_HYBRID_TOLERANCE,
+            gpu: args.gpu_tolerance + DEFAULT_GPU_TOLERANCE,
         }
     }
 
@@ -243,21 +243,21 @@ enum CpuVariant {
 }
 
 #[derive(Clone, Copy)]
-enum HybridBackend {
+enum GpuBackend {
     Wgpu,
     WebGl,
 }
 
 #[derive(Clone, Copy)]
-struct HybridVariant {
-    backend: HybridBackend,
+struct GpuVariant {
+    backend: GpuBackend,
     cached: bool,
     no_depth: bool,
 }
 
 enum Renderer {
     Cpu(CpuVariant),
-    Hybrid(HybridVariant),
+    Gpu(GpuVariant),
 }
 
 struct TestCase {
@@ -272,7 +272,7 @@ impl Renderer {
     fn cached(&self) -> bool {
         match self {
             Self::Cpu(variant) => variant.is_cached(),
-            Self::Hybrid(variant) => variant.cached,
+            Self::Gpu(variant) => variant.cached,
         }
     }
 }
@@ -295,7 +295,7 @@ impl CpuVariant {
         let (suffix, is_reference, ignore) = match self {
             Self::Pipeline { pipeline, level } => (
                 format!("cpu_{}_{}", pipeline.name(), level.name()),
-                matches!((pipeline, level), (Pipeline::F32, CpuLevel::Scalar)) && !args.hybrid_only,
+                matches!((pipeline, level), (Pipeline::F32, CpuLevel::Scalar)) && !args.gpu_only,
                 args.skip_cpu || !level.is_available(),
             ),
             Self::Multithreaded => (
@@ -305,7 +305,7 @@ impl CpuVariant {
             ),
             Self::Cached => (
                 "cpu_f32_scalar_cached".to_owned(),
-                !args.hybrid_only,
+                !args.gpu_only,
                 args.skip_cpu,
             ),
         };
@@ -319,10 +319,10 @@ impl CpuVariant {
     }
 }
 
-impl HybridVariant {
+impl GpuVariant {
     fn wgpu() -> Self {
         Self {
-            backend: HybridBackend::Wgpu,
+            backend: GpuBackend::Wgpu,
             cached: false,
             no_depth: false,
         }
@@ -330,7 +330,7 @@ impl HybridVariant {
 
     fn webgl() -> Self {
         Self {
-            backend: HybridBackend::WebGl,
+            backend: GpuBackend::WebGl,
             cached: false,
             no_depth: false,
         }
@@ -347,12 +347,12 @@ impl HybridVariant {
     }
 
     fn is_webgl(self) -> bool {
-        matches!(self.backend, HybridBackend::WebGl)
+        matches!(self.backend, GpuBackend::WebGl)
     }
 
     fn resolve(self, args: &Arguments, tolerance: u8) -> TestCase {
         let webgl = self.is_webgl();
-        let mut suffix = if webgl { "hybrid_webgl" } else { "hybrid" }.to_owned();
+        let mut suffix = if webgl { "gpu_webgl" } else { "gpu" }.to_owned();
         if self.no_depth {
             suffix.push_str("_no_depth");
         }
@@ -362,10 +362,10 @@ impl HybridVariant {
         let tolerance = quote! { #tolerance };
         TestCase {
             suffix,
-            renderer: Renderer::Hybrid(self),
+            renderer: Renderer::Gpu(self),
             tolerance,
-            is_reference: args.hybrid_only && !webgl && !self.no_depth,
-            ignore: args.skip_hybrid || (webgl && args.skip_webgl),
+            is_reference: args.gpu_only && !webgl && !self.no_depth,
+            ignore: args.skip_gpu || (webgl && args.skip_webgl),
         }
     }
 }
@@ -471,7 +471,7 @@ impl TestContext<'_> {
                     },
                 )
             }
-            Renderer::Hybrid(variant) => {
+            Renderer::Gpu(variant) => {
                 let webgl = variant.is_webgl();
                 let (cfg_attribute, test_attribute, asyncness) = if webgl {
                     (
@@ -484,7 +484,7 @@ impl TestContext<'_> {
                 };
                 let create_ctx = if variant.no_depth {
                     quote! {
-                        crate::util::get_ctx_with_depth_buffer::<crate::renderer::HybridRenderer>(
+                        crate::util::get_ctx_with_depth_buffer::<crate::renderer::GpuRenderer>(
                             #width,
                             #height,
                             #transparent,
@@ -496,7 +496,7 @@ impl TestContext<'_> {
                     }
                 } else {
                     quote! {
-                        crate::util::get_ctx::<crate::renderer::HybridRenderer>(
+                        crate::util::get_ctx::<crate::renderer::GpuRenderer>(
                             #width,
                             #height,
                             #transparent,
@@ -584,11 +584,11 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     }
 
     // These tests currently don't work with `vello_gpu`.
-    args.skip_hybrid |= input_fn_name_str.contains("layer_multiple_properties")
+    args.skip_gpu |= input_fn_name_str.contains("layer_multiple_properties")
         || input_fn_name_str.contains("mask");
     assert!(
-        !(args.hybrid_only && args.skip_hybrid),
-        "`hybrid_only` cannot be combined with `skip_hybrid`"
+        !(args.gpu_only && args.skip_gpu),
+        "`gpu_only` cannot be combined with `skip_gpu`"
     );
 
     // Wasm doesn't have access to the filesystem. For wasm, inline the snapshot bytes into the
@@ -628,19 +628,19 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         .map(|variant| variant.resolve(&args, &tolerances))
         .map(|case| context.generate_test(case));
 
-    let mut hybrid_variants = Vec::new();
-    for variant in [HybridVariant::wgpu(), HybridVariant::webgl()] {
-        hybrid_variants.push(variant);
+    let mut gpu_variants = Vec::new();
+    for variant in [GpuVariant::wgpu(), GpuVariant::webgl()] {
+        gpu_variants.push(variant);
         if args.glyph {
-            hybrid_variants.push(variant.cached());
+            gpu_variants.push(variant.cached());
         }
-        if args.hybrid_no_depth {
-            hybrid_variants.push(variant.without_depth());
+        if args.gpu_no_depth {
+            gpu_variants.push(variant.without_depth());
         }
     }
-    let hybrid_tests = hybrid_variants
+    let gpu_tests = gpu_variants
         .into_iter()
-        .map(|variant| variant.resolve(&args, tolerances.hybrid))
+        .map(|variant| variant.resolve(&args, tolerances.gpu))
         .map(|case| context.generate_test(case));
 
     // TODO: Tests with the same names in different modules can clash, see
@@ -651,7 +651,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         #reference_image_const
         #cached_reference_image_const
         #(#cpu_tests)*
-        #(#hybrid_tests)*
+        #(#gpu_tests)*
     }
     .into()
 }
@@ -667,23 +667,23 @@ fn parse_args(attr: TokenStream) -> syn::Result<Arguments> {
             args.diff_pixels = meta.value()?.parse::<LitInt>()?.base10_parse()?;
         } else if meta.path.is_ident("cpu_u8_tolerance") {
             args.cpu_u8_tolerance = meta.value()?.parse::<LitInt>()?.base10_parse()?;
-        } else if meta.path.is_ident("hybrid_tolerance") {
-            args.hybrid_tolerance = meta.value()?.parse::<LitInt>()?.base10_parse()?;
+        } else if meta.path.is_ident("gpu_tolerance") {
+            args.gpu_tolerance = meta.value()?.parse::<LitInt>()?.base10_parse()?;
         } else if meta.path.is_ident("transparent") {
             args.transparent = true;
         } else if meta.path.is_ident("skip_cpu") {
             args.skip_cpu = true;
         } else if meta.path.is_ident("skip_multithreaded") {
             args.skip_multithreaded = true;
-        } else if meta.path.is_ident("skip_hybrid") {
-            args.skip_hybrid = true;
+        } else if meta.path.is_ident("skip_gpu") {
+            args.skip_gpu = true;
         } else if meta.path.is_ident("skip_webgl") {
             args.skip_webgl = true;
-        } else if meta.path.is_ident("hybrid_only") {
+        } else if meta.path.is_ident("gpu_only") {
             args.skip_cpu = true;
-            args.hybrid_only = true;
-        } else if meta.path.is_ident("hybrid_no_depth") {
-            args.hybrid_no_depth = true;
+            args.gpu_only = true;
+        } else if meta.path.is_ident("gpu_no_depth") {
+            args.gpu_no_depth = true;
         } else if meta.path.is_ident("no_ref") {
             args.no_ref = true;
         } else if meta.path.is_ident("glyph") {
@@ -691,7 +691,7 @@ fn parse_args(attr: TokenStream) -> syn::Result<Arguments> {
         } else if meta.path.is_ident("ignore") {
             args.skip_cpu = true;
             args.skip_multithreaded = true;
-            args.skip_hybrid = true;
+            args.skip_gpu = true;
             if meta.input.peek(syn::Token![=]) {
                 args.ignore_reason = Some(meta.value()?.parse::<LitStr>()?.value());
             }

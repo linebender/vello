@@ -358,7 +358,7 @@ fn clip_clear(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(hybrid_tolerance = 1)]
+#[vello_test(gpu_tolerance = 1)]
 fn clip_clear_circle(ctx: &mut impl Renderer) {
     ctx.set_paint(LIME);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
@@ -372,7 +372,7 @@ fn clip_clear_circle(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-/// Reproduces stale pixels when the hybrid WGPU path reuses a render target without clearing it.
+/// Reproduces stale pixels when the GPU WGPU path reuses a render target without clearing it.
 #[vello_test(width = 64, height = 64, transparent)]
 fn render_target_cleared_between_frames(ctx: &mut impl Renderer) {
     ctx.set_paint(RED);
@@ -642,7 +642,7 @@ fn issue_1477(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[vello_test(width = 512, height = 16, hybrid_no_depth)]
+#[vello_test(width = 512, height = 16, gpu_no_depth)]
 fn opaque_rect_partially_occluding_aa_edge(ctx: &mut impl Renderer) {
     // Hypotenuse crosses strip row y in 8..12 over the full width, producing one
     // long AA strip. The rect's interior covers depth buckets [128, 384), splitting
@@ -658,7 +658,7 @@ fn opaque_rect_partially_occluding_aa_edge(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(96.0, 8.0, 416.0, 12.0));
 }
 
-#[vello_test(skip_multithreaded, width = 768, height = 100, hybrid_tolerance = 4)]
+#[vello_test(skip_multithreaded, width = 768, height = 100, gpu_tolerance = 4)]
 fn issue_1509(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 25.0,
@@ -764,7 +764,7 @@ fn issue_1707_transparent_solid_fill(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
 }
 
-#[vello_test(width = 32, height = 32, skip_hybrid, cpu_u8_tolerance = 1)]
+#[vello_test(width = 32, height = 32, skip_gpu, cpu_u8_tolerance = 1)]
 fn issue_bicubic_filtering_clamping(ctx: &mut impl Renderer) {
     let font_size = 10.0;
     let (font, glyphs) = layout_glyphs_noto_cbtf("👀", font_size);
@@ -778,7 +778,7 @@ fn issue_bicubic_filtering_clamping(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(skip_multithreaded, hybrid_no_depth)]
+#[vello_test(skip_multithreaded, gpu_no_depth)]
 fn issue_filter_preserves_painter_order_for_opaque_and_alpha(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 
