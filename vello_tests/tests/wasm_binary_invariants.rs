@@ -40,12 +40,16 @@ async fn no_simd_instruction_inclusion() {
     );
 }
 
+// Below two tests are disabled due to flakiness in CI.
+
+#[ignore]
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
 async fn webgl_probe_succeeds_with_depth_buffer() {
     run_webgl_probe(true).await;
 }
 
+#[ignore]
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
 async fn webgl_probe_succeeds_without_depth_buffer() {

@@ -73,6 +73,8 @@ impl WebGlRenderer {
     }
 
     fn probe_inner(&mut self) -> Result<WebGlPendingProbe, WebGlError> {
+        // Whenever making changes here, make sure to unignore the `webgl_probe_succeeds_` and
+        // run them locally!
         let _state_guard = WebGlStateGuard::with_config(
             &self.gl,
             WebGlStateConfig {
