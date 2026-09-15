@@ -115,7 +115,7 @@ fn main() {
             }
         }
 
-        surface_texture.present();
+        device_handle.queue.present(surface_texture);
     }
 }
 

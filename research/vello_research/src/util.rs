@@ -92,6 +92,7 @@ impl RenderContext {
             width,
             height,
             present_mode,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             desired_maximum_frame_latency: 2,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
