@@ -343,8 +343,13 @@ jobs:
           save-if: ${{ github.event_name != 'merge_group' }}
           cache-bin: ${{ matrix.os != 'macos-latest' }} # works around https://github.com/Swatinem/rust-cache/issues/341
 
-      - name: cargo nextest
-        # TODO: Maybe use --release; the CPU shaders are extremely slow when unoptimised
+      - name: build tests
+        run: cargo nextest run --workspace --locked --all-features --release --no-run
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+          VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
+
+      - name: run tests
         run: cargo nextest run --workspace --locked --all-features --no-fail-fast --release
         env:
           CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
