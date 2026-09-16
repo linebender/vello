@@ -1744,7 +1744,7 @@ fn filter_with_outer_clip_path(ctx: &mut impl Renderer) {
     ctx.pop_clip_path();
 }
 
-#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
+#[vello_test(skip_multithreaded, gpu_tolerance = 3)]
 fn filter_with_outer_scaled_clip_rect(ctx: &mut impl Renderer) {
     let clip_rect = Rect::new(10.0, 20.0, 40.0, 80.0);
     let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
@@ -1762,7 +1762,7 @@ fn filter_with_outer_scaled_clip_rect(ctx: &mut impl Renderer) {
     ctx.pop_clip_path();
 }
 
-#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
+#[vello_test(skip_multithreaded, gpu_tolerance = 3)]
 fn filter_with_outer_rotated_clip_rect(ctx: &mut impl Renderer) {
     let clip_rect = Rect::new(25.0, 25.0, 75.0, 75.0);
     let rect = clip_rect.inflate(15.0, 15.0);
@@ -1897,7 +1897,7 @@ fn filter_with_inner_clip_that_stays_alive(ctx: &mut impl Renderer) {
     ctx.pop_clip_path();
 }
 
-#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+#[vello_test(skip_multithreaded, gpu_tolerance = 2)]
 fn filter_with_mixed_clip_stack(ctx: &mut impl Renderer) {
     let viewport = Rect::new(0.0, 0.0, 100.0, 100.0);
     let outer_clip = Circle::new((50.0, 50.0), 45.0).to_path(0.1);
