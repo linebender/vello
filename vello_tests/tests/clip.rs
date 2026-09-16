@@ -187,7 +187,7 @@ fn clip_rect_cull_alignment(ctx: &mut impl Renderer) {
     path.curve_to((45.0, top_y - 0.5), (55.0, top_y - 0.5), (70.0, top_y));
     path.line_to((70.0, bot_y));
     path.curve_to((55.0, bot_y + 0.5), (45.0, bot_y + 0.5), (30.0, bot_y));
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_path(&path);
     ctx.pop_clip_path();
@@ -353,7 +353,7 @@ fn clip_exceeding_viewport(ctx: &mut impl Renderer) {
 fn clip_non_isolated_outside_canvas(ctx: &mut impl Renderer) {
     // Should be completely clipped.
     let clip_rect = Rect::new(0.0, 0.0, 16.0, 16.0);
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
 
     let rect = Rect::new(16.0, -16.0, 32.0, 0.0);
     ctx.set_paint(REBECCA_PURPLE);
@@ -364,7 +364,7 @@ fn clip_non_isolated_outside_canvas(ctx: &mut impl Renderer) {
 #[vello_test]
 fn clip_non_isolated_with_rect(ctx: &mut impl Renderer) {
     let clip_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
 
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
@@ -374,12 +374,12 @@ fn clip_non_isolated_with_rect(ctx: &mut impl Renderer) {
 #[vello_test]
 fn clip_non_isolated_with_rotated_rect(ctx: &mut impl Renderer) {
     let clip_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    let center = Point::new(50.0, 50.0);
 
-    ctx.set_transform(Affine::rotate_about(
-        25.0 * PI / 180.0,
-        Point::new(50.0, 50.0),
-    ));
+    ctx.set_transform(Affine::rotate_about(PI / 2.0, center));
+    ctx.push_clip_rect(&clip_rect);
+
+    ctx.set_transform(Affine::rotate_about(25.0 * PI / 180.0, center));
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
     ctx.pop_clip_path();
@@ -387,12 +387,12 @@ fn clip_non_isolated_with_rotated_rect(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn clip_non_isolated_with_scaled_rect(ctx: &mut impl Renderer) {
-    let clip_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
-
     ctx.set_transform(
         Affine::translate((50.0, 50.0)) * Affine::scale(4.0) * Affine::translate((-50.0, -50.0)),
     );
+    let clip_rect = Rect::new(40.0, 40.0, 60.0, 60.0);
+    ctx.push_clip_rect(&clip_rect);
+
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(40.0, 40.0, 60.0, 60.0));
     ctx.pop_clip_path();
@@ -401,7 +401,7 @@ fn clip_non_isolated_with_scaled_rect(ctx: &mut impl Renderer) {
 #[vello_test]
 fn clip_non_isolated_with_aa_with_rect(ctx: &mut impl Renderer) {
     let clip_rect = Rect::new(10.5, 10.5, 89.5, 89.5);
-    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.push_clip_rect(&clip_rect);
 
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
@@ -413,7 +413,7 @@ fn clip_non_isolated_with_aa_with_rect_aa(ctx: &mut impl Renderer) {
     // In theory, anti-aliasing should be 50% here, but due to conflation artifacts it will be
     // 25% instead.
     let rect = Rect::new(10.5, 10.5, 89.5, 89.5);
-    ctx.push_clip_path(&rect.to_path(0.1));
+    ctx.push_clip_rect(&rect);
 
     ctx.set_paint(BLUE);
     ctx.fill_rect(&rect);

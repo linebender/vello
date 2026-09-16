@@ -145,6 +145,17 @@ pub fn is_axis_aligned(transform: &Affine) -> bool {
     b.is_nearly_zero() && c.is_nearly_zero()
 }
 
+/// Transform a rectangle if the rectangle fast path supports the given settings.
+#[inline]
+pub fn into_fast_path_rect(
+    rect: Rect,
+    transform: &Affine,
+    aliasing_threshold: Option<u8>,
+) -> Option<Rect> {
+    (is_axis_aligned(transform) && aliasing_threshold.is_none())
+        .then(|| transform.transform_rect_bbox(rect))
+}
+
 /// Extract scale factors from an affine transform using singular value decomposition.
 ///
 /// Returns a tuple of (`scale_x`, `scale_y`) representing the scale along each axis.
@@ -554,10 +565,10 @@ pub(crate) mod unpremultiply {
 #[cfg(test)]
 mod tests {
     use super::RectU16;
-    use super::{RectExt, strip_bbox};
+    use super::{RectExt, into_fast_path_rect, strip_bbox};
     use crate::strip::Strip;
     use crate::tile::Tile;
-    use peniko::kurbo::Rect;
+    use peniko::kurbo::{Affine, Rect};
 
     fn sentinel(y: u16, alpha_idx: u32) -> Strip {
         Strip::new(u16::MAX, y, alpha_idx, false)
@@ -584,6 +595,28 @@ mod tests {
         assert_eq!(
             RectU16::new(5, 3, 9, 3).snap_to_tile_coordinates(),
             RectU16::new(4, 0, 4, 0)
+        );
+    }
+
+    #[test]
+    fn fast_path_rect_is_transformed_when_supported() {
+        let rect = Rect::new(1.0, 2.0, 3.0, 4.0);
+        let transform = Affine::translate((5.0, 7.0)) * Affine::scale_non_uniform(2.0, -3.0);
+
+        assert_eq!(
+            into_fast_path_rect(rect, &transform, None),
+            Some(Rect::new(7.0, -5.0, 11.0, 1.0))
+        );
+    }
+
+    #[test]
+    fn fast_path_rect_rejects_unsupported_settings() {
+        let rect = Rect::new(1.0, 2.0, 3.0, 4.0);
+
+        assert_eq!(into_fast_path_rect(rect, &Affine::rotate(0.5), None), None);
+        assert_eq!(
+            into_fast_path_rect(rect, &Affine::IDENTITY, Some(128)),
+            None
         );
     }
 

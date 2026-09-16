@@ -5,7 +5,7 @@
 
 use crate::clip::{ClipState, PathDataRef};
 use crate::filter::FilterData;
-use crate::kurbo::{Affine, BezPath};
+use crate::kurbo::{Affine, BezPath, Rect};
 use crate::strip_generator::StripGenerator;
 use alloc::vec::Vec;
 use fearless_simd::Level;
@@ -63,20 +63,26 @@ impl ViewportState {
     }
 
     /// Push a new clip path.
-    pub fn push_clip(
+    pub fn push_clip_path(
         &mut self,
         path: &BezPath,
         fill_rule: Fill,
         transform: Affine,
         aliasing_threshold: Option<u8>,
     ) {
-        self.clip_state.push_clip(
+        self.clip_state.push_clip_path(
             path,
             &mut self.strip_generator,
             fill_rule,
             transform,
             aliasing_threshold,
         );
+    }
+
+    /// Push a rectangular clip path in viewport coordinates.
+    pub fn push_clip_rect(&mut self, rect: &Rect) {
+        self.clip_state
+            .push_clip_rect(rect, &mut self.strip_generator);
     }
 
     /// Pop the last clip path.
