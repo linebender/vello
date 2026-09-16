@@ -45,7 +45,7 @@ pub enum WebGlError {
         max_dimension: u32,
     },
     /// The WebGL context is incompatible with the renderer.
-    #[error("incompatible WebGL context: {0:?}")]
+    #[error("incompatible WebGL context: {0}")]
     IncompatibleContext(IncompatibleContextReason),
 }
 
@@ -158,13 +158,20 @@ pub enum WebGlProbeOperation {
 }
 
 /// Reasons a WebGL context can be incompatible with the renderer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IncompatibleContextReason {
     /// Antialiasing is enabled on the WebGL context.
+    #[error("antialiasing is enabled")]
     AntialiasingEnabled,
     /// The WebGL context's depth buffer does not have enough bits.
-    InsufficientDepthBuffer,
+    #[error("depth buffer has {actual_bits} bits, but {required_bits} are required")]
+    InsufficientDepthBuffer {
+        /// Number of depth bits provided by the WebGL context.
+        actual_bits: u32,
+        /// Minimum number of depth bits required by the renderer.
+        required_bits: u32,
+    },
 }
 
 /// Converts JavaScript exceptions into WebGL operation errors.
