@@ -94,6 +94,8 @@ pub enum WebGlResourceKind {
     Framebuffer,
     /// A renderbuffer.
     Renderbuffer,
+    /// A synchronization object.
+    Sync,
     /// A shader program.
     Program,
     /// A shader.
@@ -147,14 +149,10 @@ pub enum WebGlDataTransferOperation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum WebGlProbeOperation {
-    /// Creating the probe's pixel pack buffer.
-    BufferCreation,
     /// Uploading the probe image.
     ImageUpload,
     /// Reading the probe result back.
     Readback,
-    /// Creating synchronization state for the probe.
-    Synchronization,
 }
 
 /// Reasons a WebGL context can be incompatible with the renderer.

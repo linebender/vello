@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::render::webgl::resource::{Framebuffer, Renderbuffer};
+use crate::render::webgl::resource::{Buffer, Framebuffer, Renderbuffer, SyncFence};
 use crate::render::webgl::{
     ViewFramebuffer, WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlStateConfig,
     WebGlStateGuard, WebGlTextureBindings, create_framebuffer_for_texture, create_texture_storage,
@@ -21,14 +21,14 @@ use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::BlendMode;
 use vello_common::pixmap::Pixmap;
 use vello_common::probe::Probe;
-use web_sys::{WebGl2RenderingContext, WebGlBuffer, WebGlSync};
+use web_sys::WebGl2RenderingContext;
 
 /// A WebGL probe whose pixel readback has been queued but not completed.
 #[derive(Debug)]
 pub struct WebGlPendingProbe {
     gl: WebGl2RenderingContext,
-    sync: Option<WebGlSync>,
-    buffer: Option<WebGlBuffer>,
+    sync: SyncFence,
+    buffer: Buffer,
     width: u16,
     height: u16,
 }
@@ -195,11 +195,7 @@ impl WebGlPendingProbe {
     /// which can be checked again in the future. Otherwise, the probe result or an error will be
     /// returned.
     pub fn try_finish(mut self) -> Result<WebGlProbeStatus, WebGlProbeError> {
-        let status = self.gl.client_wait_sync_with_u32(
-            self.sync.as_ref().expect("probe sync must exist"),
-            0,
-            0,
-        );
+        let status = self.gl.client_wait_sync_with_u32(&self.sync, 0, 0);
 
         if status == WebGl2RenderingContext::TIMEOUT_EXPIRED {
             return Ok(WebGlProbeStatus::Pending(self));
@@ -226,7 +222,7 @@ impl WebGlPendingProbe {
 
         self.gl.bind_buffer(
             WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-            self.buffer.as_ref(),
+            Some(&self.buffer),
         );
         // Safari 15 crashes the tab when attempting to read from a pixel pack buffer directly
         // into WASM-allocated memory. Therefore, we first read it into a JS-allocated buffer and
@@ -273,17 +269,6 @@ fn webgl_error_name(error: u32) -> Cow<'static, str> {
     Cow::Borrowed(name)
 }
 
-impl Drop for WebGlPendingProbe {
-    fn drop(&mut self) {
-        if let Some(sync) = self.sync.take() {
-            self.gl.delete_sync(Some(&sync));
-        }
-        if let Some(buffer) = self.buffer.take() {
-            self.gl.delete_buffer(Some(&buffer));
-        }
-    }
-}
-
 #[cfg(feature = "probe")]
 fn launch_probe(
     gl: &WebGl2RenderingContext,
@@ -291,22 +276,12 @@ fn launch_probe(
     width: u16,
     height: u16,
 ) -> Result<WebGlPendingProbe, WebGlError> {
-    let pixel_pack_buffer = gl.create_buffer().ok_or(WebGlError::OperationFailed {
-        operation: WebGlOperation::Probe(WebGlProbeOperation::BufferCreation),
-        message: None,
-    })?;
-    let mut pending = WebGlPendingProbe {
-        gl: gl.clone(),
-        sync: None,
-        buffer: Some(pixel_pack_buffer),
-        width,
-        height,
-    };
+    let pixel_pack_buffer = Buffer::new(gl)?;
     let byte_len = i32::from(width) * i32::from(height) * 4;
 
     gl.bind_buffer(
         WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-        pending.buffer.as_ref(),
+        Some(&pixel_pack_buffer),
     );
     gl.buffer_data_with_i32(
         WebGl2RenderingContext::PIXEL_PACK_BUFFER,
@@ -329,20 +304,20 @@ fn launch_probe(
     .map_js_error(WebGlOperation::Probe(WebGlProbeOperation::Readback))?;
     // Create a fence that notifies us once rendering is complete and the contents have been
     // transferred from the framebuffer to the pixel pack buffer.
-    pending.sync = Some(
-        gl.fence_sync(WebGl2RenderingContext::SYNC_GPU_COMMANDS_COMPLETE, 0)
-            .ok_or(WebGlError::OperationFailed {
-                operation: WebGlOperation::Probe(WebGlProbeOperation::Synchronization),
-                message: None,
-            })?,
-    );
+    let sync = SyncFence::new(gl)?;
     // https://wikis.khronos.org/opengl/Sync_Object
     // "It is important that syncs are properly flushed into the GPU's command queue. Without
     // proper flushing, the sync object may never be signaled."
     gl.flush();
     gl.bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, None);
 
-    Ok(pending)
+    Ok(WebGlPendingProbe {
+        gl: gl.clone(),
+        sync,
+        buffer: pixel_pack_buffer,
+        width,
+        height,
+    })
 }
 
 impl vello_common::probe::ProbeRenderer for Scene {
