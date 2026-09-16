@@ -25,36 +25,6 @@ const DEFAULT_HYBRID_TOLERANCE: u8 = 1;
 use crate::bench::vello_bench_inner;
 use crate::test::vello_test_inner;
 use proc_macro::TokenStream;
-use std::fmt::Display;
-use std::str::FromStr;
-use syn::parse::{Parse, ParseStream};
-use syn::punctuated::Punctuated;
-use syn::{Expr, Ident, Token};
-
-#[derive(Debug)]
-enum Attribute {
-    /// A key-value-like argument.
-    KeyValue { key: Ident, expr: Expr },
-    /// A flag-like argument.
-    Flag(Ident),
-}
-
-impl Parse for Attribute {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let key = input.parse()?;
-
-        let is_flag = !input.peek(Token![=]);
-
-        if is_flag {
-            Ok(Self::Flag(key))
-        } else {
-            // Skip equality token.
-            let _: Token![=] = input.parse()?;
-            let expr = input.parse()?;
-            Ok(Self::KeyValue { key, expr })
-        }
-    }
-}
 
 /// Create a new Vello snapshot test.
 /// See [`test::Arguments`] for documentation of the arguments, which are comma-separated.
@@ -96,45 +66,4 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn vello_bench(attr: TokenStream, item: TokenStream) -> TokenStream {
     vello_bench_inner(attr, item)
-}
-
-#[derive(Debug)]
-struct AttributeInput {
-    args: Punctuated<Attribute, Token![,]>,
-}
-
-impl Parse for AttributeInput {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        Ok(Self {
-            args: input.parse_terminated(Attribute::parse, Token![,])?,
-        })
-    }
-}
-
-fn parse_int_lit<N>(expr: &Expr, name: &str) -> N
-where
-    N: FromStr,
-    N::Err: Display,
-{
-    if let Expr::Lit(syn::ExprLit {
-        lit: syn::Lit::Int(lit_int),
-        ..
-    }) = expr
-    {
-        lit_int.base10_parse::<N>().unwrap()
-    } else {
-        panic!("invalid expression supplied to `{name}`")
-    }
-}
-
-fn parse_string_lit(expr: &Expr, name: &str) -> String {
-    if let Expr::Lit(syn::ExprLit {
-        lit: syn::Lit::Str(lit_str),
-        ..
-    }) = expr
-    {
-        lit_str.value()
-    } else {
-        panic!("invalid expression supplied to `{name}`")
-    }
 }
