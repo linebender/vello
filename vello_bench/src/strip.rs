@@ -123,43 +123,47 @@ pub fn render_rect(c: &mut Criterion) {
     let mut g = c.benchmark_group("render_rect");
     g.sample_size(50);
 
-    let rect = Rect::new(10.0, 10.0, 24.0, 24.0);
-    let width = 100;
-    let height = 100;
     let level = Level::new();
 
-    // Benchmark: generate_filled_path (path-based approach)
-    g.bench_function("14x14_via_path", |b| {
-        let mut generator = StripGenerator::new(width, height, level);
-        let mut storage = StripStorage::default();
+    for (name, size) in [("small", 20_u16), ("medium", 300), ("large", 1200)] {
+        if name == "medium" && !crate::EXTENDED {
+            continue;
+        }
 
-        b.iter(|| {
-            storage.clear();
-            generator.generate_filled_path(
-                rect.to_path(0.1),
-                Fill::NonZero,
-                Affine::IDENTITY,
-                None,
-                &mut storage,
-                None,
-            );
-            generator.reset(width, height);
-            std::hint::black_box(&storage);
+        let rect = Rect::new(10.0, 10.0, f64::from(size) + 10.0, f64::from(size) + 10.0);
+        let viewport_size = size + 20;
+
+        g.bench_function(name, |b| {
+            let mut generator = StripGenerator::new(viewport_size, viewport_size, level);
+            let mut storage = StripStorage::default();
+
+            b.iter(|| {
+                storage.clear();
+                generator.generate_filled_rect_fast(&rect, &mut storage, None);
+                generator.reset(viewport_size, viewport_size);
+                std::hint::black_box(&storage);
+            });
         });
-    });
 
-    // Benchmark: generate_rect_strips_with_clip (optimized rect approach)
-    g.bench_function("14x14_via_rect", |b| {
-        let mut generator = StripGenerator::new(width, height, level);
-        let mut storage = StripStorage::default();
+        g.bench_function(format!("{name}_via_path"), |b| {
+            let mut generator = StripGenerator::new(viewport_size, viewport_size, level);
+            let mut storage = StripStorage::default();
 
-        b.iter(|| {
-            storage.clear();
-            generator.generate_filled_rect_fast(&rect, &mut storage, None);
-            generator.reset(width, height);
-            std::hint::black_box(&storage);
+            b.iter(|| {
+                storage.clear();
+                generator.generate_filled_path(
+                    rect.to_path(0.1),
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    None,
+                    &mut storage,
+                    None,
+                );
+                generator.reset(viewport_size, viewport_size);
+                std::hint::black_box(&storage);
+            });
         });
-    });
+    }
 
     g.finish();
 }
