@@ -27,7 +27,7 @@ use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Image, ImageSource, PaintType};
 use vello_common::peniko;
 
-/// Glyph atlas cache for the hybrid (GPU) renderer.
+/// Glyph atlas cache for the GPU renderer.
 #[derive(Debug)]
 pub(crate) struct GlyphAtlasResources {
     pub(crate) glyph_atlas: GlyphAtlas,
@@ -146,7 +146,7 @@ impl Resources {
     }
 }
 
-/// [`DrawSink`] for the hybrid [`Scene`].
+/// [`DrawSink`] for the GPU [`Scene`].
 impl DrawSink for Scene {
     #[inline]
     fn set_transform(&mut self, t: Affine) {
@@ -216,13 +216,13 @@ impl DrawSink for Scene {
 
 #[doc(hidden)]
 #[derive(Debug)]
-pub struct HybridGlyphRunBackend<'a> {
+pub struct GpuGlyphRunBackend<'a> {
     pub(crate) scene: &'a mut Scene,
     pub(crate) resources: &'a mut Resources,
     pub(crate) atlas_cache_enabled: bool,
 }
 
-impl<'a> HybridGlyphRunBackend<'a> {
+impl<'a> GpuGlyphRunBackend<'a> {
     fn render_glyphs<Glyphs>(
         self,
         run: glifo::GlyphRun<'a>,
@@ -255,7 +255,7 @@ impl<'a> HybridGlyphRunBackend<'a> {
     }
 }
 
-impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
+impl<'a> GlyphRunBackend<'a> for GpuGlyphRunBackend<'a> {
     fn atlas_cache(mut self, enabled: bool) -> Self {
         self.atlas_cache_enabled = enabled;
         self
@@ -300,7 +300,7 @@ impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
 }
 
 /// A glyph run builder.
-pub type GlyphRunBuilder<'a> = glifo::GlyphRunBuilder<'a, HybridGlyphRunBackend<'a>>;
+pub type GlyphRunBuilder<'a> = glifo::GlyphRunBuilder<'a, GpuGlyphRunBackend<'a>>;
 
 impl glifo::GlyphRenderer for Scene {
     type SavedState = vello_common::render_state::RenderState;

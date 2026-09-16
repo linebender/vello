@@ -18,8 +18,8 @@ use vello_cpu::{
     TargetInit as CpuTargetInit,
 };
 use vello_gpu::{
-    ClearSettings, RectU16, RenderSettings as HybridRenderSettings, Resources as HybridResources,
-    Scene, TargetInit as HybridTargetInit, TextureId,
+    ClearSettings, RectU16, RenderSettings as GpuRenderSettings, Resources as GpuResources, Scene,
+    TargetInit as GpuTargetInit, TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -89,7 +89,7 @@ pub(crate) trait Renderer: Sized {
     fn set_filter_effect(&mut self, filter: Filter);
     fn reset_filter_effect(&mut self);
     fn reset(&mut self);
-    fn set_target_init(&mut self, target_init: HybridTargetInit<'static>);
+    fn set_target_init(&mut self, target_init: GpuTargetInit<'static>);
     fn render(&mut self);
     fn snapshot(&mut self) -> Pixmap;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
@@ -102,7 +102,7 @@ pub(crate) struct CpuRenderer {
     resources: Resources,
     render_mode: RenderMode,
     target: Pixmap,
-    target_init: HybridTargetInit<'static>,
+    target_init: GpuTargetInit<'static>,
 }
 
 impl Renderer for CpuRenderer {
@@ -121,7 +121,7 @@ impl Renderer for CpuRenderer {
             resources: Resources::new(),
             render_mode,
             target: Pixmap::new(width, height),
-            target_init: HybridTargetInit::Clear(ClearSettings::default()),
+            target_init: GpuTargetInit::Clear(ClearSettings::default()),
         }
     }
 
@@ -253,17 +253,15 @@ impl Renderer for CpuRenderer {
         self.ctx.reset();
     }
 
-    fn set_target_init(&mut self, target_init: HybridTargetInit<'static>) {
+    fn set_target_init(&mut self, target_init: GpuTargetInit<'static>) {
         self.target_init = target_init;
     }
 
     fn render(&mut self) {
         let target_init = match self.target_init {
-            HybridTargetInit::SrcOver => CpuTargetInit::SrcOver,
-            HybridTargetInit::Clear(ClearSettings::Viewport { color }) => {
-                CpuTargetInit::Clear(color)
-            }
-            HybridTargetInit::Clear(ClearSettings::Rects { color, rects }) => {
+            GpuTargetInit::SrcOver => CpuTargetInit::SrcOver,
+            GpuTargetInit::Clear(ClearSettings::Viewport { color }) => CpuTargetInit::Clear(color),
+            GpuTargetInit::Clear(ClearSettings::Rects { color, rects }) => {
                 apply_rect_clear(&mut self.target, color, rects);
 
                 CpuTargetInit::SrcOver
@@ -286,7 +284,7 @@ impl Renderer for CpuRenderer {
     }
 
     fn register_external_texture(&mut self, _: Arc<Pixmap>) -> TextureId {
-        unimplemented!("external textures are only supported by hybrid renderer tests")
+        unimplemented!("external textures are only supported by GPU renderer tests")
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
@@ -303,9 +301,9 @@ impl Renderer for CpuRenderer {
 static WGPU_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-pub(crate) struct HybridRenderer {
+pub(crate) struct GpuRenderer {
     scene: Scene,
-    resources: HybridResources,
+    resources: GpuResources,
     device: wgpu::Device,
     queue: wgpu::Queue,
     texture: wgpu::Texture,
@@ -314,16 +312,16 @@ pub(crate) struct HybridRenderer {
     renderer: vello_gpu::Renderer,
     external_textures: HashMap<TextureId, wgpu::TextureView>,
     next_external_texture_id: u64,
-    target_init: HybridTargetInit<'static>,
+    target_init: GpuTargetInit<'static>,
     gpu_test_guard: Option<std::sync::MutexGuard<'static, ()>>,
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-impl HybridRenderer {
+impl GpuRenderer {
     fn new_with_settings(
         width: u16,
         height: u16,
-        settings: HybridRenderSettings,
+        settings: GpuRenderSettings,
         use_depth_buffer: bool,
     ) -> Self {
         let scene = Scene::new_with(width, height, settings.level);
@@ -386,7 +384,7 @@ impl HybridRenderer {
             renderer,
             external_textures: HashMap::new(),
             next_external_texture_id: 1,
-            target_init: HybridTargetInit::Clear(ClearSettings::default()),
+            target_init: GpuTargetInit::Clear(ClearSettings::default()),
             gpu_test_guard: None,
         }
     }
@@ -418,8 +416,8 @@ impl HybridRenderer {
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-impl Renderer for HybridRenderer {
-    type GlyphRunBackend<'a> = vello_gpu::HybridGlyphRunBackend<'a>;
+impl Renderer for GpuRenderer {
+    type GlyphRunBackend<'a> = vello_gpu::GpuGlyphRunBackend<'a>;
 
     fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         Self::new_with_depth_buffer(
@@ -441,12 +439,12 @@ impl Renderer for HybridRenderer {
         use_depth_buffer: bool,
     ) -> Self {
         if num_threads != 0 {
-            panic!("hybrid renderer doesn't support multi-threading");
+            panic!("GPU renderer doesn't support multi-threading");
         }
         if !level.is_fallback() {
-            panic!("hybrid renderer doesn't support SIMD");
+            panic!("GPU renderer doesn't support SIMD");
         }
-        let mut settings = HybridRenderSettings::default();
+        let mut settings = GpuRenderSettings::default();
         // Most of the tests are 100x100 by default, and we want to make sure that some visual
         // tests have the chance to cover more complex parts of the Vello GPU scheduler
         // (for example situations where we need to spill to a new page, etc.). Therefore,
@@ -582,7 +580,7 @@ impl Renderer for HybridRenderer {
         self.scene.reset();
     }
 
-    fn set_target_init(&mut self, target_init: HybridTargetInit<'static>) {
+    fn set_target_init(&mut self, target_init: GpuTargetInit<'static>) {
         self.target_init = target_init;
     }
 
@@ -765,9 +763,9 @@ impl Renderer for HybridRenderer {
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-pub(crate) struct HybridRenderer {
+pub(crate) struct GpuRenderer {
     scene: Scene,
-    resources: HybridResources,
+    resources: GpuResources,
     renderer: vello_gpu::WebGlRenderer,
     gl: WebGl2RenderingContext,
     external_textures: vello_gpu::WebGlTextureBindings,
@@ -776,7 +774,7 @@ pub(crate) struct HybridRenderer {
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-impl HybridRenderer {
+impl GpuRenderer {
     fn upload_image(&mut self, pixmap: &Arc<Pixmap>) -> ImageId {
         self.renderer
             .upload_image(&mut self.resources, pixmap)
@@ -785,8 +783,8 @@ impl HybridRenderer {
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-impl Renderer for HybridRenderer {
-    type GlyphRunBackend<'a> = vello_gpu::HybridGlyphRunBackend<'a>;
+impl Renderer for GpuRenderer {
+    type GlyphRunBackend<'a> = vello_gpu::GpuGlyphRunBackend<'a>;
 
     fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         Self::new_with_depth_buffer(
@@ -811,14 +809,14 @@ impl Renderer for HybridRenderer {
         use web_sys::HtmlCanvasElement;
 
         if num_threads != 0 {
-            panic!("hybrid renderer doesn't support multi-threading");
+            panic!("GPU renderer doesn't support multi-threading");
         }
 
         if !level.is_fallback() {
-            panic!("hybrid renderer doesn't support SIMD");
+            panic!("GPU renderer doesn't support SIMD");
         }
 
-        let mut settings = HybridRenderSettings::default();
+        let mut settings = GpuRenderSettings::default();
         // See the comment above for why we change the `min_texture_size`.
         settings.memory_settings.layers_config.min_texture_size = vello_gpu::SizeU16::new(100);
         let scene = Scene::new_with(width, height, settings.level);
@@ -977,10 +975,10 @@ impl Renderer for HybridRenderer {
         self.scene.reset();
     }
 
-    fn set_target_init(&mut self, target_init: HybridTargetInit<'static>) {
+    fn set_target_init(&mut self, target_init: GpuTargetInit<'static>) {
         self.clear_color = match target_init {
-            HybridTargetInit::Clear(ClearSettings::Viewport { color }) => color,
-            HybridTargetInit::SrcOver | HybridTargetInit::Clear(ClearSettings::Rects { .. }) => {
+            GpuTargetInit::Clear(ClearSettings::Viewport { color }) => color,
+            GpuTargetInit::SrcOver | GpuTargetInit::Clear(ClearSettings::Rects { .. }) => {
                 panic!("WebGL only supports clearing the complete viewport")
             }
         };

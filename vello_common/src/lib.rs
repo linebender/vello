@@ -98,7 +98,7 @@ pub use peniko::color;
 pub use peniko::kurbo;
 pub use target::TargetInit;
 
-/// Public API types re-exported by Vello CPU and Vello Hybrid.
+/// Public API types re-exported by Vello CPU and Vello GPU.
 #[doc(hidden)]
 pub mod reexports {
     mod shared {
@@ -119,8 +119,8 @@ pub mod reexports {
         pub use crate::pixmap::PixmapMut;
     }
 
-    /// Public API types specific to Vello Hybrid.
-    pub mod hybrid {
+    /// Public API types specific to Vello GPU.
+    pub mod gpu {
         pub use super::shared::*;
         pub use crate::TextureId;
         pub use crate::geometry::{RectU16, SizeU16};

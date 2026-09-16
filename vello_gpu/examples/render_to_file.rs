@@ -4,7 +4,7 @@
 //! SVG rendering example for headless rendering
 //!
 //! This example demonstrates rendering an SVG file without a window or display.
-//! It takes an input SVG file and renders it to a PNG file using the hybrid CPU/GPU renderer.
+//! It takes an input SVG file and renders it to a PNG file using the GPU renderer.
 
 use std::io::BufWriter;
 use vello_common::kurbo::{Affine, Stroke};
@@ -18,7 +18,7 @@ use vello_gpu::{DimensionConstraints, Scene};
 /// - Input SVG filename to render
 /// - Output PNG filename to save the rendered result
 ///
-/// Renders the SVG using the hybrid CPU/GPU renderer and saves the output as a PNG file.
+/// Renders the SVG using the GPU renderer and saves the output as a PNG file.
 fn main() {
     pollster::block_on(run());
 }

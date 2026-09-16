@@ -25,7 +25,7 @@ use vello_common::paint::ImageId;
 /// Uses `foldhash::fast::FixedState` instead of the default random-seeded hasher
 /// so that iteration order is identical across processes. This ensures that LRU
 /// eviction deallocates atlas regions in a deterministic order, producing
-/// reproducible atlas packing regardless of which binary (CPU / hybrid) runs.
+/// reproducible atlas packing regardless of which binary (CPU / GPU) runs.
 type FixedHashMap<K, V> = HashMap<K, V, FixedState>;
 
 /// Fixed seed for deterministic hashing across all glyph cache maps.
@@ -39,13 +39,13 @@ const EMPTY_VAR_MAP: FixedHashMap<VarKey, FixedHashMap<GlyphCacheKey, GlyphCache
 
 /// Padding in pixels added to each side of a glyph to prevent texture bleeding.
 ///
-/// The hybrid (GPU) renderer samples atlas sub-images via `Extend::Pad`, which
+/// The GPU renderer samples atlas sub-images via `Extend::Pad`, which
 /// clamps out-of-bounds coordinates to the edge texel. Without at least 1px of
 /// transparent padding, strip-rasteriser overshoot at glyph boundaries would
 /// either duplicate the edge row/column or bleed in content from a neighbouring
 /// glyph allocation. 1px is sufficient: the overshoot is sub-pixel, and the
 /// transparent padding absorbs it. This padding also enables a future switch to
-/// native bilinear sampling in the hybrid renderer.
+/// native bilinear sampling in the GPU renderer.
 pub const GLYPH_PADDING: u16 = 1;
 
 /// Configuration for glyph cache behavior.
