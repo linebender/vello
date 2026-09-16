@@ -104,6 +104,9 @@ const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(G
 /// First texture unit from which the strip program samples external textures.
 const EXTERNAL_TEXTURE_UNIT_START: u32 = 4;
 
+/// Depth precision required to preserve painter order during opaque-strip rendering.
+const REQUIRED_DEPTH_BITS: u32 = 24;
+
 /// Query the WebGL context for the max texture size.
 fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> Result<u32, WebGlError> {
     Ok(gl
@@ -399,9 +402,12 @@ impl WebGlRenderer {
                 .as_f64()
                 .unwrap() as u32;
 
-            if actual_bits < 24 {
+            if actual_bits < REQUIRED_DEPTH_BITS {
                 return Err(WebGlError::IncompatibleContext(
-                    IncompatibleContextReason::InsufficientDepthBuffer,
+                    IncompatibleContextReason::InsufficientDepthBuffer {
+                        actual_bits,
+                        required_bits: REQUIRED_DEPTH_BITS,
+                    },
                 ));
             }
         }
