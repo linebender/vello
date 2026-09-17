@@ -591,6 +591,48 @@ jobs:
       - name: cargo check
         run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features std,u8_pipeline,f32_pipeline
 
+  notify-scheduled-failure:
+    name: notify scheduled CI failure
+    if: >-
+      ${{
+        always() &&
+        (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+        (
+          contains(needs.*.result, 'failure') ||
+          contains(needs.*.result, 'cancelled') ||
+          contains(needs.*.result, 'skipped')
+        )
+      }}
+    needs:
+      - prime-lfs-cache
+      - clippy-stable
+      - test-avx512
+      - check-stable-android
+      - check-msrv
+      - check-msrv-wasm
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Send Zulip message
+        uses: zulip/github-actions-zulip/send-message@e4c8f27c732ba9bd98ac6be0583096dea82feea5 # v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ${{ vars.ZULIP_BOT_EMAIL }}
+          organization-url: https://xi.zulipchat.com
+          type: stream
+          to: vello
+          topic: CI failures
+          content: |
+            The scheduled or manually triggered [Vello CI run failed](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+            - LFS cache: `${{ needs.prime-lfs-cache.result }}`
+            - Stable Clippy: `${{ needs.clippy-stable.result }}`
+            - AVX-512 tests: `${{ needs.test-avx512.result }}`
+            - Android check: `${{ needs.check-stable-android.result }}`
+            - Native MSRV: `${{ needs.check-msrv.result }}`
+            - Wasm MSRV: `${{ needs.check-msrv-wasm.result }}`
+
   doc:
     name: cargo doc
     if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
