@@ -25,7 +25,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
-use vello_common::clip::ClipContext;
+use vello_common::clip::{ClipContext, ClipShape};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter::FilterData;
@@ -266,9 +266,10 @@ impl MultiThreadedDispatcher {
             std::mem::replace(&mut self.allocation_group, self.allocations.get());
         let task_sender = self.task_sender.as_mut().unwrap();
         let clip_path = self.clip_context.get().map(|c| OwnedClip {
-            strips: c.strips.into(),
-            alphas: c.alphas.into(),
-            bbox: c.bbox,
+            strips: c.path.strips.into(),
+            alphas: c.path.alphas.into(),
+            bbox: c.path.bbox,
+            shape: c.shape,
         });
         let task = RenderTask {
             idx: task_idx,
@@ -732,11 +733,12 @@ impl Drop for MultiThreadedDispatcher {
 pub(crate) struct OwnedClip {
     strips: Box<[Strip]>,
     alphas: Box<[u8]>,
-
     /// A coarse bounding box of the clip path in pixel coordinates.
     ///
     /// These bounds have already been intersected with the viewport.
     bbox: RectU16,
+    /// The known geometric shape of this clip.
+    shape: ClipShape,
 }
 
 /// A structure that allows storing and fetching existing allocations.

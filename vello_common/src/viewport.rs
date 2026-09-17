@@ -3,7 +3,7 @@
 
 //! Shared viewport state.
 
-use crate::clip::{ClipState, PathDataRef};
+use crate::clip::{ClipRef, ClipState};
 use crate::filter::FilterData;
 use crate::kurbo::{Affine, BezPath, Rect};
 use crate::strip_generator::StripGenerator;
@@ -42,8 +42,8 @@ impl ViewportState {
         self.strip_generator.height()
     }
 
-    /// Return the current clip path.
-    pub fn clip(&self) -> Option<PathDataRef<'_>> {
+    /// Return the current clip path and its known shape.
+    pub fn clip(&self) -> Option<ClipRef<'_>> {
         self.clip_state.get()
     }
 
@@ -55,7 +55,7 @@ impl ViewportState {
     /// Use the active strip generator together with the current clip.
     pub fn with_generator_and_clip<R>(
         &mut self,
-        f: impl FnOnce(&mut StripGenerator, Option<PathDataRef<'_>>) -> R,
+        f: impl FnOnce(&mut StripGenerator, Option<ClipRef<'_>>) -> R,
     ) -> R {
         let clip = self.clip_state.get();
 

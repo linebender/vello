@@ -308,7 +308,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                     transform,
                     aliasing_threshold,
                     strip_storage,
-                    clip_path,
+                    clip_path.map(|clip| clip.path),
                 );
             });
         self.record_fill(strip_start, paint, blend_mode, mask);
@@ -334,7 +334,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                     transform,
                     aliasing_threshold,
                     strip_storage,
-                    clip_path,
+                    clip_path.map(|clip| clip.path),
                 );
             });
         self.record_fill(strip_start, paint, blend_mode, mask);
@@ -382,7 +382,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                         clip_transform,
                         aliasing_threshold,
                         strip_storage,
-                        existing_clip,
+                        existing_clip.map(|clip| clip.path),
                     );
 
                     let strip_range = strip_start..strip_storage.strips.len();

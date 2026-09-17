@@ -3,7 +3,7 @@
 
 //! Abstraction for generating strips from paths.
 
-use crate::clip::{PathDataRef, intersect};
+use crate::clip::{ClipRef, ClipShape, PathDataRef, intersect};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::geometry::RectU16;
@@ -209,33 +209,51 @@ impl StripGenerator {
         &mut self,
         rect: &Rect,
         strip_storage: &mut StripStorage,
-        clip_path: Option<PathDataRef<'_>>,
-    ) {
+        clip_path: Option<ClipRef<'_>>,
+    ) -> ClipShape {
         let viewport = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
-        let clip_bbox = clip_path
-            .map(|clip| {
+        let rect = rect.abs();
+        let (clamped, complex_clip, shape) = match clip_path {
+            None => {
+                let clamped = rect.intersect(viewport);
+                (clamped, None, ClipShape::AxisAlignedRect(clamped))
+            }
+            Some(ClipRef {
+                shape: ClipShape::AxisAlignedRect(clip_rect),
+                ..
+            }) => {
+                let clamped = rect.intersect(clip_rect);
+                (clamped, None, ClipShape::AxisAlignedRect(clamped))
+            }
+            Some(ClipRef {
+                path,
+                shape: ClipShape::Path,
+            }) => {
                 // Clip bbox is always guaranteed to be within viewport bounds, so no need to
                 // intersect again.
-                Rect::new(
-                    f64::from(clip.bbox.x0),
-                    f64::from(clip.bbox.y0),
-                    f64::from(clip.bbox.x1),
-                    f64::from(clip.bbox.y1),
-                )
-            })
-            .unwrap_or(viewport);
-        let clamped = rect.abs().intersect(clip_bbox);
+                let bbox = path.bbox;
+                let clip_bbox = Rect::new(
+                    f64::from(bbox.x0),
+                    f64::from(bbox.y0),
+                    f64::from(bbox.x1),
+                    f64::from(bbox.y1),
+                );
+                (rect.intersect(clip_bbox), Some(path), ClipShape::Path)
+            }
+        };
 
         let level = self.level;
         render_with_clip(
             level,
             &mut self.temp_storage,
             strip_storage,
-            clip_path,
+            complex_clip,
             |strips, alphas| {
                 rect::render(level, clamped, strips, alphas);
             },
         );
+
+        shape
     }
 
     /// Reset the strip generator for a viewport size, resizing only when needed.
