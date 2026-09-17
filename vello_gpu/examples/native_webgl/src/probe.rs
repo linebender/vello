@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use vello_common::probe::{ALL_PROBE_ELEMENTS, Probe};
-use vello_gpu::{WebGlPendingProbe, WebGlProbeStatus, WebGlRenderer};
+use vello_gpu::{WebGlPendingProbe, WebGlProbeReport, WebGlProbeStatus, WebGlRenderer};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlElement;
 
@@ -129,7 +129,24 @@ impl ProbeIndicator {
                 ));
                 self.pending = Some(pending);
             }
-            Ok(WebGlProbeStatus::Complete(Probe::Success)) => {
+            Ok(WebGlProbeStatus::Complete(report)) => self.show_report(report),
+            Err(error) => {
+                self.show_failure(
+                    &format!(
+                        "Probe readback failed after {} {}: {error}",
+                        self.poll_count,
+                        poll_count_label(self.poll_count),
+                    ),
+                    "The browser could not read the rendered probe back from the GPU.",
+                );
+            }
+        }
+    }
+
+    fn show_report(&self, report: WebGlProbeReport) {
+        let poll_count = report.poll_count;
+        match report.outcome {
+            Probe::Success => {
                 self.container
                     .style()
                     .set_property("border-color", "rgba(34, 197, 94, 0.75)")
@@ -141,14 +158,14 @@ impl ProbeIndicator {
                 self.message.set_inner_text(&format!(
                     "Passed all {} rendering checks after {} {}",
                     ALL_PROBE_ELEMENTS.len(),
-                    self.poll_count,
-                    poll_count_label(self.poll_count),
+                    poll_count,
+                    poll_count_label(poll_count),
                 ));
                 self.container
                     .set_attribute("title", "The rendered probe matched its reference output.")
                     .unwrap();
             }
-            Ok(WebGlProbeStatus::Complete(Probe::Error(result))) => {
+            Probe::Error(result) => {
                 let failed_checks = result
                     .statistics
                     .iter()
@@ -163,30 +180,20 @@ impl ProbeIndicator {
                     &format!(
                         "{failed_checks}/{} checks failed after {} {} · {different_pixels} pixels differ",
                         ALL_PROBE_ELEMENTS.len(),
-                        self.poll_count,
-                        poll_count_label(self.poll_count),
+                        poll_count,
+                        poll_count_label(poll_count),
                     ),
                     &format!("Probe differences: {:?}", result.statistics),
                 );
             }
-            Ok(WebGlProbeStatus::Complete(Probe::RenderError(error))) => {
+            Probe::RenderError(error) => {
                 self.show_failure(
                     &format!(
                         "Probe rendering failed after {} {}: {error}",
-                        self.poll_count,
-                        poll_count_label(self.poll_count),
+                        poll_count,
+                        poll_count_label(poll_count),
                     ),
                     "The renderer returned an error while drawing the probe.",
-                );
-            }
-            Err(error) => {
-                self.show_failure(
-                    &format!(
-                        "Probe readback failed after {} {}: {error}",
-                        self.poll_count,
-                        poll_count_label(self.poll_count),
-                    ),
-                    "The browser could not read the rendered probe back from the GPU.",
                 );
             }
         }

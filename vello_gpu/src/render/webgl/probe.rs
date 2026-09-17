@@ -4,12 +4,12 @@
 use crate::render::webgl::resource::{Buffer, Framebuffer, Renderbuffer, SyncFence};
 use crate::render::webgl::{
     ViewFramebuffer, WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlTextureBindings,
-    create_framebuffer_for_texture, create_texture_storage,
+    create_framebuffer_for_texture, create_texture_storage, elapsed, now_ms,
 };
 use crate::target::RootTarget;
 use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlError, WebGlRenderer};
 use alloc::{borrow::Cow, format, vec::Vec};
-use core::ops::Deref;
+use core::{ops::Deref, time::Duration};
 use thiserror::Error;
 use vello_common::TextureId;
 use vello_common::color::palette::css;
@@ -32,6 +32,85 @@ pub struct WebGlPendingProbe {
     width: u16,
     height: u16,
     elements: Vec<ProbeFeature>,
+    timing: ProbeTimingState,
+}
+
+#[derive(Debug)]
+struct ProbeTimingState {
+    probe_started_at_ms: f64,
+    commands_submitted_at_ms: f64,
+    setup_duration: Duration,
+    submission_duration: Duration,
+    poll_count: u32,
+}
+
+impl ProbeTimingState {
+    fn new(
+        probe_started_at_ms: f64,
+        setup_completed_at_ms: f64,
+        commands_submitted_at_ms: f64,
+    ) -> Self {
+        Self {
+            probe_started_at_ms,
+            commands_submitted_at_ms,
+            setup_duration: elapsed(probe_started_at_ms, setup_completed_at_ms),
+            submission_duration: elapsed(setup_completed_at_ms, commands_submitted_at_ms),
+            poll_count: 0,
+        }
+    }
+
+    fn record_poll(&mut self) {
+        self.poll_count = self.poll_count.saturating_add(1);
+    }
+
+    fn finish(
+        &self,
+        fence_signal_observed_at_ms: f64,
+        readback_duration: Duration,
+        probe_result_produced_at_ms: f64,
+    ) -> WebGlProbeTimings {
+        WebGlProbeTimings {
+            setup: self.setup_duration,
+            submission: self.submission_duration,
+            completion_latency: elapsed(self.commands_submitted_at_ms, fence_signal_observed_at_ms),
+            readback: readback_duration,
+            total: elapsed(self.probe_started_at_ms, probe_result_produced_at_ms),
+        }
+    }
+}
+
+/// Completed WebGL probe output.
+#[derive(Debug)]
+pub struct WebGlProbeReport {
+    /// Whether the rendered probe matched the reference image.
+    pub outcome: Probe<RenderError>,
+    /// Time spent in each phase of the probe.
+    pub timings: WebGlProbeTimings,
+    /// Number of calls to [`WebGlPendingProbe::try_finish`] before completion.
+    pub poll_count: u32,
+}
+
+impl WebGlProbeReport {
+    /// Returns `true` when the probe matched the bundled reference image.
+    pub fn is_success(&self) -> bool {
+        self.outcome.is_success()
+    }
+}
+
+/// Time spent in each phase of a WebGL probe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WebGlProbeTimings {
+    /// CPU time spent allocating resources, uploading the probe image, and building the scene.
+    pub setup: Duration,
+    /// CPU time spent encoding the render, queuing the pixel readback, and flushing WebGL commands.
+    pub submission: Duration,
+    /// Time from submitting the probe until its fence was first observed as signaled.
+    pub completion_latency: Duration,
+    /// CPU time spent reading the completed pixel buffer back, copying it into WASM memory, and
+    /// flipping it vertically.
+    pub readback: Duration,
+    /// Wall-clock time from starting the probe until its result was produced.
+    pub total: Duration,
 }
 
 /// Error returned while running a WebGL probe.
@@ -54,7 +133,7 @@ pub enum WebGlProbeStatus {
     /// The probe is still pending.
     Pending(WebGlPendingProbe),
     /// The probe has finished and the result is available.
-    Complete(Probe<RenderError>),
+    Complete(WebGlProbeReport),
 }
 
 impl WebGlRenderer {
@@ -84,6 +163,7 @@ impl WebGlRenderer {
     }
 
     fn probe_inner(&mut self, elements: &[ProbeFeature]) -> Result<WebGlPendingProbe, WebGlError> {
+        let probe_started_at_ms = now_ms();
         // Whenever making changes here, make sure to unignore the `webgl_probe_succeeds_` and
         // run them locally!
         let (width, height) = vello_common::probe::canvas_size(elements);
@@ -160,6 +240,7 @@ impl WebGlRenderer {
             ),
             elements,
         );
+        let setup_completed_at_ms = now_ms();
 
         let previous_view_framebuffer = core::mem::replace(
             &mut self.programs.resources.view_framebuffer,
@@ -184,7 +265,15 @@ impl WebGlRenderer {
         // Propagate render failures only after restoring the previous framebuffer.
         render_result?;
 
-        let pending = launch_probe(&self.gl, &probe_framebuffer, width, height, elements)?;
+        let pending = launch_probe(
+            &self.gl,
+            &probe_framebuffer,
+            width,
+            height,
+            elements,
+            probe_started_at_ms,
+            setup_completed_at_ms,
+        )?;
 
         Ok(pending)
     }
@@ -198,6 +287,8 @@ impl WebGlPendingProbe {
     /// which can be checked again in the future. Otherwise, the probe result or an error will be
     /// returned.
     pub fn try_finish(mut self) -> Result<WebGlProbeStatus, WebGlProbeError> {
+        self.timing.record_poll();
+
         let status = self.gl.client_wait_sync_with_u32(&self.sync, 0, 0);
 
         if status == WebGl2RenderingContext::TIMEOUT_EXPIRED {
@@ -207,13 +298,24 @@ impl WebGlPendingProbe {
         if status == WebGl2RenderingContext::ALREADY_SIGNALED
             || status == WebGl2RenderingContext::CONDITION_SATISFIED
         {
-            Ok(WebGlProbeStatus::Complete(self.finish_success()))
+            let fence_signal_observed_at_ms = now_ms();
+            let (outcome, readback_duration, probe_result_produced_at_ms) = self.finish_success();
+            Ok(WebGlProbeStatus::Complete(WebGlProbeReport {
+                outcome,
+                timings: self.timing.finish(
+                    fence_signal_observed_at_ms,
+                    readback_duration,
+                    probe_result_produced_at_ms,
+                ),
+                poll_count: self.timing.poll_count,
+            }))
         } else {
             Err(self.finish_failure())
         }
     }
 
-    fn finish_success(&mut self) -> Probe<RenderError> {
+    fn finish_success(&mut self) -> (Probe<RenderError>, Duration, f64) {
+        let readback_started_at_ms = now_ms();
         let mut pixmap = Pixmap::new(self.width, self.height);
 
         self.gl.bind_buffer(
@@ -242,7 +344,10 @@ impl WebGlPendingProbe {
             top[row * row_len..(row + 1) * row_len].swap_with_slice(&mut bottom[..row_len]);
         }
 
-        Probe::from_actual(pixmap, &self.elements)
+        let readback_duration = elapsed(readback_started_at_ms, now_ms());
+        let outcome = Probe::from_actual(pixmap, &self.elements);
+        let probe_result_produced_at_ms = now_ms();
+        (outcome, readback_duration, probe_result_produced_at_ms)
     }
 
     fn finish_failure(&self) -> WebGlProbeError {
@@ -272,6 +377,8 @@ fn launch_probe(
     width: u16,
     height: u16,
     elements: &[ProbeFeature],
+    probe_started_at_ms: f64,
+    setup_completed_at_ms: f64,
 ) -> Result<WebGlPendingProbe, WebGlError> {
     let pixel_pack_buffer = Buffer::new(gl)?;
     let byte_len = i32::from(width) * i32::from(height) * 4;
@@ -307,6 +414,7 @@ fn launch_probe(
     // proper flushing, the sync object may never be signaled."
     gl.flush();
     gl.bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, None);
+    let commands_submitted_at_ms = now_ms();
 
     Ok(WebGlPendingProbe {
         gl: gl.clone(),
@@ -315,6 +423,11 @@ fn launch_probe(
         width,
         height,
         elements: elements.to_vec(),
+        timing: ProbeTimingState::new(
+            probe_started_at_ms,
+            setup_completed_at_ms,
+            commands_submitted_at_ms,
+        ),
     })
 }
 

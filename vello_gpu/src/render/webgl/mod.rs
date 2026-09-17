@@ -68,6 +68,7 @@ use crate::{
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::time::Duration;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use hashbrown::HashMap;
@@ -156,6 +157,7 @@ pub struct WebGlRenderer {
     schedule_storage: ScheduleStorage,
     scratch_buffers: ScratchBuffers,
     layers_config: LayersConfig,
+    initialization_timings: WebGlRendererInitTimings,
 }
 
 /// WebGL renderer initialization that may still be compiling shader programs.
@@ -169,6 +171,32 @@ pub struct WebGlRendererInit {
     gl: WebGl2RenderingContext,
     gradient_cache: GradientRampCache,
     layers_config: LayersConfig,
+    timing: WebGlRendererInitTimingState,
+}
+
+#[derive(Debug)]
+struct WebGlRendererInitTimingState {
+    initialization_started_at_ms: f64,
+    setup: Duration,
+}
+
+impl WebGlRendererInitTimingState {
+    fn new(initialization_started_at_ms: f64, setup_completed_at_ms: f64) -> Self {
+        Self {
+            initialization_started_at_ms,
+            setup: elapsed(initialization_started_at_ms, setup_completed_at_ms),
+        }
+    }
+
+    fn finish(self, initialization_completed_at_ms: f64) -> WebGlRendererInitTimings {
+        WebGlRendererInitTimings {
+            setup: self.setup,
+            total: elapsed(
+                self.initialization_started_at_ms,
+                initialization_completed_at_ms,
+            ),
+        }
+    }
 }
 
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
@@ -228,7 +256,25 @@ pub struct AtlasTextureInfo {
     pub texture_count: u32,
 }
 
+/// Time spent constructing a WebGL renderer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WebGlRendererInitTimings {
+    /// Elapsed time spent synchronously setting up the renderer in
+    /// [`WebGlRenderer::begin_with`].
+    pub setup: Duration,
+    /// Elapsed time from starting [`WebGlRenderer::begin_with`] until renderer construction
+    /// completed.
+    ///
+    /// When initialization is polled asynchronously, this includes delays between polls.
+    pub total: Duration,
+}
+
 impl WebGlRenderer {
+    /// Returns the time spent constructing this renderer.
+    pub fn initialization_timings(&self) -> WebGlRendererInitTimings {
+        self.initialization_timings
+    }
+
     /// Creates a new WebGL2 renderer and its persistent resources.
     ///
     /// This blocks until shader compilation and linking finish. Use [`WebGlRenderer::begin`] when
@@ -282,6 +328,7 @@ impl WebGlRenderer {
                 "`WebGlRenderer` can only be constructed when targeting `wasm32`",
             );
         }
+        let initialization_started_at_ms = now_ms();
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         // We do our own anti-aliasing, so no need to enable it in the WebGL
@@ -411,17 +458,23 @@ impl WebGlRenderer {
             / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
         let layer_config = settings.memory_settings.layers_config;
+        let programs = PendingWebGlPrograms::new(
+            gl.clone(),
+            &resources.image_cache,
+            layer_config,
+            resource_texture_dimension_2d,
+            use_depth_buffer,
+        )?;
+        let setup_completed_at_ms = now_ms();
         let init = WebGlRendererInit {
-            programs: PendingWebGlPrograms::new(
-                gl.clone(),
-                &resources.image_cache,
-                layer_config,
-                resource_texture_dimension_2d,
-                use_depth_buffer,
-            )?,
+            programs,
             gl,
             gradient_cache,
             layers_config: layer_config,
+            timing: WebGlRendererInitTimingState::new(
+                initialization_started_at_ms,
+                setup_completed_at_ms,
+            ),
         };
 
         Ok((init, resources))
@@ -1095,19 +1148,30 @@ impl WebGlRendererInit {
     /// Prefer [`WebGlRendererInit::try_finish`] when blocking the browser's main thread is
     /// undesirable.
     pub fn finish(self) -> Result<WebGlRenderer, WebGlError> {
-        let programs = self.programs.finish(&self.gl)?;
-
-        Ok(WebGlRenderer {
+        let Self {
             programs,
-            gl: self.gl,
+            gl,
+            gradient_cache,
+            layers_config,
+            timing,
+        } = self;
+        let programs = programs.finish(&gl)?;
+
+        let mut renderer = WebGlRenderer {
+            programs,
+            gl,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
-            gradient_cache: self.gradient_cache,
+            gradient_cache,
             dummy_image_cache: Some(ImageCache::new_dummy()),
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
-            layers_config: self.layers_config,
-        })
+            layers_config,
+            initialization_timings: WebGlRendererInitTimings::default(),
+        };
+        let initialization_completed_at_ms = now_ms();
+        renderer.initialization_timings = timing.finish(initialization_completed_at_ms);
+        Ok(renderer)
     }
 }
 
@@ -3581,6 +3645,14 @@ impl DrawPassTarget {
         // Only negate if we are rendering to the main frame buffer.
         matches!(self, Self::Root(RootTarget::UserSurface))
     }
+}
+
+fn now_ms() -> f64 {
+    web_sys::window().unwrap().performance().unwrap().now()
+}
+
+fn elapsed(start_ms: f64, end_ms: f64) -> Duration {
+    Duration::from_secs_f64((end_ms - start_ms) / 1_000.0)
 }
 
 #[cfg(test)]
