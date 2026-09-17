@@ -261,17 +261,24 @@ fn cell_statistics(
             .chunks_exact(4)
             .zip(actual.data[actual_start..actual_start + row_len].chunks_exact(4))
         {
-            if expected[3] != 0 || actual[3] != 0 {
+            let differs = if expected[3] != 0 || actual[3] != 0 {
+                let mut differs = false;
                 for (max_discrepancy, (expected, actual)) in statistics
                     .max_channel_discrepancy
                     .iter_mut()
                     .zip(expected.iter().zip(actual))
                 {
-                    *max_discrepancy = (*max_discrepancy).max(expected.abs_diff(*actual));
+                    let discrepancy = expected.abs_diff(*actual);
+                    *max_discrepancy = (*max_discrepancy).max(discrepancy);
+                    differs |= discrepancy > CHANNEL_TOLERANCE;
                 }
-            }
 
-            if !pixels_within_tolerance(expected, actual, CHANNEL_TOLERANCE) {
+                differs
+            } else {
+                false
+            };
+
+            if differs {
                 statistics.different_pixel_count += 1;
             }
         }
@@ -332,17 +339,6 @@ pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource, elements: &
             &image_bilinear,
         );
     }
-}
-
-fn pixels_within_tolerance(expected: &[u8], actual: &[u8], channel_tolerance: u8) -> bool {
-    if expected[3] == 0 && actual[3] == 0 {
-        return true;
-    }
-
-    expected
-        .iter()
-        .zip(actual)
-        .all(|(expected, actual)| expected.abs_diff(*actual) <= channel_tolerance)
 }
 
 fn draw_probe_element(
