@@ -17,31 +17,34 @@ use crate::peniko::{
 use crate::pixmap::Pixmap;
 use alloc::vec::Vec;
 
-const REFERENCE_RGBA: &[u8] = include_bytes!("../assets/probe.rgba");
-
 const ELEMENTS_PER_ROW: usize = 3;
-const ELEMENT_MARGIN: f64 = 1.0;
+const CELL_SIZE: f64 = 14.0;
+const CELL_SIZE_PIXELS: u16 = CELL_SIZE as u16;
+const CELL_DATA_LEN: usize = CELL_SIZE_PIXELS as usize * CELL_SIZE_PIXELS as usize * 4;
+const CELL_MARGIN: f64 = 1.0;
 
-const RECT_SIZE: f64 = 10.0;
-const CIRCLE_RADIUS: f64 = 5.0;
+const RECT_SIZE: f64 = CELL_SIZE - CELL_MARGIN * 2.0;
+const ANTI_ALIASED_RECT_SIZE: f64 = RECT_SIZE - 1.0;
+const TRANSFORMED_RECT_SIZE: f64 = RECT_SIZE / core::f64::consts::SQRT_2;
 const CIRCLE_CENTER_OFFSET_X: f64 = 1.5;
+const CIRCLE_RADIUS: f64 = RECT_SIZE * 0.5 - CIRCLE_CENTER_OFFSET_X;
 const IMAGE_SOURCE_SIZE: f64 = 5.0;
 const PATH_TOLERANCE: f64 = 0.1;
 
-/// The active elements used in the probe.
-pub const PROBE_ELEMENTS: [ProbeFeature; 9] = [
+/// All elements available for use in a probe.
+pub const ALL_PROBE_ELEMENTS: &[ProbeFeature] = &[
     ProbeFeature::SolidRect,
     ProbeFeature::AlphaBlending,
     ProbeFeature::Gradient,
     ProbeFeature::ImageNearest,
-    // Temporarily disabled.
-    // ProbeFeature::Filter,
+    ProbeFeature::Filter,
     ProbeFeature::ImageBilinear,
     ProbeFeature::OpacityLayer,
     ProbeFeature::Blending,
     ProbeFeature::Transformed,
     ProbeFeature::DepthBuffer,
 ];
+
 /// Per-channel absolute tolerance used when comparing probe pixels.
 const CHANNEL_TOLERANCE: u8 = 3;
 
@@ -59,104 +62,46 @@ pub enum Probe<E> {
 /// Probe failure output.
 #[derive(Debug, Clone)]
 pub struct ProbeResult {
-    /// The expected probe image.
-    pub expected: ProbeImage,
-    /// The actual probe image.
+    /// The complete image produced by the renderer.
     pub actual: ProbeImage,
+    /// Comparison statistics for the individual probe cells.
+    pub statistics: Vec<CellStatistics>,
 }
 
 /// A feature exercised by the renderer probe.
-///
-/// Each discriminant is the stable bit index used by [`ProbeStatistics::difference_mask`].
-/// Existing discriminants must not be changed when features are reordered, disabled, or added.
-#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProbeFeature {
     /// Drawing a solid rectangle.
-    SolidRect = 0,
+    SolidRect,
     /// Alpha blending overlapping shapes.
-    AlphaBlending = 1,
+    AlphaBlending,
     /// Drawing a linear gradient.
-    Gradient = 2,
+    Gradient,
     /// Drawing an image with nearest-neighbor sampling.
-    ImageNearest = 3,
+    ImageNearest,
     /// Applying a filter effect.
-    Filter = 4,
+    Filter,
     /// Drawing an image with bilinear sampling.
-    ImageBilinear = 5,
+    ImageBilinear,
     /// Drawing within a layer with reduced opacity.
-    OpacityLayer = 6,
+    OpacityLayer,
     /// Drawing within a layer with a blend mode.
-    Blending = 7,
+    Blending,
     /// Drawing with a non-identity transform.
-    Transformed = 8,
+    Transformed,
     /// Layering opaque draws and a transparent foreground to exercise depth buffering.
-    DepthBuffer = 9,
+    DepthBuffer,
 }
 
-/// Summary of the differences between the expected and actual probe images.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ProbeStatistics {
-    /// Number of active features exercised by the probe.
-    pub element_count: u8,
-    /// Width and height of the actual probe image.
-    pub actual_size: (u16, u16),
+/// Summary of the differences between one expected and actual probe cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CellStatistics {
+    /// The feature exercised by the compared cell.
+    pub feature: ProbeFeature,
     /// Number of pixels whose channels differ by more than the probe tolerance.
     pub different_pixel_count: u32,
     /// Largest absolute difference between corresponding red, green, blue, and alpha channels.
     pub max_channel_discrepancy: [u8; 4],
-    /// Bitmask identifying probe features containing a pixel outside the probe tolerance.
-    ///
-    /// Bit `n` corresponds to the [`ProbeFeature`] whose discriminant is `n`.
-    pub difference_mask: u32,
-}
-
-impl ProbeStatistics {
-    /// Returns whether `feature` contained a pixel outside the probe tolerance.
-    pub fn differs(&self, feature: ProbeFeature) -> bool {
-        self.difference_mask & (1_u32 << feature as u8) != 0
-    }
-}
-
-impl ProbeResult {
-    /// Return the statistics of the probe.
-    pub fn statistics(&self) -> ProbeStatistics {
-        let layout = GridLayout::from_elements(&PROBE_ELEMENTS);
-        let mut statistics = ProbeStatistics {
-            element_count: PROBE_ELEMENTS.len() as u8,
-            actual_size: (self.actual.width, self.actual.height),
-            ..Default::default()
-        };
-
-        for (pixel_index, (expected, actual)) in self
-            .expected
-            .data
-            .chunks_exact(4)
-            .zip(self.actual.data.chunks_exact(4))
-            .enumerate()
-        {
-            if expected[3] != 0 || actual[3] != 0 {
-                for (max_discrepancy, (expected, actual)) in statistics
-                    .max_channel_discrepancy
-                    .iter_mut()
-                    .zip(expected.iter().zip(actual))
-                {
-                    *max_discrepancy = (*max_discrepancy).max(expected.abs_diff(*actual));
-                }
-            }
-
-            if !pixels_within_tolerance(expected, actual, CHANNEL_TOLERANCE) {
-                statistics.different_pixel_count += 1;
-
-                let cell_index = layout.cell_index_for_pixel(pixel_index);
-                if let Some(feature) = PROBE_ELEMENTS.get(cell_index) {
-                    statistics.difference_mask |= 1_u32 << *feature as u8;
-                }
-            }
-        }
-
-        statistics
-    }
 }
 
 /// A probe image stored as RGBA8 bytes.
@@ -178,29 +123,43 @@ impl<E> Probe<E> {
 
     /// Construct a new probe result by inspecting the provided pixmap and comparing it
     /// against the reference output.
-    pub fn from_actual(actual: Pixmap) -> Self {
-        let (width, height) = canvas_size();
-        let expected = ProbeImage {
-            width,
-            height,
-            data: REFERENCE_RGBA.to_vec(),
-        };
+    pub fn from_actual(actual: Pixmap, elements: &[ProbeFeature]) -> Self {
         let actual = ProbeImage::from_pixmap(actual);
-        let matches_reference = expected.width == actual.width
-            && expected.height == actual.height
-            && expected.data.len() == actual.data.len()
-            && expected
-                .data
-                .chunks_exact(4)
-                .zip(actual.data.chunks_exact(4))
-                .all(|(expected, actual)| {
-                    pixels_within_tolerance(expected, actual, CHANNEL_TOLERANCE)
-                });
+        let layout = GridLayout::from_elements(elements);
+        let (expected_width, expected_height) = layout.canvas_size();
+        let expected_data_len = usize::from(expected_width) * usize::from(expected_height) * 4;
+
+        if actual.width != expected_width
+            || actual.height != expected_height
+            || actual.data.len() != expected_data_len
+        {
+            return Self::Error(ProbeResult {
+                actual,
+                statistics: Vec::new(),
+            });
+        }
+
+        let statistics = elements
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, feature)| {
+                cell_statistics(
+                    &actual,
+                    layout.cell_origin(index),
+                    reference_data(feature),
+                    feature,
+                )
+            })
+            .collect::<Vec<_>>();
+        let matches_reference = statistics
+            .iter()
+            .all(|statistics| statistics.different_pixel_count == 0);
 
         if matches_reference {
             Self::Success
         } else {
-            Self::Error(ProbeResult { expected, actual })
+            Self::Error(ProbeResult { actual, statistics })
         }
     }
 }
@@ -232,91 +191,105 @@ pub trait ProbeRenderer {
 struct GridLayout {
     columns: usize,
     rows: usize,
-    cell_width: f64,
-    cell_height: f64,
 }
 
 impl GridLayout {
     fn from_elements(elements: &[ProbeFeature]) -> Self {
         let columns = ELEMENTS_PER_ROW.min(elements.len());
-        let rows = elements.len().div_ceil(columns);
-        let (cell_width, cell_height) = elements
-            .iter()
-            .copied()
-            .map(ProbeFeature::bounds)
-            .fold((0.0_f64, 0.0_f64), |(max_w, max_h), (w, h)| {
-                (max_w.max(w), max_h.max(h))
-            });
+        let rows = if columns == 0 {
+            0
+        } else {
+            elements.len().div_ceil(columns)
+        };
 
-        Self {
-            columns,
-            rows,
-            cell_width,
-            cell_height,
-        }
+        Self { columns, rows }
     }
 
     fn canvas_size(self) -> (u16, u16) {
-        let (cell_stride_x, cell_stride_y) = self.cell_stride();
-        // Margin only exists between cells, so subtract one.
-        let width = self.columns as f64 * cell_stride_x - ELEMENT_MARGIN;
-        let height = self.rows as f64 * cell_stride_y - ELEMENT_MARGIN;
+        let width = self.columns as f64 * CELL_SIZE;
+        let height = self.rows as f64 * CELL_SIZE;
         (width.ceil() as u16, height.ceil() as u16)
     }
 
-    fn cell_stride(self) -> (f64, f64) {
-        (
-            self.cell_width + ELEMENT_MARGIN,
-            self.cell_height + ELEMENT_MARGIN,
-        )
+    fn cell_rect(self, index: usize) -> Rect {
+        let (x, y) = self.cell_origin(index);
+        let x0 = x as f64;
+        let y0 = y as f64;
+        Rect::new(x0, y0, x0 + CELL_SIZE, y0 + CELL_SIZE)
     }
 
-    fn cell_rect(self, index: usize) -> Rect {
+    fn cell_origin(self, index: usize) -> (usize, usize) {
         let column = index % self.columns;
         let row = index / self.columns;
-        let (cell_stride_x, cell_stride_y) = self.cell_stride();
-        let x0 = column as f64 * cell_stride_x;
-        let y0 = row as f64 * cell_stride_y;
-        Rect::new(x0, y0, x0 + self.cell_width, y0 + self.cell_height)
-    }
-
-    fn cell_index_for_pixel(self, pixel_index: usize) -> usize {
-        let (cell_stride_x, cell_stride_y) = self.cell_stride();
-        let image_width = usize::from(self.canvas_size().0);
-        let x = pixel_index % image_width;
-        let y = pixel_index / image_width;
-        let column = x / cell_stride_x as usize;
-        let row = y / cell_stride_y as usize;
-        row * self.columns + column
+        (column * CELL_SIZE as usize, row * CELL_SIZE as usize)
     }
 }
 
-impl ProbeFeature {
-    fn bounds(self) -> (f64, f64) {
-        let (width, height) = match self {
-            Self::SolidRect
-            | Self::Gradient
-            | Self::ImageNearest
-            | Self::ImageBilinear
-            | Self::Filter
-            | Self::OpacityLayer
-            | Self::DepthBuffer => (RECT_SIZE, RECT_SIZE),
-            Self::Transformed => (
-                RECT_SIZE * core::f64::consts::SQRT_2,
-                RECT_SIZE * core::f64::consts::SQRT_2,
-            ),
-            Self::AlphaBlending | Self::Blending => (
-                CIRCLE_RADIUS * 2.0 + CIRCLE_CENTER_OFFSET_X * 2.0,
-                CIRCLE_RADIUS * 2.0,
-            ),
-        };
-        (width + ELEMENT_MARGIN * 2.0, height + ELEMENT_MARGIN * 2.0)
+fn reference_data(feature: ProbeFeature) -> &'static [u8; CELL_DATA_LEN] {
+    match feature {
+        ProbeFeature::SolidRect => include_bytes!("../assets/probe_solid_rect.rgba"),
+        ProbeFeature::AlphaBlending => include_bytes!("../assets/probe_alpha_blending.rgba"),
+        ProbeFeature::Gradient => include_bytes!("../assets/probe_gradient.rgba"),
+        ProbeFeature::ImageNearest => include_bytes!("../assets/probe_image_nearest.rgba"),
+        ProbeFeature::Filter => include_bytes!("../assets/probe_filter.rgba"),
+        ProbeFeature::ImageBilinear => include_bytes!("../assets/probe_image_bilinear.rgba"),
+        ProbeFeature::OpacityLayer => include_bytes!("../assets/probe_opacity_layer.rgba"),
+        ProbeFeature::Blending => include_bytes!("../assets/probe_blending.rgba"),
+        ProbeFeature::Transformed => include_bytes!("../assets/probe_transformed.rgba"),
+        ProbeFeature::DepthBuffer => include_bytes!("../assets/probe_depth_buffer.rgba"),
     }
 }
 
-/// Return the canvas size of the shared probe scene.
-pub fn canvas_size() -> (u16, u16) {
-    GridLayout::from_elements(&PROBE_ELEMENTS).canvas_size()
+fn cell_statistics(
+    actual: &ProbeImage,
+    actual_origin: (usize, usize),
+    expected: &[u8],
+    feature: ProbeFeature,
+) -> CellStatistics {
+    let mut statistics = CellStatistics {
+        feature,
+        different_pixel_count: 0,
+        max_channel_discrepancy: [0; 4],
+    };
+    let actual_width = usize::from(actual.width);
+    let row_len = usize::from(CELL_SIZE_PIXELS) * 4;
+
+    for row in 0..usize::from(CELL_SIZE_PIXELS) {
+        let actual_start = ((actual_origin.1 + row) * actual_width + actual_origin.0) * 4;
+        let expected_start = row * row_len;
+        for (expected, actual) in expected[expected_start..expected_start + row_len]
+            .chunks_exact(4)
+            .zip(actual.data[actual_start..actual_start + row_len].chunks_exact(4))
+        {
+            let differs = if expected[3] != 0 || actual[3] != 0 {
+                let mut differs = false;
+                for (max_discrepancy, (expected, actual)) in statistics
+                    .max_channel_discrepancy
+                    .iter_mut()
+                    .zip(expected.iter().zip(actual))
+                {
+                    let discrepancy = expected.abs_diff(*actual);
+                    *max_discrepancy = (*max_discrepancy).max(discrepancy);
+                    differs |= discrepancy > CHANNEL_TOLERANCE;
+                }
+
+                differs
+            } else {
+                false
+            };
+
+            if differs {
+                statistics.different_pixel_count += 1;
+            }
+        }
+    }
+
+    statistics
+}
+
+/// Return the canvas size needed to draw `elements`.
+pub fn canvas_size(elements: &[ProbeFeature]) -> (u16, u16) {
+    GridLayout::from_elements(elements).canvas_size()
 }
 
 /// Return the pixmap that is referenced when drawing images in the scene.
@@ -350,14 +323,14 @@ fn image_paint(image: ImageSource, quality: ImageQuality) -> PaintType {
     .into()
 }
 
-/// Draw the full shared probe scene into a rendering context.
-pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource) {
-    let layout = GridLayout::from_elements(&PROBE_ELEMENTS);
+/// Draw `elements` into a rendering context.
+pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource, elements: &[ProbeFeature]) {
+    let layout = GridLayout::from_elements(elements);
     let image_nearest = image_paint(image.clone(), ImageQuality::Low);
     let image_bilinear = image_paint(image, ImageQuality::Medium);
     ctx.set_transform(Affine::IDENTITY);
 
-    for (index, element) in PROBE_ELEMENTS.iter().copied().enumerate() {
+    for (index, element) in elements.iter().copied().enumerate() {
         draw_probe_element(
             ctx,
             layout.cell_rect(index),
@@ -366,17 +339,6 @@ pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource) {
             &image_bilinear,
         );
     }
-}
-
-fn pixels_within_tolerance(expected: &[u8], actual: &[u8], channel_tolerance: u8) -> bool {
-    if expected[3] == 0 && actual[3] == 0 {
-        return true;
-    }
-
-    expected
-        .iter()
-        .zip(actual)
-        .all(|(expected, actual)| expected.abs_diff(*actual) <= channel_tolerance)
 }
 
 fn draw_probe_element(
@@ -389,10 +351,17 @@ fn draw_probe_element(
     match element {
         ProbeFeature::SolidRect => {
             ctx.set_paint(css::BLUE.into());
-            ctx.fill_rect(&centered_rect(cell, RECT_SIZE, RECT_SIZE));
+            ctx.fill_rect(&centered_rect(
+                cell,
+                ANTI_ALIASED_RECT_SIZE,
+                ANTI_ALIASED_RECT_SIZE,
+            ));
         }
         ProbeFeature::Transformed => {
-            draw_transformed_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE));
+            draw_transformed_rect(
+                ctx,
+                centered_rect(cell, TRANSFORMED_RECT_SIZE, TRANSFORMED_RECT_SIZE),
+            );
         }
         ProbeFeature::AlphaBlending => {
             let center = cell.center();
@@ -413,7 +382,9 @@ fn draw_probe_element(
             ctx.fill_rect(&rect);
         }
         ProbeFeature::ImageNearest => draw_centered_padded_image(ctx, cell, image_nearest),
-        ProbeFeature::Filter => draw_blurred_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE)),
+        ProbeFeature::Filter => {
+            draw_blurred_rect(ctx, centered_rect(cell, 10.0, 10.0));
+        }
         ProbeFeature::ImageBilinear => draw_centered_padded_image(ctx, cell, image_bilinear),
         ProbeFeature::OpacityLayer => {
             draw_opacity_layer_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE));
@@ -457,7 +428,6 @@ fn draw_transformed_rect(ctx: &mut impl ProbeRenderer, rect: Rect) {
     ctx.set_transform(Affine::IDENTITY);
 }
 
-#[allow(dead_code, reason = "Will be re-enabled in the future.")]
 fn draw_blurred_rect(ctx: &mut impl ProbeRenderer, rect: Rect) {
     let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 0.5,
@@ -487,11 +457,11 @@ fn draw_depth_buffer_rects(ctx: &mut impl ProbeRenderer, cell: Rect) {
             center.y + half_size,
         )
     };
-    let blue_rect = rect(5.0);
-    let red_rect = rect(4.0);
-    let pink_rect = rect(3.0);
-    let yellow_rect = rect(2.0);
-    let green_rect = rect(1.0);
+    let blue_rect = rect(RECT_SIZE * 0.5);
+    let red_rect = rect(RECT_SIZE * 0.5 - 1.0);
+    let pink_rect = rect(RECT_SIZE * 0.5 - 2.0);
+    let yellow_rect = rect(RECT_SIZE * 0.5 - 3.0);
+    let green_rect = rect(RECT_SIZE * 0.5 - 4.0);
 
     ctx.set_paint(css::BLUE.into());
     ctx.fill_rect(&blue_rect);
@@ -553,67 +523,42 @@ fn linear_gradient(rect: &Rect) -> Gradient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec;
 
     #[test]
-    fn probe_result_reports_pixel_and_cell_differences() {
-        let (width, height) = canvas_size();
-        let pixel_count = usize::from(width) * usize::from(height);
-        let expected = ProbeImage {
-            width,
-            height,
-            data: vec![255; pixel_count * 4],
-        };
-        let mut actual = expected.clone();
-        let layout = GridLayout::from_elements(&PROBE_ELEMENTS);
-
-        let set_channel = |actual: &mut ProbeImage, cell_index: usize, channel: usize, value| {
-            let center = layout.cell_rect(cell_index).center();
-            let x = center.x.floor() as usize;
-            let y = center.y.floor() as usize;
-            actual.data[(y * usize::from(width) + x) * 4 + channel] = value;
+    fn cell_statistics_report_pixel_differences() {
+        let expected = alloc::vec![255; CELL_DATA_LEN];
+        let mut actual = ProbeImage {
+            width: CELL_SIZE_PIXELS,
+            height: CELL_SIZE_PIXELS,
+            data: expected.clone(),
         };
 
         // This stays within the probe tolerance.
-        set_channel(&mut actual, 0, 0, 254);
+        actual.data[0] = 254;
 
-        set_channel(&mut actual, 1, 0, 249);
-        set_channel(&mut actual, 5, 1, 0);
-        set_channel(&mut actual, 5, 3, 100);
+        actual.data[4] = 249;
+        actual.data[9] = 0;
+        actual.data[11] = 100;
 
-        let result = ProbeResult { expected, actual };
-        let statistics = result.statistics();
+        let statistics = cell_statistics(&actual, (0, 0), &expected, ProbeFeature::SolidRect);
         assert_eq!(
             statistics,
-            ProbeStatistics {
-                element_count: PROBE_ELEMENTS.len() as u8,
-                actual_size: (width, height),
+            CellStatistics {
+                feature: ProbeFeature::SolidRect,
                 different_pixel_count: 2,
                 max_channel_discrepancy: [6, 255, 0, 155],
-                difference_mask: (1 << 1) | (1 << 6),
             }
         );
-        assert!(statistics.differs(ProbeFeature::AlphaBlending));
-        assert!(statistics.differs(ProbeFeature::OpacityLayer));
-        assert!(!statistics.differs(ProbeFeature::Filter));
-        assert!(!statistics.differs(ProbeFeature::ImageBilinear));
     }
 
     #[test]
-    fn probe_statistics_reports_actual_size() {
-        let result = ProbeResult {
-            expected: ProbeImage {
-                width: 1,
-                height: 1,
-                data: vec![0; 4],
-            },
-            actual: ProbeImage {
-                width: 2,
-                height: 1,
-                data: vec![0; 8],
-            },
+    fn unexpected_probe_size_has_no_cell_results() {
+        let probe = Probe::<()>::from_actual(Pixmap::new(2, 1), &[ProbeFeature::SolidRect]);
+        let Probe::Error(result) = probe else {
+            panic!("probe with incorrect dimensions succeeded");
         };
 
-        assert_eq!(result.statistics().actual_size, (2, 1));
+        assert_eq!((result.actual.width, result.actual.height), (2, 1));
+        assert!(result.statistics.is_empty());
     }
 }

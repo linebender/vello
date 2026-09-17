@@ -16,7 +16,8 @@ use vello_common::{TextureId, geometry::RectU16, paint::ImageSource, probe};
 #[cfg(all(feature = "probe", feature = "webgl"))]
 #[test]
 fn probe_scene_uses_depth_buffer_when_enabled() {
-    let (width, height) = probe::canvas_size();
+    let elements = [probe::ProbeFeature::DepthBuffer];
+    let (width, height) = probe::canvas_size(&elements);
     let mut case = SceneCase::new(width, height);
     let image = probe::probe_image_pixmap();
     probe::draw_scene(
@@ -26,9 +27,10 @@ fn probe_scene_uses_depth_buffer_when_enabled() {
             RectU16::new(0, 0, image.width(), image.height()),
             image.may_have_transparency(),
         ),
+        &elements,
     );
 
-    assert_eq!(case.schedule_root(true).opaque_x().len(), 4);
+    assert_eq!(case.schedule_root(true).opaque_x().len(), 3);
     assert!(case.schedule_root(false).opaque_x().is_empty());
 }
 
