@@ -1170,7 +1170,10 @@ mod tests {
     use crate::paint::{Image, ImageId, ImageSource, Tint, TintMode};
     use crate::peniko::{ColorStop, ColorStops};
     use alloc::vec;
-    use peniko::{Color, ImageSampler, LinearGradientPosition, RadialGradientPosition};
+    use peniko::{
+        Color, ImageSampler, InterpolationAlphaSpace, LinearGradientPosition,
+        RadialGradientPosition,
+    };
     use smallvec::smallvec;
 
     #[test]
@@ -1190,6 +1193,44 @@ mod tests {
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
             BLACK.into()
         );
+    }
+
+    #[test]
+    fn gradient_cache_key_includes_interpolation_alpha_space() {
+        let mut paints = vec![];
+        let premultiplied = Gradient {
+            kind: LinearGradientPosition {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(20.0, 0.0),
+            }
+            .into(),
+            stops: ColorStops(smallvec![
+                ColorStop {
+                    offset: 0.0,
+                    color: Color::new([0.2, 0.4, 0.6, 0.5]).into(),
+                },
+                ColorStop {
+                    offset: 1.0,
+                    color: Color::new([0.8, 0.6, 0.4, 1.0]).into(),
+                },
+            ]),
+            interpolation_alpha_space: InterpolationAlphaSpace::Premultiplied,
+            ..Default::default()
+        };
+        let mut unpremultiplied = premultiplied.clone();
+        unpremultiplied.interpolation_alpha_space = InterpolationAlphaSpace::Unpremultiplied;
+
+        premultiplied.encode_into(&mut paints, Affine::IDENTITY, None);
+        unpremultiplied.encode_into(&mut paints, Affine::IDENTITY, None);
+
+        let [
+            EncodedPaint::Gradient(premultiplied),
+            EncodedPaint::Gradient(unpremultiplied),
+        ] = paints.as_slice()
+        else {
+            panic!("expected two gradient paints");
+        };
+        assert_ne!(premultiplied.cache_key, unpremultiplied.cache_key);
     }
 
     #[test]
