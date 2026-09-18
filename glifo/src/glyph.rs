@@ -23,7 +23,7 @@ use crate::kurbo::Vec2;
 use crate::kurbo::{self, Affine, BezPath, Diagonal2, Join, Line, ParamCurve as _, PathSeg, Shape};
 use crate::peniko::FontData;
 use crate::renderer::{fill_glyph, render_cached_glyph, stroke_glyph};
-use crate::util::AffineExt;
+use crate::util::{AffineExt, biased_fract, biased_round_half_up};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -422,7 +422,12 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // Therefore, we can calculate the relative paint transform for
             // the glyph by pre-concatenating it with the inverted outline transform.
             let outline_cache_key = outline_cache_enabled.then(|| {
-                let fractional_x = outline_transform.translation().x.fract() as f32;
+                // Biased split, paired with `render_outline_glyph_from_atlas`'s
+                // `biased_floor`: the subpixel bucket and the quad pixel are the
+                // two halves of one decision and must agree even when the
+                // translation carries last-ulp noise (see
+                // `util::PIXEL_DECISION_BIAS`).
+                let fractional_x = biased_fract(outline_transform.translation().x) as f32;
                 GlyphCacheKey::new(
                     font_info.id,
                     font_info.index,
@@ -1173,7 +1178,11 @@ fn calculate_outline_transform(
         .as_coeffs();
 
     if hinting_instance.is_some() {
-        final_transform[5] = final_transform[5].round();
+        // Biased half-up round (see `util::PIXEL_DECISION_BIAS`): a bare
+        // `round()` flips on the exact halves fractional scale factors
+        // produce, shifting a whole glyph run by one device pixel between
+        // two evaluations of the same baseline.
+        final_transform[5] = biased_round_half_up(final_transform[5]);
     }
 
     Affine::new(final_transform)
