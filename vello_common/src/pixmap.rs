@@ -546,7 +546,7 @@ fn rgba_to_rgb_impl<S: Simd>(simd: S, data: &mut Vec<u8>) {
 /// Premultiplies each RGBA8 pixel in `data`.
 ///
 /// Returns `true` if at least one pixel is not fully opaque.
-fn premultiply_rgba8(data: &mut [u8]) -> bool {
+pub fn premultiply_rgba8(data: &mut [u8]) -> bool {
     // Unfortunately we need to construct a custom level here and cannot use the one
     // from the Vello CPU / Vello GPU context. This does mean we are not testing
     // all possible combinations in CI, but the used intrinsics are very simple and
@@ -559,7 +559,7 @@ fn premultiply_rgba8(data: &mut [u8]) -> bool {
 /// Unpremultiplies each RGBA8 pixel in `data`.
 ///
 /// Returns `true` if at least one pixel is not fully opaque.
-fn unpremultiply_rgba8(data: &mut [u8]) -> bool {
+pub fn unpremultiply_rgba8(data: &mut [u8]) -> bool {
     let level = Level::try_detect().unwrap_or(Level::baseline());
 
     dispatch!(level, simd => unpremultiply_rgba8_impl(simd, data))
