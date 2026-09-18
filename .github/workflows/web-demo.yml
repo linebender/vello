@@ -29,27 +29,140 @@ jobs:
           # If updating, also update in research/examples/with_winit/Cargo.toml
           tool: wasm-bindgen@0.2.115
 
-      - name: build (wasm)
+      - name: build native WebGL demo (wasm)
+        run: cargo build -p native_webgl --bin native_webgl --release --target wasm32-unknown-unknown
+
+      - name: build wgpu WebGL demo (wasm)
+        run: cargo build -p wgpu_webgl --bin wgpu_webgl --release --target wasm32-unknown-unknown
+
+      - name: build research demo (wasm)
         run: cargo build -p with_winit --bin with_winit_bin --release --target wasm32-unknown-unknown
 
-      - name: package wasm
+      - name: package native WebGL demo
         run: |
           mkdir public
-          wasm-bindgen --target web --out-dir public target/wasm32-unknown-unknown/release/with_winit_bin.wasm --no-typescript
+          wasm-bindgen --target web --out-dir public target/wasm32-unknown-unknown/release/native_webgl.wasm --no-typescript
           cat << EOF > public/index.html
             <html>
-              <title>Vello Web Demo</title>
-              <meta content=no-cache http-equiv=Cache-control>
-              <meta content=-1 http-equiv=Expires>
-              <script type=module>import initSync from"/vello/with_winit_bin.js";initSync(`/vello/with_winit_bin_bg.wasm`);</script>
-              <link as=fetch crossorigin href=/vello/with_winit_bin_bg.wasm rel=preload type=application/wasm>
-              <link crossorigin href=/vello/with_winit_bin.js rel=modulepreload>
+              <head>
+                <title>Vello GPU Native WebGL Demo</title>
+                <meta charset=utf-8>
+                <meta content="width=device-width,initial-scale=1" name=viewport>
+                <meta content=no-cache http-equiv=Cache-control>
+                <meta content=-1 http-equiv=Expires>
+                <script type=module>import init from"./native_webgl.js";await init();</script>
+                <link as=fetch crossorigin href=./native_webgl_bg.wasm rel=preload type=application/wasm>
+                <link crossorigin href=./native_webgl.js rel=modulepreload>
               </head>
               <body>
+                <select aria-label="Vello demo" class="demo-selector" onchange="location.href=this.value">
+                  <option selected value=/vello/>Native WebGL</option>
+                  <option value=/vello/wgpu-webgl/>wgpu WebGL</option>
+                  <option value=/vello/research/>Research</option>
+                </select>
                 <style>
                   body {
                     margin: 0;
                     padding: 0;
+                    overflow: hidden;
+                  }
+                  .demo-selector {
+                    position: fixed;
+                    top: 12px;
+                    right: 12px;
+                    z-index: 1000;
+                    padding: 6px 10px;
+                    border: 1px solid #555;
+                    border-radius: 5px;
+                    color: white;
+                    background: rgba(0, 0, 0, 0.75);
+                  }
+                </style>
+              </body>
+            </html>
+          EOF
+
+      - name: package wgpu WebGL demo
+        run: |
+          mkdir public/wgpu-webgl
+          wasm-bindgen --target web --out-dir public/wgpu-webgl target/wasm32-unknown-unknown/release/wgpu_webgl.wasm --no-typescript
+          cat << EOF > public/wgpu-webgl/index.html
+            <html>
+              <head>
+                <title>Vello GPU wgpu WebGL Demo</title>
+                <meta charset=utf-8>
+                <meta content="width=device-width,initial-scale=1" name=viewport>
+                <meta content=no-cache http-equiv=Cache-control>
+                <meta content=-1 http-equiv=Expires>
+                <script type=module>import init from"./wgpu_webgl.js";await init();</script>
+                <link as=fetch crossorigin href=./wgpu_webgl_bg.wasm rel=preload type=application/wasm>
+                <link crossorigin href=./wgpu_webgl.js rel=modulepreload>
+              </head>
+              <body>
+                <select aria-label="Vello demo" class="demo-selector" onchange="location.href=this.value">
+                  <option value=/vello/>Native WebGL</option>
+                  <option selected value=/vello/wgpu-webgl/>wgpu WebGL</option>
+                  <option value=/vello/research/>Research</option>
+                </select>
+                <style>
+                  body {
+                    margin: 0;
+                    padding: 0;
+                    overflow: hidden;
+                  }
+                  .demo-selector {
+                    position: fixed;
+                    top: 12px;
+                    right: 12px;
+                    z-index: 1000;
+                    padding: 6px 10px;
+                    border: 1px solid #555;
+                    border-radius: 5px;
+                    color: white;
+                    background: rgba(0, 0, 0, 0.75);
+                  }
+                </style>
+              </body>
+            </html>
+          EOF
+
+      - name: package research demo
+        run: |
+          mkdir public/research
+          wasm-bindgen --target web --out-dir public/research target/wasm32-unknown-unknown/release/with_winit_bin.wasm --no-typescript
+          cat << EOF > public/research/index.html
+            <html>
+              <head>
+                <title>Vello Research Web Demo</title>
+                <meta charset=utf-8>
+                <meta content="width=device-width,initial-scale=1" name=viewport>
+                <meta content=no-cache http-equiv=Cache-control>
+                <meta content=-1 http-equiv=Expires>
+                <script type=module>import init from"./with_winit_bin.js";await init();</script>
+                <link as=fetch crossorigin href=./with_winit_bin_bg.wasm rel=preload type=application/wasm>
+                <link crossorigin href=./with_winit_bin.js rel=modulepreload>
+              </head>
+              <body>
+                <select aria-label="Vello demo" class="demo-selector" onchange="location.href=this.value">
+                  <option value=/vello/>Native WebGL</option>
+                  <option value=/vello/wgpu-webgl/>wgpu WebGL</option>
+                  <option selected value=/vello/research/>Research</option>
+                </select>
+                <style>
+                  body {
+                    margin: 0;
+                    padding: 0;
+                  }
+                  .demo-selector {
+                    position: fixed;
+                    top: 12px;
+                    right: 12px;
+                    z-index: 1000;
+                    padding: 6px 10px;
+                    border: 1px solid #555;
+                    border-radius: 5px;
+                    color: white;
+                    background: rgba(0, 0, 0, 0.75);
                   }
                 </style>
               </body>
