@@ -9,6 +9,9 @@
 )]
 #![cfg(target_arch = "wasm32")]
 
+mod probe;
+
+use probe::ProbeIndicator;
 use std::cell::RefCell;
 use std::rc::Rc;
 use vello_common::paint::ImageId;
@@ -73,6 +76,7 @@ struct AppState {
     width: u32,
     height: u32,
     renderer_wrapper: RendererWrapper,
+    probe_indicator: ProbeIndicator,
     performance: PerformancePanel<2>,
     canvas: HtmlCanvasElement,
 }
@@ -83,7 +87,8 @@ impl AppState {
         let height = canvas.height();
         let current_scene = initial_scene_index(scenes.len());
 
-        let renderer_wrapper = RendererWrapper::new(canvas.clone());
+        let mut renderer_wrapper = RendererWrapper::new(canvas.clone());
+        let probe_indicator = ProbeIndicator::new(&mut renderer_wrapper.renderer);
         let timing_note = if renderer_wrapper.gpu_timer.is_some() {
             "GPU queries are asynchronous and may arrive several frames later"
         } else {
@@ -101,6 +106,7 @@ impl AppState {
             width,
             height,
             renderer_wrapper,
+            probe_indicator,
             performance: PerformancePanel::new(
                 "Vello GPU · native WebGL2",
                 [
@@ -177,6 +183,7 @@ impl AppState {
     }
 
     fn frame(&mut self, timestamp: f64) {
+        self.probe_indicator.poll(timestamp);
         let (timing, gpu_time) = self.render();
         let scene = self.current_scene + 1;
         let scene_count = self.scenes.len();
