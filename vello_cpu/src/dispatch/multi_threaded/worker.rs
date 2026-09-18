@@ -64,6 +64,31 @@ impl Worker {
             .drain(0..num_tasks)
         {
             match task {
+                RenderTaskType::FillRect {
+                    rect,
+                    paint,
+                    blend_mode,
+                    mask,
+                } => {
+                    let start = self.strip_storage.strips.len() as u32;
+
+                    self.strip_generator.generate_filled_rect_fast(
+                        &rect,
+                        &mut self.strip_storage,
+                        path_clip,
+                    );
+                    let end = self.strip_storage.strips.len() as u32;
+
+                    render_task.allocation_group.recorded_commands.push(
+                        RecordedCommand::RenderPath {
+                            thread_id: self.thread_id,
+                            strips: start..end,
+                            blend_mode,
+                            paint,
+                            mask,
+                        },
+                    );
+                }
                 RenderTaskType::FillPath {
                     path_range,
                     transform,

@@ -9,7 +9,7 @@ use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task
 use crate::dispatch::multi_threaded::worker::Worker;
 use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
-use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
+use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::record::RecordedFill;
 use crate::region::Regions;
@@ -518,24 +518,10 @@ impl Dispatcher for MultiThreadedDispatcher {
         blend_mode: BlendMode,
         mask: Option<Mask>,
     ) {
-        // For multi-threaded, fall back to path-based rendering.
-        // TODO: Implement optimized rect strip generation in worker threads.
-        let start = self.allocation_group.path.len() as u32;
-        self.allocation_group.path.extend([
-            PathEl::MoveTo(Point::new(rect.x0, rect.y0)),
-            PathEl::LineTo(Point::new(rect.x1, rect.y0)),
-            PathEl::LineTo(Point::new(rect.x1, rect.y1)),
-            PathEl::LineTo(Point::new(rect.x0, rect.y1)),
-            PathEl::ClosePath,
-        ]);
-        let end = self.allocation_group.path.len() as u32;
-        self.register_task(RenderTaskType::FillPath {
-            path_range: start..end,
-            transform: Affine::IDENTITY,
+        self.register_task(RenderTaskType::FillRect {
+            rect: *rect,
             paint,
-            fill_rule: Fill::NonZero,
             blend_mode,
-            aliasing_threshold: None,
             mask,
         });
     }
@@ -848,6 +834,12 @@ pub(crate) struct RenderTask {
 
 #[derive(Debug, Clone)]
 pub(crate) enum RenderTaskType {
+    FillRect {
+        rect: Rect,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+    },
     FillPath {
         path_range: Range<u32>,
         transform: Affine,
@@ -950,7 +942,7 @@ mod tests {
     use crate::Level;
     use crate::color::palette::css::BLUE;
     use crate::dispatch::Dispatcher;
-    use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
+    use crate::dispatch::multi_threaded::{MultiThreadedDispatcher, RenderTaskType};
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::peniko::{BlendMode, Fill};
     use vello_common::paint::{Paint, PremulColor};
@@ -976,5 +968,24 @@ mod tests {
         assert_eq!(dispatcher.allocations.strips.entries.len(), 1);
         assert_eq!(dispatcher.allocations.render_tasks.entries.len(), 1);
         assert_eq!(dispatcher.allocations.recorded_commands.entries.len(), 1);
+    }
+
+    #[test]
+    fn fast_rect_is_dispatched_without_path_elements() {
+        let mut dispatcher = MultiThreadedDispatcher::new(100, 100, 2, Level::new());
+        let rect = Rect::new(10.25, 20.5, 70.75, 80.0);
+
+        dispatcher.fill_rect_fast(
+            &rect,
+            Paint::Solid(PremulColor::from_alpha_color(BLUE)),
+            BlendMode::default(),
+            None,
+        );
+
+        assert!(dispatcher.allocation_group.path.is_empty());
+        assert!(matches!(
+            dispatcher.allocation_group.render_tasks.as_slice(),
+            [RenderTaskType::FillRect { rect: actual, .. }] if *actual == rect
+        ));
     }
 }

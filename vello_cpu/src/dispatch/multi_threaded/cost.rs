@@ -14,6 +14,15 @@ pub(crate) fn estimate_render_task_cost(task: &RenderTaskType, paths: &[PathEl])
     const LAYER_COST: f32 = 10.0;
 
     match task {
+        RenderTaskType::FillRect { rect, .. } => {
+            // According to our benchmarks, the fast rect path is roughly
+            // 5 times faster than the normal path. While it depends on the exact
+            // size, the speedup seems to scale roughly the same with the size.
+            const FAST_PATH_SPEEDUP: f32 = 5.0;
+
+            let path_length = (2.0 * (rect.width().abs() + rect.height().abs())) as f32;
+            path_length_adjusted_cost(4.0, path_length) / FAST_PATH_SPEEDUP
+        }
         RenderTaskType::FillPath {
             path_range,
             transform,
@@ -74,10 +83,14 @@ pub(crate) fn estimate_path_cost(
 
     let mut cost = cost_data.num_line_segments as f32;
     cost += cost_data.num_curve_segments as f32 * CURVE_MULTIPLIER;
-    cost += cost * (cost_data.path_length as f32 / 1024.0);
+    cost = path_length_adjusted_cost(cost, cost_data.path_length as f32);
 
     cost *= if is_stroke { STROKE_MULTIPLIER } else { 1.0 };
     cost
+}
+
+fn path_length_adjusted_cost(cost: f32, path_length: f32) -> f32 {
+    cost + cost * (path_length / 1024.0)
 }
 
 struct PathCostData {
