@@ -212,6 +212,7 @@ impl EncodeExt for Gradient {
         let cache_key = CacheKey(GradientCacheKey {
             stops: self.stops.clone(),
             interpolation_cs: self.interpolation_cs,
+            interpolation_alpha_space: self.interpolation_alpha_space,
             hue_direction: self.hue_direction,
         });
 
@@ -798,6 +799,8 @@ pub struct GradientCacheKey {
     pub stops: ColorStops,
     /// Color space used for interpolation.
     pub interpolation_cs: ColorSpaceTag,
+    /// Alpha space used for interpolation.
+    pub interpolation_alpha_space: InterpolationAlphaSpace,
     /// Hue direction used for interpolation.
     pub hue_direction: HueDirection,
 }
@@ -806,6 +809,7 @@ impl BitHash for GradientCacheKey {
     fn bit_hash<H: Hasher>(&self, state: &mut H) {
         self.stops.bit_hash(state);
         core::mem::discriminant(&self.interpolation_cs).hash(state);
+        core::mem::discriminant(&self.interpolation_alpha_space).hash(state);
         core::mem::discriminant(&self.hue_direction).hash(state);
     }
 }
@@ -814,6 +818,7 @@ impl BitEq for GradientCacheKey {
     fn bit_eq(&self, other: &Self) -> bool {
         self.stops.bit_eq(&other.stops)
             && self.interpolation_cs == other.interpolation_cs
+            && self.interpolation_alpha_space == other.interpolation_alpha_space
             && self.hue_direction == other.hue_direction
     }
 }
