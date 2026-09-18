@@ -19,7 +19,8 @@ use peniko::Fill;
 struct ClipData {
     alpha_start: u32,
     strip_start: u32,
-
+    /// The known geometric shape of this clip.
+    shape: ClipShape,
     /// A coarse bounding box of the clip path in pixel coordinates.
     ///
     /// These bounds have already been intersected with the viewport.
@@ -27,17 +28,20 @@ struct ClipData {
 }
 
 impl ClipData {
-    fn to_path_data_ref<'a>(&self, storage: &'a StripStorage) -> PathDataRef<'a> {
-        PathDataRef {
-            strips: storage
-                .strips
-                .get(self.strip_start as usize..)
-                .unwrap_or(&[]),
-            alphas: storage
-                .alphas
-                .get(self.alpha_start as usize..)
-                .unwrap_or(&[]),
-            bbox: self.bbox,
+    fn to_clip_ref<'a>(&self, storage: &'a StripStorage) -> ClipRef<'a> {
+        ClipRef {
+            path: PathDataRef {
+                strips: storage
+                    .strips
+                    .get(self.strip_start as usize..)
+                    .unwrap_or(&[]),
+                alphas: storage
+                    .alphas
+                    .get(self.alpha_start as usize..)
+                    .unwrap_or(&[]),
+                bbox: self.bbox,
+            },
+            shape: self.shape,
         }
     }
 }
@@ -79,10 +83,8 @@ impl ClipContext {
 
     /// Get the data of the current clip path.
     #[inline]
-    pub fn get(&self) -> Option<PathDataRef<'_>> {
-        self.clip_stack
-            .last()
-            .map(|c| c.to_path_data_ref(&self.storage))
+    pub fn get(&self) -> Option<ClipRef<'_>> {
+        self.clip_stack.last().map(|c| c.to_clip_ref(&self.storage))
     }
 
     /// Push a new clip path to the stack.
@@ -102,8 +104,9 @@ impl ClipContext {
                 transform,
                 aliasing_threshold,
                 storage,
-                existing_clip,
+                existing_clip.map(|clip| clip.path),
             );
+            ClipShape::Path
         });
     }
 
@@ -111,32 +114,30 @@ impl ClipContext {
     #[inline]
     pub fn push_clip_rect(&mut self, rect: &Rect, strip_generator: &mut StripGenerator) {
         self.push_generated_clip(strip_generator, |generator, storage, existing_clip| {
-            generator.generate_filled_rect_fast(rect, storage, existing_clip);
+            generator.generate_filled_rect_fast(rect, storage, existing_clip)
         });
     }
 
     fn push_generated_clip(
         &mut self,
         strip_generator: &mut StripGenerator,
-        generate: impl FnOnce(&mut StripGenerator, &mut StripStorage, Option<PathDataRef<'_>>),
+        generate: impl FnOnce(&mut StripGenerator, &mut StripStorage, Option<ClipRef<'_>>) -> ClipShape,
     ) {
         self.temp_storage.clear();
 
         let alpha_start = self.storage.alphas.len() as u32;
         let strip_start = self.storage.strips.len() as u32;
 
-        let existing_clip = self
-            .clip_stack
-            .last()
-            .map(|c| c.to_path_data_ref(&self.storage));
+        let existing_clip = self.clip_stack.last().map(|c| c.to_clip_ref(&self.storage));
 
-        generate(strip_generator, &mut self.temp_storage, existing_clip);
+        let shape = generate(strip_generator, &mut self.temp_storage, existing_clip);
 
         let bbox = strip_bbox(&self.temp_storage.strips).unwrap_or(RectU16::ZERO);
         self.storage.extend(&self.temp_storage);
         self.clip_stack.push(ClipData {
             alpha_start,
             strip_start,
+            shape,
             bbox,
         });
     }
@@ -224,8 +225,8 @@ impl ClipState {
         }
     }
 
-    /// Return the current clip path.
-    pub fn get(&self) -> Option<PathDataRef<'_>> {
+    /// Return the current clip path and its known shape.
+    pub fn get(&self) -> Option<ClipRef<'_>> {
         self.context.get()
     }
 
@@ -366,6 +367,24 @@ pub struct PathDataRef<'a> {
     ///
     /// These bounds have already been intersected with the viewport.
     pub bbox: RectU16,
+}
+
+/// The known geometric shape of an active clip.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ClipShape {
+    /// An arbitrary path.
+    Path,
+    /// An axis-aligned rectangle.
+    AxisAlignedRect(Rect),
+}
+
+/// Borrowed data and shape metadata for an active clip path.
+#[derive(Clone, Copy, Debug)]
+pub struct ClipRef<'a> {
+    /// Sparse-strip representation of the active clip.
+    pub path: PathDataRef<'a>,
+    /// The known geometric shape of this clip.
+    pub shape: ClipShape,
 }
 
 /// Compute the sparse strips representation of a path that results
@@ -809,13 +828,85 @@ fn should_create_new_strip(
 
 #[cfg(test)]
 mod tests {
-    use crate::clip::{PathDataRef, Region, RowIterator, first_strip_at_or_after, intersect};
+    use crate::clip::{
+        ClipContext, ClipShape, ClipState, PathDataRef, Region, RowIterator,
+        first_strip_at_or_after, intersect,
+    };
     use crate::geometry::RectU16;
+    use crate::kurbo::{Affine, BezPath, Rect};
+    use crate::peniko::Fill;
     use crate::strip::Strip;
-    use crate::strip_generator::StripStorage;
+    use crate::strip_generator::{StripGenerator, StripStorage};
     use crate::tile::Tile;
     use fearless_simd::Level;
     use std::vec;
+
+    #[test]
+    fn rectangular_clip_metadata_tracks_intersections_and_pops() {
+        let mut generator = StripGenerator::new(100, 100, Level::baseline());
+        let mut clips = ClipContext::new();
+        let first = Rect::new(10.25, 5.5, 80.75, 90.0);
+        let second = Rect::new(20.5, 0.0, 70.25, 60.75);
+        let intersection = first.intersect(second);
+
+        clips.push_clip_rect(&first, &mut generator);
+        assert_eq!(
+            clips.get().unwrap().shape,
+            ClipShape::AxisAlignedRect(first)
+        );
+
+        clips.push_clip_rect(&second, &mut generator);
+        let clip = clips.get().unwrap();
+        assert_eq!(clip.shape, ClipShape::AxisAlignedRect(intersection));
+
+        let mut expected = StripStorage::default();
+        generator.generate_filled_rect_fast(&intersection, &mut expected, None);
+        assert_eq!(clip.path.strips, expected.strips);
+        assert_eq!(clip.path.alphas, expected.alphas);
+
+        let mut triangle = BezPath::new();
+        triangle.move_to((0.0, 0.0));
+        triangle.line_to((100.0, 0.0));
+        triangle.line_to((50.0, 100.0));
+        triangle.close_path();
+        clips.push_clip_path(
+            triangle.iter(),
+            &mut generator,
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+        );
+        assert_eq!(clips.get().unwrap().shape, ClipShape::Path);
+
+        clips.pop_clip();
+        assert_eq!(
+            clips.get().unwrap().shape,
+            ClipShape::AxisAlignedRect(intersection)
+        );
+        clips.pop_clip();
+        assert_eq!(
+            clips.get().unwrap().shape,
+            ClipShape::AxisAlignedRect(first)
+        );
+    }
+
+    #[test]
+    fn rectangular_clip_metadata_rebuilds_for_shifted_viewport() {
+        let mut parent_generator = StripGenerator::new(100, 100, Level::baseline());
+        let mut filter_generator = StripGenerator::new(120, 120, Level::baseline());
+        let mut clips = ClipState::new();
+        let rect = Rect::new(10.25, 5.5, 80.75, 90.0);
+
+        clips.push_clip_rect(&rect, &mut parent_generator);
+        clips.push_root_viewport((3, 7), &mut filter_generator);
+        assert_eq!(
+            clips.get().unwrap().shape,
+            ClipShape::AxisAlignedRect(Rect::new(13.25, 12.5, 83.75, 97.0))
+        );
+
+        clips.pop_root_viewport(&mut parent_generator);
+        assert_eq!(clips.get().unwrap().shape, ClipShape::AxisAlignedRect(rect));
+    }
 
     #[test]
     fn intersect_partly_overlapping_strips() {

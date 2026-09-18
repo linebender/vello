@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
-use vello_common::clip::PathDataRef;
+use vello_common::clip::{ClipRef, ClipShape};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter::FilterData;
@@ -338,7 +338,7 @@ impl Scene {
                 transform,
                 aliasing_threshold,
                 strip_storage,
-                clip_path,
+                clip_path.map(|clip| clip.path),
             );
         });
     }
@@ -409,7 +409,7 @@ impl Scene {
                 transform,
                 aliasing_threshold,
                 strip_storage,
-                clip_path,
+                clip_path.map(|clip| clip.path),
             );
         });
     }
@@ -471,7 +471,7 @@ impl Scene {
 
     fn record_generated_path<F>(&mut self, paint: Paint, generate: F)
     where
-        F: FnOnce(&mut StripGenerator, &mut StripStorage, Option<PathDataRef<'_>>),
+        F: FnOnce(&mut StripGenerator, &mut StripStorage, Option<ClipRef<'_>>),
     {
         let strips = {
             let mut strip_storage = self.strip_storage.borrow_mut();
@@ -493,16 +493,19 @@ impl Scene {
     }
 
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
-        if self.viewport_state.clip().is_some() {
-            return None;
-        }
-
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
 
         let transform = self.effective_path_transform();
-        let transformed_rect = into_fast_path_rect(*rect, &transform, self.aliasing_threshold)?
+        let mut transformed_rect = into_fast_path_rect(*rect, &transform, self.aliasing_threshold)?
             .intersect(self.active_rect());
+
+        if let Some(clip) = self.viewport_state.clip() {
+            let ClipShape::AxisAlignedRect(clip_rect) = clip.shape else {
+                return None;
+            };
+            transformed_rect = transformed_rect.intersect(clip_rect);
+        }
 
         // Can't handle mirrored or zero-sized rectangles.
         if transformed_rect.is_zero_area() {
@@ -646,7 +649,7 @@ impl Scene {
                         layer_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        existing_clip,
+                        existing_clip.map(|clip| clip.path),
                     );
 
                     let strip_range = strip_start..strip_storage.strips.len();
@@ -910,6 +913,21 @@ mod tests {
         );
 
         assert_eq!(draw.bbox(&[]), Some(RectU16::new(0, 0, 8, 8)));
+    }
+
+    #[test]
+    fn rectangular_clip_keeps_direct_rect_draw_path() {
+        let mut scene = Scene::new(100, 100);
+        scene.push_clip_rect(&Rect::new(10.25, 5.5, 80.75, 90.0));
+        scene.push_clip_rect(&Rect::new(20.5, 0.0, 70.25, 60.75));
+
+        scene.fill_rect(&Rect::new(0.0, 20.25, 50.5, 80.0));
+
+        let RecordedDraw::Rect(rect) = &scene.recorder.draws[0] else {
+            panic!("expected a directly recorded rectangle");
+        };
+        assert_eq!(rect.rect, Rect::new(20.5, 20.25, 50.5, 60.75));
+        assert!(scene.strip_storage.borrow().strips.is_empty());
     }
 
     #[test]

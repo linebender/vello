@@ -410,13 +410,60 @@ fn clip_non_isolated_with_aa_with_rect(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn clip_non_isolated_with_aa_with_rect_aa(ctx: &mut impl Renderer) {
-    // In theory, anti-aliasing should be 50% here, but due to conflation artifacts it will be
-    // 25% instead.
     let rect = Rect::new(10.5, 10.5, 89.5, 89.5);
     ctx.push_clip_rect(&rect);
 
     ctx.set_paint(BLUE);
     ctx.fill_rect(&rect);
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_with_nested_rects_and_pop(ctx: &mut impl Renderer) {
+    let outer_clip = Rect::new(10.5, 20.25, 89.5, 79.75);
+    let inner_clip = Rect::new(20.25, 10.5, 79.75, 89.5);
+
+    ctx.push_clip_rect(&outer_clip);
+    ctx.push_clip_rect(&inner_clip);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
+    ctx.pop_clip_path();
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 35.0, 18.0, 65.0));
+    ctx.fill_rect(&Rect::new(82.0, 35.0, 100.0, 65.0));
+
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_mixed_clip_stack_restores_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(15.5, 15.5, 84.5, 84.5);
+    let clip_circle = Circle::new((50.0, 50.0), 38.0).to_path(0.1);
+
+    ctx.push_clip_rect(&clip_rect);
+    ctx.push_clip_path(&clip_circle);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
+    ctx.pop_clip_path();
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 23.0, 23.0));
+    ctx.fill_rect(&Rect::new(77.0, 10.0, 90.0, 23.0));
+    ctx.fill_rect(&Rect::new(10.0, 77.0, 23.0, 90.0));
+    ctx.fill_rect(&Rect::new(77.0, 77.0, 90.0, 90.0));
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_transformed_clip_with_identity_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.0, 20.25, 50.0, 79.75);
+    ctx.set_transform(Affine::translate((5.0, 0.0)) * Affine::scale_non_uniform(1.5, 1.0));
+    ctx.push_clip_rect(&clip_rect);
+
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(30.25, 10.0, 69.75, 90.0));
     ctx.pop_clip_path();
 }
 

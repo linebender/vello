@@ -6,7 +6,7 @@ use crate::dispatch::multi_threaded::{
     RecordedCommand, RecordedCommandSender, RecordedCommandTask, RenderTask, RenderTaskType,
 };
 use std::vec::Vec;
-use vello_common::clip::PathDataRef;
+use vello_common::clip::{ClipRef, PathDataRef};
 use vello_common::geometry::RectU16;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::strip_bbox;
@@ -52,10 +52,13 @@ impl Worker {
         self.strip_storage
             .set_generation_mode(GenerationMode::Append);
         let task_idx = render_task.idx;
-        let path_clip = render_task.clip_path.as_ref().map(|c| PathDataRef {
-            strips: c.strips.as_ref(),
-            alphas: c.alphas.as_ref(),
-            bbox: c.bbox,
+        let path_clip = render_task.clip_path.as_ref().map(|c| ClipRef {
+            path: PathDataRef {
+                strips: c.strips.as_ref(),
+                alphas: c.alphas.as_ref(),
+                bbox: c.bbox,
+            },
+            shape: c.shape,
         });
 
         for task in render_task
@@ -108,7 +111,7 @@ impl Worker {
                         transform,
                         aliasing_threshold,
                         &mut self.strip_storage,
-                        path_clip,
+                        path_clip.map(|clip| clip.path),
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
@@ -144,7 +147,7 @@ impl Worker {
                         transform,
                         aliasing_threshold,
                         &mut self.strip_storage,
-                        path_clip,
+                        path_clip.map(|clip| clip.path),
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
@@ -180,7 +183,7 @@ impl Worker {
                             transform,
                             aliasing_threshold,
                             &mut self.strip_storage,
-                            path_clip,
+                            path_clip.map(|clip| clip.path),
                         );
 
                         let end = self.strip_storage.strips.len() as u32;
