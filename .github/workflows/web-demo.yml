@@ -55,11 +55,27 @@ jobs:
                 <link crossorigin href=./native_webgl.js rel=modulepreload>
               </head>
               <body>
+                <select aria-label="Vello demo" class="demo-selector" onchange="location.href=this.value">
+                  <option selected value=/vello/>Native WebGL</option>
+                  <option value=/vello/wgpu-webgl/>wgpu WebGL</option>
+                  <option value=/vello/research/>Research</option>
+                </select>
                 <style>
                   body {
                     margin: 0;
                     padding: 0;
                     overflow: hidden;
+                  }
+                  .demo-selector {
+                    position: fixed;
+                    top: 12px;
+                    right: 12px;
+                    z-index: 1000;
+                    padding: 6px 10px;
+                    border: 1px solid #555;
+                    border-radius: 5px;
+                    color: white;
+                    background: rgba(0, 0, 0, 0.75);
                   }
                 </style>
               </body>
@@ -83,11 +99,27 @@ jobs:
                 <link crossorigin href=./wgpu_webgl.js rel=modulepreload>
               </head>
               <body>
+                <select aria-label="Vello demo" class="demo-selector" onchange="location.href=this.value">
+                  <option value=/vello/>Native WebGL</option>
+                  <option selected value=/vello/wgpu-webgl/>wgpu WebGL</option>
+                  <option value=/vello/research/>Research</option>
+                </select>
                 <style>
                   body {
                     margin: 0;
                     padding: 0;
                     overflow: hidden;
+                  }
+                  .demo-selector {
+                    position: fixed;
+                    top: 12px;
+                    right: 12px;
+                    z-index: 1000;
+                    padding: 6px 10px;
+                    border: 1px solid #555;
+                    border-radius: 5px;
+                    color: white;
+                    background: rgba(0, 0, 0, 0.75);
                   }
                 </style>
               </body>
@@ -111,10 +143,26 @@ jobs:
                 <link crossorigin href=./with_winit_bin.js rel=modulepreload>
               </head>
               <body>
+                <select aria-label="Vello demo" class="demo-selector" onchange="location.href=this.value">
+                  <option value=/vello/>Native WebGL</option>
+                  <option value=/vello/wgpu-webgl/>wgpu WebGL</option>
+                  <option selected value=/vello/research/>Research</option>
+                </select>
                 <style>
                   body {
                     margin: 0;
                     padding: 0;
+                  }
+                  .demo-selector {
+                    position: fixed;
+                    top: 12px;
+                    right: 12px;
+                    z-index: 1000;
+                    padding: 6px 10px;
+                    border: 1px solid #555;
+                    border-radius: 5px;
+                    color: white;
+                    background: rgba(0, 0, 0, 0.75);
                   }
                 </style>
               </body>
