@@ -5,7 +5,7 @@
 
 use crate::coarse::depth::BucketRange;
 use crate::peniko::BlendMode;
-use crate::util::Span;
+use crate::util::TileAlignedSpan;
 use core::num::NonZeroU32;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
@@ -20,7 +20,7 @@ pub(crate) enum RenderCmd {
     /// See [`PaintFill`].
     PaintFill(PaintFill),
     /// Push a new temporary layer buffer.
-    PushBuf(Option<Span>),
+    PushBuf(Option<TileAlignedSpan>),
     /// Pop the last temporary layer buffer.
     PopBuf,
     /// See [`LayerFill`].
@@ -30,13 +30,13 @@ pub(crate) enum RenderCmd {
 /// Fill a span with the given paint and optionally some alpha coverage.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PaintFill {
-    pub(crate) span: Span,
+    pub(crate) span: TileAlignedSpan,
     alpha_idx: Option<AlphaIdx>,
     pub(crate) attrs_idx: u32,
 }
 
 impl PaintFill {
-    pub(crate) fn new(span: Span, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
+    pub(crate) fn new(span: TileAlignedSpan, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
         Self {
             span,
             alpha_idx: alpha_idx.map(AlphaIdx::new),
@@ -68,7 +68,7 @@ impl DepthFill {
         self.bucket_range
     }
 
-    pub(crate) fn span(self) -> Span {
+    pub(crate) fn span(self) -> TileAlignedSpan {
         self.bucket_range.span()
     }
 }
@@ -77,13 +77,13 @@ impl DepthFill {
 /// buffer and optionally apply some alpha coverage.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LayerFill {
-    pub(crate) span: Span,
+    pub(crate) span: TileAlignedSpan,
     alpha_idx: Option<AlphaIdx>,
     pub(crate) attrs_idx: u32,
 }
 
 impl LayerFill {
-    pub(crate) fn new(span: Span, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
+    pub(crate) fn new(span: TileAlignedSpan, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
         Self {
             span,
             alpha_idx: alpha_idx.map(AlphaIdx::new),
