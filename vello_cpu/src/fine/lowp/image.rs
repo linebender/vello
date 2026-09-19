@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::PosExt;
-use crate::fine::common::image::{ImagePainterData, extend, fract_floor, sample};
+use crate::fine::common::image::{ImagePainterData, extend_mode, fract_floor, sample};
 use crate::fine::macros::u8x16_painter;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{f32x4, prelude::*, u8x16, u16x16};
@@ -51,8 +51,7 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
         );
 
         let extend_x = |x_pos: f32x4<S>| {
-            extend(
-                self.simd,
+            extend_mode(
                 x_pos,
                 self.data.image.sampler.x_extend,
                 self.data.width,
@@ -61,8 +60,7 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
         };
 
         let extend_y = |y_pos: f32x4<S>| {
-            extend(
-                self.simd,
+            extend_mode(
                 y_pos,
                 self.data.image.sampler.y_extend,
                 self.data.height,
@@ -150,15 +148,13 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
                 );
 
                 // Pre-compute y extend positions
-                let y_pos1 = extend(
-                    simd,
+                let y_pos1 = extend_mode(
                     y_positions - 0.5,
                     image.sampler.y_extend,
                     data.height,
                     data.height_inv,
                 );
-                let y_pos2 = extend(
-                    simd,
+                let y_pos2 = extend_mode(
                     y_positions + 0.5,
                     image.sampler.y_extend,
                     data.height,
@@ -204,15 +200,13 @@ impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
         let x_plus_half = self.cur_x_pos + 0.5;
 
         // Only x needs to be extended per-iteration
-        let x_pos1 = extend(
-            self.simd,
+        let x_pos1 = extend_mode(
             x_minus_half,
             self.data.image.sampler.x_extend,
             self.data.width,
             self.data.width_inv,
         );
-        let x_pos2 = extend(
-            self.simd,
+        let x_pos2 = extend_mode(
             x_plus_half,
             self.data.image.sampler.x_extend,
             self.data.width,
