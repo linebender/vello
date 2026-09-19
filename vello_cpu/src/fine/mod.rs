@@ -438,6 +438,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     );
 
     /// Fill a row scratch span with a solid color, optionally modulated by per-pixel alphas.
+    // Keep the opaque fast path in the caller; a call and a color spill are costly for short spans.
+    #[inline(always)]
     fn fill_solid(simd: S, dest: &mut [Self::Numeric], color: PremulColor, alphas: Option<&[u8]>) {
         let color = Self::extract_color(color);
 
@@ -863,6 +865,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         }
     }
 
+    #[inline(always)]
     fn solid_fill(
         &mut self,
         span: Span,
@@ -902,6 +905,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         );
     }
 
+    #[inline(never)]
     fn indexed_fill(
         &mut self,
         span: Span,
