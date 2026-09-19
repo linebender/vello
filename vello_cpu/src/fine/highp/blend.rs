@@ -4,7 +4,7 @@
 use crate::peniko::{BlendMode, Mix};
 use crate::util::Premultiply;
 use fearless_simd_macros::simd;
-use vello_common::fearless_simd::*;
+use vello_common::fearless_simd::{self, *};
 
 #[derive(Copy, Clone)]
 struct Channels<S: Simd> {

@@ -5,7 +5,7 @@ use crate::fine::common::gradient::SimdGradientKind;
 use core::f32::consts::PI;
 use fearless_simd_macros::simd;
 use vello_common::encode::SweepKind;
-use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8};
+use vello_common::fearless_simd::{self, Simd, SimdBase, SimdFloat, f32x8};
 
 #[derive(Debug)]
 pub(crate) struct SimdSweepKind<S: Simd> {

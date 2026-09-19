@@ -5,7 +5,7 @@ use crate::peniko;
 use core::slice::ChunksExact;
 use fearless_simd_macros::simd;
 use vello_common::encode::EncodedGradient;
-use vello_common::fearless_simd::*;
+use vello_common::fearless_simd::{self, *};
 
 /// An accelerated gradient painter for u8.
 ///

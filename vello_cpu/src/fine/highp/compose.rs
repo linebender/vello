@@ -4,7 +4,7 @@
 use crate::fine::Splat4thExt;
 use crate::peniko::{BlendMode, Compose};
 use fearless_simd_macros::simd;
-use vello_common::fearless_simd::*;
+use vello_common::fearless_simd::{self, *};
 
 pub(crate) trait ComposeExt {
     fn compose<S: Simd>(

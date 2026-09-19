@@ -6,7 +6,9 @@ use crate::fine::{PosExt, Splat4thExt, u8_to_f32};
 use crate::kurbo::Point;
 use fearless_simd_macros::simd;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4};
+use vello_common::fearless_simd::{
+    self, Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4,
+};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
 

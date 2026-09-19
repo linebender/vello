@@ -20,7 +20,7 @@ use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use fearless_simd_macros::simd;
-use vello_common::fearless_simd::*;
+use vello_common::fearless_simd::{self, *};
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
@@ -299,7 +299,7 @@ mod fill {
     use crate::peniko::BlendMode;
 
     use fearless_simd_macros::simd;
-    use vello_common::fearless_simd::*;
+    use vello_common::fearless_simd::{self, *};
 
     // IMPORTANT: The SIMD boundaries in this module are performance-sensitive and should be
     // changed only with benchmarking.
@@ -376,7 +376,7 @@ mod alpha_fill {
     use crate::fine::highp::{blend, extract_masks};
     use crate::peniko::BlendMode;
     use fearless_simd_macros::simd;
-    use vello_common::fearless_simd::*;
+    use vello_common::fearless_simd::{self, *};
 
     /// Composites a solid color with per-pixel alpha masks.
     ///

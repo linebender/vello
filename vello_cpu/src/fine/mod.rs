@@ -35,8 +35,8 @@ use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
 use vello_common::fearless_simd::{
-    Bytes, Simd, SimdBase, SimdFloat, SimdInt, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4,
-    u32x8,
+    self, Bytes, Simd, SimdBase, SimdFloat, SimdInt, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32,
+    u32x4, u32x8,
 };
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;

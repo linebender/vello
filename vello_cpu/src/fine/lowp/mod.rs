@@ -25,7 +25,7 @@ use bytemuck::{cast_slice, cast_slice_mut};
 use core::iter;
 use fearless_simd_macros::simd;
 use vello_common::encode::{EncodedGradient, EncodedImage};
-use vello_common::fearless_simd::*;
+use vello_common::fearless_simd::{self, *};
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
@@ -441,7 +441,7 @@ mod fill {
     use crate::fine::lowp::compose::ComposeExt;
     use crate::peniko::{BlendMode, Mix};
     use fearless_simd_macros::simd;
-    use vello_common::fearless_simd::*;
+    use vello_common::fearless_simd::{self, *};
     use vello_common::util::{narrow, normalized_mul_u8};
 
     /// Applies blend mode compositing to a buffer without per-pixel masks.
@@ -528,7 +528,7 @@ mod alpha_fill {
     use crate::fine::lowp::{blend, extract_masks};
     use crate::peniko::{BlendMode, Mix};
     use fearless_simd_macros::simd;
-    use vello_common::fearless_simd::*;
+    use vello_common::fearless_simd::{self, *};
     use vello_common::util::{Div255Ext, narrow, normalized_mul_u8, widen};
 
     /// Applies blend mode compositing with per-pixel alpha masks.

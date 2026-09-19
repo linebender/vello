@@ -4,7 +4,7 @@
 use crate::fine::{Splat4thExt, highp, u8_to_f32};
 use crate::peniko::{BlendMode, Mix};
 use fearless_simd_macros::simd;
-use vello_common::fearless_simd::*;
+use vello_common::fearless_simd::{self, *};
 use vello_common::util::{Div255Ext, f32_to_u8, normalized_mul_u8, saturating_narrow, widen};
 
 #[simd]

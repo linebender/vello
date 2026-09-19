@@ -4,7 +4,7 @@
 use crate::peniko::ImageQuality;
 use fearless_simd_macros::simd;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{f32x4, prelude::*, u8x32};
+use vello_common::fearless_simd::{self, f32x4, prelude::*, u8x32};
 use vello_common::math::FloatExt;
 use vello_common::tile::Tile;
 use vello_common::util::{narrow, normalized_mul_u8};
