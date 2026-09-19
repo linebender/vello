@@ -43,6 +43,10 @@ struct Arguments {
     /// where, due to floating point inaccuracies, some pixels might land on a different color
     /// stop and thus yield a different value in CI.
     diff_pixels: u32,
+    /// Additional differing pixels allowed for all CPU variants.
+    cpu_diff_pixels: u32,
+    /// Additional differing pixels allowed for all GPU variants.
+    gpu_diff_pixels: u32,
     /// Whether no reference image should actually be created (for tests that only check
     /// for panics, but are not interested in the actual output).
     no_ref: bool,
@@ -69,6 +73,8 @@ impl Default for Arguments {
             no_ref: false,
             glyph: false,
             diff_pixels: 0,
+            cpu_diff_pixels: 0,
+            gpu_diff_pixels: 0,
             ignore_reason: None,
         }
     }
@@ -264,6 +270,7 @@ struct TestCase {
     suffix: String,
     renderer: Renderer,
     tolerance: TokenStream2,
+    diff_pixels: u32,
     is_reference: bool,
     ignore: bool,
 }
@@ -313,6 +320,7 @@ impl CpuVariant {
             suffix,
             renderer: Renderer::Cpu(self),
             tolerance: tolerances.for_cpu(pipeline, level),
+            diff_pixels: args.diff_pixels + args.cpu_diff_pixels,
             is_reference,
             ignore,
         }
@@ -364,6 +372,7 @@ impl GpuVariant {
             suffix,
             renderer: Renderer::Gpu(self),
             tolerance,
+            diff_pixels: args.diff_pixels + args.gpu_diff_pixels,
             is_reference: args.gpu_only && !webgl && !self.no_depth,
             ignore: args.skip_gpu || (webgl && args.skip_webgl),
         }
@@ -419,7 +428,6 @@ impl TestContext<'_> {
             height,
             transparent,
             no_ref,
-            diff_pixels,
             ..
         } = args;
         let cached = case.renderer.cached();
@@ -428,6 +436,7 @@ impl TestContext<'_> {
         let TestCase {
             renderer,
             tolerance,
+            diff_pixels,
             mut is_reference,
             ignore,
             ..
@@ -665,6 +674,10 @@ fn parse_args(attr: TokenStream) -> syn::Result<Arguments> {
             args.height = meta.value()?.parse::<LitInt>()?.base10_parse()?;
         } else if meta.path.is_ident("diff_pixels") {
             args.diff_pixels = meta.value()?.parse::<LitInt>()?.base10_parse()?;
+        } else if meta.path.is_ident("cpu_diff_pixels") {
+            args.cpu_diff_pixels = meta.value()?.parse::<LitInt>()?.base10_parse()?;
+        } else if meta.path.is_ident("gpu_diff_pixels") {
+            args.gpu_diff_pixels = meta.value()?.parse::<LitInt>()?.base10_parse()?;
         } else if meta.path.is_ident("cpu_u8_tolerance") {
             args.cpu_u8_tolerance = meta.value()?.parse::<LitInt>()?.base10_parse()?;
         } else if meta.path.is_ident("gpu_tolerance") {
