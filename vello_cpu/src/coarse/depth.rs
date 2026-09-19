@@ -34,7 +34,7 @@
 //! against what's written in the depth buffer and skipping any commands that would be fully
 //! covered by existing content.
 
-use crate::util::Span;
+use crate::span::TileAlignedSpan;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -59,9 +59,11 @@ impl BucketRange {
         Self { start, end }
     }
 
-    pub(crate) fn span(self) -> Span {
-        let x = self.start * DEPTH_BUCKET_WIDTH;
-        Span::new(x, (self.end - self.start) * DEPTH_BUCKET_WIDTH)
+    pub(crate) fn span(self) -> TileAlignedSpan {
+        TileAlignedSpan::from_tiles(
+            self.start * DEPTH_BUCKET_TILE_WIDTH,
+            (self.end - self.start) * DEPTH_BUCKET_TILE_WIDTH,
+        )
     }
 }
 
@@ -69,7 +71,7 @@ impl BucketRange {
 pub(crate) enum DepthSegment {
     /// An opaque span that cannot be tracked in the depth buffer because it is not
     /// aligned to whole depth buckets.
-    Regular(Span),
+    Regular(TileAlignedSpan),
     /// An opaque span that is aligned and can therefore be rendered front-to-back with
     /// depth-buffer write enabled.
     Opaque(BucketRange),
@@ -77,12 +79,7 @@ pub(crate) enum DepthSegment {
 
 /// Splits a tile-aligned span into regular edge spans and a depth-trackable
 /// opaque middle span.
-pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(DepthSegment)) {
-    debug_assert!(
-        span.pixel_x().is_multiple_of(Tile::WIDTH) && span.pixel_end().is_multiple_of(Tile::WIDTH),
-        "`split_opaque_span` requires a tile-aligned span"
-    );
-
+pub(crate) fn split_opaque_span(span: TileAlignedSpan, mut segment: impl FnMut(DepthSegment)) {
     let x = span.tile_x();
     let end = span.tile_end();
     let aligned_x = x.next_multiple_of(DEPTH_BUCKET_TILE_WIDTH);
@@ -95,7 +92,10 @@ pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(DepthSegment
     }
 
     if x < aligned_x {
-        segment(DepthSegment::Regular(Span::new_tile(x, aligned_x - x)));
+        segment(DepthSegment::Regular(TileAlignedSpan::from_tiles(
+            x,
+            aligned_x - x,
+        )));
     }
 
     if aligned_x < aligned_end {
@@ -106,7 +106,7 @@ pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(DepthSegment
     }
 
     if aligned_end < end {
-        segment(DepthSegment::Regular(Span::new_tile(
+        segment(DepthSegment::Regular(TileAlignedSpan::from_tiles(
             aligned_end,
             end - aligned_end,
         )));
@@ -117,7 +117,7 @@ pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(DepthSegment
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct DepthState {
     /// Coarse union of all depth-tracked opaque spans in this row.
-    bounds: Option<Span>,
+    bounds: Option<TileAlignedSpan>,
     /// Maximum draw ID of any depth-trackable opaque command in this row.
     ///
     /// Draw IDs start at 1, so 0 represents "no opaque command".
@@ -129,7 +129,7 @@ impl DepthState {
         *self = Self::default();
     }
 
-    pub(crate) fn include_span(&mut self, span: Span, draw_id: u32) {
+    pub(crate) fn include_span(&mut self, span: TileAlignedSpan, draw_id: u32) {
         if let Some(bounds) = &mut self.bounds {
             bounds.extend(span);
         } else {
@@ -143,7 +143,7 @@ impl DepthState {
     ///
     /// This is the case in case there is no overlap between the span and the coarse span
     /// of the current depth buffer.
-    pub(crate) fn can_skip(self, span: Span, draw_id: u32) -> bool {
+    pub(crate) fn can_skip(self, span: TileAlignedSpan, draw_id: u32) -> bool {
         if draw_id >= self.max_draw_id {
             return true;
         }
@@ -176,7 +176,11 @@ impl DepthBuffer {
 
     /// Calls `f` for every subspan of `span` that is not covered by any entry in the
     /// depth buffer.
-    pub(crate) fn for_each_unset_run(&self, span: Span, mut f: impl FnMut(Span)) {
+    pub(crate) fn for_each_unset_run(
+        &self,
+        span: TileAlignedSpan,
+        mut f: impl FnMut(TileAlignedSpan),
+    ) {
         let (mut idx, depth_end) = self.range(span);
         while let Some((span, _)) = self.next_unset_run(&mut idx, depth_end, span) {
             f(span);
@@ -208,7 +212,12 @@ impl DepthBuffer {
 
     /// Calls `f` for every subspan of `span` that should be considered as visible assuming the
     /// given draw ID.
-    pub(crate) fn for_each_visible_run(&self, span: Span, draw_id: u32, mut f: impl FnMut(Span)) {
+    pub(crate) fn for_each_visible_run(
+        &self,
+        span: TileAlignedSpan,
+        draw_id: u32,
+        mut f: impl FnMut(TileAlignedSpan),
+    ) {
         let (mut idx, depth_end) = self.range(span);
 
         while let Some(span) = self.next_visible_run(&mut idx, depth_end, draw_id, span) {
@@ -217,7 +226,7 @@ impl DepthBuffer {
     }
 
     /// Returns the depth-bucket index range touched by `span`.
-    fn range(&self, span: Span) -> (usize, usize) {
+    fn range(&self, span: TileAlignedSpan) -> (usize, usize) {
         (
             usize::from(span.pixel_x() / DEPTH_BUCKET_WIDTH),
             usize::from(span.pixel_end().div_ceil(DEPTH_BUCKET_WIDTH)).min(self.data.len()),
@@ -237,8 +246,8 @@ impl DepthBuffer {
         &self,
         idx: &mut usize,
         end: usize,
-        bounds: Span,
-    ) -> Option<(Span, Range<usize>)> {
+        bounds: TileAlignedSpan,
+    ) -> Option<(TileAlignedSpan, Range<usize>)> {
         while *idx < end && self.data[*idx] != 0 {
             *idx += 1;
         }
@@ -264,8 +273,8 @@ impl DepthBuffer {
         idx: &mut usize,
         end: usize,
         draw_id: u32,
-        bounds: Span,
-    ) -> Option<Span> {
+        bounds: TileAlignedSpan,
+    ) -> Option<TileAlignedSpan> {
         while *idx < end && self.data[*idx] > draw_id {
             *idx += 1;
         }
@@ -283,9 +292,8 @@ impl DepthBuffer {
     }
 }
 
-fn bucket_span(start: usize, end: usize) -> Span {
-    let x = start as u16 * DEPTH_BUCKET_WIDTH;
-    Span::new(x, (end - start) as u16 * DEPTH_BUCKET_WIDTH)
+fn bucket_span(start: usize, end: usize) -> TileAlignedSpan {
+    BucketRange::new(start as u16, end as u16).span()
 }
 
 #[cfg(test)]
@@ -298,18 +306,22 @@ mod tests {
         DepthBuffer::new(bucket_count as u16 * DEPTH_BUCKET_WIDTH)
     }
 
-    fn buckets(start: usize, end: usize) -> Span {
+    fn buckets(start: usize, end: usize) -> TileAlignedSpan {
         bucket_span(start, end)
     }
 
-    fn bucket_range(span: Span) -> (usize, usize) {
+    fn bucket_range(span: TileAlignedSpan) -> (usize, usize) {
         (
             usize::from(span.pixel_x() / DEPTH_BUCKET_WIDTH),
             usize::from(span.pixel_end() / DEPTH_BUCKET_WIDTH),
         )
     }
 
-    fn visible_runs(buffer: &DepthBuffer, span: Span, draw_id: u32) -> Vec<(usize, usize)> {
+    fn visible_runs(
+        buffer: &DepthBuffer,
+        span: TileAlignedSpan,
+        draw_id: u32,
+    ) -> Vec<(usize, usize)> {
         let mut runs = Vec::new();
         buffer.for_each_visible_run(span, draw_id, |span| {
             runs.push(bucket_range(span));
@@ -317,7 +329,7 @@ mod tests {
         runs
     }
 
-    fn unset_runs(buffer: &DepthBuffer, span: Span) -> Vec<(usize, usize)> {
+    fn unset_runs(buffer: &DepthBuffer, span: TileAlignedSpan) -> Vec<(usize, usize)> {
         let mut runs = Vec::new();
         buffer.for_each_unset_run(span, |span| {
             runs.push(bucket_range(span));
@@ -345,16 +357,19 @@ mod tests {
     #[test]
     fn split_opaque_span_extracts_aligned_middle() {
         let mut segments = Vec::new();
-        split_opaque_span(Span::new(4, DEPTH_BUCKET_WIDTH * 3), |segment| {
-            segments.push(segment);
-        });
+        split_opaque_span(
+            TileAlignedSpan::from_tiles(1, DEPTH_BUCKET_TILE_WIDTH * 3),
+            |segment| {
+                segments.push(segment);
+            },
+        );
 
         assert_eq!(
             segments,
             [
-                DepthSegment::Regular(Span::new(4, DEPTH_BUCKET_WIDTH - 4)),
+                DepthSegment::Regular(TileAlignedSpan::from_tiles(1, DEPTH_BUCKET_TILE_WIDTH - 1)),
                 DepthSegment::Opaque(BucketRange::new(1, 3)),
-                DepthSegment::Regular(Span::new(DEPTH_BUCKET_WIDTH * 3, 4)),
+                DepthSegment::Regular(TileAlignedSpan::from_tiles(DEPTH_BUCKET_TILE_WIDTH * 3, 1)),
             ]
         );
     }
@@ -416,16 +431,19 @@ mod tests {
     }
 
     #[test]
-    fn unset_runs_clip_to_unaligned_requested_span() {
+    fn unset_runs_clip_to_span_not_aligned_to_depth_buckets() {
         let buffer = buffer(3);
-        let span = Span::new(7, DEPTH_BUCKET_WIDTH + 13);
+        let span = TileAlignedSpan::from_tiles(2, DEPTH_BUCKET_TILE_WIDTH + 3);
         let mut runs = Vec::new();
 
         buffer.for_each_unset_run(span, |span| {
             runs.push((span.pixel_x(), span.pixel_end()));
         });
 
-        assert_eq!(runs, [(7, DEPTH_BUCKET_WIDTH + 20)]);
+        assert_eq!(
+            runs,
+            [(Tile::WIDTH * 2, DEPTH_BUCKET_WIDTH + Tile::WIDTH * 5)]
+        );
     }
 
     #[test]

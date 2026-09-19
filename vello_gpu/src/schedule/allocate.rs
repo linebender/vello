@@ -276,12 +276,7 @@ mod tests {
                 Filter::from_primitive(FilterPrimitive::Offset { dx: 1.0, dy: 2.0 }),
                 Affine::IDENTITY,
             ),
-            placement: FilterLayerPlacement {
-                pixmap_bbox: RectU16::ZERO,
-                dest_bbox: RectU16::ZERO,
-                src_x: 0,
-                src_y: 0,
-            },
+            placement: FilterLayerPlacement::default(),
         };
         let filter = LayerAllocationRequest::new(bbox, &filter_kind, TextureParity::Odd);
         assert_eq!(filter.texture_parity, TextureParity::Odd);

@@ -890,8 +890,8 @@ impl LayerSamplePlacement {
 
     fn filter(placement: FilterLayerPlacement) -> Self {
         Self {
-            src_offset: (placement.src_x, placement.src_y),
-            dest_bbox: placement.dest_bbox,
+            src_offset: placement.src_origin(),
+            dest_bbox: placement.dest_bbox(),
         }
     }
 

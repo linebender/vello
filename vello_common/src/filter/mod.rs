@@ -116,19 +116,19 @@ pub struct FilterLayerPlacement {
     /// bbox will be (160, 160) to (340, 340).
     ///
     /// See the comments in `FilterLayerPlacement::new` for more information.
-    pub pixmap_bbox: RectU16,
+    pixmap_bbox: RectU16,
     /// Rectangle in the parent layer's coordinate space the filtered pixmap is composited into.
     ///
     /// See the comments in `FilterLayerPlacement::new` for more information.
-    pub dest_bbox: RectU16,
+    dest_bbox: RectU16,
     /// Source x offset used when sampling from the filter pixmap.
     ///
     /// See the comments in `FilterLayerPlacement::new` for more information.
-    pub src_x: u16,
+    src_x: u16,
     /// Source y offset used when sampling from the filter pixmap.
     ///
     /// See the comments in `FilterLayerPlacement::new` for more information.
-    pub src_y: u16,
+    src_y: u16,
 }
 
 impl FilterLayerPlacement {
@@ -161,6 +161,10 @@ impl FilterLayerPlacement {
         // viewport area. Therefore, when compositing the filter layer back, we need to undo that
         // shift.
         let (shift_x, shift_y) = filter_plan.source_shift();
+        assert!(
+            shift_x.is_multiple_of(Tile::WIDTH) && shift_y.is_multiple_of(Tile::HEIGHT),
+            "filter source shift must be tile-aligned"
+        );
         // For example, if `shift_x` is 20 and `pixmap_bbox.x0` is 4,
         // shifting the pixmap back would place its left edge at -16. Since we
         // start compositing at x=0, we need to skip the first 16 pixels
@@ -170,6 +174,14 @@ impl FilterLayerPlacement {
         let src_y = shift_y.saturating_sub(pixmap_bbox.y0);
         let dest_bbox = pixmap_bbox.relative_to_origin((shift_x, shift_y));
 
+        assert!(
+            dest_bbox.x0.is_multiple_of(Tile::WIDTH)
+                && dest_bbox.x1.is_multiple_of(Tile::WIDTH)
+                && dest_bbox.y0.is_multiple_of(Tile::HEIGHT)
+                && dest_bbox.y1.is_multiple_of(Tile::HEIGHT),
+            "filter destination bounds must be tile-aligned"
+        );
+
         Self {
             pixmap_bbox,
             dest_bbox,
@@ -178,9 +190,31 @@ impl FilterLayerPlacement {
         }
     }
 
+    /// Return the bounds of the pixmap allocated for the filter layer.
+    ///
+    /// The bbox is guaranteed to be aligned to tile coordinates.
+    pub fn pixmap_bbox(self) -> RectU16 {
+        self.pixmap_bbox
+    }
+
+    /// Return the bounds where the filter layer is composited into its parent.
+    ///
+    /// The bbox is guaranteed to be aligned to tile coordinates.
+    pub fn dest_bbox(self) -> RectU16 {
+        self.dest_bbox
+    }
+
     /// Return the source origin of the filter layer.
+    ///
+    /// The origin is guaranteed to be aligned to tile coordinates.
     pub fn src_origin(self) -> (u16, u16) {
         (self.src_x, self.src_y)
+    }
+}
+
+impl Default for FilterLayerPlacement {
+    fn default() -> Self {
+        Self::EMPTY
     }
 }
 
