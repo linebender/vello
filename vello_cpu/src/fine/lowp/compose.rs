@@ -71,13 +71,12 @@ macro_rules! compose {
 
                 if $sat {
                     narrow(
-                        (widen(src_c.normalized_mul(simd, fa))
-                            + widen(fb.normalized_mul(simd, bg_c)))
-                        .min(u16x32::splat(simd, 255))
-                        .max(u16x32::splat(simd, 0)),
+                        (widen(src_c.normalized_mul(fa)) + widen(fb.normalized_mul(bg_c)))
+                            .min(u16x32::splat(simd, 255))
+                            .max(u16x32::splat(simd, 0)),
                     )
                 } else {
-                    src_c.normalized_mul(simd, fa) + fb.normalized_mul(simd, bg_c)
+                    src_c.normalized_mul(fa) + fb.normalized_mul(bg_c)
                 }
             }
         }

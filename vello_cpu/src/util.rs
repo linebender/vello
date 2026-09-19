@@ -66,12 +66,12 @@ pub(crate) mod scalar {
 }
 
 pub(crate) trait NormalizedMulExt<S: Simd> {
-    fn normalized_mul(self, simd: S, other: Self) -> Self;
+    fn normalized_mul(self, other: Self) -> Self;
 }
 
 impl<S: Simd> NormalizedMulExt<S> for u8x32<S> {
     #[simd]
-    fn normalized_mul(self, simd: S, other: Self) -> Self {
+    fn normalized_mul(self, other: Self) -> Self {
         narrow(normalized_mul_u8(self, other))
     }
 }
@@ -92,13 +92,13 @@ impl EncodedImageExt for EncodedImage {
 }
 
 pub(crate) trait Premultiply<S: Simd> {
-    fn premultiply(self, simd: S, alphas: Self) -> Self;
+    fn premultiply(self, alphas: Self) -> Self;
     fn unpremultiply(self, simd: S, alphas: Self) -> Self;
 }
 
 impl<S: Simd> Premultiply<S> for f32x4<S> {
     #[simd]
-    fn premultiply(self, simd: S, alphas: Self) -> Self {
+    fn premultiply(self, alphas: Self) -> Self {
         self * alphas
     }
 

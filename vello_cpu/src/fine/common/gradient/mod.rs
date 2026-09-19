@@ -72,7 +72,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
     fn next(&mut self) -> Option<Self::Item> {
         let extend = self.gradient.extend;
         let pos = f32x8::from_slice(self.simd, self.t_vals.next()?);
-        let t_vals = apply_extend(self.simd, pos, extend);
+        let t_vals = apply_extend(pos, extend);
         let valid = pos.simd_eq(pos);
         let indices = (t_vals * self.scale_factor).to_int::<u32x8<S>>();
         // In case we had any NaN's, set the index to an explicit invalid sentinel. There
@@ -221,7 +221,7 @@ fn invalid_f32_mask<S: Simd>(simd: S, indices: u32x4<S>) -> mask32x16<S> {
 }
 
 #[simd]
-pub(crate) fn apply_extend<S: Simd>(_simd: S, val: f32x8<S>, extend: peniko::Extend) -> f32x8<S> {
+pub(crate) fn apply_extend<S: Simd>(val: f32x8<S>, extend: peniko::Extend) -> f32x8<S> {
     match extend {
         peniko::Extend::Pad => val.max(0.0).min(1.0),
         peniko::Extend::Repeat => (val - val.floor()).fract(),

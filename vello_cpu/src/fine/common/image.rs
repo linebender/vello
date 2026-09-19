@@ -206,8 +206,8 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
         // center of the location we are sampling, and sample those points
         // using a cubic filter to weight each location's contribution.
 
-        let x_fract = fract_floor(self.simd, x_positions + 0.5);
-        let y_fract = fract_floor(self.simd, y_positions + 0.5);
+        let x_fract = fract_floor(x_positions + 0.5);
+        let y_fract = fract_floor(y_positions + 0.5);
 
         let mut interpolated_color = f32x16::splat(self.simd, 0.0);
 
@@ -345,7 +345,7 @@ f32x16_painter!(FilteredImagePainter<'_, S, 2>);
 /// Unlike `f32::fract()`, this always returns a value in [0, 1),
 /// even for negative inputs.
 #[simd]
-pub(crate) fn fract_floor<S: Simd>(_simd: S, val: f32x4<S>) -> f32x4<S> {
+pub(crate) fn fract_floor<S: Simd>(val: f32x4<S>) -> f32x4<S> {
     val - val.floor()
 }
 
@@ -470,7 +470,6 @@ fn weights<S: Simd>(simd: S, fract: f32x4<S>) -> [f32x4<S>; 4] {
 
     [
         single_weight(
-            simd,
             fract,
             f32x4::splat(simd, MF[0][0]),
             f32x4::splat(simd, MF[0][1]),
@@ -478,7 +477,6 @@ fn weights<S: Simd>(simd: S, fract: f32x4<S>) -> [f32x4<S>; 4] {
             f32x4::splat(simd, MF[0][3]),
         ),
         single_weight(
-            simd,
             fract,
             f32x4::splat(simd, MF[1][0]),
             f32x4::splat(simd, MF[1][1]),
@@ -486,7 +484,6 @@ fn weights<S: Simd>(simd: S, fract: f32x4<S>) -> [f32x4<S>; 4] {
             f32x4::splat(simd, MF[1][3]),
         ),
         single_weight(
-            simd,
             fract,
             f32x4::splat(simd, MF[2][0]),
             f32x4::splat(simd, MF[2][1]),
@@ -494,7 +491,6 @@ fn weights<S: Simd>(simd: S, fract: f32x4<S>) -> [f32x4<S>; 4] {
             f32x4::splat(simd, MF[2][3]),
         ),
         single_weight(
-            simd,
             fract,
             f32x4::splat(simd, MF[3][0]),
             f32x4::splat(simd, MF[3][1]),
@@ -507,7 +503,6 @@ fn weights<S: Simd>(simd: S, fract: f32x4<S>) -> [f32x4<S>; 4] {
 /// Calculate a weight based on the fractional value t and the cubic coefficients.
 #[simd]
 fn single_weight<S: Simd>(
-    _simd: S,
     t: f32x4<S>,
     a: f32x4<S>,
     b: f32x4<S>,

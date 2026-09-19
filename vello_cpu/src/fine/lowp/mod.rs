@@ -154,14 +154,14 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                 for chunk in dest.chunks_exact_mut(32) {
                     let pixel = u8x32::from_slice(simd, chunk);
                     let alphas = pixel.splat_4th();
-                    let tinted = tint_v.normalized_mul(simd, alphas);
+                    let tinted = tint_v.normalized_mul(alphas);
                     tinted.store_slice(chunk);
                 }
             }
             TintMode::Multiply => {
                 for chunk in dest.chunks_exact_mut(32) {
                     let pixel = u8x32::from_slice(simd, chunk);
-                    let tinted = pixel.normalized_mul(simd, tint_v);
+                    let tinted = pixel.normalized_mul(tint_v);
                     tinted.store_slice(chunk);
                 }
             }
@@ -478,8 +478,8 @@ mod fill {
             // but since we widen to u16, we can only work with 256 bits, so we split it up.
             let bg_v = u8x64::from_slice(s, next_dest);
             let (bg_1, bg_2) = s.split_u8x64(bg_v);
-            let res_1 = alpha_composite_inner(s, bg_1, src_c, one_minus_alpha);
-            let res_2 = alpha_composite_inner(s, bg_2, src_c, one_minus_alpha);
+            let res_1 = alpha_composite_inner(bg_1, src_c, one_minus_alpha);
+            let res_2 = alpha_composite_inner(bg_2, src_c, one_minus_alpha);
             let combined = s.combine_u8x32(res_1, res_2);
             combined.store_slice(next_dest);
         }
@@ -497,7 +497,7 @@ mod fill {
         for (next_dest, next_src) in dest.chunks_exact_mut(32).zip(src) {
             let one_minus_alpha = 255 - next_src.splat_4th();
             let bg_v = u8x32::from_slice(simd, next_dest);
-            let res = alpha_composite_inner(simd, bg_v, next_src, one_minus_alpha);
+            let res = alpha_composite_inner(bg_v, next_src, one_minus_alpha);
             res.store_slice(next_dest);
         }
     }
@@ -508,7 +508,6 @@ mod fill {
     /// This implements the Porter-Duff "source over" operator.
     #[simd]
     fn alpha_composite_inner<S: Simd>(
-        _s: S,
         bg: u8x32<S>,
         src: u8x32<S>,
         one_minus_alpha: u8x32<S>,

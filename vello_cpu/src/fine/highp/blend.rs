@@ -45,9 +45,9 @@ pub(crate) fn mix<S: Simd>(
     let mut res_bg = unpremultiplied_bg;
     let mix_src = blend_mode.mix(simd, unpremultiplied_src, unpremultiplied_bg);
 
-    res_bg.r = apply_alpha(simd, bg_a, src_a, unpremultiplied_src.r, mix_src.r);
-    res_bg.g = apply_alpha(simd, bg_a, src_a, unpremultiplied_src.g, mix_src.g);
-    res_bg.b = apply_alpha(simd, bg_a, src_a, unpremultiplied_src.b, mix_src.b);
+    res_bg.r = apply_alpha(bg_a, src_a, unpremultiplied_src.r, mix_src.r);
+    res_bg.g = apply_alpha(bg_a, src_a, unpremultiplied_src.g, mix_src.g);
+    res_bg.b = apply_alpha(bg_a, src_a, unpremultiplied_src.b, mix_src.b);
 
     let mut storage = [0.0; 16];
     simd.store_four_interleaved_f32x4([res_bg.r, res_bg.g, res_bg.b, src_a], &mut storage);
@@ -65,7 +65,6 @@ fn split<S: Simd>(simd: S, input: f32x16<S>) -> (Channels<S>, f32x4<S>) {
 
 #[simd]
 fn apply_alpha<S: Simd>(
-    simd: S,
     bg_a: f32x4<S>,
     src_a: f32x4<S>,
     unpremultiplied_src_channel: f32x4<S>,
@@ -74,7 +73,7 @@ fn apply_alpha<S: Simd>(
     let p1 = (1.0 - bg_a) * unpremultiplied_src_channel;
     let p2 = bg_a * mix_src_channel;
 
-    (p1 + p2).premultiply(simd, src_a)
+    (p1 + p2).premultiply(src_a)
 }
 
 trait MixExt {
@@ -107,14 +106,14 @@ impl MixExt for BlendMode {
 
 impl Multiply {
     #[simd]
-    fn single<S: Simd>(simd: S, src: f32x4<S>, bg: f32x4<S>) -> f32x4<S> {
+    fn single<S: Simd>(src: f32x4<S>, bg: f32x4<S>) -> f32x4<S> {
         src * bg
     }
 }
 
 impl Screen {
     #[simd]
-    fn single<S: Simd>(simd: S, src: f32x4<S>, bg: f32x4<S>) -> f32x4<S> {
+    fn single<S: Simd>(src: f32x4<S>, bg: f32x4<S>) -> f32x4<S> {
         bg + src - src * bg
     }
 }
@@ -125,8 +124,8 @@ impl HardLight {
         let two = f32x4::splat(simd, 2.0);
 
         let mask = simd.simd_le_f32x4(src, f32x4::splat(simd, 0.5));
-        let opt1 = Multiply::single(simd, bg, src * two);
-        let opt2 = Screen::single(simd, bg, two * src - 1.0);
+        let opt1 = Multiply::single(bg, src * two);
+        let opt2 = Screen::single(bg, two * src - 1.0);
 
         simd.select_f32x4(mask, opt1, opt2)
     }
@@ -149,11 +148,11 @@ macro_rules! separable_mix {
     };
 }
 
-separable_mix!(Multiply, |simd: S, cs: f32x4<S>, cb: f32x4<S>| {
-    Multiply::single(simd, cs, cb)
+separable_mix!(Multiply, |_: S, cs: f32x4<S>, cb: f32x4<S>| {
+    Multiply::single(cs, cb)
 });
-separable_mix!(Screen, |simd: S, cs: f32x4<S>, cb: f32x4<S>| {
-    Screen::single(simd, cs, cb)
+separable_mix!(Screen, |_: S, cs: f32x4<S>, cb: f32x4<S>| {
+    Screen::single(cs, cb)
 });
 separable_mix!(Overlay, |simd: S, cs: f32x4<S>, cb: f32x4<S>| {
     HardLight::single(simd, cb, cs)
@@ -233,20 +232,8 @@ macro_rules! non_separable_mix {
 non_separable_mix!(Hue, |simd: S,
                          cs: &mut Channels<S>,
                          cb: &mut Channels<S>| {
-    set_sat(
-        simd,
-        &mut cs.r,
-        &mut cs.g,
-        &mut cs.b,
-        sat(simd, cb.r, cb.g, cb.b),
-    );
-    set_lum(
-        simd,
-        &mut cs.r,
-        &mut cs.g,
-        &mut cs.b,
-        lum(simd, cb.r, cb.g, cb.b),
-    );
+    set_sat(simd, &mut cs.r, &mut cs.g, &mut cs.b, sat(cb.r, cb.g, cb.b));
+    set_lum(simd, &mut cs.r, &mut cs.g, &mut cs.b, lum(cb.r, cb.g, cb.b));
 
     *cs
 });
@@ -254,14 +241,8 @@ non_separable_mix!(Hue, |simd: S,
 non_separable_mix!(
     Saturation,
     |simd: S, cs: &mut Channels<S>, cb: &mut Channels<S>| {
-        let lum = lum(simd, cb.r, cb.g, cb.b);
-        set_sat(
-            simd,
-            &mut cb.r,
-            &mut cb.g,
-            &mut cb.b,
-            sat(simd, cs.r, cs.g, cs.b),
-        );
+        let lum = lum(cb.r, cb.g, cb.b);
+        set_sat(simd, &mut cb.r, &mut cb.g, &mut cb.b, sat(cs.r, cs.g, cs.b));
         set_lum(simd, &mut cb.r, &mut cb.g, &mut cb.b, lum);
 
         *cb
@@ -271,44 +252,32 @@ non_separable_mix!(
 non_separable_mix!(Color, |simd: S,
                            cs: &mut Channels<S>,
                            cb: &mut Channels<S>| {
-    set_lum(
-        simd,
-        &mut cs.r,
-        &mut cs.g,
-        &mut cs.b,
-        lum(simd, cb.r, cb.g, cb.b),
-    );
+    set_lum(simd, &mut cs.r, &mut cs.g, &mut cs.b, lum(cb.r, cb.g, cb.b));
 
     *cs
 });
 non_separable_mix!(
     Luminosity,
     |simd: S, cs: &mut Channels<S>, cb: &mut Channels<S>| {
-        set_lum(
-            simd,
-            &mut cb.r,
-            &mut cb.g,
-            &mut cb.b,
-            lum(simd, cs.r, cs.g, cs.b),
-        );
+        set_lum(simd, &mut cb.r, &mut cb.g, &mut cb.b, lum(cs.r, cs.g, cs.b));
 
         *cb
     }
 );
 
 #[simd]
-fn lum<S: Simd>(simd: S, r: f32x4<S>, g: f32x4<S>, b: f32x4<S>) -> f32x4<S> {
+fn lum<S: Simd>(r: f32x4<S>, g: f32x4<S>, b: f32x4<S>) -> f32x4<S> {
     0.3 * r + 0.59 * g + 0.11 * b
 }
 
 #[simd]
-fn sat<S: Simd>(simd: S, r: f32x4<S>, g: f32x4<S>, b: f32x4<S>) -> f32x4<S> {
+fn sat<S: Simd>(r: f32x4<S>, g: f32x4<S>, b: f32x4<S>) -> f32x4<S> {
     r.max(g).max(b) - r.min(g).min(b)
 }
 
 #[simd]
 fn clip_color<S: Simd>(simd: S, r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>) {
-    let l = lum(simd, *r, *g, *b);
+    let l = lum(*r, *g, *b);
     let n = r.min(g.min(*b));
     let x = r.max(g.max(*b));
 
@@ -329,7 +298,7 @@ fn clip_color<S: Simd>(simd: S, r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x
 
 #[simd]
 fn set_lum<S: Simd>(simd: S, r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>, l: f32x4<S>) {
-    let d = l - lum(simd, *r, *g, *b);
+    let d = l - lum(*r, *g, *b);
     *r += d;
     *g += d;
     *b += d;
