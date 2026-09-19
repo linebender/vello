@@ -658,6 +658,10 @@ impl<'a> DrawGlyphs<'a> {
 
         let color_collection = font.color_glyphs();
         let bitmaps = font.bitmap_strikes();
+        let is_apple_color_emoji = bitmaps.format() == Some(BitmapFormat::Sbix)
+            && font
+                .localized_strings(skrifa::string::StringId::POSTSCRIPT_NAME)
+                .any(|name| name.chars().eq("AppleColorEmoji".chars()));
         let mut final_glyph = None;
         let mut outline_count = 0;
         // We copy out of the variable font coords here because we need to call an exclusive self method
@@ -798,24 +802,20 @@ impl<'a> DrawGlyphs<'a> {
                     let image_scale_factor = self.run.font_size / bitmap.ppem_y;
                     let font_units_to_size = self.run.font_size / upem;
 
-                    // CoreText appears to special case Apple Color Emoji, adding
-                    // a 100 font unit vertical offset. We do the same but only
-                    // when both vertical offsets are 0 to avoid incorrect
-                    // rendering if Apple ever does encode the offset directly in
-                    // the font.
-                    let bearing_y = if bitmap.bearing_y == 0.0
-                        && bitmaps.format() == Some(BitmapFormat::Sbix)
-                    {
-                        100.0
+                    // Apple applies a hardcoded shift to Apple Color Emoji, see
+                    // https://wh0.github.io/2024/12/31/emoji-metrics.html
+                    // and https://github.com/harfbuzz/harfbuzz/issues/2679#issuecomment-1345595425.
+                    let outer_offset = if is_apple_color_emoji {
+                        Vec2::new(0.0, f64::from(self.run.font_size) / 8.0)
                     } else {
-                        bitmap.bearing_y
+                        Vec2::new(
+                            -f64::from(bitmap.bearing_x * font_units_to_size),
+                            f64::from(bitmap.bearing_y * font_units_to_size),
+                        )
                     };
 
                     let transform = transform
-                        .pre_translate(Vec2 {
-                            x: (-bitmap.bearing_x * font_units_to_size).into(),
-                            y: (bearing_y * font_units_to_size).into(),
-                        })
+                        .pre_translate(outer_offset)
                         // Unclear why this isn't non-uniform
                         .pre_scale(image_scale_factor.into())
                         .pre_translate(Vec2 {
