@@ -49,7 +49,7 @@ use vello_common::util::{VecPool, f32_to_u8};
 #[doc(hidden)]
 pub use crate::coarse::PaintFillAttrs;
 #[doc(hidden)]
-pub use crate::util::Span;
+pub use crate::util::{Span, TileAlignedSpan};
 pub use highp::F32Kernel;
 pub use lowp::U8Kernel;
 
@@ -476,7 +476,7 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
 ) {
     let scene_y = region.row_idx as u16 * Tile::HEIGHT;
     let row = &bucketer.rows()[region.row_idx];
-    let span = Span::new(0, region.width());
+    let span = Span::new(0, region.width()).tile_aligned();
 
     fine.set_row_y(scene_y);
     depth.clear();
@@ -530,7 +530,7 @@ pub struct Fine<S: Simd, T: FineKernel<S>> {
     simd: S,
     // TODO: If we make sure that strips never exceed the viewport, we can delete this.
     /// Pixel span covered by the blend buffers.
-    buffer_span: Span,
+    buffer_span: TileAlignedSpan,
     /// Stack of blend buffers for managing layers and composition.
     ///
     /// Each layer pushes a new buffer onto this stack, and layers are composited
@@ -557,7 +557,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let scratch_len = usize::from(buffer_width) * TILE_HEIGHT_COMPONENTS;
         Self {
             simd,
-            buffer_span: Span::new(0, buffer_width),
+            buffer_span: TileAlignedSpan::try_from(Span::new(0, buffer_width)).unwrap(),
             blend_buffers: vec![vec![T::Numeric::ZERO; scratch_len]],
             buffer_pool: VecPool::new(false),
             paint_buf: Vec::new(),
@@ -575,7 +575,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         self.origin = paint_offset;
     }
 
-    fn scratch_range(span: Span) -> core::ops::Range<usize> {
+    fn scratch_range(span: TileAlignedSpan) -> core::ops::Range<usize> {
         let start = usize::from(span.pixel_x()) * TILE_HEIGHT_COMPONENTS;
         let len = usize::from(span.pixel_width()) * TILE_HEIGHT_COMPONENTS;
         start..start + len
@@ -591,7 +591,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     /// with a paint.
     fn init_uncovered_range(
         &mut self,
-        scratch_span: Span,
+        scratch_span: TileAlignedSpan,
         region: &mut Region<'_>,
         target_init: TargetInit<PremulColor>,
         depth: &DepthBuffer,
@@ -602,9 +602,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     scratch_span,
                     #[inline]
                     |span| {
-                        let (x, end) = (span.pixel_x(), span.pixel_end());
-                        let mut region = region.sub_span(x, end - x);
-                        self.unpack(x, &mut region);
+                        if let Some(span) = span.as_span()
+                            // The pixmap we load from does not necessarily have a width that is
+                            // a multiple of the tile width! We therefore clamp and leave any
+                            // tail in the blend buffer uninitialized.
+                            .intersect(Span::new(0, region.width())) {
+                            let mut region = region.sub_span(span.pixel_x(), span.pixel_width());
+                            self.unpack(span.pixel_x(), &mut region);
+                        }
                     },
                 );
             }
@@ -615,8 +620,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     scratch_span,
                     #[inline]
                     |span| {
-                        let (x, end) = (span.pixel_x(), span.pixel_end());
-                        let range = Self::scratch_range(Span::new(x, end - x));
+                        let range = Self::scratch_range(span);
                         self.blend_buffers.last_mut().unwrap()[range].fill(T::Numeric::ZERO);
                     },
                 );
@@ -627,8 +631,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     scratch_span,
                     #[inline]
                     |span| {
-                        let (x, end) = (span.pixel_x(), span.pixel_end());
-                        let range = Self::scratch_range(Span::new(x, end - x));
+                        let range = Self::scratch_range(span);
                         T::copy_solid(
                             self.simd,
                             &mut self.blend_buffers.last_mut().unwrap()[range],
@@ -640,7 +643,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         }
     }
 
-    fn push_buf(&mut self, span: Option<Span>) {
+    fn push_buf(&mut self, span: Option<TileAlignedSpan>) {
         let mut buf = self.buffer_pool.take();
         // Reused vectors will retain their length, so in most cases this
         // will be a no-op.
@@ -707,7 +710,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     return;
                 };
 
-                let paint_fill = |fine: &mut Self, span: Span| {
+                let paint_fill = |fine: &mut Self, span: TileAlignedSpan| {
                     let alphas = cmd.alpha_idx().map(|alpha_idx| {
                         let alpha_offset = alpha_idx as usize
                             + usize::from(span.pixel_x() - cmd.span.pixel_x())
@@ -739,7 +742,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 let attrs = &bucketer.layer_fill_attrs[cmd.attrs_idx as usize];
                 let alpha_buffer = resources.alpha_buffers[attrs.thread_idx as usize];
 
-                let layer_fill = |fine: &mut Self, span: Span| {
+                let layer_fill = |fine: &mut Self, span: TileAlignedSpan| {
                     let alphas = cmd.alpha_idx().map(|alpha_idx| {
                         let alpha_offset = alpha_idx as usize
                             + usize::from(span.pixel_x() - cmd.span.pixel_x())
@@ -769,7 +772,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         }
     }
 
-    fn opacity(&mut self, span: Span, opacity: f32) {
+    fn opacity(&mut self, span: TileAlignedSpan, opacity: f32) {
         let target = self.blend_buffers.last_mut().unwrap();
         let target = &mut target[Self::scratch_range(span)];
 
@@ -783,7 +786,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         );
     }
 
-    fn mask(&mut self, row_y: u16, span: Span, mask: &Mask) {
+    fn mask(&mut self, row_y: u16, span: TileAlignedSpan, mask: &Mask) {
         let x = span.pixel_x();
         let width = span.pixel_width();
         let target = self.blend_buffers.last_mut().unwrap();
@@ -822,7 +825,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     fn layer_fill(
         &mut self,
         row_y: u16,
-        span: Span,
+        span: TileAlignedSpan,
         blend_mode: BlendMode,
         opacity: f32,
         mask: Option<&Mask>,
@@ -863,7 +866,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[doc(hidden)]
     pub fn paint_fill(
         &mut self,
-        span: Span,
+        span: TileAlignedSpan,
         attrs: &PaintFillAttrs,
         resources: FineResources<'_>,
         alphas: Option<&[u8]>,
@@ -881,7 +884,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
     fn solid_fill(
         &mut self,
-        span: Span,
+        span: TileAlignedSpan,
         color: PremulColor,
         attrs: &PaintFillAttrs,
         alphas: Option<&[u8]>,
@@ -920,7 +923,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
     fn indexed_fill(
         &mut self,
-        span: Span,
+        span: TileAlignedSpan,
         paint_index: usize,
         attrs: &PaintFillAttrs,
         resources: FineResources<'_>,

@@ -8,7 +8,7 @@ use crate::filter::context::FilterContext;
 use crate::kurbo::{Affine, Vec2};
 use crate::peniko::{BlendMode, Extend, ImageQuality, ImageSampler};
 use crate::record::RecordedFill;
-use crate::util::Span;
+use crate::util::{Span, TileAlignedSpan};
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -54,7 +54,7 @@ struct RowLayerState {
     /// layer lives.
     push_cmd_idx: usize,
     /// The horizontal span of the layer.
-    span: Option<Span>,
+    span: Option<TileAlignedSpan>,
 }
 
 impl RowState {
@@ -113,12 +113,12 @@ impl RowState {
     }
 
     #[inline]
-    pub(crate) fn can_skip_depth(&self, span: Span, draw_id: u32) -> bool {
+    pub(crate) fn can_skip_depth(&self, span: TileAlignedSpan, draw_id: u32) -> bool {
         self.depth.can_skip(span, draw_id)
     }
 
     #[inline]
-    fn include_current_span(&mut self, span: Span) {
+    fn include_current_span(&mut self, span: TileAlignedSpan) {
         if let Some(layer) = self.layer_stack.last_mut() {
             match &mut layer.span {
                 Some(layer_span) => layer_span.extend(span),
@@ -213,14 +213,15 @@ impl CommandBucketer {
         }
     }
 
-    fn bbox_span(bbox: RectU16) -> Span {
+    fn bbox_span(bbox: RectU16) -> TileAlignedSpan {
         // Bbox might be empty vertically but not horizontally. In this case,
         // it should still be considered a zero-sized span, though.
         // TODO: Discard empty layers in an earlier stage.
         if bbox.is_empty() {
-            Span::new(bbox.x0, 0)
+            TileAlignedSpan::try_from(Span::new(bbox.x0, 0)).unwrap()
         } else {
-            Span::new(bbox.x0, bbox.x1 - bbox.x0)
+            TileAlignedSpan::try_from(Span::new(bbox.x0, bbox.x1 - bbox.x0))
+                .unwrap()
         }
     }
 
@@ -686,26 +687,28 @@ impl CommandBucketer {
             self,
             |bucketer, segment| {
                 let row_idx = usize::from(segment.tile_y - origin_tile_y);
-                let x0 = (segment.tile_x0 - origin_tile_x) * Tile::WIDTH;
-                let x1 = (segment.tile_x1 - origin_tile_x) * Tile::WIDTH;
                 alpha_fill_cmd(
                     bucketer,
                     GeneratedAlphaFill {
                         row_idx,
-                        span: Span::new(x0, x1 - x0),
+                        span: TileAlignedSpan::from_tiles(
+                            segment.tile_x0 - origin_tile_x,
+                            segment.tile_x1 - segment.tile_x0,
+                        ),
                         alpha_idx: segment.alpha_idx,
                     },
                 );
             },
             |bucketer, segment| {
                 let row_idx = usize::from(segment.tile_y - origin_tile_y);
-                let x0 = (segment.tile_x0 - origin_tile_x) * Tile::WIDTH;
-                let x1 = (segment.tile_x1 - origin_tile_x) * Tile::WIDTH;
                 fill_cmd(
                     bucketer,
                     GeneratedFill {
                         row_idx,
-                        span: Span::new(x0, x1 - x0),
+                        span: TileAlignedSpan::from_tiles(
+                            segment.tile_x0 - origin_tile_x,
+                            segment.tile_x1 - segment.tile_x0,
+                        ),
                     },
                 );
             },
@@ -745,7 +748,7 @@ pub(crate) struct ActiveLayer {
     pub(crate) blend_mode: BlendMode,
     pub(crate) opacity: f32,
     pub(crate) clip: Option<LayerClip>,
-    pub(crate) span: Span,
+    pub(crate) span: TileAlignedSpan,
     /// Which rows have been drawn into and thus contain lazily-allocated `PushBuf` instructions.
     pub(crate) occupied_rows: Vec<usize>,
 }
@@ -754,14 +757,14 @@ pub(crate) struct ActiveLayer {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GeneratedFill {
     pub(crate) row_idx: usize,
-    pub(crate) span: Span,
+    pub(crate) span: TileAlignedSpan,
 }
 
 /// A generic alpha fill to allow using `generate_fill` to create either paint fills or blend fills.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GeneratedAlphaFill {
     pub(crate) row_idx: usize,
-    pub(crate) span: Span,
+    pub(crate) span: TileAlignedSpan,
     pub(crate) alpha_idx: u32,
 }
 

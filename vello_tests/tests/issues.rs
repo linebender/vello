@@ -25,6 +25,42 @@ use vello_cpu::color::palette::css::{BLACK, RED};
 use vello_cpu::peniko::{Compose, Extend};
 use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings};
 use vello_dev_macros::vello_test;
+use vello_gpu::{ClearSettings, TargetInit};
+
+#[vello_test(width = 9, height = 9, transparent)]
+fn issue_background_isolation_odd_width(ctx: &mut impl Renderer) {
+    ctx.set_target_init(TargetInit::Clear(ClearSettings::Viewport { color: BLUE }));
+    draw_odd_width_root_blend(ctx);
+}
+
+#[vello_test(width = 9, height = 9, transparent, skip_webgl)]
+fn issue_src_over_isolation_odd_width(ctx: &mut impl Renderer) {
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 9.0, 9.0));
+    ctx.flush();
+    ctx.render();
+    ctx.reset();
+
+    ctx.set_target_init(TargetInit::SrcOver);
+    draw_odd_width_root_blend(ctx);
+}
+
+fn draw_odd_width_root_blend(ctx: &mut impl Renderer) {
+    ctx.set_paint(LIME);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 9.0, 9.0));
+
+    let rect = Rect::new(3.0, 3.0, 6.0, 6.0);
+    let clip = rect.to_path(0.1);
+    ctx.push_layer(
+        Some(&clip),
+        Some(BlendMode::new(Mix::Normal, Compose::Clear)),
+        None,
+        None,
+        None,
+    );
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+}
 
 #[vello_test(width = 8, height = 8)]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
