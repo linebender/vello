@@ -825,3 +825,43 @@ fn issue_filter_preserves_painter_order_for_opaque_and_alpha(ctx: &mut impl Rend
     ctx.fill_rect(&Rect::new(30.0, 30.0, 70.0, 70.0));
     ctx.pop_layer();
 }
+
+fn image_filtering_at_extend_boundary(
+    ctx: &mut impl Renderer,
+    width: u16,
+    extend: Extend,
+    tap: f32,
+) {
+    let mut pixmap = Pixmap::new(width, 1);
+    for x in 0..width {
+        let color = if x == 0 { RED } else { BLUE };
+        pixmap.set_pixel(x, 0, color.premultiply().to_rgba8());
+    }
+
+    let image = ctx.get_image_source(Arc::new(pixmap));
+    ctx.set_paint(Image {
+        image,
+        sampler: ImageSampler {
+            x_extend: extend,
+            y_extend: Extend::Pad,
+            quality: ImageQuality::Medium,
+            alpha: 1.0,
+        },
+    });
+
+    let image_from_scene = Affine::translate((f64::from(tap - 0.5), 0.5))
+        * Affine::scale_non_uniform(f64::from(f32::EPSILON), 1.0)
+        * Affine::translate((-10.5, -10.5));
+    ctx.set_paint_transform(image_from_scene.inverse());
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+}
+
+#[vello_test(skip_gpu)]
+fn issue_image_filtering_at_reflect_boundary(ctx: &mut impl Renderer) {
+    image_filtering_at_extend_boundary(ctx, 2, Extend::Reflect, (-1.0_f32).next_down());
+}
+
+#[vello_test(skip_gpu)]
+fn issue_image_filtering_at_repeat_boundary(ctx: &mut impl Renderer) {
+    image_filtering_at_extend_boundary(ctx, 3, Extend::Repeat, 15.0_f32.next_down());
+}

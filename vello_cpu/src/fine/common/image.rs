@@ -567,6 +567,28 @@ mod tests {
     use vello_common::fearless_simd::Fallback;
 
     #[test]
+    fn reflect_tap_at_boundary() {
+        let simd = Fallback::new();
+        let max = f32x4::splat(simd, 2.0);
+        let value = f32x4::splat(simd, (-1.0_f32).next_down());
+
+        let extended = extend(simd, value, crate::peniko::Extend::Reflect, max, 1.0 / max);
+
+        assert_eq!(extended[0] as u32, 1);
+    }
+
+    #[test]
+    fn repeat_tap_at_boundary() {
+        let simd = Fallback::new();
+        let max = f32x4::splat(simd, 3.0);
+        let value = f32x4::splat(simd, 15.0_f32.next_down());
+
+        let extended = extend(simd, value, crate::peniko::Extend::Repeat, max, 1.0 / max);
+
+        assert_eq!(extended[0] as u32, 2);
+    }
+
+    #[test]
     fn extend_overflow() {
         let simd = Fallback::new();
         let max = f32x4::splat(simd, 128.0);
