@@ -1,0 +1,143 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+// After you edit the crate's doc comment, run this command, then check README.md for any missing links
+// cargo rdme --workspace-project=vello_common
+
+//! This crate includes common geometry representations, tiling logic, and other fundamental components used by both [Vello CPU][vello_cpu] and [Vello GPU][vello_gpu].
+//!
+//! # Usage
+//!
+//! This crate should not be used on its own, and you should instead use one of the renderers which use it.
+//! Choose [Vello CPU][vello_cpu] for CPU-only rendering or [Vello GPU][vello_gpu] for GPU rasterization with CPU-side preprocessing. The compute-centric [`vello`](https://crates.io/crates/vello) renderer is a separate architecture and does not use this crate.
+//!
+//! # Features
+//!
+//! - `std` (enabled by default): Get floating point functions from the standard library
+//!   (likely using your target's libc).
+//! - `libm`: Use floating point implementations from [libm][].
+//! - `png` (enabled by default): Allow loading [`Pixmap`][crate::pixmap::Pixmap]s from PNG images.
+//!   Also required for rendering glyphs with an embedded PNG.
+//!   Implies `std`.
+//!
+//! At least one of `std` and `libm` is required; `std` overrides `libm`.
+//!
+//! # Contents
+//!
+//! - Shared data structures for paths, tiles, and strips
+//! - Geometry processing utilities
+//! - Common logic for rendering stages
+//!
+//! This crate acts as a foundation for `vello_cpu` and `vello_gpu`, providing essential components to minimize duplication.
+//!
+//! [vello_cpu]: https://crates.io/crates/vello_cpu
+//! [vello_gpu]: https://crates.io/crates/vello_gpu
+#![cfg_attr(feature = "libm", doc = "[libm]: libm")]
+#![cfg_attr(not(feature = "libm"), doc = "[libm]: https://crates.io/crates/libm")]
+// LINEBENDER LINT SET - lib.rs - v3
+// See https://linebender.org/wiki/canonical-lints/
+// These lints shouldn't apply to examples or tests.
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+// These lints shouldn't apply to examples.
+#![warn(clippy::print_stdout, clippy::print_stderr)]
+// Targeting e.g. 32-bit means structs containing usize can give false positives for 64-bit.
+#![cfg_attr(target_pointer_width = "64", warn(clippy::trivially_copy_pass_by_ref))]
+// END LINEBENDER LINT SET
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![forbid(unsafe_code)]
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "We temporarily ignore those because the casts\
+only break in edge cases, and some of them are also only related to conversions from f64 to f32."
+)]
+#![no_std]
+
+// Suppress the unused_crate_dependencies lint when both std and libm are specified.
+#[cfg(all(feature = "std", feature = "libm"))]
+use libm as _;
+
+extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
+
+pub mod blurred_rounded_rect;
+pub mod clip;
+pub mod encode;
+pub mod filter;
+pub mod filter_effects;
+pub mod flatten;
+pub(crate) mod flatten_simd;
+pub mod geometry;
+pub mod image_cache;
+pub mod mask;
+pub mod math;
+pub mod multi_atlas;
+pub mod paint;
+#[doc(hidden)]
+#[cfg(feature = "pico_svg")]
+pub mod pico_svg;
+pub mod pixmap;
+#[doc(hidden)]
+#[cfg(feature = "probe")]
+pub mod probe;
+pub mod record;
+pub mod rect;
+pub mod render_state;
+pub mod simd;
+pub mod strip;
+pub mod strip_generator;
+pub mod target;
+pub mod tile;
+pub mod transforms;
+pub mod util;
+pub mod viewport;
+
+pub use fearless_simd;
+pub use peniko;
+pub use peniko::color;
+pub use peniko::kurbo;
+pub use target::TargetInit;
+
+/// Public API types re-exported by Vello CPU and Vello GPU.
+#[doc(hidden)]
+pub mod reexports {
+    mod shared {
+        pub use crate::filter_effects;
+        pub use crate::geometry;
+        pub use crate::mask::Mask;
+        pub use crate::paint::{Image, ImageId, ImageSource, PaintType, Tint, TintMode};
+        pub use crate::pixmap::{PixelMetadata, Pixels, Pixmap};
+        pub use crate::render_state::RenderState;
+        pub use crate::transforms::Transforms;
+        pub use crate::{color, kurbo, peniko};
+        pub use fearless_simd::Level;
+    }
+
+    /// Public API types specific to Vello CPU.
+    pub mod cpu {
+        pub use super::shared::*;
+        pub use crate::pixmap::PixmapMut;
+    }
+
+    /// Public API types specific to Vello GPU.
+    pub mod gpu {
+        pub use super::shared::*;
+        pub use crate::TextureId;
+        pub use crate::geometry::{RectU16, SizeU16};
+        pub use crate::multi_atlas::{
+            AllocationStrategy, AtlasConfig, AtlasError, AtlasId, AtlasLayerDiagnostics,
+            AtlasSpaceDiagnostics,
+        };
+        #[cfg(feature = "probe")]
+        pub use crate::probe::{
+            ALL_PROBE_ELEMENTS, CellStatistics, Probe, ProbeFeature, ProbeResult,
+        };
+    }
+}
+
+/// A handle to an external, user-provided texture.
+///
+/// This is resolved at render time by passing in a mapping of handles to textures, but is
+/// otherwise opaque to the renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TextureId(pub u64);

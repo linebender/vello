@@ -26,8 +26,8 @@ jobs:
       - name: install wasm-bindgen
         uses: taiki-e/install-action@v2
         with:
-          # If updating, also update in examples/with_winit/Cargo.toml
-          tool: wasm-bindgen@0.2.114
+          # If updating, also update in research/examples/with_winit/Cargo.toml
+          tool: wasm-bindgen@0.2.115
 
       - name: build (wasm)
         run: cargo build -p with_winit --bin with_winit_bin --release --target wasm32-unknown-unknown

@@ -1,32 +1,57 @@
+<div align="center">
+
 # Vello Tests
 
-This folder contains the infrastructure used for testing Vello.
-The kinds of test currently used are:
+[![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
+\
+[![Linebender Zulip chat.](https://img.shields.io/badge/Linebender-%23vello-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/channel/197075-vello) [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/linebender/vello/ci.yml?logo=github&label=CI)](https://github.com/linebender/vello/actions)
 
-- Property tests
-    - These tests are run on both the GPU and CPU.
-    - These create scenes with
-- Snapshot tests
-    - These tests use the GPU shaders as a source of truth, but the CPU shaders are also ran for these tests.
-    - These have a non-exact comparison metric, because of small differences between rendering on different platforms.
-      This includes differences from "fast math" on Apple platforms.
-- Comparison tests
-    - These tests compare the results from running a scene through the CPU and GPU pathways.
-    - This ensures that the GPU renderer matches the reference CPU renderer.
-    - We hope to largely phase these out in favour of additional snapshot tests.
+</div>
 
-## LFS
+This is a development-only crate for testing the Sparse Strips renderers across
+a corpus of reference images:
 
-We have two groups of snapshot tests.
-The first of these groups are the smoke snapshot tests.
-This is a small set of tests for which the reference files are included within this repository.
-These reference files can be found in `smoke_snapshots`.
-These are always required to pass.
+- CPU
+- WGPU
+- WASM32 WebGL
 
-We use git Large File Storage for the rest of the snapshot tests.
-This is an experiment to determine how suitable git LFS is for our needs.
-These tests will detect whether the LFS files failed to download properly, and will pass on CI in that case.
-LFS downloads could fail if the Linebender organisation has run out of LFS bandwidth or storage.
-If this occurs, we will re-evaluate our LFS based snapshot testing solution.
+The `vello_test` proc macro will create a snapshot test for each supported
+renderer target. See the below example usage.
 
-To run these tests locally, install [git lfs](https://git-lfs.com/), then run `git lfs pull`.
+```rs
+// Draws a filled triangle into a 125x125 scene.
+#[vello_test(width = 125, height = 125)]
+fn filled_triangle(ctx: &mut impl Renderer) {
+    let path = {
+        let mut path = BezPath::new();
+        path.move_to((5.0, 5.0));
+        path.line_to((95.0, 50.0));
+        path.line_to((5.0, 95.0));
+        path.close_path();
+
+        path
+    };
+
+    ctx.set_paint(LIME);
+    ctx.fill_path(&path);
+}
+```
+
+See all the attributes that can be passed to `vello_test` in
+[`vello_dev_macros/src/test.rs`](vello_dev_macros/src/test.rs).
+
+## Testing WebGL on the Browser
+
+Requirements:
+
+- on MacOS, a minimum Clang major version of 20 is required.
+
+To run the `vello_tests` suite including the WebGL tests:
+
+```sh
+wasm-pack test --headless --chrome --features webgl --release
+```
+
+To debug the output images in webgl, run the same command without `--headless`.
+Any tests that fail will have their diff image appended to the bottom of the
+page.

@@ -417,7 +417,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             // We assume that the backend calculates the absolute paint transform
             // by concatenating scene transform and (relative) paint transform.
-            // (This is currently the case for Vello CPU / Vello Hybrid, but will
+            // (This is currently the case for Vello CPU / Vello GPU, but will
             // also be assumed to be the case for any other potential backend.)
             // Therefore, we can calculate the relative paint transform for
             // the glyph by pre-concatenating it with the inverted outline transform.
@@ -2194,12 +2194,12 @@ mod tests {
     const _NORMALISED_COORD_SIZE_MATCHES: () =
         assert!(size_of::<skrifa::instance::NormalizedCoord>() == size_of::<NormalizedCoord>());
 
-    const ROBOTO_FONT: &[u8] = include_bytes!("../../examples/assets/roboto/Roboto-Regular.ttf");
+    const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
     const NOTO_COLR_FONT: &[u8] =
-        include_bytes!("../../examples/assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
+        include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
     #[cfg(feature = "png")]
     const NOTO_CBTF_FONT: &[u8] =
-        include_bytes!("../../examples/assets/noto_color_emoji/NotoColorEmoji-CBTF-Subset.ttf");
+        include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-CBTF-Subset.ttf");
 
     #[derive(Clone, Copy)]
     enum TestGlyphKind {

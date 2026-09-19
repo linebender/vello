@@ -74,6 +74,8 @@ pub enum AtlasCommand {
     PushClipLayer(Arc<BezPath>),
     /// Push a clip path.
     PushClipPath(Arc<BezPath>),
+    /// Push a rectangular clip path.
+    PushClipRect(Rect),
     /// Push a blend/compositing layer.
     PushBlendLayer(BlendMode),
     /// Pop the most recent clip or blend layer.
@@ -153,6 +155,11 @@ impl DrawSink for AtlasCommandRecorder {
     fn push_clip_path(&mut self, clip: &BezPath) {
         self.commands
             .push(AtlasCommand::PushClipPath(Arc::new(clip.clone())));
+    }
+
+    #[inline]
+    fn push_clip_rect(&mut self, clip: &Rect) {
+        self.commands.push(AtlasCommand::PushClipRect(*clip));
     }
 
     #[inline]

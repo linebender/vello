@@ -25,7 +25,7 @@ use vello_common::paint::ImageId;
 /// Uses `foldhash::fast::FixedState` instead of the default random-seeded hasher
 /// so that iteration order is identical across processes. This ensures that LRU
 /// eviction deallocates atlas regions in a deterministic order, producing
-/// reproducible atlas packing regardless of which binary (CPU / hybrid) runs.
+/// reproducible atlas packing regardless of which binary (CPU / GPU) runs.
 type FixedHashMap<K, V> = HashMap<K, V, FixedState>;
 
 /// Fixed seed for deterministic hashing across all glyph cache maps.
@@ -39,13 +39,13 @@ const EMPTY_VAR_MAP: FixedHashMap<VarKey, FixedHashMap<GlyphCacheKey, GlyphCache
 
 /// Padding in pixels added to each side of a glyph to prevent texture bleeding.
 ///
-/// The hybrid (GPU) renderer samples atlas sub-images via `Extend::Pad`, which
+/// The GPU renderer samples atlas sub-images via `Extend::Pad`, which
 /// clamps out-of-bounds coordinates to the edge texel. Without at least 1px of
 /// transparent padding, strip-rasteriser overshoot at glyph boundaries would
 /// either duplicate the edge row/column or bleed in content from a neighbouring
 /// glyph allocation. 1px is sufficient: the overshoot is sub-pixel, and the
 /// transparent padding absorbs it. This padding also enables a future switch to
-/// native bilinear sampling in the hybrid renderer.
+/// native bilinear sampling in the GPU renderer.
 pub const GLYPH_PADDING: u16 = 1;
 
 /// Configuration for glyph cache behavior.
@@ -302,17 +302,26 @@ impl GlyphAtlas {
     /// Replay all pending atlas command recorders (one per dirty page).
     ///
     /// The closure receives each non-empty recorder by mutable reference.
-    /// After the closure returns, the recorder's commands are cleared but
-    /// the allocation is kept for reuse next frame.
-    pub fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&mut AtlasCommandRecorder)) {
+    /// All pending commands are cleared after replay, including when the closure
+    /// returns an error. The recorder allocations are kept for reuse next frame.
+    pub fn replay_pending_atlas_commands<E>(
+        &mut self,
+        mut f: impl FnMut(&mut AtlasCommandRecorder) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let mut result = Ok(());
+
         for slot in &mut self.pending_atlas_commands {
             if let Some(recorder) = slot.as_mut()
                 && !recorder.commands.is_empty()
             {
-                f(recorder);
+                if result.is_ok() {
+                    result = f(recorder);
+                }
                 recorder.commands.clear();
             }
         }
+
+        result
     }
 
     /// Get (or create) the command recorder for the given atlas page.
