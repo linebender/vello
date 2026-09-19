@@ -369,12 +369,12 @@ fn is_finite_simd<S: Simd>(x: f32x4<S>) -> mask32x4<S> {
 /// SIMD version of [`approx_parabola_integral`].
 #[inline(always)]
 fn approx_parabola_integral_simd<S: Simd, F: SimdFloat<S, Element = f32>>(x: F) -> F {
-    let simd = x.witness();
+    let simd = x.token();
 
     const D: f32 = 0.67;
     const D_POWI_4: f32 = 0.201_511_2;
 
-    let temp = F::splat(x.witness(), 0.25)
+    let temp = F::splat(simd, 0.25)
         .mul_add(x * x, F::splat(simd, D_POWI_4))
         .sqrt()
         .sqrt();
