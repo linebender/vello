@@ -395,52 +395,71 @@ impl BufferSizes {
         let aligned_n_bins = align_up(n_bins, 256);
         let bin_headers = BufferSize::new(binning_wgs * aligned_n_bins);
 
-        // The bump-allocated buffers below are sized from the tile grid the frame
-        // covers rather than from fixed constants.
+        // The bump-allocated buffers below are sized from the frame rather than
+        // from fixed constants.
         //
-        // Every one of them holds per-tile work, so what they need tracks the
-        // number of tiles and not the scene's nominal complexity: a path only
-        // costs whatever it covers. A fixed constant is therefore wrong in both
-        // directions at once, being far larger than a window needs while still
-        // being too small for a target big enough to run past it.
+        // Two things drive them, and a buffer needs whichever is larger. Tiling
+        // work grows with the tile grid, because a path only costs the tiles it
+        // covers. Flattening work grows with the scene, because `flatten` runs
+        // before any tiling and turns each path segment into lines whatever the
+        // target looks like. A dense drawing on a small canvas is bounded by the
+        // second and a plain one on a large canvas by the first, so taking the
+        // greater of the two covers both.
         //
-        // `ptcl` is the clearest case, because its static part is not an estimate
-        // at all: `coarse` addresses every tile's command list at
-        // `tile_ix * PTCL_INITIAL_ALLOC`, so that region has to be present
-        // exactly, and only the overflow beyond it is allocated dynamically.
+        // `ptcl` is the exception, and the clearest case: its static part is not
+        // an estimate at all, because `coarse` addresses every tile's command
+        // list at `tile_ix * PTCL_INITIAL_ALLOC`, so that region has to be
+        // present exactly and only the spill past it is dynamic.
         //
-        // The multipliers over the grid are headroom, measured against scenes
-        // whose heaviest frame stayed inside a quarter of them.
+        // The multipliers are headroom. The floors matter as much: a small frame
+        // saves little by being sized tightly and has the most room to be denser
+        // than its size suggests, so nothing here falls below one.
         let n_tiles = workgroups.fine.0 * workgroups.fine.1;
+        // What `path_reduce` was given, which is the padded path tag count and
+        // so an upper bound on the segments `flatten` will see.
+        let n_path_tags = path_tag_wgs * 4 * PATH_REDUCE_WG;
         // Every tile owns a command list of this many words before `coarse` has
         // to spill. Must be kept in sync with `PTCL_INITIAL_ALLOC` in
         // `shader/shared/ptcl.wgsl`.
         const PTCL_INITIAL_ALLOC: u32 = 64;
-        // Room for a frame whose tiles are far busier than the grid alone
-        // suggests, so that a scene which breaks the estimate degrades into a
-        // reported bump failure rather than into silence.
+        /// Lines a path segment may flatten into before the buffer is the limit.
+        /// Four covers the densest scene the old constants were picked for.
+        const LINES_PER_TAG: u32 = 4;
         const TILE_HEADROOM: u32 = 16;
         const BIN_HEADROOM: u32 = 4;
-        // A small grid still has to hold whatever a single busy tile needs, so
-        // the derived sizes never fall below what the smallest useful frame used
-        // to be given.
-        const FLOOR: u32 = 1 << 14;
-        fn per_tile<T: Sized>(n_tiles: u32, headroom: u32) -> BufferSize<T> {
-            BufferSize::new((n_tiles * headroom).max(FLOOR))
+        let from_scene = n_path_tags.saturating_mul(LINES_PER_TAG);
+        let from_grid = n_tiles.saturating_mul(TILE_HEADROOM);
+        let flattened = from_scene.max(from_grid);
+        // Each buffer is clamped to the constant it used to be given, so that
+        // this can only ever hand out less than before and never more. It is
+        // what keeps a frame with a very large path count inside the device's
+        // own binding limit, which the old constants were already sized under.
+        fn sized<T: Sized>(derived: u32, floor: u32, was: u32) -> BufferSize<T> {
+            BufferSize::new(derived.clamp(floor, was))
         }
-        // `binning_size` is this buffer past `bin_data_start`, so the draw data
-        // at its head is not headroom and has to be added on top of it.
-        let bin_data = BufferSize::new(layout.bin_data_start + (n_tiles * BIN_HEADROOM).max(FLOOR));
-        let tiles = per_tile(n_tiles, TILE_HEADROOM);
-        let lines = per_tile(n_tiles, TILE_HEADROOM);
-        let seg_counts = per_tile(n_tiles, TILE_HEADROOM);
-        let segments = per_tile(n_tiles, TILE_HEADROOM);
+        let bin_data = BufferSize::new(
+            // `binning_size` is this buffer past `bin_data_start`, so the draw
+            // data at its head is not headroom and has to be added on top.
+            (layout.bin_data_start + n_tiles.saturating_mul(BIN_HEADROOM)).clamp(1 << 14, 1 << 18),
+        );
+        let tiles = sized(
+            from_grid.max(n_paths.saturating_mul(16)),
+            1 << 16,
+            1 << 21,
+        );
+        let lines = sized(flattened, 1 << 17, 1 << 21);
+        let seg_counts = sized(flattened, 1 << 17, 1 << 21);
+        let segments = sized(flattened, 1 << 17, 1 << 21);
         // 16 * 16 (1 << 8) is one blend spill, so this allows for one spill per
-        // sixty-four tiles.
-        let blend_spill = per_tile(n_tiles, BIN_HEADROOM);
+        // sixty-four tiles, and never fewer than sixty-four spills.
+        let blend_spill = BufferSize::new(
+            n_tiles.saturating_mul(BIN_HEADROOM).clamp(1 << 14, 1 << 20),
+        );
         // The per-tile command lists, which must be present in full, plus as much
         // again for what `coarse` spills past them.
-        let ptcl = BufferSize::new(n_tiles * PTCL_INITIAL_ALLOC * 2);
+        let ptcl = BufferSize::new(
+            n_tiles.saturating_mul(PTCL_INITIAL_ALLOC * 2).clamp(1 << 16, 1 << 23),
+        );
         Self {
             path_reduced,
             path_reduced2,
