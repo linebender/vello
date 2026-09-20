@@ -442,23 +442,20 @@ impl BufferSizes {
             // data at its head is not headroom and has to be added on top.
             (layout.bin_data_start + n_tiles.saturating_mul(BIN_HEADROOM)).clamp(1 << 14, 1 << 18),
         );
-        let tiles = sized(
-            from_grid.max(n_paths.saturating_mul(16)),
-            1 << 16,
-            1 << 21,
-        );
+        let tiles = sized(from_grid.max(n_paths.saturating_mul(16)), 1 << 16, 1 << 21);
         let lines = sized(flattened, 1 << 17, 1 << 21);
         let seg_counts = sized(flattened, 1 << 17, 1 << 21);
         let segments = sized(flattened, 1 << 17, 1 << 21);
         // 16 * 16 (1 << 8) is one blend spill, so this allows for one spill per
         // sixty-four tiles, and never fewer than sixty-four spills.
-        let blend_spill = BufferSize::new(
-            n_tiles.saturating_mul(BIN_HEADROOM).clamp(1 << 14, 1 << 20),
-        );
+        let blend_spill =
+            BufferSize::new(n_tiles.saturating_mul(BIN_HEADROOM).clamp(1 << 14, 1 << 20));
         // The per-tile command lists, which must be present in full, plus as much
         // again for what `coarse` spills past them.
         let ptcl = BufferSize::new(
-            n_tiles.saturating_mul(PTCL_INITIAL_ALLOC * 2).clamp(1 << 16, 1 << 23),
+            n_tiles
+                .saturating_mul(PTCL_INITIAL_ALLOC * 2)
+                .clamp(1 << 16, 1 << 23),
         );
         Self {
             path_reduced,
