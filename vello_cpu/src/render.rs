@@ -1473,8 +1473,7 @@ mod tests {
     #[cfg(feature = "text")]
     #[test]
     fn custom_atlas_size() {
-        const ROBOTO_FONT: &[u8] =
-            include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
+        const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
 
         let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
         let glyphs = [Glyph {
