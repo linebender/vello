@@ -809,8 +809,8 @@ impl<'a> DrawGlyphs<'a> {
                         Vec2::new(0.0, f64::from(self.run.font_size) / 8.0)
                     } else {
                         Vec2::new(
-                            -f64::from(bitmap.bearing_x * font_units_to_size),
-                            f64::from(bitmap.bearing_y * font_units_to_size),
+                            f64::from(bitmap.bearing_x * font_units_to_size),
+                            -f64::from(bitmap.bearing_y * font_units_to_size),
                         )
                     };
 
@@ -819,7 +819,7 @@ impl<'a> DrawGlyphs<'a> {
                         // Unclear why this isn't non-uniform
                         .pre_scale(image_scale_factor.into())
                         .pre_translate(Vec2 {
-                            x: (-bitmap.inner_bearing_x).into(),
+                            x: bitmap.inner_bearing_x.into(),
                             y: (-bitmap.inner_bearing_y).into(),
                         });
                     let mut transform = match bitmap.placement_origin {

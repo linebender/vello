@@ -885,6 +885,8 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
         .fill_glyphs(glyphs.into_iter());
 }
 
+// Note that there are still four cases (which can be reduced to 2 underlying issues)
+// that don't yet render the same as in CoreText.
 #[vello_test(width = 288, height = 240, skip_gpu, glyph)]
 fn glyphs_bitmap_sbix(ctx: &mut impl Renderer, enable_caching: bool) {
     const TEST_FONT: &[u8] = include_bytes!("../../assets/sbix/sbix.ttf");
