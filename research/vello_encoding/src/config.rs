@@ -395,17 +395,52 @@ impl BufferSizes {
         let aligned_n_bins = align_up(n_bins, 256);
         let bin_headers = BufferSize::new(binning_wgs * aligned_n_bins);
 
-        // The following buffer sizes have been hand picked to accommodate the vello test scenes as
-        // well as paris-30k. These should instead get derived from the scene layout using
-        // reasonable heuristics.
-        let bin_data = BufferSize::new(1 << 18);
-        let tiles = BufferSize::new(1 << 21);
-        let lines = BufferSize::new(1 << 21);
-        let seg_counts = BufferSize::new(1 << 21);
-        let segments = BufferSize::new(1 << 21);
-        // 16 * 16 (1 << 8) is one blend spill, so this allows for 4096 spills.
-        let blend_spill = BufferSize::new(1 << 20);
-        let ptcl = BufferSize::new(1 << 23);
+        // The bump-allocated buffers below are sized from the tile grid the frame
+        // covers rather than from fixed constants.
+        //
+        // Every one of them holds per-tile work, so what they need tracks the
+        // number of tiles and not the scene's nominal complexity: a path only
+        // costs whatever it covers. A fixed constant is therefore wrong in both
+        // directions at once, being far larger than a window needs while still
+        // being too small for a target big enough to run past it.
+        //
+        // `ptcl` is the clearest case, because its static part is not an estimate
+        // at all: `coarse` addresses every tile's command list at
+        // `tile_ix * PTCL_INITIAL_ALLOC`, so that region has to be present
+        // exactly, and only the overflow beyond it is allocated dynamically.
+        //
+        // The multipliers over the grid are headroom, measured against scenes
+        // whose heaviest frame stayed inside a quarter of them.
+        let n_tiles = workgroups.fine.0 * workgroups.fine.1;
+        // Every tile owns a command list of this many words before `coarse` has
+        // to spill. Must be kept in sync with `PTCL_INITIAL_ALLOC` in
+        // `shader/shared/ptcl.wgsl`.
+        const PTCL_INITIAL_ALLOC: u32 = 64;
+        // Room for a frame whose tiles are far busier than the grid alone
+        // suggests, so that a scene which breaks the estimate degrades into a
+        // reported bump failure rather than into silence.
+        const TILE_HEADROOM: u32 = 16;
+        const BIN_HEADROOM: u32 = 4;
+        // A small grid still has to hold whatever a single busy tile needs, so
+        // the derived sizes never fall below what the smallest useful frame used
+        // to be given.
+        const FLOOR: u32 = 1 << 14;
+        fn per_tile<T: Sized>(n_tiles: u32, headroom: u32) -> BufferSize<T> {
+            BufferSize::new((n_tiles * headroom).max(FLOOR))
+        }
+        // `binning_size` is this buffer past `bin_data_start`, so the draw data
+        // at its head is not headroom and has to be added on top of it.
+        let bin_data = BufferSize::new(layout.bin_data_start + (n_tiles * BIN_HEADROOM).max(FLOOR));
+        let tiles = per_tile(n_tiles, TILE_HEADROOM);
+        let lines = per_tile(n_tiles, TILE_HEADROOM);
+        let seg_counts = per_tile(n_tiles, TILE_HEADROOM);
+        let segments = per_tile(n_tiles, TILE_HEADROOM);
+        // 16 * 16 (1 << 8) is one blend spill, so this allows for one spill per
+        // sixty-four tiles.
+        let blend_spill = per_tile(n_tiles, BIN_HEADROOM);
+        // The per-tile command lists, which must be present in full, plus as much
+        // again for what `coarse` spills past them.
+        let ptcl = BufferSize::new(n_tiles * PTCL_INITIAL_ALLOC * 2);
         Self {
             path_reduced,
             path_reduced2,
