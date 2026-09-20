@@ -119,14 +119,7 @@ impl Resources {
 
     fn ensure_glyph_resources(&mut self, level: Level) {
         if self.glyph_resources.is_none() {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "atlas dimensions are configured to fit in u16"
-            )]
-            let (atlas_width, atlas_height) = {
-                let (width, height) = self.image_cache.atlas_manager().config().atlas_size;
-                (width as u16, height as u16)
-            };
+            let (atlas_width, atlas_height) = self.image_cache.atlas_manager().config().atlas_size;
             self.glyph_resources = Some(GlyphAtlasResources::with_config(
                 atlas_width,
                 atlas_height,
