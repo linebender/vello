@@ -200,7 +200,7 @@ impl DrawSink for Scene {
 
     #[inline]
     fn pop_clip_path(&mut self) {
-        Self::pop_clip_path(self);
+        Self::pop_clip(self);
     }
 
     #[inline]

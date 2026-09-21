@@ -707,7 +707,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             .push_clip_rect(rect, &mut self.strip_generator);
     }
 
-    fn pop_clip_path(&mut self) {
+    fn pop_clip(&mut self) {
         self.flush_tasks();
         self.clip_context.pop_clip();
     }

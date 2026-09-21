@@ -190,7 +190,7 @@ fn clip_rect_cull_alignment(ctx: &mut impl Renderer) {
     ctx.push_clip_rect(&clip_rect);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_path(&path);
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test]
@@ -358,7 +358,7 @@ fn clip_non_isolated_outside_canvas(ctx: &mut impl Renderer) {
     let rect = Rect::new(16.0, -16.0, 32.0, 0.0);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test]
@@ -368,7 +368,7 @@ fn clip_non_isolated_with_rect(ctx: &mut impl Renderer) {
 
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test]
@@ -382,7 +382,7 @@ fn clip_non_isolated_with_rotated_rect(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::rotate_about(25.0 * PI / 180.0, center));
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test]
@@ -395,7 +395,7 @@ fn clip_non_isolated_with_scaled_rect(ctx: &mut impl Renderer) {
 
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(40.0, 40.0, 60.0, 60.0));
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test]
@@ -405,7 +405,7 @@ fn clip_non_isolated_with_aa_with_rect(ctx: &mut impl Renderer) {
 
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test]
@@ -415,7 +415,7 @@ fn clip_non_isolated_with_aa_with_rect_aa(ctx: &mut impl Renderer) {
 
     ctx.set_paint(BLUE);
     ctx.fill_rect(&rect);
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test]
@@ -428,12 +428,12 @@ fn clip_non_isolated_with_nested_rects_and_pop(ctx: &mut impl Renderer) {
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
 
-    ctx.pop_clip_path();
+    ctx.pop_clip();
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(0.0, 35.0, 18.0, 65.0));
     ctx.fill_rect(&Rect::new(82.0, 35.0, 100.0, 65.0));
 
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test]
@@ -446,13 +446,13 @@ fn clip_non_isolated_mixed_clip_stack_restores_rect(ctx: &mut impl Renderer) {
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
 
-    ctx.pop_clip_path();
+    ctx.pop_clip();
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 23.0, 23.0));
     ctx.fill_rect(&Rect::new(77.0, 10.0, 90.0, 23.0));
     ctx.fill_rect(&Rect::new(10.0, 77.0, 23.0, 90.0));
     ctx.fill_rect(&Rect::new(77.0, 77.0, 90.0, 90.0));
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test]
@@ -464,7 +464,7 @@ fn clip_non_isolated_transformed_clip_with_identity_rect(ctx: &mut impl Renderer
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(30.25, 10.0, 69.75, 90.0));
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test]
@@ -476,7 +476,7 @@ fn clip_non_isolated_rectangle_with_star_evenodd(ctx: &mut impl Renderer) {
     ctx.push_clip_path(&star_path);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test(cpu_u8_tolerance = 1)]
@@ -518,7 +518,7 @@ fn clip_non_isolated_deeply_nested_circles(ctx: &mut impl Renderer) {
     }
     for _ in 0..outer_count {
         for _ in COLORS.iter() {
-            ctx.pop_clip_path();
+            ctx.pop_clip();
         }
     }
 }

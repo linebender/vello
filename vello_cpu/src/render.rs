@@ -737,12 +737,12 @@ impl RenderContext {
         }
     }
 
-    /// Pop a clip path from the clip stack.
+    /// Pop the most recently pushed clip path or clip rectangle from the clip stack.
     ///
     /// Note that unlike `push_clip_layer`, it is permissible to have pending
-    /// pushed clip paths before finishing the rendering operation.
-    pub fn pop_clip_path(&mut self) {
-        self.dispatcher.pop_clip_path();
+    /// pushed clips before finishing the rendering operation.
+    pub fn pop_clip(&mut self) {
+        self.dispatcher.pop_clip();
     }
 
     /// Flush any pending operations.
@@ -1349,7 +1349,7 @@ mod tests {
         // Just make sure we don't panic.
         ctx.push_clip_path(&clip);
         ctx.flush();
-        ctx.pop_clip_path();
+        ctx.pop_clip();
         ctx.flush();
     }
 

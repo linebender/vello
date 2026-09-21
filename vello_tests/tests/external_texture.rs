@@ -111,7 +111,7 @@ mod tests {
             sampler: pad_sampler(ImageQuality::Medium),
         });
         ctx.fill_rect(&rect);
-        ctx.pop_clip_path();
+        ctx.pop_clip();
     }
 
     fn painted_circle(ctx: &mut impl Renderer, color: AlphaColor<Srgb>, circle: Circle) {

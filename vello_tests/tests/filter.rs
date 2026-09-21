@@ -1741,7 +1741,7 @@ fn filter_with_outer_clip_path(ctx: &mut impl Renderer) {
     ctx.set_paint(RED);
     ctx.fill_rect(&rect);
     ctx.pop_layer();
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test(skip_multithreaded, gpu_tolerance = 3)]
@@ -1759,7 +1759,7 @@ fn filter_with_outer_scaled_clip_rect(ctx: &mut impl Renderer) {
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
     ctx.pop_layer();
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test(skip_multithreaded, gpu_tolerance = 3)]
@@ -1781,7 +1781,7 @@ fn filter_with_outer_rotated_clip_rect(ctx: &mut impl Renderer) {
     ctx.set_paint(RED);
     ctx.fill_rect(&rect);
     ctx.pop_layer();
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test(skip_multithreaded, gpu_tolerance = 3)]
@@ -1797,7 +1797,7 @@ fn filter_with_inner_clip_path(ctx: &mut impl Renderer) {
     ctx.push_clip_rect(&clip_rect);
     ctx.set_paint(RED);
     ctx.fill_rect(&rect);
-    ctx.pop_clip_path();
+    ctx.pop_clip();
     ctx.pop_layer();
 }
 
@@ -1824,7 +1824,7 @@ fn filter_nested_with_outer_clip_path(ctx: &mut impl Renderer) {
     ctx.fill_path(&shape);
     ctx.pop_layer();
     ctx.pop_layer();
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test(skip_multithreaded)]
@@ -1870,7 +1870,7 @@ fn filter_with_clip_rects_outside_of_viewport(ctx: &mut impl Renderer) {
         ctx.set_paint(BLACK);
         ctx.fill_rect(&rect);
         ctx.pop_layer();
-        ctx.pop_clip_path();
+        ctx.pop_clip();
     }
 }
 
@@ -1894,7 +1894,7 @@ fn filter_with_inner_clip_that_stays_alive(ctx: &mut impl Renderer) {
 
     ctx.set_paint(RED);
     ctx.fill_rect(&viewport);
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 }
 
 #[vello_test(skip_multithreaded, gpu_tolerance = 2)]
@@ -1916,11 +1916,11 @@ fn filter_with_mixed_clip_stack(ctx: &mut impl Renderer) {
     ctx.set_paint(BLUE);
     ctx.fill_rect(&viewport);
 
-    ctx.pop_clip_path();
+    ctx.pop_clip();
     ctx.set_paint(GREEN);
     ctx.fill_rect(&Rect::new(10.0, 15.0, 90.0, 35.0));
 
-    ctx.pop_clip_path();
+    ctx.pop_clip();
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(5.0, 45.0, 95.0, 55.0));
 
@@ -1928,7 +1928,7 @@ fn filter_with_mixed_clip_stack(ctx: &mut impl Renderer) {
 
     ctx.set_paint(YELLOW);
     ctx.fill_rect(&Rect::new(0.0, 75.0, 100.0, 95.0));
-    ctx.pop_clip_path();
+    ctx.pop_clip();
 
     ctx.set_paint(VIOLET.with_alpha(0.2));
     ctx.fill_path(&Circle::new((50.0, 50.0), 48.0).to_path(0.1));

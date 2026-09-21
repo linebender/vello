@@ -518,7 +518,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         self.viewport.push_clip_rect(rect);
     }
 
-    fn pop_clip_path(&mut self) {
+    fn pop_clip(&mut self) {
         self.viewport.pop_clip();
     }
 
