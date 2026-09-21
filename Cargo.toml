@@ -19,6 +19,7 @@ members = [
     "vello_gpu",
     "vello_gpu/examples/native_webgl",
     "vello_gpu/examples/wgpu_webgl",
+    "vello_gpu/examples/wgpu_webgpu",
     "vello_gpu/examples/winit",
 
     "vello_bench",

@@ -35,6 +35,9 @@ jobs:
       - name: build WebGL2 via wgpu demo (wasm)
         run: cargo build -p wgpu_webgl --bin wgpu_webgl --release --target wasm32-unknown-unknown
 
+      - name: build WebGPU via wgpu demo (wasm)
+        run: cargo build -p wgpu_webgpu --bin wgpu_webgpu --release --target wasm32-unknown-unknown
+
       - name: build Vello CPU demo (wasm)
         run: cargo build -p wasm_cpu --bin wasm_cpu --release --target wasm32-unknown-unknown
 
@@ -52,6 +55,12 @@ jobs:
           mkdir public/wgpu-webgl
           wasm-bindgen --target web --out-dir public/wgpu-webgl target/wasm32-unknown-unknown/release/wgpu_webgl.wasm --no-typescript
           cp .github/web-demo/wgpu-webgl.html public/wgpu-webgl/index.html
+
+      - name: package WebGPU via wgpu demo
+        run: |
+          mkdir public/wgpu-webgpu
+          wasm-bindgen --target web --out-dir public/wgpu-webgpu target/wasm32-unknown-unknown/release/wgpu_webgpu.wasm --no-typescript
+          cp .github/web-demo/wgpu-webgpu.html public/wgpu-webgpu/index.html
 
       - name: package Vello CPU demo
         run: |

@@ -1,21 +1,21 @@
 <html>
 
 <head>
-  <title>Vello GPU Direct WebGL2 Demo</title>
+  <title>Vello GPU WebGPU via wgpu Demo</title>
   <meta charset=utf-8>
   <meta content="width=device-width,initial-scale=1" name=viewport>
   <meta content=no-cache http-equiv=Cache-control>
   <meta content=-1 http-equiv=Expires>
-  <script type=module>import init from"./native_webgl.js";await init();</script>
-  <link as=fetch crossorigin href=./native_webgl_bg.wasm rel=preload type=application/wasm>
-  <link crossorigin href=./native_webgl.js rel=modulepreload>
+  <script type=module>import init from"./wgpu_webgpu.js";await init();</script>
+  <link as=fetch crossorigin href=./wgpu_webgpu_bg.wasm rel=preload type=application/wasm>
+  <link crossorigin href=./wgpu_webgpu.js rel=modulepreload>
 </head>
 
 <body>
   <select aria-label="Vello demo" class="demo-selector" onchange="location.href=this.value">
-    <option selected value=/vello />Direct WebGL2</option>
+    <option value=/vello />Direct WebGL2</option>
     <option value=/vello/wgpu-webgl />WebGL2 via wgpu</option>
-    <option value=/vello/wgpu-webgpu />WebGPU via wgpu</option>
+    <option selected value=/vello/wgpu-webgpu />WebGPU via wgpu</option>
     <option value=/vello/cpu />Vello CPU</option>
     <option value=/vello/research />Research</option>
   </select>

@@ -5251,6 +5251,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "wgpu_webgpu"
+version = "0.10.0"
+dependencies = [
+ "console_error_panic_hook",
+ "console_log",
+ "log",
+ "vello_common",
+ "vello_example_scenes",
+ "vello_gpu",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu",
+]
+
+[[package]]
 name = "wgsl-parse"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
