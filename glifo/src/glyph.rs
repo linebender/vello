@@ -33,7 +33,7 @@ use core::ops::RangeInclusive;
 use core_maths::CoreFloat as _;
 use hashbrown::hash_map::{Entry, RawEntryMut};
 use hashbrown::{Equivalent, HashMap};
-use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
+use skrifa::bitmap::{BitmapData, BitmapFormat, Origin};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, OutlineGlyphFormat};
 use skrifa::outline::{HintingInstance, HintingOptions, OutlinePen};
@@ -364,6 +364,10 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let outlines = font_ref.outline_glyphs();
         let color_glyphs = font_ref.color_glyphs();
         let bitmaps = font_ref.bitmap_strikes();
+        let is_apple_color_emoji = bitmaps.format() == Some(BitmapFormat::Sbix)
+            && font_ref
+                .localized_strings(skrifa::string::StringId::POSTSCRIPT_NAME)
+                .any(|name| name.chars().eq("AppleColorEmoji".chars()));
 
         let mut outline_cache_session = OutlineCacheSession::new(
             self.outline_cache,
@@ -560,7 +564,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     draw_props.font_size,
                     font_info.upem,
                     &bitmap_glyph,
-                    &bitmaps,
+                    is_apple_color_emoji,
                 );
 
                 // Bitmaps are not hinted and have no sub-pixel offset or
@@ -1214,22 +1218,22 @@ fn calculate_bitmap_transform(
     font_size: f32,
     upem: f32,
     bitmap_glyph: &skrifa::bitmap::BitmapGlyph<'_>,
-    bitmaps: &BitmapStrikes<'_>,
+    is_apple_color_emoji: bool,
 ) -> Affine {
     let x_scale_factor = font_size / bitmap_glyph.ppem_x;
     let y_scale_factor = font_size / bitmap_glyph.ppem_y;
     let font_units_to_size = font_size / upem;
 
-    // CoreText appears to special case Apple Color Emoji, adding
-    // a 100 font unit vertical offset. We do the same but only
-    // when both vertical offsets are 0 to avoid incorrect
-    // rendering if Apple ever does encode the offset directly in
-    // the font.
-    let bearing_y = if bitmap_glyph.bearing_y == 0.0 && bitmaps.format() == Some(BitmapFormat::Sbix)
-    {
-        100.0
+    // Apple applies a hardcoded shift to Apple Color Emoji, see
+    // https://wh0.github.io/2024/12/31/emoji-metrics.html
+    // and https://github.com/harfbuzz/harfbuzz/issues/2679#issuecomment-1345595425.
+    let outer_offset = if is_apple_color_emoji {
+        Vec2::new(0.0, f64::from(font_size) / 8.0)
     } else {
-        bitmap_glyph.bearing_y
+        Vec2::new(
+            -f64::from(bitmap_glyph.bearing_x * font_units_to_size),
+            f64::from(bitmap_glyph.bearing_y * font_units_to_size),
+        )
     };
 
     let origin_shift = match bitmap_glyph.placement_origin {
@@ -1243,10 +1247,7 @@ fn calculate_bitmap_transform(
     draw_props
         .positioned_transform(glyph)
         // Apply outer bearings.
-        .pre_translate(Vec2 {
-            x: (-bitmap_glyph.bearing_x * font_units_to_size).into(),
-            y: (bearing_y * font_units_to_size).into(),
-        })
+        .pre_translate(outer_offset)
         // Scale to pixel-space.
         .pre_scale_non_uniform(f64::from(x_scale_factor), f64::from(y_scale_factor))
         // Apply inner bearings.
