@@ -816,10 +816,10 @@ impl BitHash for GradientCacheKey {
 
 impl BitEq for GradientCacheKey {
     fn bit_eq(&self, other: &Self) -> bool {
-        self.stops.bit_eq(&other.stops)
-            && self.interpolation_cs == other.interpolation_cs
+        self.interpolation_cs == other.interpolation_cs
             && self.interpolation_alpha_space == other.interpolation_alpha_space
             && self.hue_direction == other.hue_direction
+            && self.stops.bit_eq(&other.stops)
     }
 }
 
