@@ -7,7 +7,7 @@ use smallvec::smallvec;
 use vello_common::color::palette::css::{BLACK, BLUE, GREEN, WHITE, YELLOW};
 use vello_common::color::{ColorSpaceTag, DynamicColor};
 use vello_common::kurbo::{Point, Rect};
-use vello_common::peniko::{ColorStop, ColorStops, Gradient};
+use vello_common::peniko::{ColorStop, ColorStops, Gradient, InterpolationAlphaSpace};
 use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_test;
 
@@ -32,6 +32,38 @@ fn gradient_with_global_alpha(ctx: &mut impl Renderer) {
 
     ctx.set_paint(gradient);
     ctx.fill_rect(&rect);
+}
+
+#[vello_test(width = 200)]
+fn gradient_cache_key_distinguishes_alpha_interpolation(ctx: &mut impl Renderer) {
+    let premultiplied = Gradient {
+        kind: LinearGradientPosition {
+            start: Point::new(10.0, 0.0),
+            end: Point::new(190.0, 0.0),
+        }
+        .into(),
+        stops: ColorStops(smallvec![
+            ColorStop {
+                offset: 0.0,
+                color: DynamicColor::from_alpha_color(YELLOW.with_alpha(0.0)),
+            },
+            ColorStop {
+                offset: 1.0,
+                color: DynamicColor::from_alpha_color(BLUE),
+            },
+        ]),
+        interpolation_alpha_space: InterpolationAlphaSpace::Premultiplied,
+        ..Default::default()
+    };
+    let unpremultiplied = Gradient {
+        interpolation_alpha_space: InterpolationAlphaSpace::Unpremultiplied,
+        ..premultiplied.clone()
+    };
+
+    ctx.set_paint(premultiplied);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 190.0, 45.0));
+    ctx.set_paint(unpremultiplied);
+    ctx.fill_rect(&Rect::new(10.0, 55.0, 190.0, 90.0));
 }
 
 fn gradient_with_color_spaces(ctx: &mut impl Renderer, stops: ColorStops) {
