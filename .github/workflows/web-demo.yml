@@ -29,32 +29,41 @@ jobs:
           # If updating, also update in research/examples/with_winit/Cargo.toml
           tool: wasm-bindgen@0.2.115
 
-      - name: build (wasm)
+      - name: build Direct WebGL2 demo (wasm)
+        run: cargo build -p native_webgl --bin native_webgl --release --target wasm32-unknown-unknown
+
+      - name: build WebGL2 via wgpu demo (wasm)
+        run: cargo build -p wgpu_webgl --bin wgpu_webgl --release --target wasm32-unknown-unknown
+
+      - name: build Vello CPU demo (wasm)
+        run: cargo build -p wasm_cpu --bin wasm_cpu --release --target wasm32-unknown-unknown
+
+      - name: build research demo (wasm)
         run: cargo build -p with_winit --bin with_winit_bin --release --target wasm32-unknown-unknown
 
-      - name: package wasm
+      - name: package Direct WebGL2 demo
         run: |
           mkdir public
-          wasm-bindgen --target web --out-dir public target/wasm32-unknown-unknown/release/with_winit_bin.wasm --no-typescript
-          cat << EOF > public/index.html
-            <html>
-              <title>Vello Web Demo</title>
-              <meta content=no-cache http-equiv=Cache-control>
-              <meta content=-1 http-equiv=Expires>
-              <script type=module>import initSync from"/vello/with_winit_bin.js";initSync(`/vello/with_winit_bin_bg.wasm`);</script>
-              <link as=fetch crossorigin href=/vello/with_winit_bin_bg.wasm rel=preload type=application/wasm>
-              <link crossorigin href=/vello/with_winit_bin.js rel=modulepreload>
-              </head>
-              <body>
-                <style>
-                  body {
-                    margin: 0;
-                    padding: 0;
-                  }
-                </style>
-              </body>
-            </html>
-          EOF
+          wasm-bindgen --target web --out-dir public target/wasm32-unknown-unknown/release/native_webgl.wasm --no-typescript
+          cp .github/web-demo/native-webgl.html public/index.html
+
+      - name: package WebGL2 via wgpu demo
+        run: |
+          mkdir public/wgpu-webgl
+          wasm-bindgen --target web --out-dir public/wgpu-webgl target/wasm32-unknown-unknown/release/wgpu_webgl.wasm --no-typescript
+          cp .github/web-demo/wgpu-webgl.html public/wgpu-webgl/index.html
+
+      - name: package Vello CPU demo
+        run: |
+          mkdir public/cpu
+          wasm-bindgen --target web --out-dir public/cpu target/wasm32-unknown-unknown/release/wasm_cpu.wasm --no-typescript
+          cp .github/web-demo/vello-cpu.html public/cpu/index.html
+
+      - name: package research demo
+        run: |
+          mkdir public/research
+          wasm-bindgen --target web --out-dir public/research target/wasm32-unknown-unknown/release/with_winit_bin.wasm --no-typescript
+          cp .github/web-demo/research.html public/research/index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
