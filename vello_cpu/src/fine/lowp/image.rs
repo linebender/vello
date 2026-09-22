@@ -4,8 +4,9 @@
 use crate::fine::PosExt;
 use crate::fine::common::image::{ImagePainterData, extend, fract_floor, sample};
 use crate::fine::macros::u8x16_painter;
+use fearless_simd_macros::simd;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{f32x4, prelude::*, u8x16, u16x16};
+use vello_common::fearless_simd::{self, f32x4, prelude::*, u8x16, u16x16};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
 use vello_common::util::{Div255Ext, f32_to_u8, narrow, widen};
@@ -129,6 +130,7 @@ pub(crate) struct PlainBilinearImagePainter<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
+    #[simd]
     pub(crate) fn new(
         simd: S,
         image: &'a EncodedImage,
@@ -138,60 +140,55 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
     ) -> Self {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                // For axis-aligned images, y doesn't change across the strip
-                let y_positions = f32x4::splat_pos(
-                    simd,
-                    data.cur_pos.y as f32,
-                    data.x_advances.1,
-                    data.y_advances.1,
-                );
+        // For axis-aligned images, y doesn't change across the strip
+        let y_positions = f32x4::splat_pos(
+            simd,
+            data.cur_pos.y as f32,
+            data.x_advances.1,
+            data.y_advances.1,
+        );
 
-                // Pre-compute y extend positions
-                let y_pos1 = extend(
-                    simd,
-                    y_positions - 0.5,
-                    image.sampler.y_extend,
-                    data.height,
-                    data.height_inv,
-                );
-                let y_pos2 = extend(
-                    simd,
-                    y_positions + 0.5,
-                    image.sampler.y_extend,
-                    data.height,
-                    data.height_inv,
-                );
+        // Pre-compute y extend positions
+        let y_pos1 = extend(
+            simd,
+            y_positions - 0.5,
+            image.sampler.y_extend,
+            data.height,
+            data.height_inv,
+        );
+        let y_pos2 = extend(
+            simd,
+            y_positions + 0.5,
+            image.sampler.y_extend,
+            data.height,
+            data.height_inv,
+        );
 
-                // Pre-compute y interpolation weights
-                let fy = f32_to_u8(element_wise_splat(
-                    simd,
-                    fract_floor(y_positions + 0.5).mul_add(255.0, 0.5),
-                ));
-                let fy = widen(fy);
-                let fy_inv = u16x16::splat(simd, 255) - fy;
+        // Pre-compute y interpolation weights
+        let fy = f32_to_u8(element_wise_splat(
+            simd,
+            fract_floor(y_positions + 0.5).mul_add(255.0, 0.5),
+        ));
+        let fy = widen(fy);
+        let fy_inv = u16x16::splat(simd, 255) - fy;
 
-                let cur_x_pos = f32x4::splat_pos(
-                    simd,
-                    data.cur_pos.x as f32,
-                    data.x_advances.0,
-                    data.y_advances.0,
-                );
+        let cur_x_pos = f32x4::splat_pos(
+            simd,
+            data.cur_pos.x as f32,
+            data.x_advances.0,
+            data.y_advances.0,
+        );
 
-                Self {
-                    data,
-                    y_pos1,
-                    y_pos2,
-                    fy,
-                    fy_inv,
-                    cur_x_pos,
-                    advance: image.x_advance.x as f32,
-                    simd,
-                }
-            },
-        )
+        Self {
+            data,
+            y_pos1,
+            y_pos2,
+            fy,
+            fy_inv,
+            cur_x_pos,
+            advance: image.x_advance.x as f32,
+            simd,
+        }
     }
 }
 

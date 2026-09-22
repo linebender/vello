@@ -20,6 +20,7 @@ bytemuck = { workspace = true }
 glifo = { workspace = true, default-features = false, optional = true }
 vello_common = { workspace = true }
 hashbrown = { workspace = true }
+fearless_simd_macros = { workspace = true }
 png = { workspace = true, optional = true }
 crossbeam-channel = { workspace = true, optional = true }
 ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"] }

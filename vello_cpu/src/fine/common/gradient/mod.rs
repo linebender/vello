@@ -5,8 +5,9 @@ use crate::fine::{NumericVec, PosExt};
 use crate::kurbo::Point;
 use crate::peniko;
 use core::slice::ChunksExact;
+use fearless_simd_macros::simd;
 use vello_common::encode::{EncodedGradient, GradientLut};
-use vello_common::fearless_simd::*;
+use vello_common::fearless_simd::{self, *};
 
 pub(crate) mod linear;
 pub(crate) mod radial;
@@ -14,6 +15,7 @@ pub(crate) mod sweep;
 
 const GRADIENT_INVALID_POS: u32 = u32::MAX;
 
+#[simd]
 pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
     simd: S,
     kind: U,
@@ -22,23 +24,18 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
     start_x: f64,
     start_y: f64,
 ) {
-    simd.vectorize(
-        #[inline(always)]
-        || {
-            let mut cur_pos = gradient.transform * Point::new(start_x, start_y);
-            let x_advances = (gradient.x_advance.x as f32, gradient.x_advance.y as f32);
-            let y_advances = (gradient.y_advance.x as f32, gradient.y_advance.y as f32);
+    let mut cur_pos = gradient.transform * Point::new(start_x, start_y);
+    let x_advances = (gradient.x_advance.x as f32, gradient.x_advance.y as f32);
+    let y_advances = (gradient.y_advance.x as f32, gradient.y_advance.y as f32);
 
-            for buf_part in buf.chunks_exact_mut(8) {
-                let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
-                let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
-                let pos = kind.cur_pos(x_pos, y_pos);
-                pos.store_slice(buf_part);
+    for buf_part in buf.chunks_exact_mut(8) {
+        let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
+        let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
+        let pos = kind.cur_pos(simd, x_pos, y_pos);
+        pos.store_slice(buf_part);
 
-                cur_pos += 2.0 * gradient.x_advance;
-            }
-        },
-    );
+        cur_pos += 2.0 * gradient.x_advance;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -52,23 +49,19 @@ pub(crate) struct GradientPainter<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> GradientPainter<'a, S> {
+    #[simd]
     pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let lut = gradient.f32_lut(simd);
-                let scale_factor: f32x8<S> = f32x8::splat(simd, lut.scale_factor());
+        let lut = gradient.f32_lut(simd);
+        let scale_factor: f32x8<S> = f32x8::splat(simd, lut.scale_factor());
 
-                Self {
-                    gradient,
-                    scale_factor,
-                    lut,
-                    t_vals: t_vals.chunks_exact(8),
-                    has_undefined: gradient.has_undefined,
-                    simd,
-                }
-            },
-        )
+        Self {
+            gradient,
+            scale_factor,
+            lut,
+            t_vals: t_vals.chunks_exact(8),
+            has_undefined: gradient.has_undefined,
+            simd,
+        }
     }
 }
 
@@ -220,14 +213,14 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
     }
 }
 
-#[inline(always)]
+#[simd]
 fn invalid_f32_mask<S: Simd>(simd: S, indices: u32x4<S>) -> mask32x16<S> {
     let indices = indices.zip_low(indices).combine(indices.zip_high(indices));
     let indices = indices.zip_low(indices).combine(indices.zip_high(indices));
     indices.simd_eq(u32x16::splat(simd, GRADIENT_INVALID_POS))
 }
 
-#[inline(always)]
+#[simd]
 pub(crate) fn apply_extend<S: Simd>(val: f32x8<S>, extend: peniko::Extend) -> f32x8<S> {
     match extend {
         peniko::Extend::Pad => val.max(0.0).min(1.0),
@@ -240,6 +233,10 @@ pub(crate) fn apply_extend<S: Simd>(val: f32x8<S>, extend: peniko::Extend) -> f3
     }
 }
 
+/// The hot inner operation of [`calculate_t_vals`].
+///
+/// Implementations are force-inlined into that function's `#[simd]` region. A nested SIMD
+/// boundary here adds an out-of-line call for every vector of gradient positions.
 pub(crate) trait SimdGradientKind<S: Simd> {
-    fn cur_pos(&self, x_pos: f32x8<S>, y_pos: f32x8<S>) -> f32x8<S>;
+    fn cur_pos(&self, simd: S, x_pos: f32x8<S>, y_pos: f32x8<S>) -> f32x8<S>;
 }

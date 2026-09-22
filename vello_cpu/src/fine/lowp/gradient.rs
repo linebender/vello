@@ -3,8 +3,9 @@
 
 use crate::peniko;
 use core::slice::ChunksExact;
+use fearless_simd_macros::simd;
 use vello_common::encode::EncodedGradient;
-use vello_common::fearless_simd::*;
+use vello_common::fearless_simd::{self, *};
 
 /// An accelerated gradient painter for u8.
 ///
@@ -19,22 +20,18 @@ pub(crate) struct GradientPainter<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> GradientPainter<'a, S> {
+    #[simd]
     pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let lut = gradient.u8_lut(simd);
-                let scale_factor = f32x16::splat(simd, lut.scale_factor());
+        let lut = gradient.u8_lut(simd);
+        let scale_factor = f32x16::splat(simd, lut.scale_factor());
 
-                Self {
-                    gradient,
-                    scale_factor,
-                    lut: lut.lut(),
-                    t_vals: t_vals.chunks_exact(16),
-                    simd,
-                }
-            },
-        )
+        Self {
+            gradient,
+            scale_factor,
+            lut: lut.lut(),
+            t_vals: t_vals.chunks_exact(16),
+            simd,
+        }
     }
 }
 
@@ -75,7 +72,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
 }
 
 // TODO: Maybe delete this method and use `apply_extend` from highp by splitting into two f32x8.
-#[inline(always)]
+#[simd]
 pub(crate) fn apply_extend<S: Simd>(val: f32x16<S>, extend: peniko::Extend) -> f32x16<S> {
     match extend {
         peniko::Extend::Pad => val.max(0.0).min(1.0),
