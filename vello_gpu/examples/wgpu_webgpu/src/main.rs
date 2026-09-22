@@ -19,8 +19,8 @@ fn main() {
         let window = web_sys::window().unwrap();
         let dpr = window.device_pixel_ratio();
 
-        let width = window.inner_width().unwrap().as_f64().unwrap() as u16 * dpr as u16;
-        let height = window.inner_height().unwrap().as_f64().unwrap() as u16 * dpr as u16;
+        let width = (window.inner_width().unwrap().as_f64().unwrap() * dpr) as u16;
+        let height = (window.inner_height().unwrap().as_f64().unwrap() * dpr) as u16;
 
         wasm_bindgen_futures::spawn_local(async move {
             run_interactive(width, height).await;

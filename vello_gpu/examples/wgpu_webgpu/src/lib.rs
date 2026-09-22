@@ -12,7 +12,7 @@
 use std::{cell::RefCell, rc::Rc};
 use vello_common::{
     fearless_simd::Level,
-    kurbo::{Affine, Point},
+    kurbo::{Affine, Vec2},
     paint::{ImageId, ImageSource},
 };
 use vello_example_scenes::{
@@ -144,6 +144,22 @@ impl RendererWrapper {
     }
 }
 
+fn client_to_canvas_px(canvas: &HtmlCanvasElement, client_x: f64, client_y: f64) -> Vec2 {
+    let rect = canvas.get_bounding_client_rect();
+    let width = rect.width().max(1.0);
+    let height = rect.height().max(1.0);
+    let x = ((client_x - rect.left()) / width).clamp(0.0, 1.0);
+    let y = ((client_y - rect.top()) / height).clamp(0.0, 1.0);
+    Vec2::new(x * canvas.width() as f64, y * canvas.height() as f64)
+}
+
+fn client_delta_to_canvas_px(canvas: &HtmlCanvasElement, delta_x: f64, delta_y: f64) -> Vec2 {
+    let rect = canvas.get_bounding_client_rect();
+    let scale_x = canvas.width() as f64 / rect.width().max(1.0);
+    let scale_y = canvas.height() as f64 / rect.height().max(1.0);
+    Vec2::new(delta_x * scale_x, delta_y * scale_y)
+}
+
 /// State that handles scene rendering and interactions
 struct AppState {
     scenes: Box<[AnyScene<Scene>]>,
@@ -151,7 +167,8 @@ struct AppState {
     scene: Scene,
     transform: Affine,
     mouse_down: bool,
-    last_cursor_position: Option<Point>,
+    last_cursor_position: Option<Vec2>,
+    last_drag_client_position: Option<Vec2>,
     width: u32,
     height: u32,
     renderer_wrapper: RendererWrapper,
@@ -174,6 +191,7 @@ impl AppState {
             transform: Affine::IDENTITY,
             mouse_down: false,
             last_cursor_position: None,
+            last_drag_client_position: None,
             width,
             height,
             renderer_wrapper,
@@ -348,38 +366,57 @@ impl AppState {
 
     fn handle_mouse_down(&mut self, x: f64, y: f64) {
         self.mouse_down = true;
-        self.last_cursor_position = Some(Point { x, y });
+        self.last_cursor_position = Some(client_to_canvas_px(&self.canvas, x, y));
+        self.last_drag_client_position = Some(Vec2::new(x, y));
     }
 
     fn handle_mouse_up(&mut self) {
         self.mouse_down = false;
         self.last_cursor_position = None;
+        self.last_drag_client_position = None;
     }
 
     fn handle_mouse_move(&mut self, x: f64, y: f64) {
-        let current_pos = Point { x, y };
+        let current_pos = client_to_canvas_px(&self.canvas, x, y);
 
         if self.mouse_down
-            && let Some(last_pos) = self.last_cursor_position
+            && let Some(last_client_pos) = self.last_drag_client_position
         {
-            self.transform = self.transform.then_translate(current_pos - last_pos);
+            let delta = client_delta_to_canvas_px(
+                &self.canvas,
+                x - last_client_pos.x,
+                y - last_client_pos.y,
+            );
+            self.transform = Affine::translate(delta) * self.transform;
         }
 
         self.last_cursor_position = Some(current_pos);
+        self.last_drag_client_position = Some(Vec2::new(x, y));
     }
 
-    fn handle_wheel(&mut self, delta_y: f64) {
-        const ZOOM_STEP: f64 = 0.1;
-        let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
+    fn handle_wheel(
+        &mut self,
+        client_x: f64,
+        client_y: f64,
+        delta_y: f64,
+        ctrl_key: bool,
+        delta_mode: u32,
+    ) {
+        let cursor_pos = client_to_canvas_px(&self.canvas, client_x, client_y);
+        self.last_cursor_position = Some(cursor_pos);
 
-        // Zoom centered at cursor position, or the center if no position is set.
-        self.transform = self.transform.then_scale_about(
-            zoom_factor,
-            self.last_cursor_position.unwrap_or(Point {
-                x: 0.5 * self.width as f64,
-                y: 0.5 * self.height as f64,
-            }),
-        );
+        let scale = if ctrl_key {
+            0.01
+        } else {
+            let line_mult = if delta_mode == 1 { 16.0 } else { 1.0 };
+            0.002 * line_mult
+        };
+        let zoom_factor = (-delta_y * scale).exp();
+
+        self.transform = Affine::translate(cursor_pos)
+            * Affine::scale(zoom_factor)
+            * Affine::translate(-cursor_pos)
+            * self.transform;
     }
 
     fn upload_images_to_atlas(&mut self) {
@@ -537,8 +574,8 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
             let window = web_sys::window().unwrap();
             let dpr = window.device_pixel_ratio();
 
-            let width = window.inner_width().unwrap().as_f64().unwrap() as u32 * dpr as u32;
-            let height = window.inner_height().unwrap().as_f64().unwrap() as u32 * dpr as u32;
+            let width = (window.inner_width().unwrap().as_f64().unwrap() * dpr) as u32;
+            let height = (window.inner_height().unwrap().as_f64().unwrap() * dpr) as u32;
 
             app_state.borrow_mut().resize(width, height);
         }) as Box<dyn FnMut(_)>);
@@ -569,10 +606,11 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     // Mouse up
     {
         let app_state = app_state.clone();
+        let window = web_sys::window().unwrap();
         let closure = Closure::wrap(Box::new(move |_event: MouseEvent| {
             app_state.borrow_mut().handle_mouse_up();
         }) as Box<dyn FnMut(_)>);
-        canvas
+        window
             .add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())
             .unwrap();
         closure.forget();
@@ -581,12 +619,13 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     // Mouse move
     {
         let app_state = app_state.clone();
+        let window = web_sys::window().unwrap();
         let closure = Closure::wrap(Box::new(move |event: MouseEvent| {
             app_state
                 .borrow_mut()
                 .handle_mouse_move(event.client_x() as f64, event.client_y() as f64);
         }) as Box<dyn FnMut(_)>);
-        canvas
+        window
             .add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref())
             .unwrap();
         closure.forget();
@@ -597,11 +636,21 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         let app_state = app_state.clone();
         let closure = Closure::wrap(Box::new(move |event: WheelEvent| {
             event.prevent_default();
-            let delta = -event.delta_y() / 100.0; // Normalize and invert
-            app_state.borrow_mut().handle_wheel(delta);
+            app_state.borrow_mut().handle_wheel(
+                event.client_x() as f64,
+                event.client_y() as f64,
+                event.delta_y(),
+                event.ctrl_key(),
+                event.delta_mode(),
+            );
         }) as Box<dyn FnMut(_)>);
+        let opts = web_sys::AddEventListenerOptions::new();
         canvas
-            .add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "wheel",
+                closure.as_ref().unchecked_ref(),
+                &opts,
+            )
             .unwrap();
         closure.forget();
     }

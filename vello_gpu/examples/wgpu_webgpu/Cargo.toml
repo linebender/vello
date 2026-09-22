@@ -23,11 +23,13 @@ vello_example_scenes = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 web-sys = { workspace = true, features = [
+    "AddEventListenerOptions",
     "Window",
     "Location",
     "History",
     "UrlSearchParams",
     "Document",
+    "DomRect",
     "Element",
     "HtmlElement",
     "HtmlCanvasElement",
