@@ -13,10 +13,14 @@ fn extend_mode(t: f32, mode: u32, max: f32) -> f32 {
             return clamp(t, 0.0, max - 1.0);
         }
         case EXTEND_REPEAT: {
-            return extend_mode_normalized(t / max, mode) * max;
+            return min(t - floor(t / max) * max, max - 1.0);
         }
         case EXTEND_REFLECT, default: {
-            return extend_mode_normalized(t / max, mode) * max;
+            let u = t - floor(0.5 * t / max) * 2.0 * max;
+            let s = floor(u / max);
+            let m = u - 2.0 * s * (u - max);
+            let biased_m = bitcast<f32>(bitcast<u32>(m) - u32(s));
+            return min(biased_m, max - 1.0);
         }
     }
 }

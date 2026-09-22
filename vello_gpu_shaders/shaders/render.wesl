@@ -25,7 +25,6 @@
 
 import package::helpers::alpha::unpack_alphas_from_channel;
 import package::helpers::blurred_rounded_rect::calculate_blurred_rounded_rect;
-import package::helpers::extend::extend_mode;
 import package::helpers::external_texture::sample_external_image;
 import package::helpers::gradient::{
     apply_gradient_transform,
@@ -404,10 +403,6 @@ fn fs_main(
             let image_tint = unpack4x8unorm(packed_tint);
             let is_multiply = image_texel2.z == TINT_MODE_MULTIPLY;
             let local_xy = sample_xy - image_offset;
-            let extended_xy = vec2<f32>(
-                extend_mode(local_xy.x, image_extend_modes.x, image_size.x),
-                extend_mode(local_xy.y, image_extend_modes.y, image_size.y)
-            );
 
             // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
             // using GPU-native bilinear sampling
@@ -415,38 +410,41 @@ fn fs_main(
             var sample_color: vec4<f32>;
             let external_texture_slot =
                 (paint_and_rect_flag >> EXTERNAL_TEXTURE_SLOT_SHIFT) & 0x3u;
-            let final_xy = image_offset + extended_xy;
             if external_texture_slot == 0u {
                 sample_color = sample_external_image(
                     external_texture_0,
                     image_quality,
-                    final_xy,
+                    local_xy,
                     image_offset,
                     image_size,
+                    image_extend_modes,
                 );
             } else if external_texture_slot == 1u {
                 sample_color = sample_external_image(
                     external_texture_1,
                     image_quality,
-                    final_xy,
+                    local_xy,
                     image_offset,
                     image_size,
+                    image_extend_modes,
                 );
             } else if external_texture_slot == 2u {
                 sample_color = sample_external_image(
                     external_texture_2,
                     image_quality,
-                    final_xy,
+                    local_xy,
                     image_offset,
                     image_size,
+                    image_extend_modes,
                 );
             } else {
                 sample_color = sample_external_image(
                     external_texture_3,
                     image_quality,
-                    final_xy,
+                    local_xy,
                     image_offset,
                     image_size,
+                    image_extend_modes,
                 );
             }
 
