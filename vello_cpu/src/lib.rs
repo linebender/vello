@@ -184,6 +184,8 @@ mod util;
 pub mod fine;
 #[doc(hidden)]
 pub mod region;
+#[doc(hidden)]
+pub mod span;
 
 pub use render::{
     PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources, TargetInit,

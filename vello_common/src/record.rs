@@ -340,9 +340,9 @@ impl<D> CommandRecorder<D> {
                     placement,
                 } => {
                     *placement = FilterLayerPlacement::new(layer.bbox, filter_plan);
-                    recorded_layer.bbox = placement.pixmap_bbox;
+                    recorded_layer.bbox = placement.pixmap_bbox();
 
-                    let filter_size = placement.pixmap_bbox.into();
+                    let filter_size = placement.pixmap_bbox().into();
                     self.largest_layer_size = Some(
                         self.largest_layer_size
                             .map_or(filter_size, |current| current.max(filter_size)),
@@ -352,7 +352,7 @@ impl<D> CommandRecorder<D> {
                             .map_or(filter_size, |current| current.max(filter_size)),
                     );
 
-                    (PoppedLayer::Filter, placement.dest_bbox)
+                    (PoppedLayer::Filter, placement.dest_bbox())
                 }
             }
         };
@@ -570,8 +570,8 @@ mod tests {
         );
 
         // Since we are tile-aligned, values are expanded to a multiple of tile-size.
-        assert_eq!(placement.pixmap_bbox, RectU16::new(4, 4, 24, 28));
-        assert_eq!(placement.dest_bbox, RectU16::new(4, 4, 24, 28));
+        assert_eq!(placement.pixmap_bbox(), RectU16::new(4, 4, 24, 28));
+        assert_eq!(placement.dest_bbox(), RectU16::new(4, 4, 24, 28));
         assert_eq!(placement.src_origin(), (0, 0));
     }
 
@@ -579,17 +579,26 @@ mod tests {
     fn filter_placement_with_source_shift() {
         let placement = FilterLayerPlacement::new(
             RectU16::new(8, 12, 20, 24),
-            &filter_data(PaddingU16::new(6, 2, 4, 6), PaddingU16::new(10, 16, 0, 0)),
+            &filter_data(PaddingU16::new(6, 2, 4, 6), PaddingU16::new(12, 16, 0, 0)),
         );
 
         // Bbox expanded with padding is [8 - 6, 12 - 2, 20 + 4, 24 + 6]
         // = [2, 10, 24, 30], snappding this gives us [0, 8, 24, 32].
-        assert_eq!(placement.pixmap_bbox, RectU16::new(0, 8, 24, 32));
-        // Account for source origin using saturing sub of 10 horizontally and
+        assert_eq!(placement.pixmap_bbox(), RectU16::new(0, 8, 24, 32));
+        // Account for source origin using saturating sub of 12 horizontally and
         // 16 vertically.
-        assert_eq!(placement.dest_bbox, RectU16::new(0, 0, 14, 16));
-        // Source origin is now 10 - 0 = 10 and 16 - 8 = 8.
-        assert_eq!(placement.src_origin(), (10, 8));
+        assert_eq!(placement.dest_bbox(), RectU16::new(0, 0, 12, 16));
+        // Source origin is now 12 - 0 = 12 and 16 - 8 = 8.
+        assert_eq!(placement.src_origin(), (12, 8));
+    }
+
+    #[test]
+    #[should_panic(expected = "filter source shift must be tile-aligned")]
+    fn filter_placement_rejects_unaligned_source_shift() {
+        FilterLayerPlacement::new(
+            RectU16::new(8, 12, 20, 24),
+            &filter_data(PaddingU16::new(6, 2, 4, 6), PaddingU16::new(10, 16, 0, 0)),
+        );
     }
 
     #[test]

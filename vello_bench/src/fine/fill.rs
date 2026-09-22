@@ -8,7 +8,8 @@ use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
 use vello_common::paint::{NoOpImageResolver, Paint, PremulColor};
 use vello_common::peniko::BlendMode;
-use vello_cpu::fine::{Fine, FineKernel, FineResources, PaintFillAttrs, Span};
+use vello_cpu::fine::{Fine, FineKernel, FineResources, PaintFillAttrs};
+use vello_cpu::span::{Span, TileAlignedSpan};
 use vello_dev_macros::vello_bench;
 
 pub fn fill(c: &mut Criterion) {
@@ -69,7 +70,7 @@ pub(crate) fn fill_single<S: Simd, N: FineKernel<S>>(
 
     b.iter(|| {
         fine.paint_fill(
-            Span::new(0, width),
+            TileAlignedSpan::try_from(Span::new(0, width)).unwrap(),
             &attrs,
             FineResources {
                 alpha_buffers: &[],

@@ -237,7 +237,7 @@ impl SingleThreadedDispatcher {
             else {
                 unreachable!("filter_layers only contains filter layers");
             };
-            let pixmap_bbox = placement.pixmap_bbox;
+            let pixmap_bbox = placement.pixmap_bbox();
             if pixmap_bbox.is_empty() {
                 continue;
             }
