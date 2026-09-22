@@ -24,7 +24,7 @@ use vello_gpu::{
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
 
-pub(crate) trait Renderer: Sized {
+pub trait Renderer: Sized {
     type GlyphRunBackend<'a>: GlyphRunBackend<'a>
     where
         Self: 'a;
@@ -97,7 +97,7 @@ pub(crate) trait Renderer: Sized {
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId;
 }
 
-pub(crate) struct CpuRenderer {
+pub struct CpuRenderer {
     ctx: RenderContext,
     resources: Resources,
     render_mode: RenderMode,
@@ -301,7 +301,7 @@ impl Renderer for CpuRenderer {
 static WGPU_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-pub(crate) struct GpuRenderer {
+pub struct GpuRenderer {
     scene: Scene,
     resources: GpuResources,
     device: wgpu::Device,
@@ -763,7 +763,7 @@ impl Renderer for GpuRenderer {
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-pub(crate) struct GpuRenderer {
+pub struct GpuRenderer {
     scene: Scene,
     resources: GpuResources,
     renderer: vello_gpu::WebGlRenderer,

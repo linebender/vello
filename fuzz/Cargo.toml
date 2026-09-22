@@ -1,0 +1,26 @@
+[package]
+name = "vello-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1.4.2", features = ["derive"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+libfuzzer-sys = "0.4.13"
+vello_common = { path = "../vello_common", features = ["std", "png"] }
+vello_cpu = { path = "../vello_cpu", features = ["f32_pipeline", "std"] }
+vello_tests = { path = "../vello_tests" }
+
+[[bin]]
+name = "cpu_gpu_differential"
+path = "fuzz_targets/cpu_gpu_differential/main.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
