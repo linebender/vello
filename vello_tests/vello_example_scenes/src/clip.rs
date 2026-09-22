@@ -157,7 +157,7 @@ pub fn render(
                 if !use_clip_path {
                     ctx.pop_layer();
                 } else {
-                    ctx.pop_clip_path();
+                    ctx.pop_clip();
                 }
             }
         }

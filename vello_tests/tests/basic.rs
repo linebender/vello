@@ -728,8 +728,8 @@ fn left_cull_mask_cross_combined(ctx: &mut impl Renderer) {
     ctx.set_paint(GREEN);
     ctx.set_transform(transform);
     ctx.fill_path(&rect_path);
-    ctx.pop_clip_path();
-    ctx.pop_clip_path();
+    ctx.pop_clip();
+    ctx.pop_clip();
 }
 
 #[vello_test(width = 30, height = 30)]
@@ -756,6 +756,6 @@ fn left_cull_mask_encloses_viewport(ctx: &mut impl Renderer) {
     ctx.set_paint(GREEN);
     ctx.set_transform(transform);
     ctx.fill_path(&rect_path);
-    ctx.pop_clip_path();
-    ctx.pop_clip_path();
+    ctx.pop_clip();
+    ctx.pop_clip();
 }

@@ -24,7 +24,7 @@ fn main() {
     let clip_2 = Circle::new((125.0, 75.0), 50.0).to_path(0.1);
 
     // Method 1: Non-isolated clipping using the `push_clip_path` and
-    // `pop_clip_path` methods:
+    // `pop_clip` methods:
     {
         // Let's first create a white background.
         ctx.set_paint(WHITE);
@@ -49,14 +49,14 @@ fn main() {
         ctx.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
         // By popping a clip path, the top clip-path on the element (in this case
         // `clip_2`) will be removed. Thus, only `clip_1` remains in-place.
-        ctx.pop_clip_path();
+        ctx.pop_clip();
         ctx.set_paint(BLUE.with_alpha(0.2));
         // This rectangle will only be constrained by the area of `clip_1`.
         ctx.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
 
         // This is optional. You don't strictly have to pop all clip paths
         // currently in-place before rasterizing to the pixmap.
-        ctx.pop_clip_path();
+        ctx.pop_clip();
 
         ctx.flush();
 
@@ -69,7 +69,7 @@ fn main() {
         // Overall, this method works exactly the same as the previous
         // one, just that the method calls are different. Instead of
         // `push_clip_path`, we have `push_clip_layer`, and instead of
-        // `pop_clip_path`, we have `pop_clip_layer`.
+        // `pop_clip`, we have `pop_clip_layer`.
 
         ctx.set_paint(WHITE);
         ctx.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));

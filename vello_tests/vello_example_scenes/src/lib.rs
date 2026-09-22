@@ -106,8 +106,8 @@ pub trait RenderingContext: Sized {
     );
     /// Pop the current layer.
     fn pop_layer(&mut self);
-    /// Pop the last clip path.
-    fn pop_clip_path(&mut self);
+    /// Pop the most recently pushed clip path or clip rectangle.
+    fn pop_clip(&mut self);
 }
 
 #[cfg(feature = "cpu")]
@@ -206,8 +206,8 @@ impl RenderingContext for RenderContext {
         Self::push_clip_rect(self, rect);
     }
 
-    fn pop_clip_path(&mut self) {
-        Self::pop_clip_path(self);
+    fn pop_clip(&mut self) {
+        Self::pop_clip(self);
     }
 }
 
@@ -306,8 +306,8 @@ impl RenderingContext for Scene {
         Self::push_clip_rect(self, rect);
     }
 
-    fn pop_clip_path(&mut self) {
-        Self::pop_clip_path(self);
+    fn pop_clip(&mut self) {
+        Self::pop_clip(self);
     }
 }
 

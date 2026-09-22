@@ -76,7 +76,7 @@ pub(crate) trait Renderer: Sized {
     fn push_mask_layer(&mut self, mask: Mask);
     fn push_filter_layer(&mut self, filter: Filter);
     fn pop_layer(&mut self);
-    fn pop_clip_path(&mut self);
+    fn pop_clip(&mut self);
     fn set_stroke(&mut self, stroke: Stroke);
     fn set_mask(&mut self, mask: Mask);
     fn set_paint(&mut self, paint: impl Into<PaintType>);
@@ -201,8 +201,8 @@ impl Renderer for CpuRenderer {
         self.ctx.pop_layer();
     }
 
-    fn pop_clip_path(&mut self) {
-        self.ctx.pop_clip_path();
+    fn pop_clip(&mut self) {
+        self.ctx.pop_clip();
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
@@ -528,8 +528,8 @@ impl Renderer for GpuRenderer {
         self.scene.pop_layer();
     }
 
-    fn pop_clip_path(&mut self) {
-        self.scene.pop_clip_path();
+    fn pop_clip(&mut self) {
+        self.scene.pop_clip();
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
@@ -927,8 +927,8 @@ impl Renderer for GpuRenderer {
         self.scene.pop_layer();
     }
 
-    fn pop_clip_path(&mut self) {
-        self.scene.pop_clip_path();
+    fn pop_clip(&mut self) {
+        self.scene.pop_clip();
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
