@@ -704,6 +704,7 @@ impl RenderContext {
         self.mask = None;
         self.root_transforms.reset();
         self.state.reset();
+        self.aliasing_threshold = None;
     }
 
     /// Push a new clip path to the clip stack.
@@ -1146,6 +1147,16 @@ mod tests {
                 assert_eq!(pixmap.sample(x, y), blue_pixel(), "pixel at ({x}, {y})");
             }
         }
+    }
+
+    #[test]
+    fn reset_restores_default_aliasing_threshold() {
+        let mut ctx = RenderContext::new(4, 4);
+        ctx.set_aliasing_threshold(Some(128));
+
+        ctx.reset();
+
+        assert_eq!(ctx.aliasing_threshold, None);
     }
 
     #[test]

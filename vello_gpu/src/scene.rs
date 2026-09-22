@@ -850,6 +850,7 @@ impl Scene {
 
         self.root_transforms.reset();
         self.render_state.reset();
+        self.aliasing_threshold = None;
         self.set_paint_visible();
 
         self.recorder.reset(self.width, self.height);
@@ -939,6 +940,16 @@ mod tests {
         scene.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
 
         assert_eq!(scene.recorder.draws.len(), 1);
+    }
+
+    #[test]
+    fn reset_restores_default_aliasing_threshold() {
+        let mut scene = Scene::new(4, 4);
+        scene.set_aliasing_threshold(Some(128));
+
+        scene.reset();
+
+        assert_eq!(scene.aliasing_threshold, None);
     }
 
     #[test]
