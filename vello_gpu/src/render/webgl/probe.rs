@@ -38,23 +38,27 @@ pub struct WebGlPendingProbe {
 #[derive(Debug)]
 struct ProbeTimingState {
     probe_started_at_ms: f64,
-    commands_submitted_at_ms: f64,
+    readback_submitted_at_ms: f64,
     setup_duration: Duration,
-    submission_duration: Duration,
+    render_submission_duration: Duration,
+    readback_submission_duration: Duration,
     poll_count: u32,
 }
 
 impl ProbeTimingState {
     fn new(
         probe_started_at_ms: f64,
-        setup_completed_at_ms: f64,
-        commands_submitted_at_ms: f64,
+        readback_submitted_at_ms: f64,
+        setup_duration: Duration,
+        render_submission_duration: Duration,
+        readback_submission_duration: Duration,
     ) -> Self {
         Self {
             probe_started_at_ms,
-            commands_submitted_at_ms,
-            setup_duration: elapsed(probe_started_at_ms, setup_completed_at_ms),
-            submission_duration: elapsed(setup_completed_at_ms, commands_submitted_at_ms),
+            readback_submitted_at_ms,
+            setup_duration,
+            render_submission_duration,
+            readback_submission_duration,
             poll_count: 0,
         }
     }
@@ -71,8 +75,9 @@ impl ProbeTimingState {
     ) -> WebGlProbeTimings {
         WebGlProbeTimings {
             setup: self.setup_duration,
-            submission: self.submission_duration,
-            completion_latency: elapsed(self.commands_submitted_at_ms, fence_signal_observed_at_ms),
+            render_submission: self.render_submission_duration,
+            readback_submission: self.readback_submission_duration,
+            completion_latency: elapsed(self.readback_submitted_at_ms, fence_signal_observed_at_ms),
             readback: readback_duration,
             total: elapsed(self.probe_started_at_ms, probe_result_produced_at_ms),
         }
@@ -102,9 +107,14 @@ impl WebGlProbeReport {
 pub struct WebGlProbeTimings {
     /// CPU time spent allocating resources, uploading the probe image, and building the scene.
     pub setup: Duration,
-    /// CPU time spent encoding the render, queuing the pixel readback, and flushing WebGL commands.
-    pub submission: Duration,
-    /// Time from submitting the probe until its fence was first observed as signaled.
+    /// CPU time spent executing the probe's internal `render_scene` call.
+    pub render_submission: Duration,
+    /// CPU time spent allocating the pixel-pack buffer, queuing the pixel readback, creating its
+    /// fence, and flushing WebGL commands.
+    pub readback_submission: Duration,
+    /// Time from submitting the pixel readback until its fence was first observed as signaled.
+    ///
+    /// This includes GPU rendering and readback as well as delays between polls.
     pub completion_latency: Duration,
     /// CPU time spent reading the completed pixel buffer back, copying it into WASM memory, and
     /// flipping it vertically.
@@ -240,12 +250,13 @@ impl WebGlRenderer {
             ),
             elements,
         );
-        let setup_completed_at_ms = now_ms();
+        let setup_duration = elapsed(probe_started_at_ms, now_ms());
 
         let previous_view_framebuffer = core::mem::replace(
             &mut self.programs.resources.view_framebuffer,
             ViewFramebuffer::offscreen(probe_framebuffer, use_depth_buffer),
         );
+        let render_submission_started_at_ms = now_ms();
         let render_result = self.render_scene(
             &scene,
             &ImageCache::new_dummy(),
@@ -255,6 +266,7 @@ impl WebGlRenderer {
             &texture_bindings,
             Some(&probe_texture),
         );
+        let render_submission_duration = elapsed(render_submission_started_at_ms, now_ms());
         let probe_framebuffer = core::mem::replace(
             &mut self.programs.resources.view_framebuffer,
             previous_view_framebuffer,
@@ -272,7 +284,8 @@ impl WebGlRenderer {
             height,
             elements,
             probe_started_at_ms,
-            setup_completed_at_ms,
+            setup_duration,
+            render_submission_duration,
         )?;
 
         Ok(pending)
@@ -378,8 +391,10 @@ fn launch_probe(
     height: u16,
     elements: &[ProbeFeature],
     probe_started_at_ms: f64,
-    setup_completed_at_ms: f64,
+    setup_duration: Duration,
+    render_submission_duration: Duration,
 ) -> Result<WebGlPendingProbe, WebGlError> {
+    let readback_submission_started_at_ms = now_ms();
     let pixel_pack_buffer = Buffer::new(gl)?;
     let byte_len = i32::from(width) * i32::from(height) * 4;
 
@@ -414,7 +429,9 @@ fn launch_probe(
     // proper flushing, the sync object may never be signaled."
     gl.flush();
     gl.bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, None);
-    let commands_submitted_at_ms = now_ms();
+    let readback_submitted_at_ms = now_ms();
+    let readback_submission_duration =
+        elapsed(readback_submission_started_at_ms, readback_submitted_at_ms);
 
     Ok(WebGlPendingProbe {
         gl: gl.clone(),
@@ -425,8 +442,10 @@ fn launch_probe(
         elements: elements.to_vec(),
         timing: ProbeTimingState::new(
             probe_started_at_ms,
-            setup_completed_at_ms,
-            commands_submitted_at_ms,
+            readback_submitted_at_ms,
+            setup_duration,
+            render_submission_duration,
+            readback_submission_duration,
         ),
     })
 }
