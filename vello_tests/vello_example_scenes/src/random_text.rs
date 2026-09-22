@@ -309,7 +309,8 @@ fn render_glyph_run<T: RenderingContext>(
     let run = glyph_run.run();
     let style = glyph_run.style();
     ctx.set_paint(style.brush.color);
-    ctx.glyph_run(resources, run.font())
+    let _ = ctx
+        .glyph_run(resources, run.font())
         .font_size(run.font_size())
         .hint(hinting_enabled)
         .atlas_cache(glyph_caching_enabled)

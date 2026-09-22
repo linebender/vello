@@ -101,7 +101,8 @@ fn render_transform_composition_rows(
             .atlas_cache(enable_caching)
             .glyph_transform(glyph_transform)
             .hint(hint)
-            .fill_glyphs(glyphs.into_iter());
+            .fill_glyphs(glyphs.into_iter())
+            .unwrap();
         y += 30.0;
     }
 }
@@ -117,7 +118,8 @@ fn glyphs_filled(ctx: &mut impl Renderer, enable_caching: bool) {
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(true)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 300, height = 70, glyph)]
@@ -131,7 +133,45 @@ fn glyphs_filled_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(false)
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
+}
+
+#[vello_test(width = 250, height = 70)]
+fn glyphs_invalid_id_does_not_stop_run(ctx: &mut impl Renderer) {
+    let font_size = 50.0_f32;
+    let (font, mut glyphs) = layout_glyphs_roboto("HelloWorld", font_size);
+    let invalid_index = glyphs.len() / 2;
+    glyphs[invalid_index].id = u32::MAX;
+
+    ctx.set_transform(Affine::translate((0.0, f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
+    let result = ctx
+        .glyph_run(&font)
+        .font_size(font_size)
+        .atlas_cache(false)
+        .hint(false)
         .fill_glyphs(glyphs.into_iter());
+
+    let error = result.expect_err("invalid glyph ID should be reported");
+    assert_eq!(
+        error.first_skipped.index, invalid_index,
+        "the invalid glyph should be reported at its position in the run"
+    );
+    assert_eq!(
+        error.first_skipped.glyph.id,
+        u32::MAX,
+        "the reported glyph should be the invalid one"
+    );
+    assert_eq!(
+        error.first_skipped.reason,
+        glifo::GlyphSkipReason::NoRenderableRepresentation,
+        "an invalid glyph ID has no renderable representation"
+    );
+    assert_eq!(
+        error.skipped_count, 1,
+        "only the invalid glyph should be skipped"
+    );
 }
 
 #[vello_test(width = 760, height = 140)]
@@ -144,7 +184,8 @@ fn glyphs_emboldened(ctx: &mut impl Renderer) {
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(true)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 
     let (font, glyphs) = layout_glyphs_roboto("this is regular and emboldened text", font_size);
 
@@ -153,7 +194,8 @@ fn glyphs_emboldened(ctx: &mut impl Renderer) {
         .font_size(font_size)
         .font_embolden(FontEmbolden::new(Diagonal2::new(1.0, 1.0)))
         .hint(true)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 300, height = 70, glyph)]
@@ -167,7 +209,8 @@ fn glyphs_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(true)
-        .stroke_glyphs(glyphs.into_iter());
+        .stroke_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 300, height = 70, glyph)]
@@ -181,7 +224,8 @@ fn glyphs_stroked_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(false)
-        .stroke_glyphs(glyphs.into_iter());
+        .stroke_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 300, height = 70, glyph)]
@@ -199,7 +243,8 @@ fn glyphs_stroked_scaled_up(ctx: &mut impl Renderer, enable_caching: bool) {
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(false)
-        .stroke_glyphs(glyphs.into_iter());
+        .stroke_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 300, height = 70, glyph)]
@@ -216,7 +261,8 @@ fn glyphs_large_stroke_width(ctx: &mut impl Renderer, enable_caching: bool) {
     ctx.glyph_run(&font)
         .font_size(font_size)
         .atlas_cache(enable_caching)
-        .stroke_glyphs(glyphs.into_iter());
+        .stroke_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 300, height = 120)]
@@ -277,7 +323,8 @@ fn glyphs_skewed(ctx: &mut impl Renderer, enable_caching: bool) {
         .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.))
         .hint(true)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 300, height = 70, glyph)]
@@ -292,7 +339,8 @@ fn glyphs_skewed_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
         .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.))
         .hint(false)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 250, height = 75, glyph)]
@@ -310,7 +358,8 @@ fn glyphs_skewed_long(ctx: &mut impl Renderer, enable_caching: bool) {
         .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(-10_f64.to_radians().tan(), 0.))
         .hint(true)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 250, height = 75, glyph)]
@@ -328,7 +377,8 @@ fn glyphs_skewed_long_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
         .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(-10_f64.to_radians().tan(), 0.))
         .hint(false)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 150, height = 125, glyph)]
@@ -346,7 +396,8 @@ fn glyphs_skewed_unskewed(ctx: &mut impl Renderer, enable_caching: bool) {
         .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(20_f64.to_radians().tan(), 0.))
         .hint(true)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 150, height = 125, glyph)]
@@ -364,7 +415,8 @@ fn glyphs_skewed_unskewed_unhinted(ctx: &mut impl Renderer, enable_caching: bool
         .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(20_f64.to_radians().tan(), 0.))
         .hint(false)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 150, height = 125, glyph)]
@@ -378,7 +430,8 @@ fn glyphs_scaled(ctx: &mut impl Renderer, enable_caching: bool) {
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(true)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 150, height = 125, glyph)]
@@ -392,7 +445,8 @@ fn glyphs_scaled_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(false)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 150, height = 125, glyph)]
@@ -407,7 +461,8 @@ fn glyphs_glyph_transform(ctx: &mut impl Renderer, enable_caching: bool) {
         .atlas_cache(enable_caching)
         .glyph_transform(Affine::translate((10., 10.)))
         .hint(true)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 150, height = 125, glyph)]
@@ -422,7 +477,8 @@ fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer, enable_caching: bool
         .atlas_cache(enable_caching)
         .glyph_transform(Affine::translate((10., 10.)))
         .hint(false)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 enum GlyphPaint {
@@ -546,6 +602,7 @@ fn glyphs_with_transformed_paint_inner(
             DrawMode::Fill => builder.fill_glyphs(row_glyphs),
             DrawMode::Stroke => builder.stroke_glyphs(row_glyphs),
         }
+        .unwrap();
 
         baseline_y += BASELINE_DELTA;
     }
@@ -651,7 +708,8 @@ fn glyphs_small(ctx: &mut impl Renderer, enable_caching: bool) {
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(true)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 60, height = 12, glyph)]
@@ -665,7 +723,8 @@ fn glyphs_small_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(false)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 250, height = 70, skip_gpu, glyph)]
@@ -677,7 +736,8 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer, enable_caching: bool) {
     ctx.glyph_run(&font)
         .font_size(font_size)
         .atlas_cache(enable_caching)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -704,10 +764,10 @@ fn render_roboto_with_mode(
 
     match mode {
         DrawMode::Fill => {
-            builder.fill_glyphs(glyphs);
+            builder.fill_glyphs(glyphs).unwrap();
         }
         DrawMode::Stroke => {
-            builder.stroke_glyphs(glyphs);
+            builder.stroke_glyphs(glyphs).unwrap();
         }
     }
 }
@@ -760,7 +820,8 @@ fn glyphs_colr_noto_overflow_centered(ctx: &mut impl Renderer, enable_caching: b
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(false)
-        .fill_glyphs(iter::once(centered_glyph));
+        .fill_glyphs(iter::once(centered_glyph))
+        .unwrap();
 }
 
 #[vello_test(
@@ -869,7 +930,8 @@ fn glyphs_bitmap_noto_stroked(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
     ctx.glyph_run(&font)
         .font_size(font_size)
-        .stroke_glyphs(glyphs.into_iter());
+        .stroke_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[cfg(target_os = "macos")]
@@ -882,7 +944,8 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
     ctx.glyph_run(&font)
         .font_size(font_size)
         .atlas_cache(enable_caching)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 // In case anything changes here, compare to https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/web_tests/platform/linux/virtual/text-antialias/colrv1-expected.png
@@ -903,7 +966,7 @@ fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer, enable_caching: bool) {
     let mut cur_x = 0.0;
     let mut cur_y = font_size;
 
-    let draw_glyphs = (0..=num_glyphs).filter(|n| match n {
+    let draw_glyphs = (0..num_glyphs).filter(|n| match n {
         // Those are not COLR glyphs.
         0..8 => false,
         161..=165 => false,
@@ -923,7 +986,8 @@ fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer, enable_caching: bool) {
         ctx.glyph_run(&font)
             .font_size(font_size as f32)
             .atlas_cache(enable_caching)
-            .fill_glyphs(glyph_iter);
+            .fill_glyphs(glyph_iter)
+            .unwrap();
 
         cur_x += font_size;
     }
@@ -947,7 +1011,8 @@ fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer, enable_caching: bool) {
             ctx.glyph_run(&font)
                 .font_size(font_size as f32)
                 .atlas_cache(enable_caching)
-                .fill_glyphs(glyph_iter);
+                .fill_glyphs(glyph_iter)
+                .unwrap();
 
             cur_x += font_size;
         }
@@ -972,9 +1037,9 @@ fn render_colr_noto_with_transform(
         .hint(false);
 
     if mode == DrawMode::Stroke {
-        run.stroke_glyphs(glyphs.into_iter());
+        run.stroke_glyphs(glyphs.into_iter()).unwrap();
     } else {
-        run.fill_glyphs(glyphs.into_iter());
+        run.fill_glyphs(glyphs.into_iter()).unwrap();
     }
 }
 
@@ -1000,7 +1065,7 @@ fn render_decorated_text(
     if let Some(gt) = glyph_transform {
         fill_builder = fill_builder.glyph_transform(gt);
     }
-    fill_builder.fill_glyphs(glyphs.iter().copied());
+    fill_builder.fill_glyphs(glyphs.iter().copied()).unwrap();
 
     let x_end = glyphs.last().map_or(0.0, |g| g.x + font_size * 0.6);
     let mut deco_builder = ctx

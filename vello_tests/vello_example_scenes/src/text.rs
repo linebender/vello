@@ -145,7 +145,8 @@ fn render_glyph_run<T: RenderingContext>(
 
     let style = glyph_run.style();
     ctx.set_paint(style.brush.color);
-    ctx.glyph_run(resources, font)
+    let _ = ctx
+        .glyph_run(resources, font)
         .font_size(font_size)
         .normalized_coords(normalized_coords)
         .hint(true)

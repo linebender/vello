@@ -219,12 +219,13 @@ pub struct CpuGlyphRunBackend<'a> {
 }
 
 impl<'a> CpuGlyphRunBackend<'a> {
-    fn render_glyphs<Glyphs>(
+    fn render_glyphs<Glyphs, R>(
         self,
         run: glifo::GlyphRun<'a>,
         glyphs: Glyphs,
-        render: impl FnOnce(&mut glifo::GlyphRunRenderer<'a, 'a, Glyphs>, &mut RenderContext),
-    ) where
+        render: impl FnOnce(&mut glifo::GlyphRunRenderer<'a, 'a, Glyphs>, &mut RenderContext) -> R,
+    ) -> R
+    where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         let atlas_cacher = if self.atlas_cache_enabled {
@@ -248,7 +249,7 @@ impl<'a> CpuGlyphRunBackend<'a> {
             self.resources.glyph_prep_cache.as_mut(),
             atlas_cacher,
         );
-        render(&mut glyph_run, self.ctx);
+        render(&mut glyph_run, self.ctx)
     }
 }
 
@@ -258,14 +259,22 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
         self
     }
 
-    fn fill_glyphs<Glyphs>(self, run: glifo::GlyphRun<'a>, glyphs: Glyphs)
+    fn fill_glyphs<Glyphs>(
+        self,
+        run: glifo::GlyphRun<'a>,
+        glyphs: Glyphs,
+    ) -> Result<(), glifo::GlyphRenderError>
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        self.render_glyphs(run, glyphs, |glyph_run, ctx| glyph_run.fill_glyphs(ctx));
+        self.render_glyphs(run, glyphs, |glyph_run, ctx| glyph_run.fill_glyphs(ctx))
     }
 
-    fn stroke_glyphs<Glyphs>(self, run: glifo::GlyphRun<'a>, glyphs: Glyphs)
+    fn stroke_glyphs<Glyphs>(
+        self,
+        run: glifo::GlyphRun<'a>,
+        glyphs: Glyphs,
+    ) -> Result<(), glifo::GlyphRenderError>
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
@@ -273,9 +282,10 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
             let stroke_adjustment = glyph_run.stroke_adjustment();
             let original_width = ctx.stroke().width;
             ctx.stroke_mut().width *= stroke_adjustment;
-            glyph_run.stroke_glyphs(ctx);
+            let result = glyph_run.stroke_glyphs(ctx);
             ctx.stroke_mut().width = original_width;
-        });
+            result
+        })
     }
 
     fn render_decoration<Glyphs>(

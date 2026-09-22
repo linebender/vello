@@ -147,5 +147,6 @@ fn render_glyph_run(
         .font_size(run.font_size())
         .hint(hint)
         .atlas_cache(atlas_cache)
-        .fill_glyphs(glyphs);
+        .fill_glyphs(glyphs)
+        .unwrap();
 }

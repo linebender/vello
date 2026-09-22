@@ -143,7 +143,8 @@ impl ExampleScene for EmojiGridScene {
     ) {
         ctx.set_transform(root_transform);
         let (font_size, glyphs) = self.build_glyphs(f32::from(ctx.width()));
-        ctx.glyph_run(resources, &self.font)
+        let _ = ctx
+            .glyph_run(resources, &self.font)
             .font_size(font_size)
             .hint(false)
             .atlas_cache(self.glyph_caching_enabled)
