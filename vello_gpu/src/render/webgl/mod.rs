@@ -177,20 +177,44 @@ pub struct WebGlRendererInit {
 #[derive(Debug)]
 struct WebGlRendererInitTimingState {
     initialization_started_at_ms: f64,
-    setup: Duration,
+    shader_completion_started_at_ms: f64,
+    context_creation: Duration,
+    shader_submission: Duration,
+    resource_initialization: Duration,
 }
 
 impl WebGlRendererInitTimingState {
-    fn new(initialization_started_at_ms: f64, setup_completed_at_ms: f64) -> Self {
+    fn new(
+        initialization_started_at_ms: f64,
+        shader_completion_started_at_ms: f64,
+        context_creation: Duration,
+        shader_submission: Duration,
+        resource_initialization: Duration,
+    ) -> Self {
         Self {
             initialization_started_at_ms,
-            setup: elapsed(initialization_started_at_ms, setup_completed_at_ms),
+            shader_completion_started_at_ms,
+            context_creation,
+            shader_submission,
+            resource_initialization,
         }
     }
 
-    fn finish(self, initialization_completed_at_ms: f64) -> WebGlRendererInitTimings {
+    fn finish(
+        self,
+        shader_completion_observed_at_ms: f64,
+        finalization: Duration,
+        initialization_completed_at_ms: f64,
+    ) -> WebGlRendererInitTimings {
         WebGlRendererInitTimings {
-            setup: self.setup,
+            context_creation: self.context_creation,
+            shader_submission: self.shader_submission,
+            resource_initialization: self.resource_initialization,
+            shader_completion: elapsed(
+                self.shader_completion_started_at_ms,
+                shader_completion_observed_at_ms,
+            ),
+            finalization,
             total: elapsed(
                 self.initialization_started_at_ms,
                 initialization_completed_at_ms,
@@ -259,9 +283,27 @@ pub struct AtlasTextureInfo {
 /// Time spent constructing a WebGL renderer.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WebGlRendererInitTimings {
-    /// Elapsed time spent synchronously setting up the renderer in
-    /// [`WebGlRenderer::begin_with`].
-    pub setup: Duration,
+    /// CPU time spent configuring and obtaining the WebGL2 context and validating its capabilities.
+    pub context_creation: Duration,
+    /// CPU time spent detecting parallel shader compilation support and issuing shader compilation
+    /// and program linking calls.
+    pub shader_submission: Duration,
+    /// CPU time spent creating persistent renderer caches and WebGL textures, buffers,
+    /// framebuffers, and vertex array objects.
+    pub resource_initialization: Duration,
+    /// Elapsed time from completing synchronous setup until shader compilation and linking were
+    /// first observed as complete.
+    ///
+    /// This includes delays between asynchronous polls. When [`WebGlRendererInit::finish`] is
+    /// called before shader completion has been observed, this is zero and any blocking wait is
+    /// included in [`Self::finalization`] instead.
+    pub shader_completion: Duration,
+    /// CPU time spent validating linked programs, resolving their interfaces, and constructing the
+    /// final renderer.
+    ///
+    /// This can include time blocked on shader compilation and linking when initialization is
+    /// finished synchronously.
+    pub finalization: Duration,
     /// Elapsed time from starting [`WebGlRenderer::begin_with`] until renderer construction
     /// completed.
     ///
@@ -449,6 +491,8 @@ impl WebGlRenderer {
                 ));
             }
         }
+        let context_creation_completed_at_ms = now_ms();
+
         let resources = Resources::new(settings.memory_settings.image_atlas_config);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
 
@@ -458,14 +502,15 @@ impl WebGlRenderer {
             / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
         let layer_config = settings.memory_settings.layers_config;
-        let programs = PendingWebGlPrograms::new(
+        let initial_resource_initialization = elapsed(context_creation_completed_at_ms, now_ms());
+        let (programs, program_init_timings) = PendingWebGlPrograms::new(
             gl.clone(),
             &resources.image_cache,
             layer_config,
             resource_texture_dimension_2d,
             use_depth_buffer,
         )?;
-        let setup_completed_at_ms = now_ms();
+        let shader_completion_started_at_ms = now_ms();
         let init = WebGlRendererInit {
             programs,
             gl,
@@ -473,7 +518,13 @@ impl WebGlRenderer {
             layers_config: layer_config,
             timing: WebGlRendererInitTimingState::new(
                 initialization_started_at_ms,
-                setup_completed_at_ms,
+                shader_completion_started_at_ms,
+                elapsed(
+                    initialization_started_at_ms,
+                    context_creation_completed_at_ms,
+                ),
+                program_init_timings.shader_submission,
+                initial_resource_initialization + program_init_timings.resource_initialization,
             ),
         };
 
@@ -1137,7 +1188,10 @@ impl WebGlRendererInit {
     /// [`WebGlRendererInitStatus::Complete`].
     pub fn try_finish(self) -> Result<WebGlRendererInitStatus, WebGlError> {
         if self.programs.is_complete(&self.gl) {
-            Ok(WebGlRendererInitStatus::Complete(self.finish()?))
+            let shader_completion_observed_at_ms = now_ms();
+            Ok(WebGlRendererInitStatus::Complete(
+                self.finish_inner(shader_completion_observed_at_ms)?,
+            ))
         } else {
             Ok(WebGlRendererInitStatus::Pending(self))
         }
@@ -1148,6 +1202,14 @@ impl WebGlRendererInit {
     /// Prefer [`WebGlRendererInit::try_finish`] when blocking the browser's main thread is
     /// undesirable.
     pub fn finish(self) -> Result<WebGlRenderer, WebGlError> {
+        let shader_completion_started_at_ms = self.timing.shader_completion_started_at_ms;
+        self.finish_inner(shader_completion_started_at_ms)
+    }
+
+    fn finish_inner(
+        self,
+        shader_completion_observed_at_ms: f64,
+    ) -> Result<WebGlRenderer, WebGlError> {
         let Self {
             programs,
             gl,
@@ -1155,6 +1217,7 @@ impl WebGlRendererInit {
             layers_config,
             timing,
         } = self;
+        let finalization_started_at_ms = now_ms();
         let programs = programs.finish(&gl)?;
 
         let mut renderer = WebGlRenderer {
@@ -1170,7 +1233,11 @@ impl WebGlRendererInit {
             initialization_timings: WebGlRendererInitTimings::default(),
         };
         let initialization_completed_at_ms = now_ms();
-        renderer.initialization_timings = timing.finish(initialization_completed_at_ms);
+        renderer.initialization_timings = timing.finish(
+            shader_completion_observed_at_ms,
+            elapsed(finalization_started_at_ms, initialization_completed_at_ms),
+            initialization_completed_at_ms,
+        );
         Ok(renderer)
     }
 }
@@ -1546,6 +1613,12 @@ struct PendingWebGlPrograms {
     encoded_paints_data: Vec<u8>,
 }
 
+#[derive(Debug)]
+struct PendingWebGlProgramsInitTimings {
+    shader_submission: Duration,
+    resource_initialization: Duration,
+}
+
 impl PendingWebGlPrograms {
     /// Starts compiling all programs before performing any blocking status queries.
     fn new(
@@ -1554,7 +1627,8 @@ impl PendingWebGlPrograms {
         layer_config: LayersConfig,
         resource_texture_dimension_2d: u32,
         use_depth_buffer: bool,
-    ) -> Result<Self, WebGlError> {
+    ) -> Result<(Self, PendingWebGlProgramsInitTimings), WebGlError> {
+        let shader_submission_started_at_ms = now_ms();
         let parallel_shader_compile = gl
             .get_extension("KHR_parallel_shader_compile")
             .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
@@ -1571,7 +1645,9 @@ impl PendingWebGlPrograms {
             PendingShaderProgram::new(&gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE)?;
         let copy_program =
             PendingShaderProgram::new(&gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE)?;
+        let shader_submission = elapsed(shader_submission_started_at_ms, now_ms());
 
+        let resource_initialization_started_at_ms = now_ms();
         let resources = create_webgl_resources(
             &gl,
             image_cache,
@@ -1586,16 +1662,23 @@ impl PendingWebGlPrograms {
         initialize_copy_vao(&gl, &resources);
 
         let encoded_paints_data = vec![0; (resources.resource_texture_dimension_2d << 4) as usize];
+        let resource_initialization = elapsed(resource_initialization_started_at_ms, now_ms());
 
-        Ok(Self {
-            parallel_shader_compile,
-            strip_program,
-            filter_program,
-            blend_program,
-            copy_program,
-            resources,
-            encoded_paints_data,
-        })
+        Ok((
+            Self {
+                parallel_shader_compile,
+                strip_program,
+                filter_program,
+                blend_program,
+                copy_program,
+                resources,
+                encoded_paints_data,
+            },
+            PendingWebGlProgramsInitTimings {
+                shader_submission,
+                resource_initialization,
+            },
+        ))
     }
 
     fn is_complete(&self, gl: &WebGl2RenderingContext) -> bool {
