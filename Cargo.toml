@@ -67,6 +67,11 @@ rust.unused_import_braces = "warn"
 rust.unused_lifetimes = "warn"
 rust.unused_macro_rules = "warn"
 rust.unused_qualifications = "warn"
+rust.unexpected_cfgs = { level = "warn", check-cfg = [
+    "cfg(disable_dispatch_sse4_2)",
+    "cfg(disable_dispatch_avx2)",
+    "cfg(disable_dispatch_avx512)",
+] }
 
 clippy.too_many_arguments = "allow"
 

@@ -126,7 +126,9 @@ pub(crate) fn get_ctx_with_depth_buffer<T: Renderer>(
                 .and_then(Level::as_avx512)
                 .expect("Ice Lake AVX-512 should be available"),
         ),
+        #[cfg(feature = "force_support_fallback")]
         "fallback" => Level::fallback(),
+        "baseline" => Level::baseline(),
         _ => panic!("unknown level: {level}"),
     };
 

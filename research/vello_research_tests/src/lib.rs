@@ -30,9 +30,9 @@ use std::env;
 use std::io::ErrorKind;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use scenes::{ExampleScene, ImageCache, SceneParams, SimpleText};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::{Blob, Color, ImageFormat, color::palette};
@@ -50,6 +50,13 @@ pub use compare::{GpuCpuComparison, compare_gpu_cpu, compare_gpu_cpu_sync};
 pub use snapshot::{
     Snapshot, SnapshotDirectory, smoke_snapshot_test_sync, snapshot_test, snapshot_test_sync,
 };
+
+static WGPU_DEVICE_QUEUE: LazyLock<(wgpu::Device, wgpu::Queue)> = LazyLock::new(|| {
+    let mut context = RenderContext::new();
+    let device_id = pollster::block_on(context.device(None)).expect("No compatible device found");
+    let device_handle = &context.devices[device_id];
+    (device_handle.device.clone(), device_handle.queue.clone())
+});
 
 pub struct TestParams {
     pub width: u32,
@@ -103,14 +110,7 @@ pub async fn get_scene_image(
     params: &TestParams,
     scene: &Scene,
 ) -> Result<ImageData, anyhow::Error> {
-    let mut context = RenderContext::new();
-    let device_id = context
-        .device(None)
-        .await
-        .ok_or_else(|| anyhow!("No compatible device found"))?;
-    let device_handle = &mut context.devices[device_id];
-    let device = &device_handle.device;
-    let queue = &device_handle.queue;
+    let (device, queue) = &*WGPU_DEVICE_QUEUE;
     let mut renderer = vello::Renderer::new(
         device,
         RendererOptions {
