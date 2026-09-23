@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::render::webgl::resource::{Buffer, Framebuffer, Renderbuffer, SyncFence};
+use crate::render::webgl::timing::ProbeTiming;
+pub use crate::render::webgl::timing::WebGlProbeTimings;
 use crate::render::webgl::{
     ViewFramebuffer, WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlTextureBindings,
-    create_framebuffer_for_texture, create_texture_storage, elapsed, now_ms,
+    create_framebuffer_for_texture, create_texture_storage,
 };
 use crate::target::RootTarget;
 use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlError, WebGlRenderer};
 use alloc::{borrow::Cow, format, vec::Vec};
-use core::{ops::Deref, time::Duration};
+use core::ops::Deref;
 use thiserror::Error;
 use vello_common::TextureId;
 use vello_common::color::palette::css;
@@ -32,56 +34,7 @@ pub struct WebGlPendingProbe {
     width: u16,
     height: u16,
     elements: Vec<ProbeFeature>,
-    timing: ProbeTimingState,
-}
-
-#[derive(Debug)]
-struct ProbeTimingState {
-    probe_started_at_ms: f64,
-    readback_submitted_at_ms: f64,
-    setup_duration: Duration,
-    render_submission_duration: Duration,
-    readback_submission_duration: Duration,
-    poll_count: u32,
-}
-
-impl ProbeTimingState {
-    fn new(
-        probe_started_at_ms: f64,
-        readback_submitted_at_ms: f64,
-        setup_duration: Duration,
-        render_submission_duration: Duration,
-        readback_submission_duration: Duration,
-    ) -> Self {
-        Self {
-            probe_started_at_ms,
-            readback_submitted_at_ms,
-            setup_duration,
-            render_submission_duration,
-            readback_submission_duration,
-            poll_count: 0,
-        }
-    }
-
-    fn record_poll(&mut self) {
-        self.poll_count = self.poll_count.saturating_add(1);
-    }
-
-    fn finish(
-        &self,
-        fence_signal_observed_at_ms: f64,
-        readback_duration: Duration,
-        probe_result_produced_at_ms: f64,
-    ) -> WebGlProbeTimings {
-        WebGlProbeTimings {
-            setup: self.setup_duration,
-            render_submission: self.render_submission_duration,
-            readback_submission: self.readback_submission_duration,
-            completion_latency: elapsed(self.readback_submitted_at_ms, fence_signal_observed_at_ms),
-            readback: readback_duration,
-            total: elapsed(self.probe_started_at_ms, probe_result_produced_at_ms),
-        }
-    }
+    timing: ProbeTiming,
 }
 
 /// Completed WebGL probe output.
@@ -100,27 +53,6 @@ impl WebGlProbeReport {
     pub fn is_success(&self) -> bool {
         self.outcome.is_success()
     }
-}
-
-/// Time spent in each phase of a WebGL probe.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WebGlProbeTimings {
-    /// CPU time spent allocating resources, uploading the probe image, and building the scene.
-    pub setup: Duration,
-    /// CPU time spent executing the probe's internal `render_scene` call.
-    pub render_submission: Duration,
-    /// CPU time spent allocating the pixel-pack buffer, queuing the pixel readback, creating its
-    /// fence, and flushing WebGL commands.
-    pub readback_submission: Duration,
-    /// Time from submitting the pixel readback until its fence was first observed as signaled.
-    ///
-    /// This includes GPU rendering and readback as well as delays between polls.
-    pub completion_latency: Duration,
-    /// CPU time spent reading the completed pixel buffer back, copying it into WASM memory, and
-    /// flipping it vertically.
-    pub readback: Duration,
-    /// Wall-clock time from starting the probe until its result was produced.
-    pub total: Duration,
 }
 
 /// Error returned while running a WebGL probe.
@@ -173,7 +105,7 @@ impl WebGlRenderer {
     }
 
     fn probe_inner(&mut self, elements: &[ProbeFeature]) -> Result<WebGlPendingProbe, WebGlError> {
-        let probe_started_at_ms = now_ms();
+        let mut timing = ProbeTiming::start();
         // Whenever making changes here, make sure to unignore the `webgl_probe_succeeds_` and
         // run them locally!
         let (width, height) = vello_common::probe::canvas_size(elements);
@@ -250,23 +182,23 @@ impl WebGlRenderer {
             ),
             elements,
         );
-        let setup_duration = elapsed(probe_started_at_ms, now_ms());
+        timing.setup_complete();
 
         let previous_view_framebuffer = core::mem::replace(
             &mut self.programs.resources.view_framebuffer,
             ViewFramebuffer::offscreen(probe_framebuffer, use_depth_buffer),
         );
-        let render_submission_started_at_ms = now_ms();
-        let render_result = self.render_scene(
-            &scene,
-            &ImageCache::new_dummy(),
-            &render_size,
-            TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
-            RootTarget::UserSurface,
-            &texture_bindings,
-            Some(&probe_texture),
-        );
-        let render_submission_duration = elapsed(render_submission_started_at_ms, now_ms());
+        let render_result = timing.measure_render_submission(|| {
+            self.render_scene(
+                &scene,
+                &ImageCache::new_dummy(),
+                &render_size,
+                TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
+                RootTarget::UserSurface,
+                &texture_bindings,
+                Some(&probe_texture),
+            )
+        });
         let probe_framebuffer = core::mem::replace(
             &mut self.programs.resources.view_framebuffer,
             previous_view_framebuffer,
@@ -283,9 +215,7 @@ impl WebGlRenderer {
             width,
             height,
             elements,
-            probe_started_at_ms,
-            setup_duration,
-            render_submission_duration,
+            timing,
         )?;
 
         Ok(pending)
@@ -311,56 +241,54 @@ impl WebGlPendingProbe {
         if status == WebGl2RenderingContext::ALREADY_SIGNALED
             || status == WebGl2RenderingContext::CONDITION_SATISFIED
         {
-            let fence_signal_observed_at_ms = now_ms();
-            let (outcome, readback_duration, probe_result_produced_at_ms) = self.finish_success();
+            self.timing.completion_observed();
+            let outcome = self.finish_success();
+            let (timings, poll_count) = self.timing.finish();
             Ok(WebGlProbeStatus::Complete(WebGlProbeReport {
                 outcome,
-                timings: self.timing.finish(
-                    fence_signal_observed_at_ms,
-                    readback_duration,
-                    probe_result_produced_at_ms,
-                ),
-                poll_count: self.timing.poll_count,
+                timings,
+                poll_count,
             }))
         } else {
             Err(self.finish_failure())
         }
     }
 
-    fn finish_success(&mut self) -> (Probe<RenderError>, Duration, f64) {
-        let readback_started_at_ms = now_ms();
-        let mut pixmap = Pixmap::new(self.width, self.height);
+    fn finish_success(&mut self) -> Probe<RenderError> {
+        let gl = &self.gl;
+        let buffer = &self.buffer;
+        let width = self.width;
+        let height = self.height;
+        let pixmap = self.timing.measure_readback(|| {
+            let mut pixmap = Pixmap::new(width, height);
 
-        self.gl.bind_buffer(
-            WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-            Some(&self.buffer),
-        );
-        // Safari 15 crashes the tab when attempting to read from a pixel pack buffer directly
-        // into WASM-allocated memory. Therefore, we first read it into a JS-allocated buffer and
-        // only then transfer it into the buffer backing the pixmap in WASM memory.
-        let readback =
-            js_sys::Uint8Array::new_with_length(u32::from(self.width) * u32::from(self.height) * 4);
-        self.gl.get_buffer_sub_data_with_i32_and_js_u8_array(
-            WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-            0,
-            &readback,
-        );
-        readback.copy_to(pixmap.data_as_u8_slice_mut());
+            gl.bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, Some(buffer));
+            // Safari 15 crashes the tab when attempting to read from a pixel pack buffer directly
+            // into WASM-allocated memory. Therefore, we first read it into a JS-allocated buffer
+            // and only then transfer it into the buffer backing the pixmap in WASM memory.
+            let readback =
+                js_sys::Uint8Array::new_with_length(u32::from(width) * u32::from(height) * 4);
+            gl.get_buffer_sub_data_with_i32_and_js_u8_array(
+                WebGl2RenderingContext::PIXEL_PACK_BUFFER,
+                0,
+                &readback,
+            );
+            readback.copy_to(pixmap.data_as_u8_slice_mut());
 
-        // Need to flip the resulting image upside down.
-        let row_len = usize::from(self.width) * 4;
-        let height = usize::from(self.height);
-        let pixels = pixmap.data_as_u8_slice_mut();
-        for row in 0..height / 2 {
-            let opposite_row = height - 1 - row;
-            let (top, bottom) = pixels.split_at_mut(opposite_row * row_len);
-            top[row * row_len..(row + 1) * row_len].swap_with_slice(&mut bottom[..row_len]);
-        }
+            // Need to flip the resulting image upside down.
+            let row_len = usize::from(width) * 4;
+            let height = usize::from(height);
+            let pixels = pixmap.data_as_u8_slice_mut();
+            for row in 0..height / 2 {
+                let opposite_row = height - 1 - row;
+                let (top, bottom) = pixels.split_at_mut(opposite_row * row_len);
+                top[row * row_len..(row + 1) * row_len].swap_with_slice(&mut bottom[..row_len]);
+            }
 
-        let readback_duration = elapsed(readback_started_at_ms, now_ms());
-        let outcome = Probe::from_actual(pixmap, &self.elements);
-        let probe_result_produced_at_ms = now_ms();
-        (outcome, readback_duration, probe_result_produced_at_ms)
+            pixmap
+        });
+
+        Probe::from_actual(pixmap, &self.elements)
     }
 
     fn finish_failure(&self) -> WebGlProbeError {
@@ -390,48 +318,46 @@ fn launch_probe(
     width: u16,
     height: u16,
     elements: &[ProbeFeature],
-    probe_started_at_ms: f64,
-    setup_duration: Duration,
-    render_submission_duration: Duration,
+    mut timing: ProbeTiming,
 ) -> Result<WebGlPendingProbe, WebGlError> {
-    let readback_submission_started_at_ms = now_ms();
-    let pixel_pack_buffer = Buffer::new(gl)?;
-    let byte_len = i32::from(width) * i32::from(height) * 4;
+    let (pixel_pack_buffer, sync) =
+        timing.measure_readback_submission(|| -> Result<_, WebGlError> {
+            let pixel_pack_buffer = Buffer::new(gl)?;
+            let byte_len = i32::from(width) * i32::from(height) * 4;
 
-    gl.bind_buffer(
-        WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-        Some(&pixel_pack_buffer),
-    );
-    gl.buffer_data_with_i32(
-        WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-        byte_len,
-        WebGl2RenderingContext::STREAM_READ,
-    );
-    gl.bind_framebuffer(
-        WebGl2RenderingContext::FRAMEBUFFER,
-        Some(framebuffer.deref()),
-    );
-    gl.read_pixels_with_i32(
-        0,
-        0,
-        i32::from(width),
-        i32::from(height),
-        WebGl2RenderingContext::RGBA,
-        WebGl2RenderingContext::UNSIGNED_BYTE,
-        0,
-    )
-    .map_js_error(WebGlOperation::Probe(WebGlProbeOperation::Readback))?;
-    // Create a fence that notifies us once rendering is complete and the contents have been
-    // transferred from the framebuffer to the pixel pack buffer.
-    let sync = SyncFence::new(gl)?;
-    // https://wikis.khronos.org/opengl/Sync_Object
-    // "It is important that syncs are properly flushed into the GPU's command queue. Without
-    // proper flushing, the sync object may never be signaled."
-    gl.flush();
-    gl.bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, None);
-    let readback_submitted_at_ms = now_ms();
-    let readback_submission_duration =
-        elapsed(readback_submission_started_at_ms, readback_submitted_at_ms);
+            gl.bind_buffer(
+                WebGl2RenderingContext::PIXEL_PACK_BUFFER,
+                Some(&pixel_pack_buffer),
+            );
+            gl.buffer_data_with_i32(
+                WebGl2RenderingContext::PIXEL_PACK_BUFFER,
+                byte_len,
+                WebGl2RenderingContext::STREAM_READ,
+            );
+            gl.bind_framebuffer(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                Some(framebuffer.deref()),
+            );
+            gl.read_pixels_with_i32(
+                0,
+                0,
+                i32::from(width),
+                i32::from(height),
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                0,
+            )
+            .map_js_error(WebGlOperation::Probe(WebGlProbeOperation::Readback))?;
+            // Create a fence that notifies us once rendering is complete and the contents have
+            // been transferred from the framebuffer to the pixel pack buffer.
+            let sync = SyncFence::new(gl)?;
+            // https://wikis.khronos.org/opengl/Sync_Object
+            // "It is important that syncs are properly flushed into the GPU's command queue.
+            // Without proper flushing, the sync object may never be signaled."
+            gl.flush();
+            gl.bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, None);
+            Ok((pixel_pack_buffer, sync))
+        })?;
 
     Ok(WebGlPendingProbe {
         gl: gl.clone(),
@@ -440,13 +366,7 @@ fn launch_probe(
         width,
         height,
         elements: elements.to_vec(),
-        timing: ProbeTimingState::new(
-            probe_started_at_ms,
-            readback_submitted_at_ms,
-            setup_duration,
-            render_submission_duration,
-            readback_submission_duration,
-        ),
+        timing,
     })
 }
 
