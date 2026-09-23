@@ -810,7 +810,7 @@ impl Renderer for GpuRenderer {
         width: u16,
         height: u16,
         num_threads: u16,
-        level: Level,
+        _level: Level,
         _: RenderMode,
         use_depth_buffer: bool,
     ) -> Self {
@@ -819,10 +819,6 @@ impl Renderer for GpuRenderer {
 
         if num_threads != 0 {
             panic!("GPU renderer doesn't support multi-threading");
-        }
-
-        if !level.is_fallback() {
-            panic!("GPU renderer doesn't support SIMD");
         }
 
         let mut settings = GpuRenderSettings::default();

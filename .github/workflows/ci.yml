@@ -416,10 +416,7 @@ jobs:
   test-stable-wasm:
     name: cargo test (wasm32, ${{ matrix.name }})
     needs: prime-lfs-cache
-    # We use MacOS because for some reason the Ubuntu-based runners
-    # have trouble handling things like `requestAnimationFrame` or
-    # `setTimeout` in our testing code.
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
@@ -456,20 +453,27 @@ jobs:
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.name }}
           save-if: ${{ github.event_name != 'merge_group' }}
 
-      - name: cargo test compile
-        run: cargo test --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --all-features --no-run
+      - name: cargo check workspace
+        if: matrix.name == 'default'
+        run: cargo check --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --all-features --all-targets
 
       - name: install wasm-pack
         uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack
 
+      - name: install wasm-bindgen
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.115
+
       - name: Run vello_tests on Chrome
         # We need to run in release mode, because otherwise wasm_parser can't read the
         # blob, see <https://github.com/linebender/vello/pull/1078#issuecomment-3029336905>
-        run: wasm-pack test --headless --chrome --features webgl --release
+        run: wasm-pack test --mode no-install --headless --chrome --features webgl --release
         working-directory: vello_tests
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
