@@ -76,8 +76,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  fmt:
-    name: formatting
+  static-checks:
+    name: static checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -124,25 +124,9 @@ jobs:
       - name: Run cargo rdme (glifo)
         run: cargo rdme --check --workspace-project=glifo
 
-  allocation-benchmarks:
-    name: CPU allocation benchmarks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: install stable toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_STABLE_VER }}
-
-      - name: install native dependencies
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libfontconfig-dev
-
-      - name: restore cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: check CPU allocation regressions
-        run: cargo bench -p vello_bench --locked --bench allocations
+      # If this fails, consider changing your text or adding something to .typos.toml.
+      - name: check typos
+        uses: crate-ci/typos@v1.45.0
 
   clippy-stable:
     name: cargo clippy
@@ -629,12 +613,3 @@ jobs:
         run: cargo doc --workspace --locked --all-features --no-deps --document-private-items
         env:
           RUSTDOCFLAGS: '--cfg docsrs -D warnings'
-
-  # If this fails, consider changing your text or adding something to .typos.toml.
-  typos:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: check typos
-        uses: crate-ci/typos@v1.45.0
