@@ -66,7 +66,7 @@ impl ReplaySource {
                     source.clip_depth += 1;
                 }
                 Command::PopClip if source.clip_depth > 0 => {
-                    writeln!(source.body, "    ctx.pop_clip_path();").unwrap();
+                    writeln!(source.body, "    ctx.pop_clip();").unwrap();
                     source.clip_depth -= 1;
                 }
                 Command::PushLayer(_)

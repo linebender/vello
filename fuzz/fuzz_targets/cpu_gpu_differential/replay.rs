@@ -48,7 +48,7 @@ pub(crate) fn replay_scene(scene: &FuzzScene, renderer: &mut impl Renderer, imag
                 clip_depth += 1;
             }
             Command::PopClip if clip_depth > 0 => {
-                renderer.pop_clip_path();
+                renderer.pop_clip();
                 clip_depth -= 1;
             }
             Command::PushLayer(_) | Command::PopLayer | Command::PushClip(_) | Command::PopClip => {

@@ -53,7 +53,7 @@ pub struct PixelDiff {
     pub difference: [i16; 4],
 }
 
-/// Serialize a [`[u8; 4]`](primitive@core::array) pixel as a hex string through serde.
+/// Serialize a [`[u8; 4]`](primitive@array) pixel as a hex string through serde.
 ///
 /// E.g. `[0, 255, 0, 255]` becomes #00ff00. Notice that the alpha is not included if fully opaque.
 fn hex_string<S>([r, g, b, a]: &[u8; 4], serializer: S) -> Result<S::Ok, S::Error>
