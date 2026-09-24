@@ -65,16 +65,6 @@ pub trait EncodeExt: private::Sealed {
     ) -> Option<Paint>;
 }
 
-/// Invert the transform mapping paint space to device space.
-///
-/// Returns `None` for singular (or non-finite) transforms, where kurbo's `inverse` yields NaN
-/// coefficients. Those would otherwise reach the samplers, whose NaN handling differs between
-/// scalar, SIMD and GPU backends.
-pub fn invert_paint_transform(transform: Affine) -> Option<Affine> {
-    let inverse = transform.inverse();
-    inverse.is_finite().then_some(inverse)
-}
-
 impl EncodeExt for Gradient {
     /// Encode the gradient into a paint.
     fn encode_into(
@@ -83,12 +73,12 @@ impl EncodeExt for Gradient {
         transform: Affine,
         _tint: Option<Tint>,
     ) -> Option<Paint> {
-        // First make sure that the gradient is valid and not degenerate.
+        let inverse_transform = invert_paint_transform(transform)?;
+
+        // Make sure that the gradient is valid and not degenerate.
         if let Err(paint) = validate(self) {
             return Some(paint);
         }
-
-        let inverse_transform = invert_paint_transform(transform)?;
 
         let mut may_have_transparency = self.stops.iter().any(|s| s.color.components[3] != 1.0);
 
@@ -1175,6 +1165,16 @@ fn determine_lut_size(ranges: &[GradientRange]) -> usize {
     stop_len.max(min_size)
 }
 
+/// Invert the transform mapping paint space to device space.
+///
+/// Returns `None` for singular (or non-finite) transforms, where kurbo's `inverse` yields NaN
+/// coefficients. Those would otherwise reach the samplers, whose NaN handling differs between
+/// scalar, SIMD and GPU backends.
+pub fn invert_paint_transform(transform: Affine) -> Option<Affine> {
+    let inverse = transform.inverse();
+    inverse.is_finite().then_some(inverse)
+}
+
 mod private {
     #[expect(unnameable_types, reason = "Sealed trait pattern.")]
     pub trait Sealed {}
@@ -1527,6 +1527,14 @@ mod tests {
             Affine::translate((-0.5, -0.5)) * Affine::scale(0.0),
             Affine::new([1.0, 2.0, 2.0, 4.0, 0.0, 0.0]),
         ];
+        let gradient_without_stops = Gradient {
+            kind: LinearGradientPosition {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(20.0, 0.0),
+            }
+            .into(),
+            ..Default::default()
+        };
 
         for transform in singular {
             let mut paints = vec![];
@@ -1539,6 +1547,11 @@ mod tests {
                 two_stop_gradient().encode_into(&mut paints, transform, None),
                 None,
                 "gradient with {transform:?}"
+            );
+            assert_eq!(
+                gradient_without_stops.encode_into(&mut paints, transform, None),
+                None,
+                "invalid gradient with {transform:?}"
             );
             assert_eq!(
                 BlurredRoundedRectangle {
