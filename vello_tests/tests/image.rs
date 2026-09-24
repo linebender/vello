@@ -411,6 +411,56 @@ fn image_opaque_with_blend_mode(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
+/// Draws a purple square, then an image whose paint transform collapses it to a line or point.
+///
+/// A singular paint transform covers no area, so the second draw must leave the purple square
+/// untouched on every backend rather than sampling arbitrary pixels through NaN coordinates.
+fn singular_paint_transform(
+    ctx: &mut impl Renderer,
+    paint_transform: Affine,
+    blend_mode: Option<BlendMode>,
+) {
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&Rect::new(20.0, 20.0, 80.0, 80.0));
+
+    if let Some(blend_mode) = blend_mode {
+        ctx.set_blend_mode(blend_mode);
+    }
+    let image_source = rgb_img_10x10(ctx);
+    ctx.set_paint_transform(paint_transform);
+    ctx.set_paint(Image {
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend: Extend::Reflect,
+            y_extend: Extend::Reflect,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
+    });
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+}
+
+#[vello_test]
+fn image_zero_paint_transform(ctx: &mut impl Renderer) {
+    singular_paint_transform(ctx, Affine::new([0.0; 6]), None);
+}
+
+#[vello_test]
+fn image_paint_transform_collapsed_to_line(ctx: &mut impl Renderer) {
+    singular_paint_transform(ctx, Affine::scale_non_uniform(0.0, 1.0), None);
+}
+
+/// The blend mode forces a layer around the skipped draw on the GPU; that layer must not
+/// alter the background either.
+#[vello_test]
+fn image_zero_paint_transform_with_blend_mode(ctx: &mut impl Renderer) {
+    singular_paint_transform(
+        ctx,
+        Affine::new([0.0; 6]),
+        Some(BlendMode::new(Mix::Difference, Compose::SrcOver)),
+    );
+}
+
 fn quality(
     ctx: &mut impl Renderer,
     transform: Affine,

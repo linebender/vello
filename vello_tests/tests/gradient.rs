@@ -4,9 +4,9 @@
 use crate::renderer::Renderer;
 use crate::util::stops_blue_green_red_yellow;
 use smallvec::smallvec;
-use vello_common::color::palette::css::{BLACK, BLUE, GREEN, WHITE, YELLOW};
+use vello_common::color::palette::css::{BLACK, BLUE, GREEN, REBECCA_PURPLE, WHITE, YELLOW};
 use vello_common::color::{ColorSpaceTag, DynamicColor};
-use vello_common::kurbo::{Point, Rect};
+use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::peniko::{ColorStop, ColorStops, Gradient, InterpolationAlphaSpace};
 use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_test;
@@ -32,6 +32,28 @@ fn gradient_with_global_alpha(ctx: &mut impl Renderer) {
 
     ctx.set_paint(gradient);
     ctx.fill_rect(&rect);
+}
+
+/// A singular paint transform collapses the gradient to zero area, so only the purple square
+/// drawn first should remain.
+#[vello_test]
+fn gradient_zero_paint_transform(ctx: &mut impl Renderer) {
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&Rect::new(20.0, 20.0, 80.0, 80.0));
+
+    let gradient = Gradient {
+        kind: LinearGradientPosition {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(100.0, 0.0),
+        }
+        .into(),
+        stops: stops_blue_green_red_yellow(),
+        ..Default::default()
+    };
+
+    ctx.set_paint_transform(Affine::new([0.0; 6]));
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
 }
 
 #[vello_test(width = 200)]

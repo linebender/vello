@@ -44,6 +44,8 @@ fn base<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>, t
         invert: false,
     };
 
-    let paint = rect.encode_into(&mut paints, transform, None);
+    let paint = rect
+        .encode_into(&mut paints, transform, None)
+        .expect("bench paint transform is invertible");
     fill_single(&paint, &paints, BENCH_WIDTH, b, default_blend(), fine);
 }

@@ -63,6 +63,17 @@ fn blurred_rounded_rect_with_transform(ctx: &mut impl Renderer) {
     );
 }
 
+/// The blur is evaluated in paint space, so a singular paint transform leaves nothing to draw
+/// and the purple square drawn first must stay untouched.
+#[vello_test]
+fn blurred_rounded_rect_zero_paint_transform(ctx: &mut impl Renderer) {
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&Rect::new(20.0, 20.0, 80.0, 80.0));
+
+    ctx.set_paint_transform(Affine::new([0.0; 6]));
+    ctx.fill_blurred_rounded_rect(&Rect::new(0.0, 0.0, 100.0, 100.0), 10.0, 10.0, false);
+}
+
 fn inverse_rect_with(ctx: &mut impl Renderer, radius: f32, std_dev: f32, affine: Affine) {
     let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
     ctx.set_paint(REBECCA_PURPLE);

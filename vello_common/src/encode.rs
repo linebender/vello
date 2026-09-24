@@ -54,12 +54,25 @@ fn exp(val: f32) -> f32 {
 pub trait EncodeExt: private::Sealed {
     /// Encode the paint and push it into a vector of encoded paints, returning
     /// the corresponding paint in the process. This will also validate the paint.
+    ///
+    /// Returns `None` if `transform` is not invertible: the paint then collapses to a line or a
+    /// point and covers no pixels, so the draw should be skipped entirely.
     fn encode_into(
         &self,
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         tint: Option<Tint>,
-    ) -> Paint;
+    ) -> Option<Paint>;
+}
+
+/// Invert the transform mapping paint space to device space.
+///
+/// Returns `None` for singular (or non-finite) transforms, where kurbo's `inverse` yields NaN
+/// coefficients. Those would otherwise reach the samplers, whose NaN handling differs between
+/// scalar, SIMD and GPU backends.
+pub fn invert_paint_transform(transform: Affine) -> Option<Affine> {
+    let inverse = transform.inverse();
+    inverse.is_finite().then_some(inverse)
 }
 
 impl EncodeExt for Gradient {
@@ -69,11 +82,13 @@ impl EncodeExt for Gradient {
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         _tint: Option<Tint>,
-    ) -> Paint {
+    ) -> Option<Paint> {
         // First make sure that the gradient is valid and not degenerate.
         if let Err(paint) = validate(self) {
-            return paint;
+            return Some(paint);
         }
+
+        let inverse_transform = invert_paint_transform(transform)?;
 
         let mut may_have_transparency = self.stops.iter().any(|s| s.color.components[3] != 1.0);
 
@@ -198,7 +213,7 @@ impl EncodeExt for Gradient {
         // First we need to account for the base transform of the shader, then
         // we need to apply the _inverse_ paint transform to the point so that we can account
         // for the paint transform of the render context.
-        let transform = base_transform * transform.inverse();
+        let transform = base_transform * inverse_transform;
 
         // One possible approach to calculating the positions would be to apply the above
         // transform to each rendered pixel. Instead, renderers apply the transform to the first
@@ -235,7 +250,7 @@ impl EncodeExt for Gradient {
         let idx = paints.len();
         paints.push(encoded.into());
 
-        Paint::Indexed(IndexedPaint::new(idx))
+        Some(Paint::Indexed(IndexedPaint::new(idx)))
     }
 }
 
@@ -483,7 +498,7 @@ impl EncodeExt for Image {
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         mut tint: Option<Tint>,
-    ) -> Paint {
+    ) -> Option<Paint> {
         let idx = paints.len();
 
         let mut sampler = self.sampler;
@@ -512,7 +527,7 @@ impl EncodeExt for Image {
             sampler.quality = ImageQuality::Low;
         }
 
-        let transform = transform.inverse();
+        let transform = invert_paint_transform(transform)?;
 
         let (x_advance, y_advance) = x_y_advances(&transform);
 
@@ -532,7 +547,7 @@ impl EncodeExt for Image {
 
         paints.push(EncodedPaint::Image(encoded));
 
-        Paint::Indexed(IndexedPaint::new(idx))
+        Some(Paint::Indexed(IndexedPaint::new(idx)))
     }
 }
 
@@ -884,7 +899,7 @@ impl EncodeExt for BlurredRoundedRectangle {
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         _tint: Option<Tint>,
-    ) -> Paint {
+    ) -> Option<Paint> {
         let rect = {
             // Ensure rectangle has positive width/height.
             let mut rect = self.rect;
@@ -900,7 +915,8 @@ impl EncodeExt for BlurredRoundedRectangle {
             rect
         };
 
-        let transform = Affine::translate((-rect.x0, -rect.y0)) * transform.inverse();
+        let transform =
+            Affine::translate((-rect.x0, -rect.y0)) * invert_paint_transform(transform)?;
 
         let (x_advance, y_advance) = x_y_advances(&transform);
 
@@ -952,7 +968,7 @@ impl EncodeExt for BlurredRoundedRectangle {
         let idx = paints.len();
         paints.push(encoded.into());
 
-        Paint::Indexed(IndexedPaint::new(idx))
+        Some(Paint::Indexed(IndexedPaint::new(idx)))
     }
 }
 
@@ -1169,9 +1185,10 @@ mod private {
 #[cfg(test)]
 mod tests {
     use super::{EncodeExt, EncodedPaint, Gradient};
+    use crate::blurred_rounded_rect::BlurredRoundedRectangle;
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
-    use crate::kurbo::{Affine, Point};
+    use crate::kurbo::{Affine, Point, Rect};
     use crate::paint::{Image, ImageId, ImageSource, Tint, TintMode};
     use crate::peniko::{ColorStop, ColorStops};
     use alloc::vec;
@@ -1196,7 +1213,7 @@ mod tests {
 
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
-            BLACK.into()
+            Some(BLACK.into())
         );
     }
 
@@ -1258,7 +1275,7 @@ mod tests {
         // Should return the color of the first stop.
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
-            GREEN.into()
+            Some(GREEN.into())
         );
     }
 
@@ -1287,7 +1304,7 @@ mod tests {
 
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
-            GREEN.into()
+            Some(GREEN.into())
         );
     }
 
@@ -1316,7 +1333,7 @@ mod tests {
 
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
-            GREEN.into()
+            Some(GREEN.into())
         );
     }
 
@@ -1346,7 +1363,7 @@ mod tests {
         // Invalid gradient, so fall back to first color.
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
-            GREEN.into()
+            Some(GREEN.into())
         );
     }
 
@@ -1376,7 +1393,7 @@ mod tests {
         // Invalid gradient, so fall back to first color.
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
-            GREEN.into()
+            Some(GREEN.into())
         );
     }
 
@@ -1407,7 +1424,7 @@ mod tests {
 
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
-            GREEN.into()
+            Some(GREEN.into())
         );
     }
 
@@ -1472,5 +1489,87 @@ mod tests {
                 mode: TintMode::Multiply,
             })
         );
+    }
+
+    fn two_stop_gradient() -> Gradient {
+        Gradient {
+            kind: LinearGradientPosition {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(20.0, 0.0),
+            }
+            .into(),
+            stops: ColorStops(smallvec![
+                ColorStop {
+                    offset: 0.0,
+                    color: DynamicColor::from_alpha_color(GREEN),
+                },
+                ColorStop {
+                    offset: 1.0,
+                    color: DynamicColor::from_alpha_color(BLUE),
+                },
+            ]),
+            ..Default::default()
+        }
+    }
+
+    fn opaque_image() -> Image {
+        Image {
+            image: ImageSource::opaque_id_with_transparency_hint(ImageId::new(1), false),
+            sampler: ImageSampler::default(),
+        }
+    }
+
+    #[test]
+    fn singular_paint_transform_encodes_nothing() {
+        let singular = [
+            Affine::new([0.0; 6]),
+            Affine::scale_non_uniform(0.0, 1.0),
+            Affine::translate((-0.5, -0.5)) * Affine::scale(0.0),
+            Affine::new([1.0, 2.0, 2.0, 4.0, 0.0, 0.0]),
+        ];
+
+        for transform in singular {
+            let mut paints = vec![];
+            assert_eq!(
+                opaque_image().encode_into(&mut paints, transform, None),
+                None,
+                "image with {transform:?}"
+            );
+            assert_eq!(
+                two_stop_gradient().encode_into(&mut paints, transform, None),
+                None,
+                "gradient with {transform:?}"
+            );
+            assert_eq!(
+                BlurredRoundedRectangle {
+                    rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+                    color: GREEN,
+                    radius: 2.0,
+                    std_dev: 1.0,
+                    invert: false,
+                }
+                .encode_into(&mut paints, transform, None),
+                None,
+                "blurred rect with {transform:?}"
+            );
+            assert!(paints.is_empty(), "nothing should be encoded");
+        }
+    }
+
+    #[test]
+    fn tiny_but_invertible_paint_transform_encodes() {
+        let mut paints = vec![];
+        let transform = Affine::scale(1e-6);
+
+        assert!(
+            opaque_image()
+                .encode_into(&mut paints, transform, None)
+                .is_some(),
+            "a tiny scale is still invertible"
+        );
+        let EncodedPaint::Image(encoded) = &paints[0] else {
+            panic!("expected an image paint");
+        };
+        assert!(encoded.transform.is_finite(), "inverse must be finite");
     }
 }

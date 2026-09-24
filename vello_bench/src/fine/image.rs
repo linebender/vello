@@ -185,7 +185,9 @@ fn image_base<S: Simd, T: FineKernel<S>>(
 ) {
     let mut paints = vec![];
 
-    let paint = image.encode_into(&mut paints, transform, None);
+    let paint = image
+        .encode_into(&mut paints, transform, None)
+        .expect("bench paint transform is invertible");
 
     fill_single(&paint, &paints, BENCH_WIDTH, b, default_blend(), fine);
 }

@@ -246,7 +246,9 @@ fn gradient_base<S: Simd, N: FineKernel<S>>(
         ..Default::default()
     };
 
-    let paint = grad.encode_into(&mut paints, Affine::IDENTITY, None);
+    let paint = grad
+        .encode_into(&mut paints, Affine::IDENTITY, None)
+        .expect("identity paint transform is invertible");
     fill_single(&paint, &paints, BENCH_WIDTH, b, default_blend(), fine);
 }
 
