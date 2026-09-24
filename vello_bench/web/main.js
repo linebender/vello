@@ -36,7 +36,6 @@ class Runner {
   }
 }
 
-const modeSummary = document.querySelector("#mode");
 const showExtended = document.querySelector("#show-extended");
 const showNonSimd = document.querySelector("#show-non-simd");
 const showF32 = document.querySelector("#show-f32");
@@ -44,7 +43,6 @@ const selectAll = document.querySelector("#select-all");
 const measurementTime = document.querySelector("#measurement-ms");
 const sampleCount = document.querySelector("#sample-count");
 const warmupTime = document.querySelector("#warmup-ms");
-const selectionSummary = document.querySelector("#selection-summary");
 const runButton = document.querySelector("#run");
 const status = document.querySelector("#status");
 const results = document.querySelector("#results");
@@ -55,9 +53,9 @@ let running = false;
 
 async function loadBenchmarks() {
   loading = true;
-  setStatus("Loading artifacts…");
+  setStatus("Loading…");
   closeRunner();
-  results.replaceChildren();
+  results.textContent = "";
   setControls();
 
   let nextRunner;
@@ -65,7 +63,6 @@ async function loadBenchmarks() {
     const artifactA = "./generated/vello_bench_a.wasm";
     const artifactB = "./generated/vello_bench_b.wasm";
     const isComparing = await artifactExists(artifactB);
-    modeSummary.textContent = isComparing ? "Comparing artifacts A and B." : "Benchmarking artifact A.";
     const artifacts = { a: artifactA };
     if (isComparing) artifacts.b = artifactB;
     nextRunner = new Runner(artifacts);
@@ -87,17 +84,13 @@ async function loadBenchmarks() {
     showExtended.closest("label").hidden = extendedCount === 0;
     showNonSimd.closest("label").hidden = nonSimdCount === 0;
     showF32.closest("label").hidden = f32Count === 0;
-    setStatus(
-      `${manifestA.cases.length} benchmark variants loaded ` +
-      `(${extendedCount} extended, ${nonSimdCount} non-SIMD, ${f32Count} f32).`,
-    );
+    setStatus("");
   } catch (error) {
-    nextRunner?.close();
-    modeSummary.textContent = "Unable to load benchmark artifacts.";
+    if (nextRunner) nextRunner.close();
     setStatus(error.message);
   }
   loading = false;
-  updateTreeSelection();
+  updateGroupSelection();
   setControls();
 }
 
@@ -108,14 +101,14 @@ async function artifactExists(url) {
 for (const toggle of [showExtended, showNonSimd, showF32]) {
   toggle.onchange = () => {
     updateCaseVisibility();
-    updateTreeSelection();
+    updateGroupSelection();
     setControls();
   };
 }
 
 selectAll.onchange = () => {
   for (const input of visibleCaseInputs()) input.checked = selectAll.checked;
-  updateTreeSelection();
+  updateGroupSelection();
   setControls();
 };
 
@@ -202,7 +195,7 @@ runButton.onclick = async () => {
         comparing ? standardDeviation(ratios) : null,
       );
     }
-    setStatus(`Finished ${ids.length} benchmark${ids.length === 1 ? "" : "s"}.`);
+    setStatus("");
   } catch (error) {
     setStatus(error.message);
   } finally {
@@ -230,100 +223,85 @@ async function warmUp(runner, artifact, id, warmupMillis, targetSampleNanos) {
 }
 
 function populateCases(cases) {
-  const root = { children: new Map() };
+  const groups = new Map();
   for (const benchmark of cases) {
-    const parts = benchmark.id.split("/");
-    let parent = root;
-    for (const part of parts.slice(0, -1)) {
-      if (!parent.children.has(part)) {
-        parent.children.set(part, { name: part, children: new Map() });
-      }
-      parent = parent.children.get(part);
-    }
-    parent.children.set(parts.at(-1), { name: parts.at(-1), benchmark });
+    const slash = benchmark.id.lastIndexOf("/");
+    const path = slash < 0 ? "Benchmarks" : benchmark.id.slice(0, slash);
+    if (!groups.has(path)) groups.set(path, []);
+    groups.get(path).push({ name: benchmark.id.slice(slash + 1), benchmark });
   }
 
-  appendTreeRows(root);
+  for (const [path, casesInGroup] of groups) appendGroup(path, casesInGroup);
   updateCaseVisibility();
-  updateTreeSelection();
+  updateGroupSelection();
 }
 
-function appendTreeRows(parent, depth = 0, parentPath = "") {
-  for (const node of parent.children.values()) {
-    const row = document.createElement("tr");
-    const path = parentPath ? `${parentPath}/${node.name}` : node.name;
-    if (node.benchmark) {
-      row.className = "case";
-      row.dataset.id = node.benchmark.id;
-      row.dataset.extended = String(node.benchmark.extended);
-      row.dataset.nonSimd = String(node.benchmark.nonSimd);
-      row.dataset.f32 = String(node.benchmark.f32);
+function appendGroup(path, cases) {
+  const group = document.createElement("div");
+  group.className = "group";
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", path);
+  const category = document.createElement("div");
+  category.className = "category";
+  const categoryInput = document.createElement("input");
+  categoryInput.type = "checkbox";
+  categoryInput.className = "category-checkbox";
+  categoryInput.setAttribute("aria-label", `Select ${path}`);
+  categoryInput.onchange = () => {
+    for (const leaf of visibleCategoryInputs(category)) leaf.checked = categoryInput.checked;
+    updateGroupSelection();
+    setControls();
+  };
+  const categoryName = document.createElement("strong");
+  categoryName.className = "benchmark";
+  categoryName.textContent = path;
+  category.append(selectionCell(categoryInput), categoryName);
+  group.append(category);
 
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.className = "case-checkbox";
-      input.value = node.benchmark.id;
-      input.ariaLabel = node.benchmark.id;
-      input.onchange = () => {
-        updateTreeSelection();
-        setControls();
-      };
+  for (const { name, benchmark } of cases) {
+    const row = document.createElement("div");
+    row.className = "case";
+    row.dataset.id = benchmark.id;
+    row.dataset.extended = String(benchmark.extended);
+    row.dataset.nonSimd = String(benchmark.nonSimd);
+    row.dataset.f32 = String(benchmark.f32);
 
-      const name = document.createElement("th");
-      name.className = "benchmark";
-      name.scope = "row";
-      name.style.paddingLeft = `${0.5 + depth * 1.25}rem`;
-      name.append(node.name);
-      if (node.benchmark.extended) {
-        const marker = document.createElement("span");
-        marker.className = "extended";
-        marker.textContent = " extended";
-        name.append(marker);
-      }
-      row.append(
-        selectionCell(input),
-        name,
-        resultCell("result-a", "A"),
-        resultCell("result-b", "B"),
-        resultCell("result-change", "Change"),
-      );
-    } else {
-      row.className = "category";
-      row.dataset.path = path;
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.className = "category-checkbox";
-      input.ariaLabel = `Select ${path}`;
-      input.onchange = () => {
-        for (const leaf of visibleCategoryInputs(row)) leaf.checked = input.checked;
-        updateTreeSelection();
-        setControls();
-      };
-      const name = document.createElement("th");
-      name.className = "benchmark";
-      name.colSpan = comparing ? 4 : 2;
-      name.scope = "rowgroup";
-      name.style.paddingLeft = `${0.5 + depth * 1.25}rem`;
-      name.textContent = node.name;
-      row.append(selectionCell(input), name);
-    }
-    results.append(row);
-    if (!node.benchmark) appendTreeRows(node, depth + 1, path);
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "case-checkbox";
+    input.value = benchmark.id;
+    input.setAttribute("aria-label", benchmark.id);
+    input.onchange = () => {
+      updateGroupSelection();
+      setControls();
+    };
+
+    const caseName = document.createElement("span");
+    caseName.className = "benchmark";
+    caseName.textContent = name;
+    row.append(
+      selectionCell(input),
+      caseName,
+      resultCell("result-a", "A"),
+      resultCell("result-b", "B"),
+      resultCell("result-change", "Change"),
+    );
+    group.append(row);
   }
+  results.append(group);
 }
 
 function selectionCell(input) {
-  const cell = document.createElement("td");
+  const cell = document.createElement("span");
   cell.className = "selection";
   cell.append(input);
   return cell;
 }
 
 function resultCell(className, label) {
-  const cell = document.createElement("td");
+  const cell = document.createElement("span");
   cell.className = className;
   cell.dataset.label = label;
-  cell.textContent = "—";
   return cell;
 }
 
@@ -335,13 +313,12 @@ function updateCaseVisibility() {
   }
 }
 
-function updateTreeSelection() {
-  const categories = [...results.querySelectorAll(".category")].reverse();
-  for (const category of categories) {
+function updateGroupSelection() {
+  for (const category of results.querySelectorAll(".category")) {
     const leaves = visibleCategoryInputs(category);
     const checkbox = category.querySelector(".category-checkbox");
     const selected = leaves.filter(({ checked }) => checked).length;
-    category.hidden = leaves.length === 0;
+    category.closest(".group").hidden = leaves.length === 0;
     checkbox.checked = leaves.length > 0 && selected === leaves.length;
     checkbox.indeterminate = selected > 0 && selected < leaves.length;
     checkbox.disabled = loading || running || leaves.length === 0;
@@ -357,8 +334,7 @@ function visibleCaseInputs() {
 }
 
 function visibleCategoryInputs(category) {
-  const prefix = `${category.dataset.path}/`;
-  return visibleCaseInputs().filter(({ value }) => value.startsWith(prefix));
+  return [...category.closest(".group").querySelectorAll(".case:not([hidden]) .case-checkbox")];
 }
 
 function selectedVisibleCaseIds() {
@@ -367,7 +343,7 @@ function selectedVisibleCaseIds() {
 
 function setRunning(value) {
   running = value;
-  updateTreeSelection();
+  updateGroupSelection();
   setControls();
 }
 
@@ -385,11 +361,10 @@ function setControls() {
   selectAll.indeterminate = selected > 0 && selected < shown.length;
   selectAll.disabled = locked || !loaded || shown.length === 0;
   runButton.disabled = locked || !loaded || selected === 0;
-  selectionSummary.textContent = loaded ? `${selected} of ${shown.length} shown selected` : "";
 }
 
 function closeRunner() {
-  runner?.close();
+  if (runner) runner.close();
   runner = undefined;
   comparing = false;
   document.body.classList.remove("comparing");
@@ -404,16 +379,16 @@ function showResult(
   ratio,
   ratioStandardDeviation,
 ) {
-  const row = [...results.rows].find((candidate) => candidate.dataset.id === id);
+  const row = [...results.querySelectorAll(".case")].find((candidate) => candidate.dataset.id === id);
   row.querySelector(".result-a").textContent = formatResult(averageA, standardDeviationA);
   row.querySelector(".result-b").textContent = averageB === null
-    ? "—"
+    ? ""
     : formatResult(averageB, standardDeviationB);
 
   const change = row.querySelector(".result-change");
   change.classList.remove("regression", "improvement");
   if (ratio === null) {
-    change.textContent = "—";
+    change.textContent = "";
   } else {
     const percentage = (ratio - 1) * 100;
     change.textContent = `${percentage.toFixed(2)}% ` +
@@ -425,7 +400,7 @@ function showResult(
 
 function clearResults() {
   for (const cell of results.querySelectorAll(".result-a, .result-b, .result-change")) {
-    cell.textContent = "—";
+    cell.textContent = "";
     cell.classList.remove("regression", "improvement");
   }
 }
