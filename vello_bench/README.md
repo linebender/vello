@@ -87,7 +87,7 @@ Compare two revisions in the browser with:
 bash vello_bench/bench.sh web --ab REVISION_A REVISION_B --f32
 ```
 
-The browser contains the fine-rasterizer cases that compile to WebAssembly. The page can filter
+The browser contains the same timing benchmark groups as the native runner. The page can filter
 the categories included at build time, select cases, and change the timing.
 
 ## Measurement
@@ -104,4 +104,5 @@ deviation for each artifact and the average paired change between normalized tim
 ## Data-driven benchmarks
 
 The Ghostscript tiger is always included in the pipeline benchmarks. Add SVG files to `data` to
-include additional scenes.
+include additional scenes in both native and browser builds. The SVGs are embedded at build time,
+so rebuild after adding or changing one.

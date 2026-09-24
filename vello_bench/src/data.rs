@@ -1,7 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::path::Path;
 use std::sync::OnceLock;
 use usvg::tiny_skia_path::PathSegment;
 use usvg::{Group, Node};
@@ -15,26 +14,17 @@ use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
 
 static DATA: OnceLock<Vec<DataItem>> = OnceLock::new();
+include!(concat!(env!("OUT_DIR"), "/bench_data.rs"));
 
 pub fn get_data_items() -> &'static [DataItem] {
     DATA.get_or_init(|| {
-        let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("data");
-        let mut data = vec![];
-
-        // Always use ghostscript tiger.
-        data.push(DataItem::from_path(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/Ghostscript_Tiger.svg"),
-        ));
-
-        for entry in std::fs::read_dir(&data_dir).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-
-            if path.extension().and_then(|e| e.to_str()) == Some("svg") {
-                data.push(DataItem::from_path(&path));
-            }
+        let mut data = vec![DataItem::from_bytes(
+            "Ghostscript_Tiger",
+            include_bytes!("../../assets/Ghostscript_Tiger.svg"),
+        )];
+        for &(name, bytes) in EXTRA_SVGS {
+            data.push(DataItem::from_bytes(name, bytes));
         }
-
         data
     })
 }
@@ -49,16 +39,13 @@ pub struct DataItem {
 }
 
 impl DataItem {
-    fn from_path(path: &Path) -> Self {
-        let file_name = { path.file_stem().unwrap().to_string_lossy().to_string() };
-
-        let data = std::fs::read(path).unwrap();
-        let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).unwrap();
+    fn from_bytes(name: &str, data: &[u8]) -> Self {
+        let tree = usvg::Tree::from_data(data, &usvg::Options::default()).unwrap();
         let mut ctx = ConversionContext::new();
         convert(&mut ctx, tree.root());
 
         Self {
-            name: file_name,
+            name: name.to_owned(),
             fills: ctx.fills,
             strokes: ctx.strokes,
             #[expect(

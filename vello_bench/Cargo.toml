@@ -20,6 +20,9 @@ non-simd = []
 
 [dependencies]
 fearless_simd = { workspace = true, features = ["force_support_fallback"] }
+image = { workspace = true, features = ["jpeg"] }
+parley = { version = "0.11.0", default-features = false, features = ["std"] }
+usvg = { workspace = true }
 vello_common = { workspace = true }
 vello_cpu = { workspace = true }
 vello_dev_macros = { workspace = true }
@@ -27,10 +30,7 @@ rand = { workspace = true, features = ["small_rng"] }
 smallvec = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-image = { workspace = true, features = ["jpeg"] }
 libloading = "0.8.9"
-parley = { version = "0.11.0", default-features = true }
-usvg = { workspace = true }
 
 [[bin]]
 name = "vello-bench"

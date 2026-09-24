@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::harness::Registry;
+use parley::fontique::Blob;
 use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, GlyphRun, Layout, LayoutContext,
     PositionedLayoutItem,
@@ -20,6 +22,12 @@ pub fn register(registry: &mut Registry) {
 
         let mut layout_cx = LayoutContext::new();
         let mut font_cx = FontContext::new();
+        font_cx.collection.register_fonts(
+            Blob::new(Arc::new(
+                include_bytes!("../../assets/roboto/Roboto-Regular.ttf").to_vec(),
+            )),
+            None,
+        );
         let mut builder = layout_cx.ranged_builder(&mut font_cx, TEXT, 1.0, true);
         builder.push_default(FontFamily::named("Roboto"));
         let mut layout: Layout<Brush> = builder.build(TEXT);
