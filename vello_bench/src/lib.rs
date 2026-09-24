@@ -4,6 +4,7 @@
 #![allow(missing_docs, reason = "Not needed for benchmarks")]
 #![allow(dead_code, reason = "Might be unused on platforms not supporting SIMD")]
 
+mod abi;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod allocations;
 #[cfg(not(target_arch = "wasm32"))]
@@ -26,8 +27,6 @@ pub mod sort;
 pub mod strip;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod tile;
-#[cfg(target_arch = "wasm32")]
-mod web;
 
 /// Construct the benchmark registry.
 pub fn registry() -> harness::Registry {

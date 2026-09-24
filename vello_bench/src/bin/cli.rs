@@ -8,7 +8,7 @@ use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::process::ExitCode;
 use std::time::Duration;
-use vello_bench::harness::{RunConfig, Runner, Selection, compare_workers, worker_main};
+use vello_bench::harness::{RunConfig, Runner, Selection, compare_libraries};
 
 fn main() -> ExitCode {
     match run() {
@@ -25,7 +25,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match args.next().as_deref() {
         Some("list") => list(args.collect())?,
         Some("run") => run_benchmarks(args.collect())?,
-        Some("worker") => worker_main(&vello_bench::registry())?,
         Some("compare") => compare(args.collect())?,
         _ => print_help(),
     }
@@ -95,7 +94,7 @@ fn compare(args: Vec<String>) -> io::Result<()> {
         format_duration(config.measurement_time.as_secs_f64() * 1_000_000_000.0),
     );
     let use_color = io::stdout().is_terminal() && env::var_os("NO_COLOR").is_none();
-    compare_workers(
+    compare_libraries(
         &registry,
         Path::new(artifact_a),
         Path::new(artifact_b),
@@ -249,7 +248,6 @@ fn print_help() {
         "\
 vello-bench list [FILTER] [--extended] [--non-simd] [--f32]
 vello-bench run [FILTER] [--extended] [--non-simd] [--f32] [--warmup-ms MILLIS] [--measurement-ms MILLIS] [--samples COUNT]
-vello-bench compare PATH_A PATH_B [FILTER] [--extended] [--non-simd] [--f32] [--warmup-ms MILLIS] [--measurement-ms MILLIS] [--samples COUNT]
-vello-bench worker"
+vello-bench compare PATH_A PATH_B [FILTER] [--extended] [--non-simd] [--f32] [--warmup-ms MILLIS] [--measurement-ms MILLIS] [--samples COUNT]"
     );
 }

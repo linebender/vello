@@ -64,11 +64,18 @@ select_revision() {
 
 build_native_revision() {
   local revision="$1"
-  local output="$2"
+  local label="$2"
+  local targets=(--lib)
+  if [[ "$label" == a ]]; then
+    targets+=(--bin vello-bench)
+  fi
   select_revision "$revision"
   cargo build --manifest-path "$worktree/Cargo.toml" --release \
-    -p vello_bench --bin vello-bench --target-dir "$target_dir"
-  cp "$target_dir/release/vello-bench" "$output"
+    -p vello_bench "${targets[@]}" --target-dir "$target_dir"
+  cp "$target_dir/release/$native_library" "$artifact_dir/vello-bench-$label.$library_extension"
+  if [[ "$label" == a ]]; then
+    cp "$target_dir/release/vello-bench" "$artifact_dir/vello-bench"
+  fi
 }
 
 build_wasm() {
@@ -89,11 +96,18 @@ case "$mode" in
     revision_a="$(git rev-parse --verify "${2:?missing revision A}^{commit}")"
     revision_b="$(git rev-parse --verify "${3:?missing revision B}^{commit}")"
     shift 3
+    case "$(uname -s)" in
+      Darwin) library_extension=dylib ;;
+      Linux) library_extension=so ;;
+      *) echo "native A/B requires macOS or Linux" >&2; exit 2 ;;
+    esac
+    native_library="libvello_bench.$library_extension"
     begin_comparison
-    build_native_revision "$revision_a" "$artifact_dir/vello-bench-a"
-    build_native_revision "$revision_b" "$artifact_dir/vello-bench-b"
-    "$artifact_dir/vello-bench-a" compare \
-      "$artifact_dir/vello-bench-a" "$artifact_dir/vello-bench-b" "$@"
+    build_native_revision "$revision_a" a
+    build_native_revision "$revision_b" b
+    "$artifact_dir/vello-bench" compare \
+      "$artifact_dir/vello-bench-a.$library_extension" \
+      "$artifact_dir/vello-bench-b.$library_extension" "$@"
     ;;
   web)
     if [[ "${1:-}" == "--ab" ]]; then

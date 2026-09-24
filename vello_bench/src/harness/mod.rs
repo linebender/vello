@@ -11,6 +11,6 @@ mod runner;
 
 pub use bencher::Bencher;
 #[cfg(not(target_arch = "wasm32"))]
-pub use compare::{Comparison, compare_workers, worker_main};
+pub use compare::{Comparison, compare_libraries};
 pub use registry::{BenchmarkCase, Registry, Selection};
 pub use runner::{RunConfig, RunReport, Runner};

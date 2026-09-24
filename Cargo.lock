@@ -4358,6 +4358,7 @@ version = "0.0.0"
 dependencies = [
  "fearless_simd",
  "image",
+ "libloading",
  "parley",
  "rand",
  "smallvec",

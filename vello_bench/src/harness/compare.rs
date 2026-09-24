@@ -1,15 +1,15 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Worker protocol for paired native A/B measurements.
+//! Paired native A/B measurements from two dynamic libraries.
 
 use super::runner::{average, next_iteration_count, standard_deviation};
 use super::{Registry, RunConfig, Selection};
-use std::io::{self, BufRead, BufReader, Write};
+use libloading::Library;
+use std::io;
 use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
-/// Summary of paired samples from two worker artifacts.
+/// Summary of paired samples from two libraries.
 #[derive(Debug)]
 pub struct Comparison {
     pub id: String,
@@ -21,32 +21,8 @@ pub struct Comparison {
     pub standard_deviation_ratio: f64,
 }
 
-/// Serve benchmark requests over stdin/stdout.
-pub fn worker_main(registry: &Registry) -> io::Result<()> {
-    let stdin = io::stdin();
-    let mut stdout = io::stdout().lock();
-    for line in stdin.lock().lines() {
-        let line = line?;
-        if line == "QUIT" {
-            break;
-        }
-        let (id, iterations) = line
-            .split_once('\t')
-            .ok_or_else(|| invalid("invalid sample request"))?;
-        let iterations = iterations
-            .parse::<u64>()
-            .map_err(|_| invalid("invalid iteration count"))?;
-        let case = registry
-            .find(id)
-            .ok_or_else(|| invalid("unknown benchmark id"))?;
-        writeln!(stdout, "{}", case.sample(iterations))?;
-        stdout.flush()?;
-    }
-    Ok(())
-}
-
-/// Compare matching cases from two already-built worker executables.
-pub fn compare_workers(
+/// Compare matching cases from two already-built dynamic libraries.
+pub fn compare_libraries(
     registry: &Registry,
     artifact_a: &Path,
     artifact_b: &Path,
@@ -55,8 +31,8 @@ pub fn compare_workers(
     config: RunConfig,
     mut report: impl FnMut(Comparison) -> io::Result<()>,
 ) -> io::Result<()> {
-    let mut a = Worker::spawn(artifact_a)?;
-    let mut b = Worker::spawn(artifact_b)?;
+    let a = Artifact::load(artifact_a)?;
+    let b = Artifact::load(artifact_b)?;
     if config.sample_count == 0 {
         return Err(invalid("sample count must be greater than zero"));
     }
@@ -69,8 +45,10 @@ pub fn compare_workers(
         .filter(|case| selection.includes(case, filter))
     {
         let id = case.id().to_owned();
-        let iterations_a = warm_up(&mut a, &id, config.warmup_time, target_sample_nanos)?;
-        let iterations_b = warm_up(&mut b, &id, config.warmup_time, target_sample_nanos)?;
+        let index_a = a.index(&id)?;
+        let index_b = b.index(&id)?;
+        let iterations_a = warm_up(&a, index_a, config.warmup_time, target_sample_nanos);
+        let iterations_b = warm_up(&b, index_b, config.warmup_time, target_sample_nanos);
 
         let capacity = config.sample_count as usize;
         let mut times_a = Vec::with_capacity(capacity);
@@ -78,10 +56,13 @@ pub fn compare_workers(
         let mut ratios = Vec::with_capacity(capacity);
         for pair in 0..config.sample_count {
             let (elapsed_a, elapsed_b) = if pair % 4 == 0 || pair % 4 == 3 {
-                (a.sample(&id, iterations_a)?, b.sample(&id, iterations_b)?)
+                (
+                    a.sample(index_a, iterations_a),
+                    b.sample(index_b, iterations_b),
+                )
             } else {
-                let elapsed_b = b.sample(&id, iterations_b)?;
-                let elapsed_a = a.sample(&id, iterations_a)?;
+                let elapsed_b = b.sample(index_b, iterations_b);
+                let elapsed_a = a.sample(index_a, iterations_a);
                 (elapsed_a, elapsed_b)
             };
             if elapsed_a <= 0.0 || elapsed_b <= 0.0 {
@@ -112,73 +93,80 @@ pub fn compare_workers(
 }
 
 fn warm_up(
-    worker: &mut Worker,
-    id: &str,
+    artifact: &Artifact,
+    index: u32,
     duration: core::time::Duration,
     target_sample_nanos: f64,
-) -> io::Result<u64> {
+) -> u64 {
     let target = duration.as_secs_f64() * 1_000_000_000.0;
     let mut elapsed = 0.0;
     let mut iterations = 1;
     loop {
-        let sample_nanos = worker.sample(id, iterations)?;
+        let sample_nanos = artifact.sample(index, iterations);
         elapsed += sample_nanos.max(1.0);
         iterations = next_iteration_count(iterations, sample_nanos, target_sample_nanos);
         if elapsed >= target {
             break;
         }
     }
-    Ok(iterations)
+    iterations
 }
 
-struct Worker {
-    child: Child,
-    input: ChildStdin,
-    output: BufReader<ChildStdout>,
+type CaseCount = unsafe extern "C" fn() -> u32;
+type CaseNamePtr = unsafe extern "C" fn(u32) -> *const u8;
+type CaseNameLen = unsafe extern "C" fn(u32) -> u32;
+type RunSample = unsafe extern "C" fn(u32, u64) -> f64;
+
+struct Artifact {
+    _library: Library,
+    cases: Vec<String>,
+    run_sample: RunSample,
 }
 
-impl Worker {
-    fn spawn(path: &Path) -> io::Result<Self> {
-        let mut child = Command::new(path)
-            .arg("worker")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()?;
-        let input = child.stdin.take().expect("worker stdin must be piped");
-        let output = BufReader::new(child.stdout.take().expect("worker stdout must be piped"));
+impl Artifact {
+    fn load(path: &Path) -> io::Result<Self> {
+        // SAFETY: the library is kept alive while its exported functions and data are used.
+        let library = unsafe { Library::new(path) }.map_err(io::Error::other)?;
+        let case_count: CaseCount = symbol(&library, b"vello_bench_case_count")?;
+        let case_name_ptr: CaseNamePtr = symbol(&library, b"vello_bench_case_name_ptr")?;
+        let case_name_len: CaseNameLen = symbol(&library, b"vello_bench_case_name_len")?;
+        let run_sample: RunSample = symbol(&library, b"vello_bench_run_sample")?;
+        let mut cases = Vec::new();
+        // SAFETY: these signatures match the exports in `abi.rs`.
+        for index in 0..unsafe { case_count() } {
+            let ptr = unsafe { case_name_ptr(index) };
+            let len = unsafe { case_name_len(index) } as usize;
+            // SAFETY: the library owns each case name for the lifetime of its registry.
+            let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+            cases.push(
+                std::str::from_utf8(bytes)
+                    .map_err(io::Error::other)?
+                    .to_owned(),
+            );
+        }
         Ok(Self {
-            child,
-            input,
-            output,
+            _library: library,
+            cases,
+            run_sample,
         })
     }
 
-    fn sample(&mut self, id: &str, iterations: u64) -> io::Result<f64> {
-        self.request(&format!("{id}\t{iterations}"))?;
-        self.response()?
-            .parse()
-            .map_err(|_| invalid("invalid elapsed time"))
+    fn index(&self, id: &str) -> io::Result<u32> {
+        self.cases
+            .binary_search_by(|case| case.as_str().cmp(id))
+            .map(|index| u32::try_from(index).expect("case count fits in u32"))
+            .map_err(|_| invalid("benchmark case missing from comparison library"))
     }
 
-    fn request(&mut self, request: &str) -> io::Result<()> {
-        writeln!(self.input, "{request}")?;
-        self.input.flush()
-    }
-
-    fn response(&mut self) -> io::Result<String> {
-        let mut response = String::new();
-        if self.output.read_line(&mut response)? == 0 {
-            return Err(invalid("worker exited unexpectedly"));
-        }
-        Ok(response.trim_end().to_owned())
+    fn sample(&self, index: u32, iterations: u64) -> f64 {
+        // SAFETY: index came from this library's case list and the signature matches `abi.rs`.
+        unsafe { (self.run_sample)(index, iterations) }
     }
 }
 
-impl Drop for Worker {
-    fn drop(&mut self) {
-        let _ = self.request("QUIT");
-        let _ = self.child.wait();
-    }
+fn symbol<T: Copy>(library: &Library, name: &[u8]) -> io::Result<T> {
+    // SAFETY: callers use the exact C signatures of the exports in `abi.rs`.
+    unsafe { library.get::<T>(name).map(|symbol| *symbol) }.map_err(io::Error::other)
 }
 
 fn invalid(message: &str) -> io::Error {

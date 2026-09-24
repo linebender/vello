@@ -63,9 +63,9 @@ bash vello_bench/bench.sh cli --ab REVISION_A REVISION_B fine/fill
 Use `--non-simd`, `--extended`, and `--f32` to include those variants, and
 `--warmup-ms`, `--measurement-ms`, and `--samples` to change the timing.
 
-Comparison mode requires a clean checkout. It builds both revisions in a temporary worktree using
-the current benchmark definitions, then removes the worktree when it exits. The current checkout is
-not modified.
+Comparison mode requires a clean checkout. It builds both revisions as dynamic libraries in a
+temporary worktree using the current benchmark definitions, loads both libraries into one process,
+then removes the worktree when it exits. The current checkout is not modified.
 
 ## Browser benchmarks
 
