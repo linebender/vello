@@ -866,3 +866,29 @@ fn issue_image_filtering_at_reflect_boundary(ctx: &mut impl Renderer) {
 fn issue_image_filtering_at_repeat_boundary(ctx: &mut impl Renderer) {
     image_filtering_at_extend_boundary(ctx, 3, Extend::Repeat, 15.0_f32.next_down());
 }
+
+#[vello_test]
+fn issue_image_bilinear_tap_rounding(ctx: &mut impl Renderer) {
+    let mut pixmap = Pixmap::new(2, 1);
+    pixmap.set_pixel(0, 0, RED.premultiply().to_rgba8());
+    pixmap.set_pixel(1, 0, BLUE.premultiply().to_rgba8());
+    let image = ctx.get_image_source(Arc::new(pixmap));
+
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+
+    ctx.set_paint(Image {
+        image,
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Pad,
+            quality: ImageQuality::Medium,
+            alpha: 1.0,
+        },
+    });
+    let image_from_scene = Affine::translate((f64::from(0.5_f32.next_down()), 0.25))
+        * Affine::scale_non_uniform(1.0e-12, 1.0)
+        * Affine::translate((-10.5, -10.5));
+    ctx.set_paint_transform(image_from_scene.inverse());
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 25.0, 90.0));
+}
