@@ -9,13 +9,13 @@
 # ]
 # ///
 
-"""Generate an sbix test font with 27 glyph cases and three strikes."""
+"""Generate the glyf and CFF sbix test fonts."""
 
-import hashlib
 import io
 from pathlib import Path
 
 from fontTools.fontBuilder import FontBuilder
+from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import newTable
 from fontTools.ttLib.tables.sbixGlyph import Glyph
@@ -23,12 +23,10 @@ from fontTools.ttLib.tables.sbixStrike import Strike
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent
-FONT_PATH = ROOT / "sbix.ttf"
+FONT_PATHS = {"glyf": ROOT / "sbix.ttf", "cff": ROOT / "sbix.otf"}
 
 UPEM = 1024
 BASE = 64
-
-SAMPLE = "ABCDEF\nGHIJKL\nMNOPQR\nSTUVWX\nYZ!"
 
 PATTERNS = {
     "A": "01110 10001 10001 11111 10001 10001 10001",
@@ -56,59 +54,39 @@ PATTERNS = {
     "W": "10001 10001 10001 10101 10101 11011 10001",
     "X": "10001 10001 01010 00100 01010 10001 10001",
     "!": "00100 00100 00100 00100 00100 00000 00100",
+    "?": "01110 10001 00001 00010 00100 00000 00100",
 }
 
 
 CASES = {
-    "A": dict(case="Control: all offsets zero"),
-    "B": dict(case="Inner X +32 px", inner=[32, 0]),
-    "C": dict(case="Inner X −32 px", inner=[-32, 0]),
-    "D": dict(case="Inner Y +32 px", inner=[0, 32]),
-    "E": dict(case="Inner Y −32 px", inner=[0, -32]),
-    "F": dict(case="Outer X +512 units", outer=[512, 0]),
-    "G": dict(case="Outer X −512 units", outer=[-512, 0]),
-    "H": dict(case="Outer Y +512 units", outer=[0, 512]),
-    "I": dict(case="Outer Y −512 units", outer=[0, -512]),
-    "J": dict(case="Inner X/Y +24/−32", inner=[24, -32]),
-    "K": dict(case="Inner X/Y −32/+24", inner=[-32, 24]),
-    "L": dict(case="Outer X/Y +384/−512", outer=[384, -512]),
-    "M": dict(case="Outer X/Y −512/+384", outer=[-512, 384]),
-    "N": dict(
-        case="Mixed outer +256/+256, inner −24/−32",
-        outer=[256, 256],
-        inner=[-24, -32],
-    ),
-    "O": dict(
-        case="Mixed outer −256/−256, inner +24/+32",
-        outer=[-256, -256],
-        inner=[24, 32],
-    ),
-    "P": dict(
-        case="Outer/inner cancel in both axes",
-        outer=[512, 512],
-        inner=[-32, -32],
-    ),
-    "Q": dict(case="LSB +512, no contours: ignored", lsb=512),
-    "R": dict(case="LSB −512, no contours: ignored", lsb=-512),
-    "S": dict(case="xMin −256, LSB +384", outer=[-256, 0], lsb=384),
-    "T": dict(case="xMin +384, LSB −256", outer=[384, 0], lsb=-256),
-    "U": dict(case="Half-transparent bitmap", color=[24, 91, 177, 128]),
-    "V": dict(
-        case="Extra horizontal padding: 113 px on the right",
-        extra_padding=[113, 16],
-    ),
-    "W": dict(case="Missing 64-ppem bitmap: use another strike", strikes=[32, 128]),
-    "X": dict(
-        case="Outline fallback: no bitmap in any strike",
-        kind="outline",
-        color=[0, 0, 0, 255],
-    ),
-    "Y": dict(case="dupe → A (should draw A)", kind="dupe", target="A"),
-    "Z": dict(case="dupe → Y → A (should draw A)", kind="dupe", target="Y"),
-    "!": dict(
-        case="Extra vertical padding: 91 px above the artwork",
-        extra_padding=[16, 91],
-    ),
+    "A": {},
+    "B": {"inner": [32, 0]},
+    "C": {"inner": [-32, 0]},
+    "D": {"inner": [0, 32]},
+    "E": {"inner": [0, -32]},
+    "F": {"outer": [512, 0]},
+    "G": {"outer": [-512, 0]},
+    "H": {"outer": [0, 512]},
+    "I": {"outer": [0, -512]},
+    "J": {"inner": [24, -32]},
+    "K": {"inner": [-32, 24]},
+    "L": {"outer": [384, -512]},
+    "M": {"outer": [-512, 384]},
+    "N": {"outer": [256, 256], "inner": [-24, -32]},
+    "O": {"outer": [-256, -256], "inner": [24, 32]},
+    "P": {"outer": [512, 512], "inner": [-32, -32]},
+    "Q": {"lsb": 512, "no_contour": True},
+    "R": {"lsb": -512, "no_contour": True},
+    "S": {"outer": [384, 0], "lsb": 384},
+    "T": {"outer": [-256, 0], "lsb": -256},
+    "U": {"color": [24, 91, 177, 128]},
+    "V": {"extra_padding": [113, 16]},
+    "W": {"strikes": [32, 128]},
+    "X": {"kind": "outline", "color": [0, 0, 0, 255]},
+    "Y": {"kind": "dupe", "target": "A"},
+    "Z": {"kind": "dupe", "target": "Y"},
+    "!": {"extra_padding": [16, 91]},
+    "?": {"lsb": 256},
 }
 
 
@@ -121,22 +99,28 @@ def rectangles(char):
     ]
 
 
-def build():
+def build_font(outline_format):
+    is_glyf = outline_format == "glyf"
+    font_path = FONT_PATHS[outline_format]
+    family = "Sbix Test Glyf" if is_glyf else "Sbix Test CFF"
+    ps_name = "SbixTestGlyf-Regular" if is_glyf else "SbixTestCFF-Regular"
     names = [".notdef", "space"] + [f"uni{ord(c):04X}" for c in CASES]
     cmap = {32: "space", **{ord(c): n for c, n in zip(CASES, names[2:])}}
 
     cmap.update({ord(c.lower()): cmap[ord(c)] for c in CASES if c.isalpha()})
 
-    fb = FontBuilder(UPEM, isTTF=True)
+    fb = FontBuilder(UPEM, isTTF=is_glyf)
     fb.setupGlyphOrder(names)
     fb.setupCharacterMap(cmap)
 
-    glyphs = {}
+    char_strings = {}
     metrics = {}
     entries = {}
 
     for gid, (name, char) in enumerate(zip(names, [" ", " ", *CASES])):
-        cfg = CASES.get(char, {"case": "Empty glyph / space"})
+        cfg = CASES.get(char, {})
+        if char == "?" and not is_glyf:
+            cfg = {**cfg, "no_contour": True}
         kind = cfg.get("kind", "png") if gid >= 2 else "empty"
 
         inner = cfg.get("inner", [0, 0])
@@ -147,7 +131,8 @@ def build():
         rects = rectangles(artwork) if gid >= 2 else []
         color = cfg.get("color", [24, 91, 177, 255])
 
-        pen = TTGlyphPen(None)
+        advance = 2304 if gid >= 2 else 1024
+        pen = TTGlyphPen(None) if is_glyf else T2CharStringPen(advance, None)
 
         if kind == "outline":
             for x, y, w, h in rects:
@@ -158,39 +143,53 @@ def build():
                 pen.closePath()
             lsb = min(r[0] for r in rects) * 16
 
-        elif outer is not None:
-            x, y = outer
+        elif gid >= 2 and not cfg.get("no_contour", False):
+            x, y = outer or [0, 0]
+            art_right = max(r[0] + r[2] for r in rects) * UPEM // BASE
+            art_top = max(-r[1] for r in rects) * UPEM // BASE
+            x_max = max(x + UPEM, x + art_right - lsb)
+            y_max = max(y + UPEM, art_top)
             pen.moveTo((x, y))
-            pen.lineTo((x + 1024, y))
-            pen.lineTo((x + 1024, y + 1024))
-            pen.lineTo((x, y + 1024))
-            pen.closePath()
+            pen.lineTo((x_max, y_max))
+            if is_glyf:
+                pen.endPath()
+            else:
+                pen.closePath()
 
-        glyphs[name] = pen.glyph()
-        advance = 2304 if gid >= 2 else 1024
+        char_strings[name] = pen.glyph() if is_glyf else pen.getCharString()
         metrics[name] = (advance, lsb)
 
-        # Normal contour loading places its xMin at hmtx's LSB.
-        origin = [lsb, outer[1]] if outer is not None else [0, 0]
+        has_contour = gid >= 2 and not cfg.get("no_contour", False)
+        origin = (
+            [lsb, outer[1] if outer is not None else 0]
+            if is_glyf and has_contour
+            else [0, 0]
+        )
 
         entries[name] = dict(
             char=char,
-            gid=gid,
-            case=cfg["case"],
             kind=kind,
             offset=inner,
-            outline=outer is not None or kind == "outline",
-            bounds_origin=outer or [0, 0],
+            outline=has_contour,
             placement_origin=origin,
             lsb=lsb,
-            advance=advance,
             rectangles=rects,
             color=color,
             target=cfg.get("target"),
-            strikes={},
         )
 
-    fb.setupGlyf(glyphs)
+    if is_glyf:
+        fb.setupGlyf(char_strings)
+    else:
+        fb.setupCFF(
+            ps_name,
+            {"FullName": family, "FamilyName": family, "Weight": "Regular"},
+            char_strings,
+            {"defaultWidthX": 0, "nominalWidthX": 0},
+        )
+        for name, entry in entries.items():
+            if entry["outline"]:
+                assert char_strings[name].calcBounds(None)[0] == entry["lsb"]
     fb.setupHorizontalMetrics(metrics)
     fb.setupHorizontalHeader(ascent=2048, descent=-768)
 
@@ -203,20 +202,26 @@ def build():
                 "under the terms of either license."
             ),
             licenseInfoURL="https://github.com/linebender/vello#license",
-            familyName="Sbix Test",
+            familyName=family,
             styleName="Regular",
-            uniqueFontIdentifier="SbixTest-Regular-1",
-            fullName="Sbix Test",
-            psName="SbixTest-Regular",
+            uniqueFontIdentifier=f"{ps_name}-1",
+            fullName=family,
+            version="Version 1.000",
+            psName=ps_name,
         )
     )
 
     fb.setupOS2(
+        fsType=0,
+        fsSelection=0x40,
+        achVendID="    ",
         sTypoAscender=2048,
         sTypoDescender=-768,
         sTypoLineGap=0,
         usWinAscent=2304,
         usWinDescent=1024,
+        sxHeight=1536,
+        sCapHeight=1536,
     )
 
     fb.setupPost()
@@ -247,7 +252,6 @@ def build():
                 strike.glyphs[name] = Glyph(
                     glyphName=name, graphicType="dupe", referenceGlyphName=target
                 )
-                e["strikes"][str(ppem)] = {"type": "dupe", "target": e["target"]}
                 continue
 
             dx, dy = [round(v * scale) for v in e["offset"]]
@@ -260,7 +264,6 @@ def build():
 
             assert left >= 0 and bottom <= 0, (name, ppem, "uncompensatable offset")
 
-            # Keep ordinary padding constant so V and ! isolate one axis each.
             padx, pady = cfg.get("extra_padding", [16, 16])
             w = int(right) + max(1, round(padx * scale))
             h = int(-top) + max(1, round(pady * scale))
@@ -290,10 +293,6 @@ def build():
                 imageData=buf.getvalue(),
             )
 
-            e["strikes"][str(ppem)] = dict(
-                type="png", offset=[dx, dy], width=w, height=h
-            )
-
             canvas = Image.new("RGBA", (512, 512))
             canvas.alpha_composite(im, (int(96 + ox + dx), int(320 - oy - dy - h)))
 
@@ -316,26 +315,11 @@ def build():
         table.strikes[ppem] = strike
 
     fb.font["sbix"] = table
-    fb.save(FONT_PATH)
+    fb.save(font_path)
 
-    return dict(
-        family="Sbix Test",
-        file="sbix.ttf",
-        sha256=hashlib.sha256(FONT_PATH.read_bytes()).hexdigest(),
-        description=(
-            "One font, 27 per-glyph cases. "
-            "Offsets up to ±32 strike pixels / ±512 font units; "
-            "wrong signs move glyphs by up to 64 pixels at size 64."
-        ),
-        upem=UPEM,
-        glyphs=entries,
-        sample=SAMPLE,
-        supported="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz! ",
-        line_height=2.5,
-        margin=1.5,
-    )
+    return font_path
 
 
 if __name__ == "__main__":
-    build()
-    print(f"Generated {FONT_PATH}; verified placement at all three strikes.")
+    for outline_format in FONT_PATHS:
+        print(f"Generated {build_font(outline_format).name}")

@@ -951,9 +951,27 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
 // Note that there are still four cases (which can be reduced to 2 underlying issues)
 // that don't yet render the same as in CoreText.
 #[vello_test(width = 288, height = 240, skip_gpu, glyph)]
-fn glyphs_bitmap_sbix(ctx: &mut impl Renderer, enable_caching: bool) {
-    const TEST_FONT: &[u8] = include_bytes!("../../assets/sbix/sbix.ttf");
-    let font = FontData::new(Blob::new(Arc::new(TEST_FONT)), 0);
+fn glyphs_bitmap_sbix_glyf(ctx: &mut impl Renderer, enable_caching: bool) {
+    draw_sbix_grid(
+        ctx,
+        enable_caching,
+        include_bytes!("../../assets/sbix/sbix.ttf"),
+    );
+}
+
+// Couple of glyphs are misplaced, due to the same bug affecting two glyphs
+// in the `glyf` test.
+#[vello_test(width = 288, height = 240, skip_gpu, glyph)]
+fn glyphs_bitmap_sbix_cff(ctx: &mut impl Renderer, enable_caching: bool) {
+    draw_sbix_grid(
+        ctx,
+        enable_caching,
+        include_bytes!("../../assets/sbix/sbix.otf"),
+    );
+}
+
+fn draw_sbix_grid(ctx: &mut impl Renderer, enable_caching: bool, font_data: &'static [u8]) {
+    let font = FontData::new(Blob::new(Arc::new(font_data)), 0);
 
     ctx.set_paint(WHITE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 288.0, 240.0));
@@ -967,13 +985,14 @@ fn glyphs_bitmap_sbix(ctx: &mut impl Renderer, enable_caching: bool) {
         ctx.fill_rect(&Rect::new(0.0, y, 288.0, y + 1.0));
     }
 
-    let glyphs = (0..27).map(|i| Glyph {
+    let glyphs = (0..28).map(|i| Glyph {
         id: i + 2,
         x: (i % 6) as f32 * 48.0 - 34.0,
         y: (i / 6) as f32 * 48.0 + 106.0,
     });
     ctx.set_paint(BLACK);
-    ctx.glyph_run(&font)
+    let _ = ctx
+        .glyph_run(&font)
         .font_size(64.0)
         .hint(false)
         .atlas_cache(enable_caching)
