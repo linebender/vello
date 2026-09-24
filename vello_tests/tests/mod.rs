@@ -36,6 +36,7 @@ mod clip;
 mod compose;
 mod external_texture;
 mod filter;
+mod fuzz_regression;
 mod glyph;
 mod gpu_depth;
 mod gpu_schedule;
@@ -48,7 +49,7 @@ mod layer;
 mod mask;
 mod mix;
 mod opacity;
-mod renderer;
+use vello_tests::renderer;
 mod scenes;
 mod target;
 #[macro_use]
