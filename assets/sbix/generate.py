@@ -88,8 +88,8 @@ CASES = {
         outer=[512, 512],
         inner=[-32, -32],
     ),
-    "Q": dict(case="LSB +512, no contours: ignored", lsb=512),
-    "R": dict(case="LSB −512, no contours: ignored", lsb=-512),
+    "Q": dict(case="LSB +512, no contours: ignored", lsb=512, no_contour=True),
+    "R": dict(case="LSB −512, no contours: ignored", lsb=-512, no_contour=True),
     "S": dict(case="xMin −256, LSB +384", outer=[-256, 0], lsb=384),
     "T": dict(case="xMin +384, LSB −256", outer=[384, 0], lsb=-256),
     "U": dict(case="Half-transparent bitmap", color=[24, 91, 177, 128]),
@@ -158,20 +158,22 @@ def build():
                 pen.closePath()
             lsb = min(r[0] for r in rects) * 16
 
-        elif outer is not None:
-            x, y = outer
+        elif gid >= 2 and not cfg.get("no_contour", False):
+            x, y = outer or [0, 0]
+            art_right = max(r[0] + r[2] for r in rects) * UPEM // BASE
+            art_top = max(-r[1] for r in rects) * UPEM // BASE
+            x_max = max(x + UPEM, x + art_right - lsb)
+            y_max = max(y + UPEM, art_top)
             pen.moveTo((x, y))
-            pen.lineTo((x + 1024, y))
-            pen.lineTo((x + 1024, y + 1024))
-            pen.lineTo((x, y + 1024))
-            pen.closePath()
+            pen.lineTo((x_max, y_max))
+            pen.endPath()
 
         glyphs[name] = pen.glyph()
         advance = 2304 if gid >= 2 else 1024
         metrics[name] = (advance, lsb)
 
-        # Normal contour loading places its xMin at hmtx's LSB.
-        origin = [lsb, outer[1]] if outer is not None else [0, 0]
+        has_contour = gid >= 2 and not cfg.get("no_contour", False)
+        origin = [lsb, outer[1] if outer is not None else 0] if has_contour else [0, 0]
 
         entries[name] = dict(
             char=char,
@@ -179,7 +181,7 @@ def build():
             case=cfg["case"],
             kind=kind,
             offset=inner,
-            outline=outer is not None or kind == "outline",
+            outline=has_contour,
             bounds_origin=outer or [0, 0],
             placement_origin=origin,
             lsb=lsb,
