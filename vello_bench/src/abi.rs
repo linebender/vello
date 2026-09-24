@@ -29,11 +29,13 @@ pub(crate) extern "C" fn vello_bench_case_count() -> u32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn vello_bench_case_name_ptr(index: u32) -> *const u8 {
     with_registry(|registry| registry.cases()[index as usize].id().as_ptr())
 }
 
+#[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn vello_bench_case_name_len(index: u32) -> u32 {
     with_registry(|registry| {
@@ -42,16 +44,19 @@ pub(crate) extern "C" fn vello_bench_case_name_len(index: u32) -> u32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn vello_bench_case_is_extended(index: u32) -> u32 {
     with_registry(|registry| u32::from(registry.cases()[index as usize].is_extended()))
 }
 
+#[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn vello_bench_case_is_non_simd(index: u32) -> u32 {
     with_registry(|registry| u32::from(registry.cases()[index as usize].is_non_simd()))
 }
 
+#[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn vello_bench_case_is_f32(index: u32) -> u32 {
     with_registry(|registry| u32::from(registry.cases()[index as usize].is_f32()))

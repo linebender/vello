@@ -21,7 +21,7 @@ pub struct Comparison {
     pub standard_deviation_ratio: f64,
 }
 
-/// Compare matching cases from two already-built dynamic libraries.
+/// Compare libraries built with the same benchmark definitions as `registry`.
 pub fn compare_libraries(
     registry: &Registry,
     artifact_a: &Path,
@@ -31,24 +31,26 @@ pub fn compare_libraries(
     config: RunConfig,
     mut report: impl FnMut(Comparison) -> io::Result<()>,
 ) -> io::Result<()> {
-    let a = Artifact::load(artifact_a)?;
-    let b = Artifact::load(artifact_b)?;
     if config.sample_count == 0 {
         return Err(invalid("sample count must be greater than zero"));
     }
+    let case_count = u32::try_from(registry.cases().len())
+        .map_err(|_| invalid("benchmark count does not fit in u32"))?;
+    let a = Artifact::load(artifact_a, case_count)?;
+    let b = Artifact::load(artifact_b, case_count)?;
 
     let target_sample_nanos = config.target_sample_nanos();
 
-    for case in registry
+    for (index, case) in registry
         .cases()
         .iter()
-        .filter(|case| selection.includes(case, filter))
+        .enumerate()
+        .filter(|(_, case)| selection.includes(case, filter))
     {
         let id = case.id().to_owned();
-        let index_a = a.index(&id)?;
-        let index_b = b.index(&id)?;
-        let iterations_a = warm_up(&a, index_a, config.warmup_time, target_sample_nanos);
-        let iterations_b = warm_up(&b, index_b, config.warmup_time, target_sample_nanos);
+        let index = u32::try_from(index).expect("benchmark count fits in u32");
+        let iterations_a = warm_up(&a, index, config.warmup_time, target_sample_nanos);
+        let iterations_b = warm_up(&b, index, config.warmup_time, target_sample_nanos);
 
         let capacity = config.sample_count as usize;
         let mut times_a = Vec::with_capacity(capacity);
@@ -56,13 +58,10 @@ pub fn compare_libraries(
         let mut ratios = Vec::with_capacity(capacity);
         for pair in 0..config.sample_count {
             let (elapsed_a, elapsed_b) = if pair % 4 == 0 || pair % 4 == 3 {
-                (
-                    a.sample(index_a, iterations_a),
-                    b.sample(index_b, iterations_b),
-                )
+                (a.sample(index, iterations_a), b.sample(index, iterations_b))
             } else {
-                let elapsed_b = b.sample(index_b, iterations_b);
-                let elapsed_a = a.sample(index_a, iterations_a);
+                let elapsed_b = b.sample(index, iterations_b);
+                let elapsed_a = a.sample(index, iterations_a);
                 (elapsed_a, elapsed_b)
             };
             if elapsed_a <= 0.0 || elapsed_b <= 0.0 {
@@ -113,53 +112,33 @@ fn warm_up(
 }
 
 type CaseCount = unsafe extern "C" fn() -> u32;
-type CaseNamePtr = unsafe extern "C" fn(u32) -> *const u8;
-type CaseNameLen = unsafe extern "C" fn(u32) -> u32;
 type RunSample = unsafe extern "C" fn(u32, u64) -> f64;
 
 struct Artifact {
     _library: Library,
-    cases: Vec<String>,
     run_sample: RunSample,
 }
 
 impl Artifact {
-    fn load(path: &Path) -> io::Result<Self> {
+    fn load(path: &Path, expected_count: u32) -> io::Result<Self> {
         // SAFETY: the library is kept alive while its exported functions and data are used.
         let library = unsafe { Library::new(path) }.map_err(io::Error::other)?;
         let case_count: CaseCount = symbol(&library, b"vello_bench_case_count")?;
-        let case_name_ptr: CaseNamePtr = symbol(&library, b"vello_bench_case_name_ptr")?;
-        let case_name_len: CaseNameLen = symbol(&library, b"vello_bench_case_name_len")?;
         let run_sample: RunSample = symbol(&library, b"vello_bench_run_sample")?;
-        let mut cases = Vec::new();
-        // SAFETY: these signatures match the exports in `abi.rs`.
-        for index in 0..unsafe { case_count() } {
-            let ptr = unsafe { case_name_ptr(index) };
-            let len = unsafe { case_name_len(index) } as usize;
-            // SAFETY: the library owns each case name for the lifetime of its registry.
-            let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
-            cases.push(
-                std::str::from_utf8(bytes)
-                    .map_err(io::Error::other)?
-                    .to_owned(),
-            );
+        // SAFETY: the signature matches the export in `abi.rs`.
+        if unsafe { case_count() } != expected_count {
+            return Err(invalid(
+                "comparison library has a different benchmark count",
+            ));
         }
         Ok(Self {
             _library: library,
-            cases,
             run_sample,
         })
     }
 
-    fn index(&self, id: &str) -> io::Result<u32> {
-        self.cases
-            .binary_search_by(|case| case.as_str().cmp(id))
-            .map(|index| u32::try_from(index).expect("case count fits in u32"))
-            .map_err(|_| invalid("benchmark case missing from comparison library"))
-    }
-
     fn sample(&self, index: u32, iterations: u64) -> f64 {
-        // SAFETY: index came from this library's case list and the signature matches `abi.rs`.
+        // SAFETY: the checked case count makes the controller's index valid for this library.
         unsafe { (self.run_sample)(index, iterations) }
     }
 }
