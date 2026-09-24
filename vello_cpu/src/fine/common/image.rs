@@ -205,8 +205,12 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
         // center of the location we are sampling, and sample those points
         // using a cubic filter to weight each location's contribution.
 
-        let x_fract = fract_floor(x_positions + 0.5);
-        let y_fract = fract_floor(y_positions + 0.5);
+        let x_shifted = x_positions + 0.5;
+        let y_shifted = y_positions + 0.5;
+        let x_base = x_shifted.floor();
+        let y_base = y_shifted.floor();
+        let x_fract = x_shifted - x_base;
+        let y_fract = y_shifted - y_base;
 
         let mut interpolated_color = f32x16::splat(self.simd, 0.0);
 
@@ -217,7 +221,7 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
         macro_rules! extend_x {
             ($idx:expr,$offsets:expr) => {
                 extend_mode(
-                    x_positions + $offsets[$idx],
+                    x_base + $offsets[$idx],
                     self.data.image.sampler.x_extend,
                     self.data.width,
                     self.data.width_inv,
@@ -228,7 +232,7 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
         macro_rules! extend_y {
             ($idx:expr,$offsets:expr) => {
                 extend_mode(
-                    y_positions + $offsets[$idx],
+                    y_base + $offsets[$idx],
                     self.data.image.sampler.y_extend,
                     self.data.height,
                     self.data.height_inv,
@@ -247,7 +251,7 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
                 // (modulo some floating point number impreciseness), ensuring the
                 // colors stay in range.
 
-                const OFFSETS: [f32; 2] = [-0.5, 0.5];
+                const OFFSETS: [f32; 2] = [-1.0, 0.0];
 
                 let x_positions = [extend_x!(0, OFFSETS), extend_x!(1, OFFSETS)];
 
@@ -274,7 +278,7 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
                 let cx = weights(self.simd, x_fract);
                 let cy = weights(self.simd, y_fract);
 
-                const OFFSETS: [f32; 4] = [-1.5, -0.5, 0.5, 1.5];
+                const OFFSETS: [f32; 4] = [-2.0, -1.0, 0.0, 1.0];
 
                 let x_positions = [
                     extend_x!(0, OFFSETS),
@@ -336,15 +340,6 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
 f32x16_painter!(FilteredImagePainter<'_, S, 1>);
 // Bicubic
 f32x16_painter!(FilteredImagePainter<'_, S, 2>);
-
-/// Computes the positive fractional part of a value: `val - val.floor()`.
-///
-/// Unlike `f32::fract()`, this always returns a value in [0, 1),
-/// even for negative inputs.
-#[inline(always)]
-pub(crate) fn fract_floor<S: Simd>(val: f32x4<S>) -> f32x4<S> {
-    val - val.floor()
-}
 
 /// Common data used by different image painters
 #[derive(Debug)]
