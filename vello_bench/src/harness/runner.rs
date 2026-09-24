@@ -18,8 +18,8 @@ pub struct RunConfig {
 impl Default for RunConfig {
     fn default() -> Self {
         Self {
-            measurement_time: Duration::from_secs(1),
-            sample_count: 20,
+            measurement_time: Duration::from_secs(2),
+            sample_count: 30,
             warmup_time: Duration::from_millis(250),
         }
     }

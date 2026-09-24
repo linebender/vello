@@ -13,11 +13,6 @@ publish = false
 crate-type = ["rlib", "cdylib"]
 test = false
 
-[features]
-extended = []
-f32 = []
-non-simd = []
-
 [dependencies]
 fearless_simd = { workspace = true, features = ["force_support_fallback"] }
 image = { workspace = true, features = ["jpeg"] }

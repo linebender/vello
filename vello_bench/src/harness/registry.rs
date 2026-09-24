@@ -98,9 +98,6 @@ impl Registry {
 
     /// Mark all cases registered by `register` as part of the extended set.
     pub(crate) fn extended(&mut self, register: impl FnOnce(&mut Self)) {
-        if cfg!(all(target_arch = "wasm32", not(feature = "extended"))) {
-            return;
-        }
         let previous = self.registering_extended;
         self.registering_extended = true;
         register(self);
@@ -109,9 +106,6 @@ impl Registry {
 
     /// Mark all cases registered by `register` as non-SIMD variants.
     pub(crate) fn non_simd(&mut self, register: impl FnOnce(&mut Self)) {
-        if cfg!(all(target_arch = "wasm32", not(feature = "non-simd"))) {
-            return;
-        }
         let previous = self.registering_non_simd;
         self.registering_non_simd = true;
         register(self);
@@ -120,9 +114,6 @@ impl Registry {
 
     /// Mark all cases registered by `register` as f32 variants.
     pub(crate) fn f32(&mut self, register: impl FnOnce(&mut Self)) {
-        if cfg!(all(target_arch = "wasm32", not(feature = "f32"))) {
-            return;
-        }
         let previous = self.registering_f32;
         self.registering_f32 = true;
         register(self);

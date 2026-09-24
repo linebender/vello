@@ -23,10 +23,10 @@ bash vello_bench/bench.sh cli --f32
 ```
 
 Use `--warmup-ms`, `--measurement-ms`, and `--samples` to change the default 250-millisecond
-warmup, one-second target measurement time, and 20 measured samples:
+warmup, two-second target measurement time, and 30 measured samples:
 
 ```shell
-bash vello_bench/bench.sh cli fine/fill --warmup-ms 500 --measurement-ms 2000 --samples 20
+bash vello_bench/bench.sh cli fine/fill --warmup-ms 500 --measurement-ms 3000 --samples 40
 ```
 
 List available cases with:
@@ -69,26 +69,20 @@ then removes the worktree when it exits. The current checkout is not modified.
 
 ## Browser benchmarks
 
-Build and serve the SIMD, non-extended, u8 benchmark set:
+Build and serve the browser benchmarks:
 
 ```shell
 bash vello_bench/bench.sh web
 ```
 
-Pass flags to include additional categories in the WebAssembly artifact:
-
-```shell
-bash vello_bench/bench.sh web --non-simd --extended --f32
-```
-
 Compare two revisions in the browser with:
 
 ```shell
-bash vello_bench/bench.sh web --ab REVISION_A REVISION_B --f32
+bash vello_bench/bench.sh web --ab REVISION_A REVISION_B
 ```
 
-The browser contains the same timing benchmark groups as the native runner. The page can filter
-the categories included at build time, select cases, and change the timing.
+The browser contains the same timing benchmark groups as the native runner. Use the page's
+checkboxes to show extended, non-SIMD, and f32 variants, select cases, and change the timing.
 
 ## Measurement
 

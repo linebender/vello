@@ -78,6 +78,7 @@ async function loadBenchmarks() {
 
     runner = nextRunner;
     comparing = isComparing;
+    document.body.classList.toggle("comparing", comparing);
     nextRunner = undefined;
     populateCases(manifestA.cases);
     const extendedCount = manifestA.cases.filter(({ extended }) => extended).length;
@@ -282,9 +283,9 @@ function appendTreeRows(parent, depth = 0, parentPath = "") {
       row.append(
         selectionCell(input),
         name,
-        resultCell("result-a"),
-        resultCell("result-b"),
-        resultCell("result-change"),
+        resultCell("result-a", "A"),
+        resultCell("result-b", "B"),
+        resultCell("result-change", "Change"),
       );
     } else {
       row.className = "category";
@@ -300,7 +301,7 @@ function appendTreeRows(parent, depth = 0, parentPath = "") {
       };
       const name = document.createElement("th");
       name.className = "benchmark";
-      name.colSpan = 4;
+      name.colSpan = comparing ? 4 : 2;
       name.scope = "rowgroup";
       name.style.paddingLeft = `${0.5 + depth * 1.25}rem`;
       name.textContent = node.name;
@@ -318,9 +319,10 @@ function selectionCell(input) {
   return cell;
 }
 
-function resultCell(className) {
+function resultCell(className, label) {
   const cell = document.createElement("td");
   cell.className = className;
+  cell.dataset.label = label;
   cell.textContent = "—";
   return cell;
 }
@@ -390,6 +392,7 @@ function closeRunner() {
   runner?.close();
   runner = undefined;
   comparing = false;
+  document.body.classList.remove("comparing");
 }
 
 function showResult(

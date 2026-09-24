@@ -5,80 +5,183 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vello benchmarks</title>
     <style>
-      :root { color-scheme: light dark; font: 15px system-ui, sans-serif; --regression: #b42318; --improvement: #067647; }
-      @media (prefers-color-scheme: dark) {
-        :root { --regression: #ff7b72; --improvement: #56d364; }
+      :root {
+        color-scheme: light dark;
+        font: 15px/1.5 system-ui, sans-serif;
+        --background: #f5f6f8;
+        --surface: #fff;
+        --text: #20252b;
+        --muted: #626b76;
+        --border: #dce1e7;
+        --accent: #245ba8;
+        --soft: #edf3fa;
+        --regression: #b42318;
+        --improvement: #067647;
       }
-      body { max-width: 920px; margin: 2rem auto; padding: 0 1rem; }
-      label { display: block; margin: .8rem 0 .25rem; }
-      input, button { box-sizing: border-box; font: inherit; padding: .45rem; }
-      button { margin-top: .75rem; }
-      .toggle { align-items: center; display: flex; gap: .5rem; margin-top: 1rem; }
-      .toggle input { margin: 0; }
-      .setting { align-items: center; display: flex; gap: .5rem; }
-      .setting input { width: 7rem; }
-      .actions { align-items: baseline; display: flex; gap: .75rem; }
-      .actions span { color: #777; }
-      .extended { color: #777; font-size: .85em; margin-left: auto; }
-      table { border-collapse: collapse; margin-top: 1.5rem; width: 100%; }
-      th, td { border-bottom: 1px solid #8886; padding: .5rem; text-align: right; }
-      .selection { padding-left: .25rem; padding-right: .25rem; text-align: center; width: 1.5rem; }
-      .benchmark { text-align: left; }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --background: #14191f;
+          --surface: #1d252e;
+          --text: #e7ebf0;
+          --muted: #aab4c0;
+          --border: #36414c;
+          --accent: #8bb8ff;
+          --soft: #263544;
+          --regression: #ff7b72;
+          --improvement: #56d364;
+        }
+      }
+      body { background: var(--background); color: var(--text); margin: 0; }
+      main { margin: 0 auto; max-width: 1080px; padding: 2rem 1.25rem 4rem; }
+      h1, h2, p { margin-top: 0; }
+      h1 { font-size: clamp(1.8rem, 5vw, 2.4rem); letter-spacing: -.03em; margin-bottom: .3rem; }
+      h2 { font-size: 1.15rem; margin-bottom: 1rem; }
+      .intro { margin-bottom: 1.5rem; }
+      .intro p { color: var(--muted); margin-bottom: .5rem; }
+      #mode { color: var(--text); font-weight: 600; }
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: .85rem;
+        margin-top: 1rem;
+        padding: 1.25rem;
+      }
+      .settings { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .setting { display: grid; gap: .35rem; font-weight: 550; }
+      .input-with-unit { align-items: center; display: flex; gap: .5rem; }
+      .input-with-unit input { min-width: 0; width: 100%; }
+      .input-with-unit span { color: var(--muted); }
+      input, button { box-sizing: border-box; font: inherit; }
+      input[type="number"] {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: .5rem;
+        color: var(--text);
+        min-height: 2.75rem;
+        padding: .55rem .7rem;
+      }
+      input[type="checkbox"] { accent-color: var(--accent); height: 1.15rem; width: 1.15rem; }
+      input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .variants { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; margin-top: .9rem; }
+      .toggle, .select-all { align-items: center; display: inline-flex; gap: .5rem; }
+      .toggle[hidden] { display: none; }
+      .actions { align-items: center; display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.25rem; }
+      button {
+        background: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: .55rem;
+        color: var(--surface);
+        cursor: pointer;
+        font-weight: 650;
+        min-height: 2.75rem;
+        padding: .55rem 1rem;
+      }
+      button:disabled { cursor: default; opacity: .5; }
+      #selection-summary, #status { color: var(--muted); }
+      #status { margin-top: 1rem; min-height: 1.5rem; overflow-wrap: anywhere; }
+      .results-header { align-items: center; display: flex; flex-wrap: wrap; gap: .5rem 1rem; justify-content: space-between; }
+      .results-header h2 { margin-bottom: 0; }
+      .table-wrap { overflow-x: auto; }
+      table { border-collapse: collapse; font-variant-numeric: tabular-nums; width: 100%; }
+      th, td { border-bottom: 1px solid var(--border); padding: .7rem .55rem; text-align: right; }
+      thead th { color: var(--muted); font-size: .85rem; font-weight: 600; }
+      .selection { text-align: center; width: 2rem; }
+      .benchmark { overflow-wrap: anywhere; text-align: left; }
+      .category { background: var(--soft); }
       .category .benchmark { font-weight: 650; }
-      .case .benchmark { font-weight: 400; }
+      .case .benchmark { font-weight: 450; }
       .case[hidden], .category[hidden] { display: none; }
+      body:not(.comparing) .result-b, body:not(.comparing) .result-change { display: none; }
+      .extended { color: var(--muted); font-size: .8em; margin-left: .35rem; white-space: nowrap; }
       .regression { color: var(--regression); font-weight: 650; }
       .improvement { color: var(--improvement); font-weight: 650; }
-      #status { min-height: 1.5rem; margin-top: 1rem; }
+      @media (max-width: 700px) {
+        main { padding: 1.25rem .75rem 3rem; }
+        .panel { padding: 1rem; }
+        .settings { gap: .75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .setting:last-child { grid-column: 1 / -1; }
+        .actions button { width: 100%; }
+        .table-wrap { overflow: visible; }
+        table, tbody { display: block; }
+        thead { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; width: 1px; }
+        .category, .case { display: grid; grid-template-columns: 2rem minmax(0, 1fr); }
+        .category { align-items: center; border-radius: .5rem; margin-top: 1rem; padding: .4rem .5rem; }
+        .case { border-bottom: 1px solid var(--border); padding: .65rem .5rem; }
+        .selection, .benchmark { border: 0; padding: .2rem; }
+        .category .benchmark, .case .benchmark { padding-left: .2rem !important; }
+        .case .result-a, .case .result-b, .case .result-change {
+          border: 0;
+          display: flex;
+          gap: 1rem;
+          grid-column: 2;
+          justify-content: space-between;
+          padding: .15rem .2rem;
+          text-align: right;
+        }
+        .case td[data-label]::before { color: var(--muted); content: attr(data-label); font-weight: 400; }
+      }
     </style>
   </head>
   <body>
-    <h1>Vello benchmarks</h1>
-    <p>Runs the artifacts in one Web Worker with a configurable time budget per benchmark.</p>
-    <p id="mode">Loading artifacts…</p>
+    <main>
+      <header class="intro">
+        <h1>Vello benchmarks</h1>
+        <p>Measure and compare Vello benchmarks in your browser.</p>
+        <p id="mode">Loading artifacts…</p>
+      </header>
 
-    <label class="toggle" for="show-extended" hidden>
-      <input id="show-extended" type="checkbox">
-      Show extended benchmarks
-    </label>
+      <section class="panel" aria-labelledby="settings-heading">
+        <h2 id="settings-heading">Settings</h2>
+        <div class="settings">
+          <label class="setting" for="warmup-ms">
+            <span>Warmup per artifact</span>
+            <span class="input-with-unit"><input id="warmup-ms" type="number" min="0" step="50" value="250"><span>ms</span></span>
+          </label>
+          <label class="setting" for="measurement-ms">
+            <span>Measurement per artifact</span>
+            <span class="input-with-unit"><input id="measurement-ms" type="number" min="1" step="100" value="2000"><span>ms</span></span>
+          </label>
+          <label class="setting" for="sample-count">
+            <span>Samples per artifact</span>
+            <span class="input-with-unit"><input id="sample-count" type="number" min="1" step="1" value="30"></span>
+          </label>
+        </div>
 
-    <label class="toggle" for="show-non-simd" hidden>
-      <input id="show-non-simd" type="checkbox">
-      Show non-SIMD benchmarks
-    </label>
+        <div class="variants">
+          <label class="toggle" for="show-extended" hidden>
+            <input id="show-extended" type="checkbox">
+            Show extended benchmarks
+          </label>
+          <label class="toggle" for="show-non-simd" hidden>
+            <input id="show-non-simd" type="checkbox">
+            Show non-SIMD benchmarks
+          </label>
+          <label class="toggle" for="show-f32" hidden>
+            <input id="show-f32" type="checkbox">
+            Show f32 benchmarks
+          </label>
+        </div>
 
-    <label class="toggle" for="show-f32" hidden>
-      <input id="show-f32" type="checkbox">
-      Show f32 benchmarks
-    </label>
+        <div class="actions">
+          <button id="run" disabled>Run selected</button>
+          <span id="selection-summary"></span>
+        </div>
+        <div id="status"></div>
+      </section>
 
-    <label class="setting" for="warmup-ms">
-      Warmup per artifact
-      <input id="warmup-ms" type="number" min="0" step="50" value="250">
-      ms
-    </label>
-
-    <label class="setting" for="measurement-ms">
-      Measurement per artifact
-      <input id="measurement-ms" type="number" min="1" step="100" value="1000">
-      ms
-    </label>
-
-    <label class="setting" for="sample-count">
-      Samples per artifact
-      <input id="sample-count" type="number" min="1" step="1" value="20">
-    </label>
-
-    <div class="actions">
-      <button id="run" disabled>Run selected</button>
-      <span id="selection-summary"></span>
-    </div>
-
-    <div id="status"></div>
-    <table aria-label="Benchmarks">
-      <thead><tr><th class="selection"><input id="select-all" type="checkbox" aria-label="Select all shown" disabled></th><th class="benchmark">Benchmark</th><th>A</th><th>B</th><th>Change</th></tr></thead>
-      <tbody id="results"></tbody>
-    </table>
+      <section class="panel" aria-labelledby="benchmarks-heading">
+        <div class="results-header">
+          <h2 id="benchmarks-heading">Benchmarks</h2>
+          <label class="select-all" for="select-all"><input id="select-all" type="checkbox" disabled> Select all shown</label>
+        </div>
+        <div class="table-wrap">
+          <table aria-label="Benchmarks">
+            <thead><tr><th class="selection"></th><th class="benchmark">Benchmark</th><th>A</th><th class="result-b">B</th><th class="result-change">Change</th></tr></thead>
+            <tbody id="results"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
     <script type="module" src="main.js"></script>
   </body>
 </html>

@@ -14,19 +14,7 @@ cd "$repo_dir"
 usage() {
   echo "usage:"
   echo "  ./bench.sh cli [--ab REVISION_A REVISION_B] [FILTER] [--extended] [--non-simd] [--f32] [--warmup-ms MILLIS] [--measurement-ms MILLIS] [--samples COUNT]"
-  echo "  ./bench.sh web [--ab REVISION_A REVISION_B] [--extended] [--non-simd] [--f32]"
-}
-
-set_web_options() {
-  cargo_features=()
-  for option in "$@"; do
-    case "$option" in
-      --extended|--non-simd|--f32)
-        cargo_features+=(--features "${option#--}")
-        ;;
-      *) echo "unknown web option: $option" >&2; exit 2 ;;
-    esac
-  done
+  echo "  ./bench.sh web [--ab REVISION_A REVISION_B]"
 }
 
 cleanup_comparison() {
@@ -83,7 +71,7 @@ build_wasm() {
   local output="$2"
   RUSTFLAGS="-Ctarget-feature=+simd128" cargo build \
     --manifest-path "$source_dir/Cargo.toml" --release -p vello_bench --lib \
-    --target wasm32-unknown-unknown --target-dir "$target_dir" "${cargo_features[@]}"
+    --target wasm32-unknown-unknown --target-dir "$target_dir"
   cp "$target_dir/wasm32-unknown-unknown/release/vello_bench.wasm" "$output"
 }
 
@@ -114,7 +102,7 @@ case "$mode" in
       revision_a="$(git rev-parse --verify "${2:?missing revision A}^{commit}")"
       revision_b="$(git rev-parse --verify "${3:?missing revision B}^{commit}")"
       shift 3
-      set_web_options "$@"
+      if (($#)); then echo "unknown web option: $1" >&2; exit 2; fi
       begin_comparison
       mkdir -p "$generated_dir"
       select_revision "$revision_a"
@@ -122,7 +110,7 @@ case "$mode" in
       select_revision "$revision_b"
       build_wasm "$worktree" "$generated_dir/vello_bench_b.wasm"
     else
-      set_web_options "$@"
+      if (($#)); then echo "unknown web option: $1" >&2; exit 2; fi
       mkdir -p "$generated_dir"
       rm -f "$generated_dir/vello_bench_b.wasm"
       build_wasm "$repo_dir" "$generated_dir/vello_bench_a.wasm"

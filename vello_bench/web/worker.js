@@ -26,7 +26,7 @@ self.onmessage = async (event) => {
 
 async function loadArtifact(url) {
   const imports = { vello_bench: { now: () => performance.now() } };
-  const response = await fetch(url);
+  const response = await fetch(url, { cache: "no-store" });
   const bytes = await response.arrayBuffer();
   const wasm = (await WebAssembly.instantiate(bytes, imports)).instance.exports;
   const decoder = new TextDecoder();
