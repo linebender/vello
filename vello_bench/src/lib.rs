@@ -19,7 +19,6 @@ pub mod sort;
 pub mod strip;
 pub mod tile;
 
-/// Construct the benchmark registry.
 pub fn registry() -> harness::Registry {
     let mut registry = harness::Registry::new();
     fine::register(&mut registry);

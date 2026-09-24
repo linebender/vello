@@ -1,15 +1,12 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Paired native A/B measurements from two dynamic libraries.
-
 use super::runner::{average, next_iteration_count, standard_deviation};
 use super::{Registry, RunConfig, Selection};
 use libloading::Library;
 use std::io;
 use std::path::Path;
 
-/// Summary of paired samples from two libraries.
 #[derive(Debug)]
 pub struct Comparison {
     pub id: String,

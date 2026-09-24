@@ -65,12 +65,9 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 }
 
-/// Allocation activity observed while running one measured operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AllocationStats {
-    /// Successful allocation calls.
     pub allocations: usize,
-    /// Successful reallocation calls.
     pub reallocations: usize,
     /// Bytes newly requested from allocation and growing reallocation calls.
     pub allocated_bytes: usize,
@@ -80,8 +77,6 @@ pub struct AllocationStats {
     pub retained_bytes: isize,
 }
 
-/// Measures allocations made while executing `operation`.
-///
 /// Only one measurement may be active in the process. The measured operation should run on one
 /// thread and avoid unrelated background work because the allocator observes all process threads.
 pub fn measure<T>(operation: impl FnOnce() -> T) -> (T, AllocationStats) {

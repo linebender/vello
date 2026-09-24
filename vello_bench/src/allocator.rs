@@ -23,7 +23,6 @@ pub fn register(registry: &mut Registry) {
     });
 }
 
-/// Allocate 1000 rectangles with random sizes between 8x8 and 128x128.
 fn allocate_varied(registry: &mut Registry) {
     let mut rng = SmallRng::from_seed(SEED);
     let sizes: Vec<(u16, u16)> = (0..1000)
@@ -40,7 +39,6 @@ fn allocate_varied(registry: &mut Registry) {
     });
 }
 
-/// Pack as many 32x32 tiles as possible until the atlas is full.
 fn allocate_until_full(registry: &mut Registry) {
     registry.add("allocator/alloc_until_full_32x32", |b| {
         b.iter(|| {
@@ -54,8 +52,6 @@ fn allocate_until_full(registry: &mut Registry) {
     });
 }
 
-/// Steady-state churn: allocate 500 rects, then repeatedly deallocate one and allocate a new one
-/// (500 cycles). Measures reuse / merge performance under typical glyph-cache turnover.
 fn alloc_dealloc_churn(registry: &mut Registry) {
     let mut rng = SmallRng::from_seed(SEED);
     let sizes: Vec<(u16, u16)> = (0..1000)

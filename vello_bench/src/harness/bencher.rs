@@ -1,10 +1,6 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-/// Executes one measured sample of a benchmark.
-///
-/// Warmup, time-based sampling, and presentation live in the runner rather than in benchmark
-/// definitions.
 #[derive(Debug)]
 pub struct Bencher {
     iterations: u64,
@@ -19,7 +15,6 @@ impl Bencher {
         }
     }
 
-    /// Run `routine` for the iteration count selected by the harness.
     pub fn iter<R>(&mut self, mut routine: impl FnMut() -> R) {
         assert!(
             self.elapsed_nanos.is_none(),

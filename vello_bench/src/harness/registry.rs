@@ -4,7 +4,6 @@
 use super::Bencher;
 use core::fmt;
 
-/// One runnable benchmark variant.
 pub struct BenchmarkCase {
     id: String,
     run: Box<dyn Fn(&mut Bencher)>,
@@ -30,17 +29,14 @@ impl BenchmarkCase {
         &self.id
     }
 
-    /// Whether this case belongs to the slower, extended benchmark set.
     pub fn is_extended(&self) -> bool {
         self.extended
     }
 
-    /// Whether this case uses the scalar implementation.
     pub fn is_non_simd(&self) -> bool {
         self.non_simd
     }
 
-    /// Whether this case uses the f32 fine-rasterizer pipeline.
     pub fn is_f32(&self) -> bool {
         self.f32
     }
@@ -52,7 +48,6 @@ impl BenchmarkCase {
     }
 }
 
-/// Optional benchmark categories to include in a run.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Selection {
     pub extended: bool,
@@ -61,7 +56,6 @@ pub struct Selection {
 }
 
 impl Selection {
-    /// Whether a benchmark matches this selection and the given name filter.
     pub fn includes(&self, case: &BenchmarkCase, filter: &str) -> bool {
         case.id().contains(filter)
             && (self.extended || !case.is_extended())
@@ -70,7 +64,6 @@ impl Selection {
     }
 }
 
-/// Collection of registered benchmark cases.
 #[derive(Debug, Default)]
 pub struct Registry {
     cases: Vec<BenchmarkCase>,
@@ -80,12 +73,10 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// Create an empty registry.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Register one concrete benchmark implementation.
     pub fn add(&mut self, id: impl Into<String>, run: impl Fn(&mut Bencher) + 'static) {
         self.cases.push(BenchmarkCase {
             id: id.into(),
@@ -96,7 +87,6 @@ impl Registry {
         });
     }
 
-    /// Mark all cases registered by `register` as part of the extended set.
     pub(crate) fn extended(&mut self, register: impl FnOnce(&mut Self)) {
         let previous = self.registering_extended;
         self.registering_extended = true;
@@ -104,7 +94,6 @@ impl Registry {
         self.registering_extended = previous;
     }
 
-    /// Mark all cases registered by `register` as non-SIMD variants.
     pub(crate) fn non_simd(&mut self, register: impl FnOnce(&mut Self)) {
         let previous = self.registering_non_simd;
         self.registering_non_simd = true;
@@ -112,7 +101,6 @@ impl Registry {
         self.registering_non_simd = previous;
     }
 
-    /// Mark all cases registered by `register` as f32 variants.
     pub(crate) fn f32(&mut self, register: impl FnOnce(&mut Self)) {
         let previous = self.registering_f32;
         self.registering_f32 = true;
@@ -120,7 +108,6 @@ impl Registry {
         self.registering_f32 = previous;
     }
 
-    /// Sort cases by stable identifier and reject duplicates.
     pub fn finish(&mut self) {
         self.cases.sort_unstable_by(|a, b| a.id.cmp(&b.id));
         for pair in self.cases.windows(2) {
@@ -128,12 +115,10 @@ impl Registry {
         }
     }
 
-    /// All registered cases.
     pub fn cases(&self) -> &[BenchmarkCase] {
         &self.cases
     }
 
-    /// Look up a case by its stable identifier.
     pub fn find(&self, id: &str) -> Option<&BenchmarkCase> {
         self.cases
             .binary_search_by(|case| case.id.as_str().cmp(id))

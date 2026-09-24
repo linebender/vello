@@ -1,11 +1,6 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Library interface consumed by the browser and native comparison runner.
-//!
-//! Benchmark identifiers remain owned by a thread-local registry for the lifetime of the
-//! library instance.
-
 use crate::harness::Registry;
 use std::cell::OnceCell;
 
@@ -32,6 +27,7 @@ pub(crate) extern "C" fn vello_bench_case_count() -> u32 {
 #[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn vello_bench_case_name_ptr(index: u32) -> *const u8 {
+    // The thread-local registry owns the bytes behind this pointer.
     with_registry(|registry| registry.cases()[index as usize].id().as_ptr())
 }
 

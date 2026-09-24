@@ -1,8 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Integration benchmarks for full rendering pipelines.
-
 use std::sync::Arc;
 
 use crate::harness::Registry;
@@ -13,7 +11,6 @@ use vello_common::peniko::{Extend, ImageAlphaType, ImageQuality};
 use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_cpu::{RenderContext, Resources};
 
-/// Image scene rendering benchmark.
 pub fn register(registry: &mut Registry) {
     registry.extended(|registry| {
         let flower_image = load_flower_image();

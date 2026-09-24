@@ -1,8 +1,6 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Benchmark harness shared by the CLI and browser.
-
 mod bencher;
 #[cfg(not(target_arch = "wasm32"))]
 mod compare;

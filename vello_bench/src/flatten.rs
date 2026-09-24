@@ -15,7 +15,6 @@ pub fn register(registry: &mut Registry) {
     for item in get_data_items() {
         let expanded_strokes = item.expanded_strokes();
         registry.add(format!("flatten/{}", item.name), move |b| {
-            // Reuse allocations to better simulate real-world use.
             let mut line_buf: Vec<flatten::Line> = vec![];
             let mut temp_buf: Vec<flatten::Line> = vec![];
             let mut flatten_ctx = FlattenCtx::default();

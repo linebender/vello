@@ -4,14 +4,11 @@
 use super::BenchmarkCase;
 use core::time::Duration;
 
-/// Measurement settings used by every frontend.
 #[derive(Debug, Clone, Copy)]
 pub struct RunConfig {
     /// Target total execution time recorded for each benchmark.
     pub measurement_time: Duration,
-    /// Number of measured samples.
     pub sample_count: u32,
-    /// Approximate warmup duration.
     pub warmup_time: Duration,
 }
 
@@ -31,14 +28,12 @@ impl RunConfig {
     }
 }
 
-/// Results for one benchmark case.
 #[derive(Debug)]
 pub struct RunReport {
     pub average_nanos_per_iteration: f64,
     pub standard_deviation_nanos_per_iteration: f64,
 }
 
-/// Time-based warmup and sampling engine.
 #[derive(Debug)]
 pub struct Runner {
     config: RunConfig,
@@ -117,7 +112,6 @@ pub(crate) fn average(values: &[f64]) -> f64 {
     values.iter().sum::<f64>() / values.len() as f64
 }
 
-/// Sample standard deviation. A single observation has no measured variation and reports zero.
 pub(crate) fn standard_deviation(values: &[f64]) -> f64 {
     if values.len() < 2 {
         return 0.0;

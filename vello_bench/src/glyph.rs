@@ -46,8 +46,7 @@ pub fn register(registry: &mut Registry) {
                 true,
             );
 
-            // Even for `uncached`, the outline and hint cache will still be used. This only tests
-            // the difference between having atlas caching enabled and disabled.
+            // "uncached" disables atlas caching; outline and hint caches remain active.
             register_glyph_case(
                 registry,
                 format!("glyph/uncached_{hint_name}"),

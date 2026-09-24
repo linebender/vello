@@ -61,7 +61,6 @@ impl DataItem {
         }
     }
 
-    /// Get the raw flattened lines of both fills and strokes.
     pub fn lines(&self) -> Vec<Line> {
         let mut line_buf = vec![];
         let mut temp_buf = vec![];
@@ -99,7 +98,6 @@ impl DataItem {
         line_buf
     }
 
-    /// Get the expanded strokes.
     pub fn expanded_strokes(&self) -> Vec<BezPath> {
         let mut paths = vec![];
         let mut stroke_ctx = StrokeCtx::default();
@@ -116,7 +114,6 @@ impl DataItem {
         paths
     }
 
-    /// Get the unsorted tiles.
     pub fn unsorted_tiles(&self) -> Tiles {
         let mut tiles = Tiles::new(Level::new(), self.width, self.height);
         let lines = self.lines();
@@ -125,7 +122,6 @@ impl DataItem {
         tiles
     }
 
-    /// Get the sorted tiles.
     pub fn sorted_tiles(&self) -> Tiles {
         let mut tiles = self.unsorted_tiles();
         tiles.sort_tiles();
@@ -133,7 +129,6 @@ impl DataItem {
         tiles
     }
 
-    /// Get the alpha buffer and rendered strips.
     pub fn strips(&self) -> (Vec<u8>, Vec<Strip>) {
         let mut strip_buf = vec![];
         let mut alpha_buf = vec![];
