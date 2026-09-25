@@ -5,7 +5,9 @@ use crate::fine::macros::{f32x16_painter, u8x16_painter};
 use crate::fine::{PosExt, Splat4thExt, u8_to_f32};
 use crate::kurbo::Point;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4};
+use vello_common::fearless_simd::{
+    Bytes, Select, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4,
+};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
 
@@ -32,8 +34,7 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
         simd.vectorize(
             #[inline(always)]
             || {
-                let y_positions = extend(
-                    simd,
+                let y_positions = extend_mode(
                     f32x4::splat_pos(
                         simd,
                         data.cur_pos.y as f32,
@@ -69,8 +70,7 @@ impl<S: Simd> Iterator for PlainNNImagePainter<'_, S> {
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        let x_pos = extend(
-            self.simd,
+        let x_pos = extend_mode(
             self.cur_x_pos,
             self.data.image.sampler.x_extend,
             self.data.width,
@@ -113,8 +113,7 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        let x_positions = extend(
-            self.simd,
+        let x_positions = extend_mode(
             f32x4::splat_pos(
                 self.simd,
                 self.data.cur_pos.x as f32,
@@ -126,8 +125,7 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
             self.data.width_inv,
         );
 
-        let y_positions = extend(
-            self.simd,
+        let y_positions = extend_mode(
             f32x4::splat_pos(
                 self.simd,
                 self.data.cur_pos.y as f32,
@@ -218,8 +216,7 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
 
         macro_rules! extend_x {
             ($idx:expr,$offsets:expr) => {
-                extend(
-                    self.simd,
+                extend_mode(
                     x_positions + $offsets[$idx],
                     self.data.image.sampler.x_extend,
                     self.data.width,
@@ -230,8 +227,7 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
 
         macro_rules! extend_y {
             ($idx:expr,$offsets:expr) => {
-                extend(
-                    self.simd,
+                extend_mode(
                     y_positions + $offsets[$idx],
                     self.data.image.sampler.y_extend,
                     self.data.height,
@@ -428,8 +424,7 @@ pub(crate) fn sample<S: Simd>(
 }
 
 #[inline(always)]
-pub(crate) fn extend<S: Simd>(
-    simd: S,
+pub(crate) fn extend_mode<S: Simd>(
     val: f32x4<S>,
     extend: crate::peniko::Extend,
     max: f32x4<S>,
@@ -439,33 +434,24 @@ pub(crate) fn extend<S: Simd>(
         // Note that max should be exclusive, so subtract one to enforce that.
         // Since the maximum image dimensions we support is u16::MAX, subtracting 1 in f32
         // is enough to ensure that all numbers are subtracted correctly.
-        crate::peniko::Extend::Pad => val.min(max - 1.0).max(f32x4::splat(simd, 0.0)),
-        crate::peniko::Extend::Repeat => {
-            // floor := (val * inv_max).floor() * max is the nearest multiple of `max` below val.
-            max.mul_add(-(val * inv_max).floor(), val)
-                // In certain edge cases, we might still end up with a higher number.
-                .min(max - 1.0)
-        }
-        // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
+        crate::peniko::Extend::Pad => val.min(max - 1.0).max(0.0),
+        crate::peniko::Extend::Repeat => euclid_mod(val.floor(), max, inv_max),
         crate::peniko::Extend::Reflect => {
-            let u = val
-                - (val * inv_max * f32x4::splat(simd, 0.5)).floor() * f32x4::splat(simd, 2.0) * max;
-            let s = (u * inv_max).floor();
-            let m = u - f32x4::splat(simd, 2.0) * s * (u - max);
-
-            let bias_in_ulps = s.trunc();
-
-            let m_bits = u32x4::from_bytes(m.to_bytes());
-            // This would yield NaN if `m` is 0 and `bias_in_ulps` > 0, but since
-            // our `max` is always an integer number, u and s must also be an integer number
-            // and thus `m_bits` must be 0.
-            // Note that this is a wrapping sub!
-            let biased_bits = m_bits - bias_in_ulps.to_int::<u32x4<S>>();
-            f32x4::from_bytes(biased_bits.to_bytes())
-                // In certain edge cases, we might still end up with a higher number.
-                .min(max - 1.0)
+            let period = max + max;
+            let r = euclid_mod(val.floor(), period, inv_max * 0.5);
+            r.simd_ge(max).select(period - 1.0 - r, r)
         }
     }
+}
+
+#[inline(always)]
+fn euclid_mod<S: Simd>(t: f32x4<S>, m: f32x4<S>, inv_m: f32x4<S>) -> f32x4<S> {
+    let q = (t * inv_m).round_ties_even();
+    // Note that `fearless_simd` doesn't guarantee fused multiply-add on all backends, so this
+    // might cause precision issues. Maybe consider using `mul_add_precise`, but this will be slow
+    // on some targets.
+    let r = q.mul_add(-m, t);
+    r.simd_lt(0.0).select(r + m, r)
 }
 
 /// Calculate the weights for a single fractional value.
@@ -564,17 +550,87 @@ const fn cubic_resampler(b: f32, c: f32) -> [[f32; 4]; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vello_common::fearless_simd::Fallback;
+    use vello_common::fearless_simd::{Fallback, SimdMask};
+
+    fn assert_extend(mode: crate::peniko::Extend, max: f32, values: [f32; 4], expected: [u32; 4]) {
+        let simd = Fallback::new();
+        let inv_max = f32x4::splat(simd, 1.0 / max);
+        let max = f32x4::splat(simd, max);
+        let values = f32x4::from_slice(simd, &values);
+        let extended = extend_mode(values, mode, max, inv_max).to_int::<u32x4<_>>();
+        let expected = u32x4::from_slice(simd, &expected);
+
+        assert!(
+            extended.simd_eq(expected).all_true(),
+            "expected {expected:?}, got {extended:?}"
+        );
+    }
 
     #[test]
-    fn extend_overflow() {
-        let simd = Fallback::new();
-        let max = f32x4::splat(simd, 128.0);
-        let max_inv = 1.0 / max;
+    fn taps_at_boundaries() {
+        assert_extend(
+            crate::peniko::Extend::Reflect,
+            2.0,
+            [(-1.0_f32).next_down(); 4],
+            [1; 4],
+        );
+        assert_extend(
+            crate::peniko::Extend::Repeat,
+            3.0,
+            [15.0_f32.next_down(); 4],
+            [2; 4],
+        );
+    }
 
-        let num = f32x4::splat(simd, 127.00001);
-        let res = extend(simd, num, crate::peniko::Extend::Repeat, max, max_inv);
+    #[test]
+    fn repeat() {
+        assert_extend(
+            crate::peniko::Extend::Repeat,
+            10.0,
+            [-f32::EPSILON, -1.25, 9.75, 12.25],
+            [9, 8, 9, 2],
+        );
+    }
 
-        assert!(res[0] <= 127.0);
+    #[test]
+    fn reflect() {
+        assert_extend(
+            crate::peniko::Extend::Reflect,
+            10.0,
+            [-1.25, 0.25, 9.75, 12.25],
+            [1, 0, 9, 7],
+        );
+    }
+
+    #[test]
+    fn large_image() {
+        assert_extend(
+            crate::peniko::Extend::Repeat,
+            4096.0,
+            [-4097.25, 4096.25, 12_345.75, 1_000_000.75],
+            [4094, 0, 57, 576],
+        );
+        assert_extend(
+            crate::peniko::Extend::Reflect,
+            4096.0,
+            [-4097.25, 4096.25, 12_345.75, 1_000_000.75],
+            [4094, 4095, 4038, 576],
+        );
+    }
+
+    #[test]
+    fn large_coordinates_preserve_texel() {
+        assert_extend(
+            crate::peniko::Extend::Repeat,
+            2.0,
+            [16_777_215.0, -16_777_215.0, 16_777_215.0, -16_777_215.0],
+            [1; 4],
+        );
+        assert_extend(
+            crate::peniko::Extend::Reflect,
+            3.0,
+            [16_777_215.0, -16_777_215.0, 16_777_215.0, -16_777_215.0],
+            [2; 4],
+        );
     }
 }
