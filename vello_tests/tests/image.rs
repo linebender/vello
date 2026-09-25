@@ -411,6 +411,28 @@ fn image_opaque_with_blend_mode(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
+/// A singular paint transform covers no area, so the image must leave the purple square untouched.
+/// The blend mode also verifies that the skipped draw does not leave an empty layer behind.
+#[vello_test]
+fn image_zero_paint_transform_with_blend_mode(ctx: &mut impl Renderer) {
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&Rect::new(20.0, 20.0, 80.0, 80.0));
+
+    ctx.set_blend_mode(BlendMode::new(Mix::Difference, Compose::SrcOver));
+    let image_source = rgb_img_10x10(ctx);
+    ctx.set_paint_transform(Affine::new([0.0; 6]));
+    ctx.set_paint(Image {
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend: Extend::Reflect,
+            y_extend: Extend::Reflect,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
+    });
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+}
+
 fn quality(
     ctx: &mut impl Renderer,
     transform: Affine,

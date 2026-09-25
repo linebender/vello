@@ -13,7 +13,7 @@ use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::clip::{ClipRef, ClipShape};
-use vello_common::encode::{EncodeExt, EncodedPaint};
+use vello_common::encode::{EncodeExt, EncodedPaint, invert_paint_transform};
 use vello_common::fearless_simd::Level;
 use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
@@ -289,14 +289,16 @@ impl Scene {
     /// this encodes the paint data into the `encoded_paints` buffer and returns
     /// a `Paint` that references that data. The combined transform (geometry + paint)
     /// is applied during encoding.
-    fn encode_current_paint(&mut self) -> Paint {
+    ///
+    /// Returns `None` if the current paint cannot cover any pixels (see [`Self::paint_has_area`]).
+    fn encode_current_paint(&mut self) -> Option<Paint> {
         // Note: In vello_cpu, during fine rasterization we apply a 0.5 offset to the location
         // to account for the fact that we want to sample the pixel center instead of the top-left
         // corner. For vello_gpu, we don't need this, because the GPU itself already applies
         // this shift automatically.
         let transform = self.effective_paint_transform();
         match self.render_state.paint.clone() {
-            PaintType::Solid(s) => s.into(),
+            PaintType::Solid(s) => Some(s.into()),
             PaintType::Gradient(g) => g.encode_into(&mut self.encoded_paints, transform, None),
             PaintType::Image(i) => {
                 i.encode_into(&mut self.encoded_paints, transform, self.render_state.tint)
@@ -304,14 +306,32 @@ impl Scene {
         }
     }
 
+    /// Whether the effective paint transform maps paint space onto a non-zero area.
+    ///
+    /// A singular transform collapses images, gradients and blurred rectangles onto a line or a
+    /// point, so drawing with it must not touch any pixel. Checked before pushing a blend or
+    /// filter layer so that a skipped draw does not leave an empty layer behind.
+    fn paint_transform_has_area(&self) -> bool {
+        invert_paint_transform(self.effective_paint_transform()).is_some()
+    }
+
+    /// Whether drawing with the current paint can produce any pixels.
+    fn paint_has_area(&self) -> bool {
+        self.paint_visible
+            && (matches!(self.render_state.paint, PaintType::Solid(_))
+                || self.paint_transform_has_area())
+    }
+
     /// Fill a path with the current paint and fill rule.
     pub fn fill_path(&mut self, path: &BezPath) {
-        if !self.paint_visible {
+        if !self.paint_has_area() {
             return;
         }
 
         self.with_optional_filter_or_blend_layer(|ctx| {
-            let paint = ctx.encode_current_paint();
+            let Some(paint) = ctx.encode_current_paint() else {
+                return;
+            };
             ctx.fill_path_with(
                 path,
                 ctx.effective_path_transform(),
@@ -378,12 +398,14 @@ impl Scene {
 
     /// Stroke a path with the current paint and stroke settings.
     pub fn stroke_path(&mut self, path: &BezPath) {
-        if !self.paint_visible {
+        if !self.paint_has_area() {
             return;
         }
 
         self.with_optional_filter_or_blend_layer(|ctx| {
-            let paint = ctx.encode_current_paint();
+            let Some(paint) = ctx.encode_current_paint() else {
+                return;
+            };
             ctx.stroke_path_with(
                 path,
                 ctx.effective_path_transform(),
@@ -431,12 +453,14 @@ impl Scene {
 
     /// Fill a rectangle with the current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        if !self.paint_visible || rect.is_zero_area() {
+        if !self.paint_has_area() || rect.is_zero_area() {
             return;
         }
 
         self.with_optional_filter_or_blend_layer(|ctx| {
-            let paint = ctx.encode_current_paint();
+            let Some(paint) = ctx.encode_current_paint() else {
+                return;
+            };
 
             if let Some(bounds) = ctx.fast_rect_bounds(rect) {
                 ctx.recorder
@@ -535,7 +559,7 @@ impl Scene {
         std_dev: f32,
         invert: bool,
     ) {
-        if !self.paint_visible {
+        if !self.paint_visible || !self.paint_transform_has_area() {
             return;
         }
 
@@ -556,7 +580,10 @@ impl Scene {
             let kernel_size = 2.5 * std_dev;
             let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
             let transform = ctx.effective_paint_transform();
-            let paint = blurred_rect.encode_into(&mut ctx.encoded_paints, transform, None);
+            let Some(paint) = blurred_rect.encode_into(&mut ctx.encoded_paints, transform, None)
+            else {
+                return;
+            };
 
             if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
                 ctx.recorder

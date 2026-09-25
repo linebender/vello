@@ -21,7 +21,7 @@ use alloc::vec::Vec;
 use hashbrown::HashMap;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::encode::{EncodeExt, EncodedPaint};
+use vello_common::encode::{EncodeExt, EncodedPaint, invert_paint_transform};
 use vello_common::fearless_simd::Level;
 use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
@@ -242,9 +242,10 @@ impl RenderContext {
         &mut self.state.transforms
     }
 
-    fn encode_current_paint(&mut self) -> Paint {
+    /// Returns `None` if the current paint cannot cover any pixels (see [`Self::paint_has_area`]).
+    fn encode_current_paint(&mut self) -> Option<Paint> {
         match self.state.paint.clone() {
-            PaintType::Solid(s) => s.into(),
+            PaintType::Solid(s) => Some(s.into()),
             PaintType::Gradient(g) => {
                 let transform = self
                     .root_transforms
@@ -261,12 +262,35 @@ impl RenderContext {
         }
     }
 
+    /// Whether the effective paint transform maps paint space onto a non-zero area.
+    ///
+    /// A singular transform collapses images, gradients and blurred rectangles onto a line or a
+    /// point, so drawing with it must not touch any pixel. Checked before pushing a filter layer
+    /// so that a skipped draw does not leave an empty layer behind.
+    fn paint_transform_has_area(&self) -> bool {
+        let transform = self
+            .root_transforms
+            .effective_paint_transform(self.transforms());
+        invert_paint_transform(transform).is_some()
+    }
+
+    /// Whether drawing with the current paint can produce any pixels.
+    fn paint_has_area(&self) -> bool {
+        matches!(self.state.paint, PaintType::Solid(_)) || self.paint_transform_has_area()
+    }
+
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
+        if !self.paint_has_area() {
+            return;
+        }
+
         // TODO: Similarly to Vello GPU, make sure that inline blend + filter are applied
         // to the same layer.
         self.with_optional_filter(|ctx| {
-            let paint = ctx.encode_current_paint();
+            let Some(paint) = ctx.encode_current_paint() else {
+                return;
+            };
             let transform = ctx
                 .root_transforms
                 .effective_path_transform(ctx.transforms());
@@ -284,8 +308,14 @@ impl RenderContext {
 
     /// Stroke a path.
     pub fn stroke_path(&mut self, path: &BezPath) {
+        if !self.paint_has_area() {
+            return;
+        }
+
         self.with_optional_filter(|ctx| {
-            let paint = ctx.encode_current_paint();
+            let Some(paint) = ctx.encode_current_paint() else {
+                return;
+            };
             let transform = ctx
                 .root_transforms
                 .effective_path_transform(ctx.transforms());
@@ -303,8 +333,14 @@ impl RenderContext {
 
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
+        if !self.paint_has_area() {
+            return;
+        }
+
         self.with_optional_filter(|ctx| {
-            let paint = ctx.encode_current_paint();
+            let Some(paint) = ctx.encode_current_paint() else {
+                return;
+            };
             let transform = ctx
                 .root_transforms
                 .effective_path_transform(ctx.transforms());
@@ -339,9 +375,15 @@ impl RenderContext {
 
     /// Stroke a rectangle.
     pub fn stroke_rect(&mut self, rect: &Rect) {
+        if !self.paint_has_area() {
+            return;
+        }
+
         self.with_optional_filter(|ctx| {
             ctx.rect_to_temp_path(rect);
-            let paint = ctx.encode_current_paint();
+            let Some(paint) = ctx.encode_current_paint() else {
+                return;
+            };
             let transform = ctx
                 .root_transforms
                 .effective_path_transform(ctx.transforms());
@@ -413,9 +455,12 @@ impl RenderContext {
             .root_transforms
             .effective_paint_transform(self.transforms());
 
-        self.rect_to_temp_path(&inflated_rect);
+        let Some(paint) = blurred_rect.encode_into(&mut self.encoded_paints, paint_transform, None)
+        else {
+            return;
+        };
 
-        let paint = blurred_rect.encode_into(&mut self.encoded_paints, paint_transform, None);
+        self.rect_to_temp_path(&inflated_rect);
         self.dispatcher.fill_path(
             &self.temp_path,
             Fill::NonZero,
