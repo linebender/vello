@@ -271,13 +271,13 @@ jobs:
         include:
           - os: ubuntu-latest
             gpu: 'yes'
-            packages: --workspace
-            features: --all-features
+            packages: -p vello_tests -p vello_research_tests
+            features: --no-default-features
             rustflags: ''
           - os: macos-latest
             gpu: 'yes'
-            packages: -p vello_tests -p vello_research_tests
-            features: --no-default-features
+            packages: --workspace
+            features: --all-features
             rustflags: ''
           - os: windows-latest
             # TODO: The windows runners theoretically have CPU fallback for GPUs, but
@@ -360,7 +360,7 @@ jobs:
             vello_tests/diffs
 
       - name: cargo test --doc
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'macos-latest'
         run: cargo test --doc --workspace --locked --all-features --no-fail-fast
 
   test-avx512:
