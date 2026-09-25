@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::PosExt;
-use crate::fine::common::image::{ImagePainterData, extend_mode, fract_floor, sample};
+use crate::fine::common::image::{ImagePainterData, extend_mode, sample};
 use crate::fine::macros::u8x16_painter;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{f32x4, prelude::*, u8x16, u16x16};
@@ -68,13 +68,18 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
             )
         };
 
+        let x_shifted = x_positions + 0.5;
+        let y_shifted = y_positions + 0.5;
+        let x_base = x_shifted.floor();
+        let y_base = y_shifted.floor();
+
         let fx = f32_to_u8(element_wise_splat(
             self.simd,
-            fract_floor(x_positions + 0.5).mul_add(255.0, 0.5),
+            (x_shifted - x_base).mul_add(255.0, 0.5),
         ));
         let fy = f32_to_u8(element_wise_splat(
             self.simd,
-            fract_floor(y_positions + 0.5).mul_add(255.0, 0.5),
+            (y_shifted - y_base).mul_add(255.0, 0.5),
         ));
 
         let fx = widen(fx);
@@ -82,10 +87,10 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
         let fx_inv = u16x16::splat(self.simd, 255) - fx;
         let fy_inv = u16x16::splat(self.simd, 255) - fy;
 
-        let x_pos1 = extend_x(x_positions - 0.5);
-        let x_pos2 = extend_x(x_positions + 0.5);
-        let y_pos1 = extend_y(y_positions - 0.5);
-        let y_pos2 = extend_y(y_positions + 0.5);
+        let x_pos1 = extend_x(x_base - 1.0);
+        let x_pos2 = extend_x(x_base);
+        let y_pos1 = extend_y(y_base - 1.0);
+        let y_pos2 = extend_y(y_base);
 
         let p00 = widen(sample(self.simd, &self.data, x_pos1, y_pos1));
         let p10 = widen(sample(self.simd, &self.data, x_pos2, y_pos1));
@@ -147,24 +152,23 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
                     data.y_advances.1,
                 );
 
+                let y_shifted = y_positions + 0.5;
+                let y_base = y_shifted.floor();
+
                 // Pre-compute y extend positions
                 let y_pos1 = extend_mode(
-                    y_positions - 0.5,
+                    y_base - 1.0,
                     image.sampler.y_extend,
                     data.height,
                     data.height_inv,
                 );
-                let y_pos2 = extend_mode(
-                    y_positions + 0.5,
-                    image.sampler.y_extend,
-                    data.height,
-                    data.height_inv,
-                );
+                let y_pos2 =
+                    extend_mode(y_base, image.sampler.y_extend, data.height, data.height_inv);
 
                 // Pre-compute y interpolation weights
                 let fy = f32_to_u8(element_wise_splat(
                     simd,
-                    fract_floor(y_positions + 0.5).mul_add(255.0, 0.5),
+                    (y_shifted - y_base).mul_add(255.0, 0.5),
                 ));
                 let fy = widen(fy);
                 let fy_inv = u16x16::splat(simd, 255) - fy;
@@ -196,18 +200,18 @@ impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        let x_minus_half = self.cur_x_pos - 0.5;
-        let x_plus_half = self.cur_x_pos + 0.5;
+        let x_shifted = self.cur_x_pos + 0.5;
+        let x_base = x_shifted.floor();
 
         // Only x needs to be extended per-iteration
         let x_pos1 = extend_mode(
-            x_minus_half,
+            x_base - 1.0,
             self.data.image.sampler.x_extend,
             self.data.width,
             self.data.width_inv,
         );
         let x_pos2 = extend_mode(
-            x_plus_half,
+            x_base,
             self.data.image.sampler.x_extend,
             self.data.width,
             self.data.width_inv,
@@ -216,7 +220,7 @@ impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
         // Compute x interpolation weights
         let fx = f32_to_u8(element_wise_splat(
             self.simd,
-            fract_floor(x_plus_half).mul_add(255.0, 0.5),
+            (x_shifted - x_base).mul_add(255.0, 0.5),
         ));
         let fx = widen(fx);
         let fx_inv = u16x16::splat(self.simd, 255) - fx;
