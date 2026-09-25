@@ -557,7 +557,7 @@ jobs:
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.event_name != 'merge_group' }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           cache-bin: ${{ matrix.os != 'macos-latest' }} # works around https://github.com/Swatinem/rust-cache/issues/341
 
       - name: cargo check (no_std)
