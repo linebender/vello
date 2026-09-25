@@ -24,6 +24,7 @@ mod error;
 #[cfg(feature = "probe")]
 pub(crate) mod probe;
 pub(crate) mod resource;
+mod timing;
 
 #[cfg(feature = "probe")]
 pub use error::WebGlProbeOperation;
@@ -33,6 +34,7 @@ pub use error::{
     WebGlOperation, WebGlResourceKind, WebGlShaderInterfaceOperation, WebGlShaderProgramOperation,
     WebGlShaderStage,
 };
+pub use timing::WebGlRendererInitTimings;
 
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
@@ -72,6 +74,7 @@ use alloc::vec::Vec;
 use glifo::PendingClearRect;
 use hashbrown::HashMap;
 use resource::{Buffer, FragmentShader, Framebuffer, Program, Texture, VertexArray, VertexShader};
+use timing::{PendingRendererInitTiming, RendererInitTiming};
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::image_cache::{ImageCache, ImageResource};
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
@@ -156,6 +159,7 @@ pub struct WebGlRenderer {
     schedule_storage: ScheduleStorage,
     scratch_buffers: ScratchBuffers,
     layers_config: LayersConfig,
+    initialization_timings: WebGlRendererInitTimings,
 }
 
 /// WebGL renderer initialization that may still be compiling shader programs.
@@ -169,6 +173,7 @@ pub struct WebGlRendererInit {
     gl: WebGl2RenderingContext,
     gradient_cache: GradientRampCache,
     layers_config: LayersConfig,
+    timing: PendingRendererInitTiming,
 }
 
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
@@ -229,6 +234,11 @@ pub struct AtlasTextureInfo {
 }
 
 impl WebGlRenderer {
+    /// Returns the time spent constructing this renderer.
+    pub fn initialization_timings(&self) -> WebGlRendererInitTimings {
+        self.initialization_timings
+    }
+
     /// Creates a new WebGL2 renderer and its persistent resources.
     ///
     /// This blocks until shader compilation and linking finish. Use [`WebGlRenderer::begin`] when
@@ -282,6 +292,7 @@ impl WebGlRenderer {
                 "`WebGlRenderer` can only be constructed when targeting `wasm32`",
             );
         }
+        let mut timing = RendererInitTiming::start();
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         // We do our own anti-aliasing, so no need to enable it in the WebGL
@@ -402,26 +413,42 @@ impl WebGlRenderer {
                 ));
             }
         }
-        let resources = Resources::new(settings.memory_settings.image_atlas_config);
-        let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
+        timing.context_created();
 
-        // Estimate the maximum number of gradient cache entries based on the resource texture
-        // dimension and the maximum gradient LUT size - worst case scenario.
-        let max_gradient_cache_size = resource_texture_dimension_2d * resource_texture_dimension_2d
-            / MAX_GRADIENT_LUT_SIZE as u32;
-        let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
-        let layer_config = settings.memory_settings.layers_config;
+        let (resources, resource_texture_dimension_2d, gradient_cache, layer_config) = timing
+            .measure_resource_initialization(|| {
+                let resources = Resources::new(settings.memory_settings.image_atlas_config);
+                let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
+
+                // Estimate the maximum number of gradient cache entries based on the resource
+                // texture dimension and the maximum gradient LUT size - worst case scenario.
+                let max_gradient_cache_size = resource_texture_dimension_2d
+                    * resource_texture_dimension_2d
+                    / MAX_GRADIENT_LUT_SIZE as u32;
+                let gradient_cache =
+                    GradientRampCache::new(max_gradient_cache_size, settings.level);
+                let layer_config = settings.memory_settings.layers_config;
+                (
+                    resources,
+                    resource_texture_dimension_2d,
+                    gradient_cache,
+                    layer_config,
+                )
+            });
+        let programs = PendingWebGlPrograms::new(
+            gl.clone(),
+            &resources.image_cache,
+            layer_config,
+            resource_texture_dimension_2d,
+            use_depth_buffer,
+            &mut timing,
+        )?;
         let init = WebGlRendererInit {
-            programs: PendingWebGlPrograms::new(
-                gl.clone(),
-                &resources.image_cache,
-                layer_config,
-                resource_texture_dimension_2d,
-                use_depth_buffer,
-            )?,
+            programs,
             gl,
             gradient_cache,
             layers_config: layer_config,
+            timing: timing.setup_complete(),
         };
 
         Ok((init, resources))
@@ -1082,9 +1109,11 @@ impl WebGlRendererInit {
     ///
     /// On browsers without the extension, this synchronously finishes initialization and returns
     /// [`WebGlRendererInitStatus::Complete`].
-    pub fn try_finish(self) -> Result<WebGlRendererInitStatus, WebGlError> {
+    pub fn try_finish(mut self) -> Result<WebGlRendererInitStatus, WebGlError> {
+        self.timing.record_poll();
         if self.programs.is_complete(&self.gl) {
-            Ok(WebGlRendererInitStatus::Complete(self.finish()?))
+            self.timing.shader_completion_observed();
+            Ok(WebGlRendererInitStatus::Complete(self.finish_inner()?))
         } else {
             Ok(WebGlRendererInitStatus::Pending(self))
         }
@@ -1095,19 +1124,34 @@ impl WebGlRendererInit {
     /// Prefer [`WebGlRendererInit::try_finish`] when blocking the browser's main thread is
     /// undesirable.
     pub fn finish(self) -> Result<WebGlRenderer, WebGlError> {
-        let programs = self.programs.finish(&self.gl)?;
+        self.finish_inner()
+    }
 
-        Ok(WebGlRenderer {
+    fn finish_inner(self) -> Result<WebGlRenderer, WebGlError> {
+        let Self {
             programs,
-            gl: self.gl,
+            gl,
+            gradient_cache,
+            layers_config,
+            timing,
+        } = self;
+        let finalization_timing = timing.begin_finalization();
+        let programs = programs.finish(&gl)?;
+
+        let mut renderer = WebGlRenderer {
+            programs,
+            gl,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
-            gradient_cache: self.gradient_cache,
+            gradient_cache,
             dummy_image_cache: Some(ImageCache::new_dummy()),
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
-            layers_config: self.layers_config,
-        })
+            layers_config,
+            initialization_timings: WebGlRendererInitTimings::default(),
+        };
+        renderer.initialization_timings = finalization_timing.finish();
+        Ok(renderer)
     }
 }
 
@@ -1490,38 +1534,54 @@ impl PendingWebGlPrograms {
         layer_config: LayersConfig,
         resource_texture_dimension_2d: u32,
         use_depth_buffer: bool,
+        timing: &mut RendererInitTiming,
     ) -> Result<Self, WebGlError> {
-        let parallel_shader_compile = gl
-            .get_extension("KHR_parallel_shader_compile")
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
-            .is_some();
+        let (parallel_shader_compile, strip_program, filter_program, blend_program, copy_program) =
+            timing.measure_shader_submission(|| -> Result<_, WebGlError> {
+                let parallel_shader_compile = gl
+                    .get_extension("KHR_parallel_shader_compile")
+                    .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
+                    .is_some();
 
-        let strip_program =
-            PendingShaderProgram::new(&gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE)?;
-        let filter_program = PendingShaderProgram::new(
-            &gl,
-            filter_shader::VERTEX_SOURCE,
-            filter_shader::FRAGMENT_SOURCE,
-        )?;
-        let blend_program =
-            PendingShaderProgram::new(&gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE)?;
-        let copy_program =
-            PendingShaderProgram::new(&gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE)?;
+                let strip_program =
+                    PendingShaderProgram::new(&gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE)?;
+                let filter_program = PendingShaderProgram::new(
+                    &gl,
+                    filter_shader::VERTEX_SOURCE,
+                    filter_shader::FRAGMENT_SOURCE,
+                )?;
+                let blend_program =
+                    PendingShaderProgram::new(&gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE)?;
+                let copy_program =
+                    PendingShaderProgram::new(&gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE)?;
+                Ok((
+                    parallel_shader_compile,
+                    strip_program,
+                    filter_program,
+                    blend_program,
+                    copy_program,
+                ))
+            })?;
 
-        let resources = create_webgl_resources(
-            &gl,
-            image_cache,
-            layer_config,
-            resource_texture_dimension_2d,
-            use_depth_buffer,
-        )?;
+        let (resources, encoded_paints_data) =
+            timing.measure_resource_initialization(|| -> Result<_, WebGlError> {
+                let resources = create_webgl_resources(
+                    &gl,
+                    image_cache,
+                    layer_config,
+                    resource_texture_dimension_2d,
+                    use_depth_buffer,
+                )?;
 
-        initialize_strip_vao(&gl, &resources);
-        initialize_filter_vao(&gl, &resources);
-        initialize_blend_vao(&gl, &resources);
-        initialize_copy_vao(&gl, &resources);
+                initialize_strip_vao(&gl, &resources);
+                initialize_filter_vao(&gl, &resources);
+                initialize_blend_vao(&gl, &resources);
+                initialize_copy_vao(&gl, &resources);
 
-        let encoded_paints_data = vec![0; (resources.resource_texture_dimension_2d << 4) as usize];
+                let encoded_paints_data =
+                    vec![0; (resources.resource_texture_dimension_2d << 4) as usize];
+                Ok((resources, encoded_paints_data))
+            })?;
 
         Ok(Self {
             parallel_shader_compile,

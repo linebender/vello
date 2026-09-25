@@ -27,6 +27,7 @@ hashbrown = { workspace = true }
 js-sys = { workspace = true, optional = true }
 web-sys = { workspace = true, features = [
     "HtmlCanvasElement",
+    "Performance",
     "WebGl2RenderingContext",
     "WebGlContextAttributes",
     "WebGlProgram",
@@ -38,6 +39,7 @@ web-sys = { workspace = true, features = [
     "WebGlFramebuffer",
     "WebGlRenderbuffer",
     "WebGlVertexArrayObject",
+    "Window",
 ], optional = true }
 
 [dev-dependencies]

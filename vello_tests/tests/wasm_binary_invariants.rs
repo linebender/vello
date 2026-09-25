@@ -96,8 +96,8 @@ async fn run_webgl_probe(use_depth_buffer: bool) {
 
     for _ in 0..MAX_FRAMES {
         match pending.try_finish() {
-            Ok(WebGlProbeStatus::Complete(result)) => {
-                assert!(result.is_success(), "probe failed unexpectedly");
+            Ok(WebGlProbeStatus::Complete(report)) => {
+                assert!(report.is_success(), "probe failed unexpectedly");
                 return;
             }
             Ok(WebGlProbeStatus::Pending(next_pending)) => {
