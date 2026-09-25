@@ -22,8 +22,40 @@
       body { background: var(--background); color: var(--text); margin: 0; }
       [hidden] { display: none !important; }
       main { margin: 0 auto; max-width: 1600px; padding: .75rem 1rem 2rem; }
-      .controls { border-bottom: 1px solid var(--border); padding-bottom: .6rem; }
-      .settings { display: grid; gap: .6rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .controls {
+        background: var(--background);
+        border-bottom: 1px solid var(--border);
+        padding: .5rem 0 .6rem;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+      .timing-settings { position: relative; }
+      .timing-settings summary {
+        border: 1px solid var(--border);
+        border-radius: .35rem;
+        box-sizing: border-box;
+        color: var(--text);
+        cursor: pointer;
+        font-weight: 600;
+        min-height: 2rem;
+        padding: .25rem .7rem;
+      }
+      .timing-settings summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .settings {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: .35rem;
+        box-shadow: 0 .5rem 1.5rem #0008;
+        display: grid;
+        gap: .6rem;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        padding: .75rem;
+        position: absolute;
+        right: 0;
+        top: calc(100% + .4rem);
+        width: min(27rem, calc(100vw - 2rem));
+      }
       .setting { display: grid; font-size: .85rem; font-weight: 600; gap: .2rem; }
       .input-with-unit { align-items: center; display: flex; gap: .3rem; }
       .input-with-unit input { min-width: 0; width: 100%; }
@@ -39,7 +71,7 @@
       }
       input[type="checkbox"] { accent-color: var(--accent); height: 1rem; margin: 0; width: 1rem; }
       input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-      .controls-row { align-items: center; display: flex; flex-wrap: wrap; gap: .4rem .8rem; margin-top: .55rem; }
+      .controls-row { align-items: center; display: flex; flex-wrap: wrap; gap: .4rem .8rem; }
       .variants, .actions { align-items: center; display: flex; flex-wrap: wrap; gap: .3rem .8rem; }
       .actions { margin-left: auto; }
       .toggle, .select-all { align-items: center; display: inline-flex; gap: .3rem; white-space: nowrap; }
@@ -89,12 +121,15 @@
       @media (min-width: 1500px) { .results-grid { column-count: 4; } }
       @media (max-width: 700px) {
         main { padding: .45rem .5rem 1.5rem; }
+        .controls { position: static; }
         .settings { gap: .35rem; }
         .input-with-unit { gap: .15rem; }
         input[type="number"] { padding: .2rem .3rem; }
         .controls-row { display: block; }
         .variants { gap: .25rem .6rem; }
         .actions { justify-content: space-between; margin-top: .4rem; }
+        .timing-settings[open] { flex-basis: 100%; }
+        .timing-settings[open] .settings { box-shadow: none; margin-top: .4rem; position: static; width: auto; }
         .group { margin-bottom: .35rem; }
         .category { padding: .1rem .2rem; }
         .case { padding: .1rem .2rem; }
@@ -104,25 +139,12 @@
         body:not(.comparing) .case .benchmark { flex: 1 0 auto; max-width: calc(100% - 1.4rem); }
         body:not(.comparing) .case .result-a { flex: 0 0 auto; margin-left: auto; }
       }
+      @media (max-height: 450px) { .controls { position: static; } }
     </style>
   </head>
   <body>
     <main>
       <div class="controls">
-        <div class="settings">
-          <label class="setting" for="warmup-ms">
-            <span>Warmup</span>
-            <span class="input-with-unit"><input id="warmup-ms" type="number" min="0" step="50" value="250"><span>ms</span></span>
-          </label>
-          <label class="setting" for="measurement-ms">
-            <span>Measure</span>
-            <span class="input-with-unit"><input id="measurement-ms" type="number" min="1" step="100" value="2000"><span>ms</span></span>
-          </label>
-          <label class="setting" for="sample-count">
-            <span>Samples</span>
-            <span class="input-with-unit"><input id="sample-count" type="number" min="1" step="1" value="30"></span>
-          </label>
-        </div>
         <div class="controls-row">
           <div class="variants">
             <label class="toggle" for="show-extended" hidden><input id="show-extended" type="checkbox"> Extended</label>
@@ -131,6 +153,23 @@
           </div>
           <div class="actions">
             <label class="select-all" for="select-all"><input id="select-all" type="checkbox" disabled> All shown</label>
+            <details class="timing-settings">
+              <summary>Timing</summary>
+              <div class="settings">
+                <label class="setting" for="warmup-ms">
+                  <span>Warmup</span>
+                  <span class="input-with-unit"><input id="warmup-ms" type="number" min="0" step="50" value="250"><span>ms</span></span>
+                </label>
+                <label class="setting" for="measurement-ms">
+                  <span>Measure</span>
+                  <span class="input-with-unit"><input id="measurement-ms" type="number" min="1" step="100" value="2000"><span>ms</span></span>
+                </label>
+                <label class="setting" for="sample-count">
+                  <span>Samples</span>
+                  <span class="input-with-unit"><input id="sample-count" type="number" min="1" step="1" value="30"></span>
+                </label>
+              </div>
+            </details>
             <button id="run" disabled>Run selected</button>
           </div>
         </div>

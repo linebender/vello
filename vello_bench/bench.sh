@@ -62,7 +62,7 @@ build_native_revision() {
     -p vello_bench "${targets[@]}" --target-dir "$target_dir"
   cp "$target_dir/release/$native_library" "$artifact_dir/vello-bench-$label.$library_extension"
   if [[ "$label" == a ]]; then
-    cp "$target_dir/release/vello-bench" "$artifact_dir/vello-bench"
+    cp "$target_dir/release/$native_executable" "$artifact_dir/$native_executable"
   fi
 }
 
@@ -85,15 +85,27 @@ case "$mode" in
     revision_b="$(git rev-parse --verify "${3:?missing revision B}^{commit}")"
     shift 3
     case "$(uname -s)" in
-      Darwin) library_extension=dylib ;;
-      Linux) library_extension=so ;;
-      *) echo "native A/B requires macOS or Linux" >&2; exit 2 ;;
+      Darwin)
+        library_extension=dylib
+        native_library="libvello_bench.dylib"
+        native_executable="vello-bench"
+        ;;
+      Linux)
+        library_extension=so
+        native_library="libvello_bench.so"
+        native_executable="vello-bench"
+        ;;
+      MINGW*|MSYS*|CYGWIN*)
+        library_extension=dll
+        native_library="vello_bench.dll"
+        native_executable="vello-bench.exe"
+        ;;
+      *) echo "native A/B requires macOS, Linux, or Windows with Bash" >&2; exit 2 ;;
     esac
-    native_library="libvello_bench.$library_extension"
     begin_comparison
     build_native_revision "$revision_a" a
     build_native_revision "$revision_b" b
-    "$artifact_dir/vello-bench" compare \
+    "$artifact_dir/$native_executable" compare \
       "$artifact_dir/vello-bench-a.$library_extension" \
       "$artifact_dir/vello-bench-b.$library_extension" "$@"
     ;;
