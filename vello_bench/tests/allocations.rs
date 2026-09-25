@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#![allow(missing_docs, reason = "Not needed for benchmarks")]
+#![allow(missing_docs, reason = "Not needed for allocation regression tests")]
 
 use vello_bench::allocations::{CountingAllocator, run, tiger};
 

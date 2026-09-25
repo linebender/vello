@@ -43,10 +43,6 @@ env:
 # Using cargo-hack also allows us to more easily test the feature matrix of our packages.
 # We use --each-feature & --optional-deps which will run a separate check for every feature.
 #
-# We use cargo-nextest, which has a faster concurrency model for running tests.
-# However cargo-nextest does not support running doc tests, so we also have a cargo test --doc step.
-# For more information see https://github.com/nextest-rs/nextest/issues/16
-#
 # The MSRV jobs run only cargo check because different clippy versions can disagree on goals and
 # running tests introduces dev dependencies which may require a higher MSRV than the bare package.
 #
@@ -54,9 +50,10 @@ env:
 # and as such will error out if our dependency tree accidentally tries to use std.
 # https://doc.rust-lang.org/stable/rustc/platform-support/x86_64-unknown-none.html
 #
-# We don't save caches in the merge-group cases, because those caches will never be re-used (apart
-# from the very rare cases where there are multiple PRs in the merge queue).
-# This is because GitHub doesn't share caches between merge queues and the main branch.
+# Pull requests and merge queues may restore matching caches from `main`, but do not write their
+# own. Most caches are written only by successful pushes to `main`; scheduled-only jobs may also
+# write caches for subsequent scheduled runs. This avoids filling the repository cache quota with
+# entries scoped to individual pull-request and merge-queue refs.
 
 name: CI
 
@@ -69,6 +66,9 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
 
 # Cancel superseded CI runs for the same PR to save runner time.
 concurrency:
@@ -76,8 +76,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  fmt:
-    name: formatting
+  static-checks:
+    name: static checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -124,32 +124,16 @@ jobs:
       - name: Run cargo rdme (glifo)
         run: cargo rdme --check --workspace-project=glifo
 
-  allocation-benchmarks:
-    name: CPU allocation benchmarks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: install stable toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_STABLE_VER }}
-
-      - name: install native dependencies
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libfontconfig-dev
-
-      - name: restore cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: check CPU allocation regressions
-        run: cargo bench -p vello_bench --locked --bench allocations
+      # If this fails, consider changing your text or adding something to .typos.toml.
+      - name: check typos
+        uses: crate-ci/typos@v1.45.0
 
   clippy-stable:
     name: cargo clippy
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["windows-latest","macos-latest","ubuntu-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v6
 
@@ -170,10 +154,10 @@ jobs:
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libfontconfig-dev
 
       - name: restore cache
+        if: matrix.os == 'ubuntu-latest'
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.event_name != 'merge_group' }}
-          cache-bin: ${{ matrix.os != 'macos-latest' }} # works around https://github.com/Swatinem/rust-cache/issues/341
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: cargo clippy (no_std)
         run: cargo hack clippy ${{ env.RUST_NO_STD_PKGS }} --locked --optional-deps --each-feature --ignore-unknown-features --features libm,u8_pipeline,f32_pipeline --exclude-features ${{ env.FEATURES_DEPENDING_ON_STD }} --target x86_64-unknown-none -- -D warnings
@@ -211,7 +195,7 @@ jobs:
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.event_name != 'merge_group' }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: cargo clippy (no_std)
         run: cargo hack clippy ${{ env.RUST_NO_STD_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features libm,u8_pipeline,f32_pipeline --exclude-features ${{ env.FEATURES_DEPENDING_ON_STD }} -- -D warnings
@@ -242,7 +226,7 @@ jobs:
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.event_name != 'merge_group' }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: check Vello renderer wasm sizes
         run: ./vello_tests/web/check_wasm_sizes.sh
@@ -287,12 +271,21 @@ jobs:
         include:
           - os: ubuntu-latest
             gpu: 'yes'
+            packages: -p vello_tests -p vello_research_tests
+            features: --no-default-features
+            rustflags: ''
           - os: macos-latest
             gpu: 'yes'
+            packages: --workspace
+            features: --all-features
+            rustflags: ''
           - os: windows-latest
             # TODO: The windows runners theoretically have CPU fallback for GPUs, but
             # this failed in initial testing
             gpu: 'no'
+            packages: -p vello_tests -p vello_research_tests
+            features: --no-default-features
+            rustflags: --cfg disable_dispatch_sse4_2 --cfg disable_dispatch_avx2 --cfg disable_dispatch_avx512
     steps:
       - uses: actions/checkout@v6
         # We intentionally do not use lfs: true here, instead using the caching method to save LFS bandwidth.
@@ -332,27 +325,24 @@ jobs:
           sudo apt-get update
           sudo apt install -y xvfb libegl-mesa0 libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
       
-      - name: install cargo-nextest
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.event_name != 'merge_group' }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           cache-bin: ${{ matrix.os != 'macos-latest' }} # works around https://github.com/Swatinem/rust-cache/issues/341
 
       - name: build tests
-        run: cargo nextest run --workspace --locked --all-features --release --no-run
+        run: cargo test ${{ matrix.packages }} --locked ${{ matrix.features }} --release --tests --no-run
         env:
           CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+          RUSTFLAGS: ${{ matrix.rustflags }}
           VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
 
       - name: run tests
-        run: cargo nextest run --workspace --locked --all-features --no-fail-fast --release
+        run: cargo test ${{ matrix.packages }} --locked ${{ matrix.features }} --no-fail-fast --release --tests
         env:
           CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+          RUSTFLAGS: ${{ matrix.rustflags }}
           VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
           # We are experimenting with git lfs, and we don't expect to run out of bandwidth.
           # However, if we do, the tests are designed to be robust against that, if this environment variable is set.
@@ -370,12 +360,14 @@ jobs:
             vello_tests/diffs
 
       - name: cargo test --doc
+        if: matrix.os == 'macos-latest'
         run: cargo test --doc --workspace --locked --all-features --no-fail-fast
 
   test-avx512:
     # Since GitHub runners don't support AVX-512, we need to run the tests with Intel SDE. This
     # setup mirrors https://github.com/linebender/fearless_simd/blob/30c7f38cd545b20ec98624bbf62d1357cd8814e3/.github/workflows/ci.yml#L222
     name: vello_tests (AVX-512)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: prime-lfs-cache
     runs-on: ubuntu-latest
     env:
@@ -401,11 +393,6 @@ jobs:
         with:
           toolchain: ${{ env.RUST_STABLE_VER }}
 
-      - name: restore cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.event_name != 'merge_group' }}
-
       - name: install Intel Software Development Emulator
         run: |
           curl -fsSL -o "${SDE_PKG}-lin.tar.xz" "https://github.com/Shnatsel/intel-sde-mirror/releases/download/sde-${SDE_PKG#sde-external-}/${SDE_PKG}-lin.tar.xz"
@@ -425,10 +412,7 @@ jobs:
   test-stable-wasm:
     name: cargo test (wasm32, ${{ matrix.name }})
     needs: prime-lfs-cache
-    # We use MacOS because for some reason the Ubuntu-based runners
-    # have trouble handling things like `requestAnimationFrame` or
-    # `setTimeout` in our testing code.
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
@@ -465,26 +449,34 @@ jobs:
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.event_name != 'merge_group' }}
+          key: ${{ matrix.name }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      - name: cargo test compile
-        run: cargo test --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --all-features --no-run
+      - name: cargo check workspace
+        if: matrix.name == 'default'
+        run: cargo check --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --all-features --all-targets
 
       - name: install wasm-pack
         uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack
 
+      - name: install wasm-bindgen
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.115
+
       - name: Run vello_tests on Chrome
         # We need to run in release mode, because otherwise wasm_parser can't read the
         # blob, see <https://github.com/linebender/vello/pull/1078#issuecomment-3029336905>
-        run: wasm-pack test --headless --chrome --features webgl --release
+        run: wasm-pack test --mode no-install --headless --chrome --features webgl --release
         working-directory: vello_tests
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
 
   check-stable-wasm-webgl-examples:
     name: cargo check (wasm32 webgl examples)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -505,7 +497,7 @@ jobs:
         with:
           tool: wasm-pack
 
-      - name: check vello_gpu is wgpu webgl compatible
+      - name: check vello_gpu is wgpu WebGL compatible
         run: wasm-pack test --headless --chrome
         working-directory: vello_gpu/examples/wgpu_webgl
 
@@ -513,9 +505,9 @@ jobs:
         run: wasm-pack test --headless --chrome
         working-directory: vello_gpu/examples/native_webgl
 
-
   check-stable-android:
     name: cargo check (aarch64-android)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -526,28 +518,24 @@ jobs:
           toolchain: ${{ env.RUST_STABLE_VER }}
           targets: aarch64-linux-android
 
-      - name: restore cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.event_name != 'merge_group' }}
-
       - name: install cargo apk
         run: cargo install cargo-apk
 
       - name: cargo apk check (android)
         run: cargo apk check -p with_winit --lib
         env:
-          # This is a bit of a hack, but cargo apk doesn't seem to allow customising this
+          # This is a bit of a hack, but cargo apk doesn't seem to allow customising this.
           RUSTFLAGS: '-D warnings'
 
   check-msrv:
-    name: cargo check (msrv)
+    name: cargo check (msrv, native)
     runs-on: ${{ matrix.os }}
     env:
       RUSTFLAGS: '-A single-use-lifetimes'
     strategy:
+      fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["windows-latest","macos-latest","ubuntu-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v6
 
@@ -569,7 +557,7 @@ jobs:
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.event_name != 'merge_group' }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           cache-bin: ${{ matrix.os != 'macos-latest' }} # works around https://github.com/Swatinem/rust-cache/issues/341
 
       - name: cargo check (no_std)
@@ -579,7 +567,8 @@ jobs:
         run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} --locked --optional-deps --each-feature --ignore-unknown-features --features std,u8_pipeline,f32_pipeline
 
   check-msrv-wasm:
-    name: cargo check (msrv) (wasm32)
+    name: cargo check (msrv, wasm32)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: '-A single-use-lifetimes'
@@ -597,13 +586,64 @@ jobs:
         with:
           tool: cargo-hack
 
-      - name: restore cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.event_name != 'merge_group' }}
-
       - name: cargo check
-        run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features std,u8_pipeline,f32_pipeline
+        run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features std,u8_pipeline,f32_pipeline
+
+  notify-scheduled-failure:
+    name: notify scheduled CI failure
+    if: >-
+      ${{
+        always() &&
+        (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+        (
+          contains(needs.*.result, 'failure') ||
+          contains(needs.*.result, 'cancelled') ||
+          contains(needs.*.result, 'skipped')
+        )
+      }}
+    needs:
+      - static-checks
+      - prime-lfs-cache
+      - clippy-stable
+      - clippy-stable-wasm
+      - wasm-size
+      - test-stable
+      - test-stable-wasm
+      - test-avx512
+      - check-stable-android
+      - check-msrv
+      - check-msrv-wasm
+      - check-stable-wasm-webgl-examples
+      - doc
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Send Zulip message
+        uses: zulip/github-actions-zulip/send-message@e4c8f27c732ba9bd98ac6be0583096dea82feea5 # v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ${{ vars.ZULIP_BOT_EMAIL }}
+          organization-url: https://xi.zulipchat.com
+          type: stream
+          to: vello
+          topic: CI failures
+          content: |
+            The scheduled or manually triggered [Vello CI run failed](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+            - Static checks: `${{ needs.static-checks.result }}`
+            - LFS cache: `${{ needs.prime-lfs-cache.result }}`
+            - Stable Clippy: `${{ needs.clippy-stable.result }}`
+            - Wasm Clippy: `${{ needs.clippy-stable-wasm.result }}`
+            - Wasm size: `${{ needs.wasm-size.result }}`
+            - Native tests: `${{ needs.test-stable.result }}`
+            - Wasm tests: `${{ needs.test-stable-wasm.result }}`
+            - AVX-512 tests: `${{ needs.test-avx512.result }}`
+            - Android check: `${{ needs.check-stable-android.result }}`
+            - Native MSRV: `${{ needs.check-msrv.result }}`
+            - Wasm MSRV: `${{ needs.check-msrv-wasm.result }}`
+            - WebGL example checks: `${{ needs.check-stable-wasm-webgl-examples.result }}`
+            - Documentation: `${{ needs.doc.result }}`
 
   doc:
     name: cargo doc
@@ -622,19 +662,10 @@ jobs:
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.event_name != 'merge_group' }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       # We test documentation using nightly to match docs.rs.
       - name: cargo doc
         run: cargo doc --workspace --locked --all-features --no-deps --document-private-items
         env:
           RUSTDOCFLAGS: '--cfg docsrs -D warnings'
-
-  # If this fails, consider changing your text or adding something to .typos.toml.
-  typos:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: check typos
-        uses: crate-ci/typos@v1.45.0

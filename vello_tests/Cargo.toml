@@ -17,15 +17,14 @@ path = "tests/mod.rs"
 [[bin]]
 name = "regenerate_probe_reference"
 path = "src/regenerate_probe_reference.rs"
+required-features = ["force_support_fallback"]
 
 [dependencies]
 glifo = { workspace = true }
 vello_common = { workspace = true, features = ["std", "probe"] }
 vello_cpu = { workspace = true, features = ["multithreading", "std", "f32_pipeline"] }
 vello_gpu = { workspace = true, features = ["text", "wgpu", "wgpu_default"] }
-fearless_simd = { workspace = true, features = [
-    "force_support_fallback", # We require the `force_support_callback` feature to test the fallback path.
-] }
+fearless_simd = { workspace = true }
 wgpu = { workspace = true, default-features = true }
 pollster = { workspace = true }
 vello_dev_macros = { workspace = true }
@@ -60,6 +59,8 @@ wasm-bindgen-futures = { workspace = true }
 wasmparser = "0.235.0"
 
 [features]
+default = ["force_support_fallback"]
+force_support_fallback = ["fearless_simd/force_support_fallback"]
 webgl = ["vello_gpu/webgl", "vello_gpu/probe"]
 
 [lints]

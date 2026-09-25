@@ -156,6 +156,34 @@ impl CpuLevel {
         }
     }
 
+    fn dispatch_cfg_attribute(self) -> TokenStream2 {
+        match self {
+            Self::Neon => quote! { #[cfg(target_arch = "aarch64")] },
+            Self::Sse2 => {
+                quote! { #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] }
+            }
+            Self::Sse42 => quote! {
+                #[cfg(all(
+                    any(target_arch = "x86", target_arch = "x86_64"),
+                    not(disable_dispatch_sse4_2)
+                ))]
+            },
+            Self::Avx2 => quote! {
+                #[cfg(all(
+                    any(target_arch = "x86", target_arch = "x86_64"),
+                    not(disable_dispatch_avx2)
+                ))]
+            },
+            Self::Avx512 => quote! {
+                #[cfg(all(
+                    any(target_arch = "x86", target_arch = "x86_64"),
+                    not(disable_dispatch_avx512)
+                ))]
+            },
+            Self::Scalar | Self::Wasm => quote! {},
+        }
+    }
+
     fn tolerance(self, scalar: u8, simd: u8) -> TokenStream2 {
         match self {
             Self::Scalar => quote! { #scalar },
@@ -453,20 +481,37 @@ impl TestContext<'_> {
                 let (pipeline, level, num_threads) = variant.config();
                 let render_mode = pipeline.render_mode();
                 let is_wasm = matches!(level, CpuLevel::Wasm);
+                let dispatch_cfg_attribute = level.dispatch_cfg_attribute();
+                let requires_fallback = matches!(
+                    variant,
+                    CpuVariant::Pipeline {
+                        level: CpuLevel::Scalar,
+                        ..
+                    } | CpuVariant::Multithreaded
+                        | CpuVariant::Cached
+                );
                 let level = level.value();
-                let attributes = if is_wasm {
+                let (target_cfg_attribute, test_attribute) = if is_wasm {
                     assert_eq!(num_threads, 0, "wasm is single threaded");
                     is_reference = false;
                     (
                         quote! { #[cfg(target_arch = "wasm32")] },
                         quote! { #[wasm_bindgen_test::wasm_bindgen_test] },
                     )
+                } else if requires_fallback {
+                    (
+                        quote! { #[cfg(feature = "force_support_fallback")] },
+                        quote! { #[test] },
+                    )
                 } else {
                     (quote! {}, quote! { #[test] })
                 };
                 (
-                    attributes.0,
-                    attributes.1,
+                    quote! {
+                        #dispatch_cfg_attribute
+                        #target_cfg_attribute
+                    },
+                    test_attribute,
                     quote! {},
                     quote! {
                         crate::util::get_ctx::<crate::renderer::CpuRenderer>(
@@ -498,7 +543,7 @@ impl TestContext<'_> {
                             #height,
                             #transparent,
                             0,
-                            "fallback",
+                            "baseline",
                             vello_cpu::RenderMode::OptimizeSpeed,
                             false,
                         )
@@ -510,7 +555,7 @@ impl TestContext<'_> {
                             #height,
                             #transparent,
                             0,
-                            "fallback",
+                            "baseline",
                             vello_cpu::RenderMode::OptimizeSpeed,
                         )
                     }

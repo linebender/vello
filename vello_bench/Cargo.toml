@@ -9,6 +9,9 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[lib]
+test = false
+
 [dependencies]
 vello_common = { workspace = true }
 vello_cpu = { workspace = true }
@@ -27,7 +30,7 @@ extended = []
 name = "main"
 harness = false
 
-[[bench]]
+[[test]]
 name = "allocations"
 harness = false
 
