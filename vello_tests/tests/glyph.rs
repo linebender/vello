@@ -15,11 +15,11 @@ use std::f64::consts::FRAC_PI_4;
 use std::iter;
 use std::sync::Arc;
 use vello_common::color::Srgb;
-use vello_common::color::palette::css::{BLACK, BLUE, GREEN, REBECCA_PURPLE};
-use vello_common::kurbo::{Affine, Diagonal2, Point, Stroke};
+use vello_common::color::palette::css::{BLACK, BLUE, GREEN, REBECCA_PURPLE, WHITE};
+use vello_common::kurbo::{Affine, Diagonal2, Point, Rect, Stroke};
 use vello_common::paint::{Image, PaintType, PremulColor};
 use vello_common::peniko::{
-    Blob, Extend, FontData, Gradient, ImageQuality, ImageSampler, LinearGradientPosition,
+    Blob, Color, Extend, FontData, Gradient, ImageQuality, ImageSampler, LinearGradientPosition,
 };
 use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_dev_macros::vello_test;
@@ -946,6 +946,38 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
         .atlas_cache(enable_caching)
         .fill_glyphs(glyphs.into_iter())
         .unwrap();
+}
+
+// Note that there are still four cases (which can be reduced to 2 underlying issues)
+// that don't yet render the same as in CoreText.
+#[vello_test(width = 288, height = 240, skip_gpu, glyph)]
+fn glyphs_bitmap_sbix(ctx: &mut impl Renderer, enable_caching: bool) {
+    const TEST_FONT: &[u8] = include_bytes!("../../assets/sbix/sbix.ttf");
+    let font = FontData::new(Blob::new(Arc::new(TEST_FONT)), 0);
+
+    ctx.set_paint(WHITE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 288.0, 240.0));
+    ctx.set_paint(Color::from_rgb8(219, 226, 237));
+    for column in 0..=6 {
+        let x = (f64::from(column) * 48.0).min(287.0);
+        ctx.fill_rect(&Rect::new(x, 0.0, x + 1.0, 240.0));
+    }
+    for row in 0..=5 {
+        let y = (f64::from(row) * 48.0).min(239.0);
+        ctx.fill_rect(&Rect::new(0.0, y, 288.0, y + 1.0));
+    }
+
+    let glyphs = (0..27).map(|i| Glyph {
+        id: i + 2,
+        x: (i % 6) as f32 * 48.0 - 34.0,
+        y: (i / 6) as f32 * 48.0 + 106.0,
+    });
+    ctx.set_paint(BLACK);
+    ctx.glyph_run(&font)
+        .font_size(64.0)
+        .hint(false)
+        .atlas_cache(enable_caching)
+        .fill_glyphs(glyphs);
 }
 
 // In case anything changes here, compare to https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/web_tests/platform/linux/virtual/text-antialias/colrv1-expected.png
