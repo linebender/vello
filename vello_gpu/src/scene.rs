@@ -1049,14 +1049,16 @@ mod tests {
         scene.fill_path(&triangle);
         scene
             .glyph_run(&mut resources, &font)
-            .fill_glyphs(glyphs.into_iter());
+            .fill_glyphs(glyphs.into_iter())
+            .unwrap();
 
         assert!(resources.glyph_resources.is_none());
 
         scene
             .glyph_run(&mut resources, &font)
             .atlas_cache(true)
-            .fill_glyphs(glyphs.into_iter());
+            .fill_glyphs(glyphs.into_iter())
+            .unwrap();
 
         assert!(resources.glyph_resources.is_some());
     }

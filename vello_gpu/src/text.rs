@@ -223,12 +223,13 @@ pub struct GpuGlyphRunBackend<'a> {
 }
 
 impl<'a> GpuGlyphRunBackend<'a> {
-    fn render_glyphs<Glyphs>(
+    fn render_glyphs<Glyphs, R>(
         self,
         run: glifo::GlyphRun<'a>,
         glyphs: Glyphs,
-        render: impl FnOnce(&mut glifo::GlyphRunRenderer<'a, 'a, Glyphs>, &mut Scene),
-    ) where
+        render: impl FnOnce(&mut glifo::GlyphRunRenderer<'a, 'a, Glyphs>, &mut Scene) -> R,
+    ) -> R
+    where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         let atlas_cacher = if self.atlas_cache_enabled {
@@ -251,7 +252,7 @@ impl<'a> GpuGlyphRunBackend<'a> {
             self.resources.glyph_prep_cache.as_mut(),
             atlas_cacher,
         );
-        render(&mut glyph_run, self.scene);
+        render(&mut glyph_run, self.scene)
     }
 }
 
@@ -261,14 +262,22 @@ impl<'a> GlyphRunBackend<'a> for GpuGlyphRunBackend<'a> {
         self
     }
 
-    fn fill_glyphs<Glyphs>(self, run: glifo::GlyphRun<'a>, glyphs: Glyphs)
+    fn fill_glyphs<Glyphs>(
+        self,
+        run: glifo::GlyphRun<'a>,
+        glyphs: Glyphs,
+    ) -> Result<(), glifo::GlyphRenderError>
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        self.render_glyphs(run, glyphs, |glyph_run, scene| glyph_run.fill_glyphs(scene));
+        self.render_glyphs(run, glyphs, |glyph_run, scene| glyph_run.fill_glyphs(scene))
     }
 
-    fn stroke_glyphs<Glyphs>(self, run: glifo::GlyphRun<'a>, glyphs: Glyphs)
+    fn stroke_glyphs<Glyphs>(
+        self,
+        run: glifo::GlyphRun<'a>,
+        glyphs: Glyphs,
+    ) -> Result<(), glifo::GlyphRenderError>
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
@@ -276,9 +285,10 @@ impl<'a> GlyphRunBackend<'a> for GpuGlyphRunBackend<'a> {
             let stroke_adjustment = glyph_run.stroke_adjustment();
             let original_width = scene.stroke().width;
             scene.stroke_mut().width *= stroke_adjustment;
-            glyph_run.stroke_glyphs(scene);
+            let result = glyph_run.stroke_glyphs(scene);
             scene.stroke_mut().width = original_width;
-        });
+            result
+        })
     }
 
     fn render_decoration<Glyphs>(

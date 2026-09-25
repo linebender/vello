@@ -44,7 +44,7 @@ use smallvec::SmallVec;
 use vello_common::paint::PaintType;
 
 /// Positioned glyph.
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub struct Glyph {
     /// The font-specific identifier for this glyph.
     ///
@@ -55,6 +55,54 @@ pub struct Glyph {
     pub x: f32,
     /// Y-offset in run, relative to transform.
     pub y: f32,
+}
+
+/// Information about glyphs that rendered as blank in a glyph run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlyphRenderError {
+    /// The first glyph that could not be rendered.
+    pub first_skipped: SkippedGlyph,
+    /// Total number of glyphs that could not be rendered.
+    pub skipped_count: usize,
+}
+
+impl core::fmt::Display for GlyphRenderError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{} glyph{} could not be rendered (first skipped at index {}: {:?})",
+            self.skipped_count,
+            if self.skipped_count == 1 { "" } else { "s" },
+            self.first_skipped.index,
+            self.first_skipped.reason,
+        )
+    }
+}
+
+impl core::error::Error for GlyphRenderError {}
+
+/// The first skipped glyph in a glyph run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SkippedGlyph {
+    /// Zero-based index in the supplied glyph iterator.
+    pub index: usize,
+    /// The glyph that could not be rendered.
+    pub glyph: Glyph,
+    /// Why the glyph could not be rendered.
+    pub reason: GlyphSkipReason,
+}
+
+/// Why a glyph rendered as blank.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GlyphSkipReason {
+    /// The glyph has PNG bitmap data, but PNG support is disabled.
+    PngSupportDisabled,
+    /// The glyph has bitmap data in a format that is not supported.
+    UnsupportedBitmapFormat,
+    /// The glyph's PNG bitmap data could not be decoded.
+    BitmapDecodeFailed,
+    /// No renderable color, bitmap, or outline representation was found.
+    NoRenderableRepresentation,
 }
 
 /// Synthetic embolden settings for a glyph run.
@@ -307,12 +355,22 @@ pub trait GlyphRunBackend<'a>: Sized {
     fn atlas_cache(self, enabled: bool) -> Self;
 
     /// Fill the given glyph sequence using the configured builder state.
-    fn fill_glyphs<Glyphs>(self, run: GlyphRun<'a>, glyphs: Glyphs)
+    ///
+    /// Returns an error if at least one glyph failed to render properly. All
+    /// unaffected glyphs are still rendered when an error is returned.
+    fn fill_glyphs<Glyphs>(self, run: GlyphRun<'a>, glyphs: Glyphs) -> Result<(), GlyphRenderError>
     where
         Glyphs: Iterator<Item = Glyph> + Clone;
 
     /// Stroke the given glyph sequence using the configured builder state.
-    fn stroke_glyphs<Glyphs>(self, run: GlyphRun<'a>, glyphs: Glyphs)
+    ///
+    /// Returns an error if at least one glyph failed to render properly. All
+    /// unaffected glyphs are still rendered when an error is returned.
+    fn stroke_glyphs<Glyphs>(
+        self,
+        run: GlyphRun<'a>,
+        glyphs: Glyphs,
+    ) -> Result<(), GlyphRenderError>
     where
         Glyphs: Iterator<Item = Glyph> + Clone;
 
@@ -342,13 +400,25 @@ pub struct GlyphRunRenderer<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> {
 
 impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Glyphs> {
     /// Fills the glyphs with the current configuration.
-    pub fn fill_glyphs(&mut self, renderer: &mut impl crate::GlyphRenderer) {
-        self.draw_glyphs(Style::Fill, renderer);
+    ///
+    /// Returns an error if at least one glyph failed to render properly. All
+    /// unaffected glyphs are still rendered when an error is returned.
+    pub fn fill_glyphs(
+        &mut self,
+        renderer: &mut impl crate::GlyphRenderer,
+    ) -> Result<(), GlyphRenderError> {
+        self.draw_glyphs(Style::Fill, renderer)
     }
 
     /// Strokes the glyphs with the current configuration.
-    pub fn stroke_glyphs(&mut self, renderer: &mut impl crate::GlyphRenderer) {
-        self.draw_glyphs(Style::Stroke, renderer);
+    ///
+    /// Returns an error if at least one glyph failed to render properly. All
+    /// unaffected glyphs are still rendered when an error is returned.
+    pub fn stroke_glyphs(
+        &mut self,
+        renderer: &mut impl crate::GlyphRenderer,
+    ) -> Result<(), GlyphRenderError> {
+        self.draw_glyphs(Style::Stroke, renderer)
     }
 
     /// Core rendering loop shared by [`fill_glyphs`](Self::fill_glyphs) and
@@ -358,7 +428,11 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
     /// The first matching representation wins. Within each branch the atlas cache
     /// is checked before falling through to the slow path (rasterization / path
     /// construction).
-    fn draw_glyphs(&mut self, style: Style, renderer: &mut impl crate::GlyphRenderer) {
+    fn draw_glyphs(
+        &mut self,
+        style: Style,
+        renderer: &mut impl crate::GlyphRenderer,
+    ) -> Result<(), GlyphRenderError> {
         let font_ref = self.prepared_run.font.as_skrifa();
 
         let outlines = font_ref.outline_glyphs();
@@ -404,7 +478,9 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let scale_props =
             GlyphScaleProperties::new(draw_props.font_size, font_info.upem, hinted, style);
 
-        for glyph in self.glyph_iterator.clone() {
+        let mut first_skipped = None;
+        let mut skipped_count = 0;
+        for (index, glyph) in self.glyph_iterator.clone().enumerate() {
             // TODO: Add a mechanism such that glyphs that are completely outside of the viewport
             // (especially for more expensive COLR glyphs), we don't do any processing in the
             // first place and cull them.
@@ -538,19 +614,29 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             }
 
             // ── Bitmap Glyphs ────────────────────────────────────────────
+            let mut bitmap_unavailable_reason = None;
             let bitmap_data: Option<(skrifa::bitmap::BitmapGlyph<'_>, Pixmap)> = bitmaps
                 .glyph_for_size(Size::new(draw_props.font_size), glyph_id)
                 .and_then(|g| match g.data {
                     #[cfg(feature = "png")]
-                    BitmapData::Png(data) => Pixmap::from_png(std::io::Cursor::new(data))
-                        .ok()
-                        .map(|d| (g, d)),
+                    BitmapData::Png(data) => match Pixmap::from_png(std::io::Cursor::new(data)) {
+                        Ok(pixmap) => Some((g, pixmap)),
+                        Err(_) => {
+                            bitmap_unavailable_reason = Some(GlyphSkipReason::BitmapDecodeFailed);
+                            None
+                        }
+                    },
                     #[cfg(not(feature = "png"))]
-                    BitmapData::Png(_) => None,
+                    BitmapData::Png(_) => {
+                        bitmap_unavailable_reason = Some(GlyphSkipReason::PngSupportDisabled);
+                        None
+                    }
                     // The others are not worth implementing for now (unless we can find a test case),
                     // they should be very rare.
-                    BitmapData::Bgra(_) => None,
-                    BitmapData::Mask(_) => None,
+                    BitmapData::Bgra(_) | BitmapData::Mask(_) => {
+                        bitmap_unavailable_reason = Some(GlyphSkipReason::UnsupportedBitmapFormat);
+                        None
+                    }
                 });
 
             if let Some((bitmap_glyph, pixmap)) = bitmap_data {
@@ -631,6 +717,14 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // Cache miss — fetch the outline from skrifa (expensive: parses font
             // tables), then build the path. Deferred to here so cache hits skip it.
             let Some(outline) = outlines.get(glyph_id) else {
+                let reason = bitmap_unavailable_reason
+                    .unwrap_or(GlyphSkipReason::NoRenderableRepresentation);
+                first_skipped.get_or_insert(SkippedGlyph {
+                    index,
+                    glyph,
+                    reason,
+                });
+                skipped_count += 1;
                 continue;
             };
 
@@ -668,6 +762,14 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     &mut outline_cache_session,
                 ),
             }
+        }
+
+        match first_skipped {
+            Some(first_skipped) => Err(GlyphRenderError {
+                first_skipped,
+                skipped_count,
+            }),
+            None => Ok(()),
         }
     }
 
@@ -954,21 +1056,27 @@ where
     }
 
     /// Fill the glyphs using the current settings.
-    pub fn fill_glyphs<Glyphs>(self, glyphs: Glyphs)
+    ///
+    /// Returns an error if at least one glyph failed to render properly. All
+    /// unaffected glyphs are still rendered when an error is returned.
+    pub fn fill_glyphs<Glyphs>(self, glyphs: Glyphs) -> Result<(), GlyphRenderError>
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         let GlyphRunBuilder { run, backend } = self;
-        backend.fill_glyphs(run, glyphs);
+        backend.fill_glyphs(run, glyphs)
     }
 
     /// Stroke the glyphs using the current settings.
-    pub fn stroke_glyphs<Glyphs>(self, glyphs: Glyphs)
+    ///
+    /// Returns an error if at least one glyph failed to render properly. All
+    /// unaffected glyphs are still rendered when an error is returned.
+    pub fn stroke_glyphs<Glyphs>(self, glyphs: Glyphs) -> Result<(), GlyphRenderError>
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         let GlyphRunBuilder { run, backend } = self;
-        backend.stroke_glyphs(run, glyphs);
+        backend.stroke_glyphs(run, glyphs)
     }
 
     /// Render a decoration (e.g. underline) with skip-ink behavior.
@@ -2347,10 +2455,11 @@ mod tests {
             atlas_cacher,
         );
 
-        match style {
+        let result = match style {
             Style::Fill => run.fill_glyphs(&mut resources.renderer),
             Style::Stroke => run.stroke_glyphs(&mut resources.renderer),
-        }
+        };
+        assert_eq!(result, Ok(()));
     }
 
     fn ensure_cache(kind: TestGlyphKind, style: Style) {
@@ -2403,6 +2512,20 @@ mod tests {
         ensure_no_cache(TestGlyphKind::Outline, Style::Fill, false);
     }
 
+    #[test]
+    fn empty_outline_glyph_is_supported() {
+        let font = test_font(TestGlyphKind::Outline);
+        let glyph_id = font.as_skrifa().charmap().map(' ').unwrap();
+        let glyph = Glyph {
+            id: glyph_id.to_u32(),
+            x: 0.0,
+            y: 0.0,
+        };
+        let mut resources = TestResources::default();
+
+        draw_test_glyph(&font, glyph, false, Style::Fill, &mut resources);
+    }
+
     // This might change in the future, but for now they are not cached.
     #[test]
     fn stroked_outline_glyph_is_not_cached_when_atlas_cache_is_enabled() {
@@ -2434,5 +2557,43 @@ mod tests {
     #[test]
     fn bitmap_glyph_is_not_cached_when_atlas_cache_is_disabled() {
         ensure_no_cache(TestGlyphKind::Bitmap, Style::Fill, false);
+    }
+
+    #[test]
+    fn glyph_without_supported_representation_is_reported() {
+        let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+        let glyph = Glyph {
+            id: u32::MAX,
+            x: 0.0,
+            y: 0.0,
+        };
+        let mut resources = TestResources::default();
+        let mut run = GlyphRun {
+            font,
+            font_size: 20.0,
+            font_embolden: FontEmbolden::default(),
+            transform: Affine::IDENTITY,
+            scene_paint_transform: Affine::IDENTITY,
+            glyph_transform: None,
+            normalized_coords: &[],
+            hint: false,
+        }
+        .build(
+            core::iter::once(glyph),
+            resources.prep_cache.as_mut(),
+            AtlasCacher::Disabled,
+        );
+
+        assert_eq!(
+            run.fill_glyphs(&mut resources.renderer),
+            Err(GlyphRenderError {
+                first_skipped: SkippedGlyph {
+                    index: 0,
+                    glyph,
+                    reason: GlyphSkipReason::NoRenderableRepresentation,
+                },
+                skipped_count: 1,
+            })
+        );
     }
 }

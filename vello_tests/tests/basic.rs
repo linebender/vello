@@ -554,7 +554,8 @@ fn render_src_over_with_offset() {
             id: glyph.id,
             x: 0.0,
             y: 0.0,
-        }));
+        }))
+        .unwrap();
     glyph_renderer.flush();
 
     // Positions where we'll blit the glyph
@@ -596,7 +597,8 @@ fn render_src_over_with_offset() {
                 id: glyph.id,
                 x: 0.0,
                 y: 0.0,
-            }));
+            }))
+            .unwrap();
     }
     reference_renderer.flush();
 

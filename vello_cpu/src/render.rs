@@ -1475,13 +1475,15 @@ mod tests {
         ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
         ctx.fill_path(&Rect::new(10.0, 10.0, 20.0, 20.0).to_path(0.1));
         ctx.glyph_run(&mut resources, &font)
-            .fill_glyphs(glyphs.into_iter());
+            .fill_glyphs(glyphs.into_iter())
+            .unwrap();
 
         assert!(resources.glyph_resources.is_none());
 
         ctx.glyph_run(&mut resources, &font)
             .atlas_cache(true)
-            .fill_glyphs(glyphs.into_iter());
+            .fill_glyphs(glyphs.into_iter())
+            .unwrap();
 
         assert!(resources.glyph_resources.is_some());
     }

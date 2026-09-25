@@ -251,7 +251,8 @@ fn filter_drop_shadow(ctx: &mut impl Renderer) {
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(true)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
     ctx.pop_layer();
 }
 
