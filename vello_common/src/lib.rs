@@ -109,7 +109,7 @@ pub mod reexports {
         pub use crate::pixmap::{PixelMetadata, Pixels, Pixmap};
         pub use crate::render_state::RenderState;
         pub use crate::transforms::Transforms;
-        pub use crate::{color, kurbo, peniko};
+        pub use crate::{GlyphMaintenance, color, kurbo, peniko};
         pub use fearless_simd::Level;
     }
 
@@ -141,3 +141,19 @@ pub mod reexports {
 /// otherwise opaque to the renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TextureId(pub u64);
+
+/// When the glyph caches are maintained.
+///
+/// Each maintenance pass ages the caches by one tick, and every 64 ticks evicts entries unused
+/// for more than 64 ticks. Only encoding marks a glyph as used; rendering does not. So a scene
+/// must be rendered before its glyphs age out, and aging should not run between the renders of
+/// one frame.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum GlyphMaintenance {
+    /// At the end of every render call.
+    #[default]
+    PerRender,
+    /// Only when the application calls `maintain_glyphs`, typically once per frame after its last
+    /// render. Nothing is evicted if it is never called.
+    Explicit,
+}

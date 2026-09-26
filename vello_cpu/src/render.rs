@@ -11,6 +11,8 @@ use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
+#[cfg(feature = "text")]
+use vello_common::GlyphMaintenance;
 
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
@@ -68,12 +70,23 @@ pub struct Resources {
     // Will be initialized lazily on first use.
     #[cfg(feature = "text")]
     pub(crate) glyph_resources: Option<GlyphAtlasResources>,
+    #[cfg(feature = "text")]
+    glyph_maintenance: GlyphMaintenance,
 }
 
 impl Resources {
     /// Create a new set of renderer resources.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a new set of renderer resources with the given glyph cache maintenance.
+    #[cfg(feature = "text")]
+    pub fn new_with(glyph_maintenance: GlyphMaintenance) -> Self {
+        Self {
+            glyph_maintenance,
+            ..Self::default()
+        }
     }
 
     pub(crate) fn before_render(&mut self, render_mode: RenderMode) {
@@ -86,7 +99,12 @@ impl Resources {
 
     pub(crate) fn after_render(&mut self) {
         #[cfg(feature = "text")]
-        self.maintain_glyph_cache();
+        {
+            self.unregister_atlas_pages();
+            if self.glyph_maintenance == GlyphMaintenance::PerRender {
+                self.maintain_glyphs();
+            }
+        }
     }
 }
 
@@ -895,11 +913,6 @@ impl RenderContext {
             &self.encoded_paints,
             &resources.image_registry,
         );
-        // TODO: We need to figure something out here API-wise. At the moment, the user can
-        // theoretically rasterize the same `RenderContext` multiple times without resetting in-between.
-        // However, if glyph caching is enabled, this method call could now evict that were previously
-        // assumed to exist in `RenderContext`, meaning that if the user rasterizes the same `RenderContext`
-        // again without resetting it, some of the cached glyphs might be stale and not exist anymore.
         resources.after_render();
     }
 

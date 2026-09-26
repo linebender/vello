@@ -11,6 +11,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
+use vello_common::GlyphMaintenance;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::clip::{ClipRef, ClipShape};
 use vello_common::encode::{EncodeExt, EncodedPaint, invert_paint_transform};
@@ -115,6 +116,8 @@ pub struct RenderSettings {
     pub level: Level,
     /// Configuration for GPU memory used while rendering.
     pub memory_settings: MemorySettings,
+    /// When the glyph caches are maintained. Only has an effect if the `text` feature is active.
+    pub glyph_maintenance: GlyphMaintenance,
 }
 
 /// Settings controlling usage of GPU memory.
@@ -197,6 +200,7 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
             memory_settings: MemorySettings::default(),
+            glyph_maintenance: GlyphMaintenance::default(),
         }
     }
 }
@@ -916,6 +920,8 @@ impl Scene {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "text")]
+    use super::RenderSettings;
     use super::{RecordedDraw, Scene};
     #[cfg(feature = "text")]
     use crate::resources::Resources;
@@ -1038,7 +1044,7 @@ mod tests {
         }];
 
         let mut scene = Scene::new(200, 200);
-        let mut resources = Resources::new(vello_common::multi_atlas::AtlasConfig::default());
+        let mut resources = Resources::new(&RenderSettings::default());
         let mut triangle = BezPath::new();
         triangle.move_to((10.0, 10.0));
         triangle.line_to((90.0, 50.0));

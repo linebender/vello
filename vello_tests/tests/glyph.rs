@@ -3,7 +3,7 @@
 
 //! Tests for glyph rendering.
 
-use crate::renderer::Renderer;
+use crate::renderer::{CpuRenderer, GpuRenderer, Renderer};
 #[cfg(target_os = "macos")]
 use crate::util::layout_glyphs_apple_color_emoji;
 use crate::util::{
@@ -14,6 +14,7 @@ use glifo::{FontEmbolden, Glyph};
 use std::f64::consts::FRAC_PI_4;
 use std::iter;
 use std::sync::Arc;
+use vello_common::GlyphMaintenance;
 use vello_common::color::Srgb;
 use vello_common::color::palette::css::{BLACK, BLUE, GREEN, REBECCA_PURPLE};
 use vello_common::kurbo::{Affine, Diagonal2, Point, Stroke};
@@ -22,7 +23,9 @@ use vello_common::peniko::{
     Blob, Extend, FontData, Gradient, ImageQuality, ImageSampler, LinearGradientPosition,
 };
 use vello_common::pixmap::{PixelMetadata, Pixmap};
+use vello_cpu::{RenderMode, RenderSettings, Resources};
 use vello_dev_macros::vello_test;
+use vello_gpu::RenderSettings as GpuRenderSettings;
 
 fn render_transform_composition_rows(
     ctx: &mut impl Renderer,
@@ -1157,4 +1160,68 @@ fn glyphs_decoration_transformed(ctx: &mut impl Renderer, enable_caching: bool) 
         );
         y += buffer;
     }
+}
+
+#[test]
+fn glyphs_atlas_explicit_maintenance_cpu() {
+    let settings = RenderSettings {
+        num_threads: 0,
+        ..RenderSettings::default()
+    };
+    let resources = Resources::new_with(GlyphMaintenance::Explicit);
+    glyphs_atlas_explicit_maintenance(&mut CpuRenderer::new_with_resources(
+        300,
+        70,
+        settings,
+        RenderMode::OptimizeSpeed,
+        resources,
+    ));
+}
+
+#[test]
+fn glyphs_atlas_explicit_maintenance_gpu() {
+    let settings = GpuRenderSettings {
+        glyph_maintenance: GlyphMaintenance::Explicit,
+        ..GpuRenderSettings::default()
+    };
+    glyphs_atlas_explicit_maintenance(&mut GpuRenderer::new_with_settings(300, 70, settings, true));
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn glyphs_atlas_explicit_maintenance_gpu_webgl() {
+    glyphs_atlas_explicit_maintenance_gpu();
+}
+
+/// With `GlyphMaintenance::Explicit`, rendering one encoded glyph scene 200 times draws the same
+/// pixels as rendering it once.
+fn glyphs_atlas_explicit_maintenance(ctx: &mut impl Renderer) {
+    // Per-render maintenance would evict the scene's glyphs after 128 renders.
+    const RENDERS: usize = 200;
+
+    let font_size = 50.0;
+    let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
+    ctx.set_transform(Affine::translate((0.0, f64::from(font_size))));
+    ctx.set_paint(BLACK);
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .atlas_cache(true)
+        .hint(true)
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
+
+    ctx.render();
+    let expected = ctx.snapshot();
+    assert!(
+        expected.data_as_u8_slice().iter().any(|&byte| byte != 0),
+        "glyphs should have been rendered"
+    );
+    for _ in 1..RENDERS {
+        ctx.render();
+    }
+    assert!(
+        ctx.snapshot().data_as_u8_slice() == expected.data_as_u8_slice(),
+        "glyphs changed while rendering the same scene within one frame"
+    );
+    ctx.maintain_glyphs();
 }
