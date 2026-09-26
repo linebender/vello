@@ -18,8 +18,8 @@ use vello_cpu::{
     TargetInit as CpuTargetInit,
 };
 use vello_gpu::{
-    ClearSettings, RectU16, RenderSettings as GpuRenderSettings, Resources as GpuResources, Scene,
-    TargetInit as GpuTargetInit, TextureId,
+    ClearSettings, RectU16, RenderRegion, RenderSettings as GpuRenderSettings,
+    Resources as GpuResources, Scene, TargetInit as GpuTargetInit, TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -90,6 +90,7 @@ pub trait Renderer: Sized {
     fn reset_filter_effect(&mut self);
     fn reset(&mut self);
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>);
+    fn set_render_region(&mut self, region: RenderRegion<'static>);
     fn render(&mut self);
     fn snapshot(&mut self) -> Pixmap;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
@@ -103,6 +104,7 @@ pub struct CpuRenderer {
     render_mode: RenderMode,
     target: Pixmap,
     target_init: GpuTargetInit<'static>,
+    render_region: RenderRegion<'static>,
 }
 
 impl Renderer for CpuRenderer {
@@ -122,6 +124,7 @@ impl Renderer for CpuRenderer {
             render_mode,
             target: Pixmap::new(width, height),
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
+            render_region: RenderRegion::Viewport,
         }
     }
 
@@ -257,26 +260,33 @@ impl Renderer for CpuRenderer {
         self.target_init = target_init;
     }
 
+    fn set_render_region(&mut self, region: RenderRegion<'static>) {
+        self.render_region = region;
+    }
+
     fn render(&mut self) {
-        let target_init = match self.target_init {
-            GpuTargetInit::SrcOver => CpuTargetInit::SrcOver,
-            GpuTargetInit::Clear(ClearSettings::Viewport { color }) => CpuTargetInit::Clear(color),
-            GpuTargetInit::Clear(ClearSettings::Rects { color, rects }) => {
-                apply_rect_clear(&mut self.target, color, rects);
-
-                CpuTargetInit::SrcOver
+        match self.render_region {
+            RenderRegion::Viewport => render_cpu(
+                &mut self.ctx,
+                &mut self.resources,
+                &mut self.target,
+                self.render_mode,
+                self.target_init,
+            ),
+            RenderRegion::Rects(rects) => {
+                // Vello CPU cannot confine rendering, so we render into a copy of the target and
+                // only take the region from it.
+                let mut rendered = self.target.clone();
+                render_cpu(
+                    &mut self.ctx,
+                    &mut self.resources,
+                    &mut rendered,
+                    self.render_mode,
+                    self.target_init,
+                );
+                copy_rects(&rendered, &mut self.target, rects);
             }
-        };
-
-        self.ctx.render_with(
-            &mut self.target,
-            &mut self.resources,
-            RasterizerSettings {
-                render_mode: self.render_mode,
-                target_init,
-                ..Default::default()
-            },
-        );
+        }
     }
 
     fn snapshot(&mut self) -> Pixmap {
@@ -335,6 +345,7 @@ pub struct GpuRenderer {
     external_textures: HashMap<TextureId, wgpu::TextureView>,
     next_external_texture_id: u64,
     target_init: GpuTargetInit<'static>,
+    render_region: RenderRegion<'static>,
     gpu_test_guard: Option<std::sync::MutexGuard<'static, ()>>,
 }
 
@@ -345,6 +356,7 @@ impl GpuRenderer {
         height: u16,
         settings: GpuRenderSettings,
         use_depth_buffer: bool,
+        format: wgpu::TextureFormat,
     ) -> Self {
         let scene = Scene::new_with(width, height, settings.level);
         #[cfg(not(target_arch = "wasm32"))]
@@ -367,7 +379,7 @@ impl GpuRenderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
@@ -400,14 +412,98 @@ impl GpuRenderer {
             external_textures: HashMap::new(),
             next_external_texture_id: 1,
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
+            render_region: RenderRegion::Viewport,
             gpu_test_guard: None,
         }
+    }
+
+    /// Create a renderer whose target has `format`, to be read back with [`Self::read_target`].
+    pub fn new_with_format(width: u16, height: u16, format: wgpu::TextureFormat) -> Self {
+        Self::new_with_settings(width, height, GpuRenderSettings::default(), true, format)
     }
 
     fn lock_gpu_test(&mut self) {
         if self.gpu_test_guard.is_none() {
             self.gpu_test_guard = Some(WGPU_TEST_MUTEX.lock().unwrap());
         }
+    }
+
+    // This method creates device resources every time it is called. This does not matter much for
+    // testing, but should not be used as a basis for implementing something real. This would be a
+    // very bad example for that.
+    /// Read back the target, with tightly packed rows.
+    pub fn read_target(&mut self) -> Vec<u8> {
+        self.lock_gpu_test();
+
+        let width = self.scene.width();
+        let height = self.scene.height();
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Vello Readback"),
+            });
+
+        // Create a buffer to copy the texture data
+        let row_size = u32::from(width) * self.texture.format().block_copy_size(None).unwrap();
+        let bytes_per_row = row_size.next_multiple_of(256);
+        let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Output Buffer"),
+            size: u64::from(bytes_per_row) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &texture_copy_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: None,
+                },
+            },
+            wgpu::Extent3d {
+                width: width.into(),
+                height: height.into(),
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit([encoder.finish()]);
+
+        // Map the buffer for reading
+        texture_copy_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                if result.is_err() {
+                    panic!("Failed to map texture for reading");
+                }
+            });
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+
+        // Read back the pixel data
+        let mut data = Vec::with_capacity(row_size as usize * usize::from(height));
+        for row in texture_copy_buffer
+            .slice(..)
+            .get_mapped_range()
+            .unwrap()
+            .chunks_exact(bytes_per_row as usize)
+        {
+            data.extend_from_slice(&row[..row_size as usize]);
+        }
+        texture_copy_buffer.unmap();
+        drop(texture_copy_buffer);
+        self.gpu_test_guard = None;
+        data
     }
 
     fn upload_image_with_resources(
@@ -462,7 +558,13 @@ impl Renderer for GpuRenderer {
         // (for example situations where we need to spill to a new page, etc.). Therefore,
         // we make the minimum size smaller than the default.
         settings.memory_settings.layers_config.min_texture_size = vello_gpu::SizeU16::new(100);
-        Self::new_with_settings(width, height, settings, use_depth_buffer)
+        Self::new_with_settings(
+            width,
+            height,
+            settings,
+            use_depth_buffer,
+            wgpu::TextureFormat::Rgba8Unorm,
+        )
     }
 
     fn fill_path(&mut self, path: &BezPath) {
@@ -596,6 +698,10 @@ impl Renderer for GpuRenderer {
         self.target_init = target_init;
     }
 
+    fn set_render_region(&mut self, region: RenderRegion<'static>) {
+        self.render_region = region;
+    }
+
     fn render(&mut self) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
@@ -630,90 +736,17 @@ impl Renderer for GpuRenderer {
                 self.depth_texture_view.as_ref(),
                 &texture_bindings,
                 self.target_init,
+                self.render_region,
             )
             .unwrap();
 
         self.queue.submit([encoder.finish()]);
     }
 
-    // This method creates device resources every time it is called. This does not matter much for
-    // testing, but should not be used as a basis for implementing something real. This would be a
-    // very bad example for that.
     fn snapshot(&mut self) -> Pixmap {
-        self.lock_gpu_test();
-
-        let width = self.scene.width();
-        let height = self.scene.height();
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Vello Readback"),
-            });
-
-        // Create a buffer to copy the texture data
-        let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
-        let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Output Buffer"),
-            size: u64::from(bytes_per_row) * u64::from(height),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &texture_copy_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(bytes_per_row),
-                    rows_per_image: None,
-                },
-            },
-            wgpu::Extent3d {
-                width: width.into(),
-                height: height.into(),
-                depth_or_array_layers: 1,
-            },
-        );
-
-        self.queue.submit([encoder.finish()]);
-
-        // Map the buffer for reading
-        texture_copy_buffer
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
-                if result.is_err() {
-                    panic!("Failed to map texture for reading");
-                }
-            });
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-
-        // Read back the pixel data
-        let mut pixmap = Pixmap::new(width, height);
-        for (row, buf) in texture_copy_buffer
-            .slice(..)
-            .get_mapped_range()
-            .unwrap()
-            .chunks_exact(bytes_per_row as usize)
-            .zip(
-                pixmap
-                    .data_as_u8_slice_mut()
-                    .chunks_exact_mut(width as usize * 4),
-            )
-        {
-            buf.copy_from_slice(&row[0..width as usize * 4]);
-        }
-        texture_copy_buffer.unmap();
-        drop(texture_copy_buffer);
-        self.gpu_test_guard = None;
+        let data = self.read_target();
+        let mut pixmap = Pixmap::new(self.scene.width(), self.scene.height());
+        pixmap.data_as_u8_slice_mut().copy_from_slice(&data);
         pixmap
     }
 
@@ -989,6 +1022,14 @@ impl Renderer for GpuRenderer {
         };
     }
 
+    fn set_render_region(&mut self, region: RenderRegion<'static>) {
+        assert_eq!(
+            region,
+            RenderRegion::Viewport,
+            "WebGL always renders the complete viewport"
+        );
+    }
+
     fn render(&mut self) {
         let width = self.scene.width();
         let height = self.scene.height();
@@ -1098,6 +1139,50 @@ impl Renderer for GpuRenderer {
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         self.upload_image(&pixmap)
+    }
+}
+
+fn render_cpu(
+    ctx: &mut RenderContext,
+    resources: &mut Resources,
+    target: &mut Pixmap,
+    render_mode: RenderMode,
+    target_init: GpuTargetInit<'_>,
+) {
+    let target_init = match target_init {
+        GpuTargetInit::SrcOver => CpuTargetInit::SrcOver,
+        GpuTargetInit::Clear(ClearSettings::Viewport { color }) => CpuTargetInit::Clear(color),
+        GpuTargetInit::Clear(ClearSettings::Rects { color, rects }) => {
+            apply_rect_clear(target, color, rects);
+
+            CpuTargetInit::SrcOver
+        }
+    };
+
+    ctx.render_with(
+        target,
+        resources,
+        RasterizerSettings {
+            render_mode,
+            target_init,
+            ..Default::default()
+        },
+    );
+}
+
+fn copy_rects(src: &Pixmap, dst: &mut Pixmap, rects: &[RectU16]) {
+    let width = usize::from(dst.width());
+    let bounds = RectU16::new(0, 0, dst.width(), dst.height());
+
+    for rect in rects
+        .iter()
+        .map(|rect| rect.intersect(bounds))
+        .filter(|rect| !rect.is_empty())
+    {
+        for y in usize::from(rect.y0)..usize::from(rect.y1) {
+            let row = y * width + usize::from(rect.x0)..y * width + usize::from(rect.x1);
+            dst.data_mut()[row.clone()].copy_from_slice(&src.data()[row]);
+        }
     }
 }
 

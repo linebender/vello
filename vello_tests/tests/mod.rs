@@ -49,6 +49,7 @@ mod layer;
 mod mask;
 mod mix;
 mod opacity;
+mod render_region;
 use vello_tests::renderer;
 mod scenes;
 mod target;

@@ -283,6 +283,7 @@ impl AppState {
                 Some(&self.renderer_wrapper.depth_texture_view),
                 &vello_gpu::TextureBindings::new(),
                 vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
+                vello_gpu::RenderRegion::Viewport,
             )
             .unwrap();
         let render_end = now();
@@ -744,6 +745,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             Some(&depth_texture_view),
             &vello_gpu::TextureBindings::new(),
             vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
+            vello_gpu::RenderRegion::Viewport,
         )
         .unwrap();
 

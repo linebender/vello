@@ -402,6 +402,7 @@ impl ApplicationHandler for App<'_> {
                         Some(depth_texture_view),
                         &texture_bindings,
                         vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
+                        vello_gpu::RenderRegion::Viewport,
                     )
                     .unwrap();
 

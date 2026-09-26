@@ -115,6 +115,53 @@ impl Clear for OpaqueDraw {
     }
 }
 
+/// Culls root draws that cannot reach any pixel of the region a render is confined to.
+///
+/// Only whole strips and rectangle parts are dropped; the ones that remain are encoded exactly as
+/// in an unconfined render, so the pixels inside the region come out identical. Clipping to the
+/// region itself is left to the scissor test of the backend.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RegionCull<'a> {
+    /// Bounding box of `rects`.
+    bbox: RectU16,
+    /// Non-empty rectangles covering the region, in root target coordinates.
+    rects: &'a [RectU16],
+}
+
+impl<'a> RegionCull<'a> {
+    pub(crate) fn new(rects: &'a [RectU16]) -> Self {
+        let mut bbox = RectU16::INVERTED;
+        for rect in rects {
+            bbox.union(*rect);
+        }
+
+        Self { bbox, rects }
+    }
+
+    /// Restrict `tile_bounds` to the tile rows touched by the region.
+    ///
+    /// Strips span exactly one tile row, so this only drops whole strips.
+    fn tile_rows(self, tile_bounds: RectU16) -> RectU16 {
+        RectU16::new(
+            tile_bounds.x0,
+            tile_bounds.y0.max(self.bbox.y0 / Tile::HEIGHT),
+            tile_bounds.x1,
+            tile_bounds.y1.min(self.bbox.y1.div_ceil(Tile::HEIGHT)),
+        )
+    }
+
+    /// Whether `rect` lies entirely outside the region.
+    #[inline]
+    fn culls(self, rect: RectU16) -> bool {
+        rect.intersect(self.bbox).is_empty()
+            || (self.rects.len() > 1
+                && self
+                    .rects
+                    .iter()
+                    .all(|region| rect.intersect(*region).is_empty()))
+    }
+}
+
 /// Appends recorded draws to a scheduled [`Draw`] and its shared buffers.
 #[derive(Debug)]
 pub(crate) struct DrawBuilder<'a, T: DrawTarget> {
@@ -126,6 +173,8 @@ pub(crate) struct DrawBuilder<'a, T: DrawTarget> {
     opaque: &'a mut OpaqueDraw,
     /// Target and depth state used to encode strips.
     state: &'a mut DrawState<T>,
+    /// Region cull applied to the draws of a confined root target.
+    cull: Option<RegionCull<'a>>,
 }
 
 impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
@@ -133,13 +182,28 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         draw: &'a mut Draw,
         draw_buffers: &'a mut DrawBuffers,
         state: &'a mut DrawState<T>,
+        cull: Option<RegionCull<'a>>,
     ) -> Self {
         Self {
             draw,
             strips: &mut draw_buffers.strips,
             opaque: &mut draw_buffers.opaque,
             state,
+            cull,
         }
+    }
+
+    /// Whether `rect`, in unshifted target coordinates, is culled by the region.
+    #[inline]
+    fn culls(&self, rect: RectU16) -> bool {
+        self.cull.is_some_and(|cull| cull.culls(rect))
+    }
+
+    /// Tile bounds of `bbox`, limited to the tile rows touched by the region.
+    fn tile_bounds(&self, bbox: RectU16) -> RectU16 {
+        let tile_bounds = bbox.to_tile_bounds();
+        self.cull
+            .map_or(tile_bounds, |cull| cull.tile_rows(tile_bounds))
     }
 
     pub(crate) fn push_draw(
@@ -178,7 +242,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         // those _currently_ never use the depth buffer, but it's better to keep the
         // condition simple, and it's not incorrect to do so.
         let depth_index = self.state.depth_counter.next(paint.opaque);
-        let tile_bounds = self.state.target_bbox.to_tile_bounds();
+        let tile_bounds = self.tile_bounds(self.state.target_bbox);
         let geometry_shift = self.state.target.geometry_shift();
 
         // Note that this method will also take care of culling any strips to the active clip bbox.
@@ -187,6 +251,10 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
             tile_bounds,
             self,
             |builder, segment| {
+                if builder.culls(segment.pixel_rect()) {
+                    return;
+                }
+
                 let shifted = segment.shift(geometry_shift);
                 let strip = GpuStrip::from_fill_segment(
                     shifted,
@@ -205,6 +273,10 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                     .push(builder.strips, strip, paint.texture_source);
             },
             |builder, segment| {
+                if builder.culls(segment.pixel_rect()) {
+                    return;
+                }
+
                 let shifted = segment.shift(geometry_shift);
 
                 let strip = GpuStrip::from_fill_segment(
@@ -251,6 +323,10 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         .into_iter()
         .flatten()
         {
+            if self.culls(part.rect) {
+                continue;
+            }
+
             let shifted = part.shift(self.state.target.geometry_shift());
 
             let strip = GpuStrip::from_rect(
@@ -275,7 +351,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         strip_storage: &StripStorage,
     ) {
         let sample_bbox = sample.layer_bbox.intersect(self.state.target_bbox);
-        if sample_bbox.is_empty() {
+        if sample_bbox.is_empty() || self.culls(sample_bbox) {
             return;
         }
 
@@ -287,7 +363,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
 
             let strips = &strip_storage.strips[clip_path.strip_range.clone()];
             let depth_index = self.state.depth_counter.next(false);
-            let tile_bounds = sample_bbox.to_tile_bounds();
+            let tile_bounds = self.tile_bounds(sample_bbox);
 
             visit_strip_fill_segments(
                 strips,
@@ -339,6 +415,10 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         paint: u32,
         depth_index: u32,
     ) {
+        if self.culls(segment.pixel_rect()) {
+            return;
+        }
+
         self.draw.has_child_layer = true;
         // See the comment in `push_path`.
         let payload = sample.payload_at(segment.x0(), segment.y());
@@ -391,7 +471,7 @@ impl<T: DrawTarget> DrawState<T> {
 
 /// Bit 31 of [`GpuStrip::paint_and_rect_flag`] signals that the strip
 /// represents a full rectangle.
-const RECT_STRIP_FLAG: u32 = 1 << 31;
+pub(crate) const RECT_STRIP_FLAG: u32 = 1 << 31;
 
 impl GpuStrip {
     fn from_fill_segment(
@@ -619,7 +699,7 @@ mod tests {
             paint_resolver: PaintResolver<'_>,
         ) {
             let recorded = RecordedDraw::Rect(RecordedRect { rect, paint });
-            DrawBuilder::new(draw, &mut self.buffers, &mut self.state).push_draw(
+            DrawBuilder::new(draw, &mut self.buffers, &mut self.state, None).push_draw(
                 &recorded,
                 &self.strip_storage,
                 paint_resolver,
@@ -627,7 +707,7 @@ mod tests {
         }
 
         fn layer(&mut self, draw: &mut Draw, sample: LayerTextureRegion) {
-            DrawBuilder::new(draw, &mut self.buffers, &mut self.state).push_layer_fill(
+            DrawBuilder::new(draw, &mut self.buffers, &mut self.state, None).push_layer_fill(
                 sample,
                 1.0,
                 None,
