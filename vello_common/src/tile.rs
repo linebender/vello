@@ -1294,9 +1294,7 @@ impl Tiles {
 
 #[cfg(test)]
 mod tests {
-    use crate::flatten::{FlattenCtx, Line, Point, fill};
-    use crate::geometry::RectU16;
-    use crate::kurbo::{Affine, BezPath};
+    use crate::flatten::{Line, Point};
     use crate::tile::CulledWindings;
     use crate::tile::{B, L, R, T, Tile, Tiles, W};
     use fearless_simd::Level;
@@ -1693,19 +1691,16 @@ mod tests {
         const VIEWPORT_WIDTH: u16 = 10;
         const VIEWPORT_HEIGHT: u16 = 10;
 
-        let path = BezPath::from_svg("M261,0 L78848,0 L78848,4 L261,4 Z").unwrap();
-        let mut line_buf: Vec<Line> = Vec::new();
-        fill(
-            Level::try_detect().unwrap_or(Level::baseline()),
-            &path,
-            Affine::IDENTITY,
-            &mut line_buf,
-            &mut FlattenCtx::default(),
-            RectU16::new(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT),
-        );
+        // Built directly, as flattening would cull all of these lines.
+        let lines = [
+            Line::new(Point::new(261.0, 0.0), Point::new(78848.0, 0.0)),
+            Line::new(Point::new(78848.0, 0.0), Point::new(78848.0, 4.0)),
+            Line::new(Point::new(78848.0, 4.0), Point::new(261.0, 4.0)),
+            Line::new(Point::new(261.0, 4.0), Point::new(261.0, 0.0)),
+        ];
 
         let mut tiles = new_tiles();
-        tiles.assert_tiles_match(&line_buf, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, &[]);
+        tiles.assert_tiles_match(&lines, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, &[]);
     }
 
     #[test]
