@@ -49,6 +49,7 @@ import package::helpers::image::{
     get_image_translate
 };
 import package::helpers::math::{NEARLY_ZERO_TOLERANCE, TWO_PI};
+import package::helpers::rect::rect_alpha;
 import package::helpers::util::unpack_u16_pair;
 
 // Color source modes - where the fragment shader gets color data from.
@@ -70,6 +71,9 @@ const PAINT_TEXTURE_INDEX_MASK: u32 = 0x00FFFFFFu;
 const EXTERNAL_TEXTURE_SLOT_SHIFT: u32 = 24u;
 
 const RECT_STRIP_FLAG: u32 = 0x80000000u;
+
+// Low bits of `StripInstance::depth_index` that hold the depth index.
+const DEPTH_INDEX_BITS: u32 = 24u;
 
 struct Config {
     // Width of the rendering target
@@ -108,9 +112,10 @@ struct Config {
 //   ----------------------+-----------------------------------+-----------------------------------
 //   xy                    | Strip position                    | Rect top-left (snapped outward)
 //   widths_or_rect_height | [width, dense_width]              | [width, height] (both snapped)
-//   col_idx_or_rect_frac  | Alpha column index                | Packed AA edge fractions (4 × u8)
+//   col_idx_or_rect_frac  | Alpha column index                | Boundary pixel alphas (4 × u8)
 //   payload               | Color / scene coords / layer xy   | Color / scene coords / layer xy
 //   paint_and_rect_flag   | Paint encoding                    | Paint encoding | RECT_STRIP_FLAG
+//   depth_index           | Painter's-order index             | Painter's-order index | corner corrections
 //
 //
 // `paint_and_rect_flag` bit layout:
@@ -168,7 +173,7 @@ struct StripInstance {
     widths_or_rect_height: u32,
     // For normal strips: alpha texture column index where this strip's alpha values begin.
     // There are [`Config::strip_height`] alpha values per column.
-    // For rect strips: packed fractional edge offsets for AA.
+    // For rect strips: boundary pixel alphas (see `rect_alpha`).
     @location(2)
     col_idx_or_rect_frac: u32,
     // See StripInstance documentation above.
@@ -177,7 +182,9 @@ struct StripInstance {
     // See StripInstance documentation above.
     @location(4)
     paint_and_rect_flag: u32,
-    // Painter's-order index for z-depth computation.
+    // Painter's-order index for z-depth computation, in the low `DEPTH_INDEX_BITS` bits: the
+    // back-most draw has index 0 and every additional draw in front has an incrementing index.
+    // For rect strips, the bits above hold the corner corrections (see `rect_alpha`).
     @location(5)
     depth_index: u32,
 }
@@ -199,11 +206,14 @@ struct VertexOutput {
     // Packed paint payload or layer sample coordinate.
     @location(4) @interpolate(flat)
     payload: u32,
-    // Packed fractional edge offsets for rectangles.
-    // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
+    // Boundary pixel alphas for rectangles (see `rect_alpha`).
     // Zero for normal strips.
     @location(5) @interpolate(flat)
-    rect_frac: u32,
+    rect_alphas: u32,
+    // Corner corrections for rectangles (see `rect_alpha`).
+    // Zero for normal strips.
+    @location(6) @interpolate(flat)
+    rect_corner_corrections: u32,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position)
     position: vec4<f32>,
@@ -256,10 +266,12 @@ fn vs_main(
     if is_rect {
         height = dense_width;
         out.dense_end_or_rect_size = width | (dense_width << 16u);
-        out.rect_frac = instance.col_idx_or_rect_frac;
+        out.rect_alphas = instance.col_idx_or_rect_frac;
+        out.rect_corner_corrections = instance.depth_index >> DEPTH_INDEX_BITS;
     } else {
         out.dense_end_or_rect_size = instance.col_idx_or_rect_frac + dense_width;
-        out.rect_frac = 0u;
+        out.rect_alphas = 0u;
+        out.rect_corner_corrections = 0u;
     }
     // Calculate the pixel coordinates of the current vertex within the strip.
     // Don't forget to apply the strip offset!
@@ -310,7 +322,8 @@ fn vs_main(
 
     // Divide by a power of 2 to ensure exact f32 arithmetic (and divide by the expected depth
     // buffer precision of 24 bits).
-    let z = 1.0 - f32(instance.depth_index) / f32(1u << 24u);
+    let depth_index = instance.depth_index & ((1u << DEPTH_INDEX_BITS) - 1u);
+    let z = 1.0 - f32(depth_index) / f32(1u << DEPTH_INDEX_BITS);
     // Flip it based on the flag.
     let final_ndc_y = select(ndc.y, -ndc.y, config.ndc_y_negate != 0u);
     out.position = vec4<f32>(ndc.x, final_ndc_y, z, 1.0);
@@ -333,27 +346,23 @@ fn fs_main(
     @location(2) sample_xy: vec2<f32>,
     @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
     @location(4) @interpolate(flat) payload: u32,
-    @location(5) @interpolate(flat) rect_frac: u32,
+    @location(5) @interpolate(flat) rect_alphas: u32,
+    @location(6) @interpolate(flat) rect_corner_corrections: u32,
     @builtin(position) position: vec4<f32>,
 ) -> @location(0) vec4<f32> {
     var alpha = 1.0;
     let is_rect = (paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
     // TODO: Explore doing these calculations only for rectangle parts that actually need anti-aliasing. See
     // https://github.com/linebender/vello/pull/1482#discussion_r2861311034
-    if is_rect && rect_frac != 0u {
-        let frac = unpack4x8unorm(rect_frac);
-        // Calculate how much of the pixel is actually covered by the rect.
-        // We do this by simply calculating the fractions in the x and y direction, and
-        // then multiplying them.
-        // For (maybe?) better performance, we calculate the x and y dimension in a single
-        // pass by packing everything into a vec2.
-        let rect_size = vec2<f32>(unpack_u16_pair(dense_end_or_rect_size));
-        let tc = tex_coord;
-        // + 0.5 and -0.5 since the fragment shader positions the coordinates in the center of the pixel.
-        let bottom_and_right = min(tc + 0.5, rect_size - frac.zw);
-        let top_and_left = max(tc - 0.5, frac.xy);
-        let a = clamp(bottom_and_right - top_and_left, vec2(0.0), vec2(1.0));
-        alpha = a.x * a.y;
+    // Fully covered rects have all boundary alphas at 255 and no corner corrections.
+    if is_rect && (rect_alphas != 0xffffffffu || rect_corner_corrections != 0u) {
+        let pixel_alpha = rect_alpha(
+            vec2<u32>(tex_coord),
+            unpack_u16_pair(dense_end_or_rect_size),
+            rect_alphas,
+            rect_corner_corrections,
+        );
+        alpha = f32(pixel_alpha) * (1.0 / 255.0);
     } else if !is_rect && dense_end_or_rect_size != 0u {
         let x = u32(floor(tex_coord.x));
         let y = u32(floor(tex_coord.y));

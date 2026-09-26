@@ -136,9 +136,21 @@ fn coverage<const N: usize>(start: u16, rect_lo: f32, rect_hi: f32) -> [f32; N] 
     #[allow(clippy::needless_range_loop, reason = "better clarity")]
     for i in 0..N {
         let px = (start as usize + i) as f32;
-        cov[i] = (rect_hi.min(px + 1.0) - rect_lo.max(px)).clamp(0.0, 1.0);
+        cov[i] = pixel_coverage(px, rect_lo, rect_hi);
     }
     cov
+}
+
+/// The fraction of the pixel span `[px, px + 1]` covered by `[rect_lo, rect_hi]`.
+#[inline(always)]
+pub fn pixel_coverage(px: f32, rect_lo: f32, rect_hi: f32) -> f32 {
+    (rect_hi.min(px + 1.0) - rect_lo.max(px)).clamp(0.0, 1.0)
+}
+
+/// Quantize a pixel's area coverage to an alpha value.
+#[inline(always)]
+pub fn coverage_to_alpha(coverage: f32) -> u8 {
+    (coverage * 255.0 + 0.5) as u8
 }
 
 /// Build an alpha mask for the 4x4 tile from the given horizontal coverages,
@@ -149,7 +161,7 @@ fn alpha_mask_from_x_coverage<S: Simd>(s: S, cov: &[f32; Tile::WIDTH as usize]) 
 
     #[allow(clippy::needless_range_loop, reason = "better clarity")]
     for col in 0..Tile::WIDTH as usize {
-        let alpha = (cov[col] * 255.0 + 0.5) as u8;
+        let alpha = coverage_to_alpha(cov[col]);
         let base = col * Tile::HEIGHT as usize;
         buf[base..base + Tile::HEIGHT as usize].fill(alpha);
     }
@@ -168,7 +180,7 @@ fn combined_tile_alpha<S: Simd>(
     let mut buf = [0_u8; 16];
     for (col, xc) in x_cov.iter().copied().enumerate() {
         for (row, yc) in y_cov.iter().copied().enumerate() {
-            buf[col * Tile::HEIGHT as usize + row] = (xc * yc * 255.0 + 0.5) as u8;
+            buf[col * Tile::HEIGHT as usize + row] = coverage_to_alpha(xc * yc);
         }
     }
 
