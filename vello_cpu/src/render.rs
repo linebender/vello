@@ -27,7 +27,7 @@ use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
+use vello_common::paint::{CoverageContrast, ImageId, ImageResolver, Paint, PaintType, Tint};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::{Pixmap, PixmapMut};
@@ -281,6 +281,11 @@ impl RenderContext {
 
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
+        self.fill_path_with_contrast(path, CoverageContrast::NONE);
+    }
+
+    /// Fill a path, remapping its coverage through `contrast` before clipping.
+    pub(crate) fn fill_path_with_contrast(&mut self, path: &BezPath, contrast: CoverageContrast) {
         if !self.paint_has_area() {
             return;
         }
@@ -301,6 +306,7 @@ impl RenderContext {
                 paint,
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
+                contrast,
                 ctx.mask.clone(),
             );
         });
@@ -367,6 +373,7 @@ impl RenderContext {
                     paint,
                     ctx.state.blend_mode,
                     ctx.aliasing_threshold,
+                    CoverageContrast::NONE,
                     ctx.mask.clone(),
                 );
             }
@@ -468,6 +475,7 @@ impl RenderContext {
             paint,
             self.state.blend_mode,
             self.aliasing_threshold,
+            CoverageContrast::NONE,
             self.mask.clone(),
         );
     }

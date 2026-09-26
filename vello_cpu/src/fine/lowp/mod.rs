@@ -16,7 +16,10 @@ mod image;
 use crate::filter::context::ScratchBuffer;
 use crate::filter::filter_lowp;
 use crate::fine::lowp::image::{BilinearImagePainter, PlainBilinearImagePainter};
-use crate::fine::{COLOR_COMPONENTS, FineKernel, Painter, Splat4thExt, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{
+    COLOR_COMPONENTS, FineKernel, Painter, Splat4thExt, TILE_HEIGHT_COMPONENTS,
+    apply_coverage_contrast, u8_to_f32,
+};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use crate::util::NormalizedMulExt;
@@ -28,10 +31,10 @@ use vello_common::fearless_simd::*;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
-use vello_common::paint::{PremulColor, Tint, TintMode};
+use vello_common::paint::{CoverageContrast, PremulColor, Tint, TintMode};
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
-use vello_common::util::{narrow, normalized_mul_u8};
+use vello_common::util::{f32_to_u8, narrow, normalized_mul_u8};
 
 /// The kernel for doing rendering using u8/u16.
 #[derive(Clone, Copy, Debug)]
@@ -166,6 +169,18 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                 let tint_v = u32x8::block_splat(u32x4::splat(simd, color)).to_bytes();
 
                 match tint.mode {
+                    TintMode::AlphaMask if !tint.contrast.is_none() => {
+                        for chunk in dest.chunks_exact_mut(32) {
+                            let pixel = u8x32::from_slice(simd, chunk);
+                            let (alphas_1, alphas_2) = simd.split_u8x32(pixel.splat_4th());
+                            let alphas = simd.combine_u8x16(
+                                apply_coverage_contrast_u8(tint.contrast, alphas_1),
+                                apply_coverage_contrast_u8(tint.contrast, alphas_2),
+                            );
+                            let tinted = tint_v.normalized_mul(alphas);
+                            tinted.store_slice(chunk);
+                        }
+                    }
                     TintMode::AlphaMask => {
                         for chunk in dest.chunks_exact_mut(32) {
                             let pixel = u8x32::from_slice(simd, chunk);
@@ -679,6 +694,17 @@ mod alpha_fill {
             },
         );
     }
+}
+
+/// [`CoverageContrast::apply_u8`] for 16 values.
+///
+/// This uses the same operations in the same order, so the results are identical.
+#[inline(always)]
+fn apply_coverage_contrast_u8<S: Simd>(contrast: CoverageContrast, alphas: u8x16<S>) -> u8x16<S> {
+    let simd = alphas.simd;
+    let alphas = u8_to_f32(alphas) * f32x16::splat(simd, 1.0 / 255.0);
+    let alphas = apply_coverage_contrast(contrast, alphas);
+    f32_to_u8(alphas * f32x16::splat(simd, 255.0) + f32x16::splat(simd, 0.5))
 }
 
 /// Expands 8 mask bytes into a 32-byte SIMD vector where each pixel's 4 components

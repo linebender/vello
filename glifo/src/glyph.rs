@@ -41,7 +41,7 @@ use skrifa::raw::TableProvider;
 use skrifa::{FontRef, OutlineGlyphCollection};
 use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
-use vello_common::paint::PaintType;
+use vello_common::paint::{CoverageContrast, PaintType};
 
 /// Positioned glyph.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
@@ -453,6 +453,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             run_size: _,
             font_info,
             font_embolden,
+            coverage_contrast,
             normalized_coords,
             hinting_instance,
             ..
@@ -472,6 +473,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // We use image tinting to color cached glyphs, which is not 
             // supported for complex paints.
             && matches!(renderer.current_paint(), PaintType::Solid(_));
+        let contrast = resolve_coverage_contrast(coverage_contrast, renderer.current_paint());
 
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
@@ -524,6 +526,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     cached_slot,
                     outline_transform,
                     CachedGlyphType::Outline,
+                    contrast,
                 );
                 continue;
             }
@@ -577,6 +580,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                         cached_slot,
                         outline_transform,
                         CachedGlyphType::Colr(area),
+                        contrast,
                     );
                     continue;
                 }
@@ -600,6 +604,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     Style::Fill => fill_glyph(
                         renderer,
                         prepared_glyph,
+                        contrast,
                         &mut self.atlas_cacher,
                         &mut outline_cache_session,
                     ),
@@ -680,6 +685,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                         cached_slot,
                         outline_transform,
                         CachedGlyphType::Bitmap,
+                        contrast,
                     );
                     continue;
                 }
@@ -697,6 +703,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     Style::Fill => fill_glyph(
                         renderer,
                         prepared_glyph,
+                        contrast,
                         &mut self.atlas_cacher,
                         &mut outline_cache_session,
                     ),
@@ -752,6 +759,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 Style::Fill => fill_glyph(
                     renderer,
                     prepared_glyph,
+                    contrast,
                     &mut self.atlas_cacher,
                     &mut outline_cache_session,
                 ),
@@ -971,6 +979,7 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
                 font,
                 font_size: 16.0,
                 font_embolden: FontEmbolden::default(),
+                coverage_contrast: CoverageContrast::NONE,
                 transform,
                 scene_paint_transform: transform * paint_transform,
                 glyph_transform: None,
@@ -1006,6 +1015,16 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
     /// and `glyph_transform` have a uniform scale and no vertical skew or rotation.
     pub fn hint(mut self, hint: bool) -> Self {
         self.run.hint = hint;
+        self
+    }
+
+    /// Set the coverage transfer used to sharpen filled outline glyphs.
+    ///
+    /// Blending in sRGB makes light text on a dark background look thinner than dark text on a
+    /// light one, so the weight is scaled by the luminance of a solid paint: white text gets the
+    /// full weight, black text and non-solid paints none. Defaults to [`CoverageContrast::NONE`].
+    pub fn coverage_contrast(mut self, contrast: CoverageContrast) -> Self {
+        self.run.coverage_contrast = contrast;
         self
     }
 
@@ -1265,6 +1284,21 @@ impl GlyphScaleProperties {
             }
         }
     }
+}
+
+/// Scale the weight of `contrast` by the approximate luminance of a solid `paint`, see
+/// [`GlyphRunBuilder::coverage_contrast`].
+fn resolve_coverage_contrast(contrast: CoverageContrast, paint: &PaintType) -> CoverageContrast {
+    let luminance = match paint {
+        PaintType::Solid(color) => {
+            let [r, g, b, _] = color.components.map(|c| c.clamp(0.0, 1.0));
+            0.2126 * r * r + 0.7152 * g * g + 0.0722 * b * b
+        }
+        _ => 0.0,
+    };
+    // A `NaN` luminance casts to 0.
+    let weight = (f32::from(contrast.weight_bits()) * luminance + 0.5) as u8;
+    CoverageContrast::from_bits(contrast.contrast_bits(), weight)
 }
 
 /// Calculate transform for outline glyphs.
@@ -1547,6 +1581,8 @@ pub struct GlyphRun<'a> {
     font_size: f32,
     /// Synthetic embolden settings.
     font_embolden: FontEmbolden,
+    /// Coverage transfer for filled outline glyphs.
+    coverage_contrast: CoverageContrast,
     /// Global transform.
     transform: Affine,
     /// Paint transform for the glyph run in scene space.
@@ -1575,6 +1611,8 @@ struct PreparedGlyphRun<'a> {
     run_size: f32,
     /// Synthetic embolden settings.
     font_embolden: FontEmbolden,
+    /// Coverage transfer for filled outline glyphs.
+    coverage_contrast: CoverageContrast,
     /// The original per-glyph transform supplied by the caller.
     glyph_transform: Option<Affine>,
     // Continuing the above comment, the problem is that we also need to precalculate data
@@ -1645,6 +1683,7 @@ impl Debug for PreparedGlyphRun<'_> {
             .field("font_info", &self.font_info)
             .field("run_size", &self.run_size)
             .field("font_embolden", &self.font_embolden)
+            .field("coverage_contrast", &self.coverage_contrast)
             .field("glyph_transform", &self.glyph_transform)
             .field("transforms", &self.draw_props)
             .field("normalized_coords", &self.normalized_coords)
@@ -1748,6 +1787,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         font_info,
         run_size: run.font_size,
         font_embolden: run.font_embolden,
+        coverage_contrast: run.coverage_contrast,
         glyph_transform: run.glyph_transform,
         draw_props: DrawProps {
             positioning_transform: run
@@ -2295,8 +2335,8 @@ mod tests {
     use crate::atlas::{AtlasConfig, AtlasPaint};
     use crate::interface::{DrawSink, GlyphRenderer};
     use crate::peniko::BlendMode;
-    use crate::peniko::Blob;
     use crate::peniko::color::{AlphaColor, Srgb};
+    use crate::peniko::{Blob, Gradient};
     use alloc::sync::Arc;
     use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
 
@@ -2383,6 +2423,8 @@ mod tests {
 
         fn set_tint(&mut self, _tint: Option<Tint>) {}
 
+        fn fill_glyph_path(&mut self, _path: &BezPath, _contrast: CoverageContrast) {}
+
         fn get_context_color(&self) -> AlphaColor<Srgb> {
             BLACK
         }
@@ -2443,6 +2485,7 @@ mod tests {
             font: font.clone(),
             font_size: 20.0,
             font_embolden: FontEmbolden::default(),
+            coverage_contrast: CoverageContrast::NONE,
             transform,
             scene_paint_transform: transform,
             glyph_transform: None,
@@ -2560,6 +2603,36 @@ mod tests {
     }
 
     #[test]
+    fn coverage_contrast_weight_scales_with_luminance() {
+        let contrast = CoverageContrast::from_bits(55, 200);
+        let resolve = |r, g, b, a| {
+            resolve_coverage_contrast(contrast, &PaintType::Solid(AlphaColor::new([r, g, b, a])))
+        };
+
+        assert_eq!(resolve(1.0, 1.0, 1.0, 1.0), contrast);
+        assert_eq!(
+            resolve(0.0, 0.0, 0.0, 1.0),
+            CoverageContrast::from_bits(55, 0)
+        );
+        // Mid-gray has a luminance of 0.25, and alpha is ignored.
+        assert_eq!(
+            resolve(0.5, 0.5, 0.5, 0.0),
+            CoverageContrast::from_bits(55, 50)
+        );
+        // The primaries are weighted like Rec. 709 luma.
+        assert_eq!(resolve(1.0, 0.0, 0.0, 1.0).weight_bits(), 43);
+        assert_eq!(resolve(0.0, 1.0, 0.0, 1.0).weight_bits(), 143);
+        assert_eq!(resolve(0.0, 0.0, 1.0, 1.0).weight_bits(), 14);
+        // Out-of-range channels are clamped.
+        assert_eq!(resolve(2.0, 5.0, 1.5, 1.0), contrast);
+        // Non-solid paints only get the contrast.
+        assert_eq!(
+            resolve_coverage_contrast(contrast, &PaintType::Gradient(Gradient::default())),
+            CoverageContrast::from_bits(55, 0)
+        );
+    }
+
+    #[test]
     fn glyph_without_supported_representation_is_reported() {
         let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
         let glyph = Glyph {
@@ -2572,6 +2645,7 @@ mod tests {
             font,
             font_size: 20.0,
             font_embolden: FontEmbolden::default(),
+            coverage_contrast: CoverageContrast::NONE,
             transform: Affine::IDENTITY,
             scene_paint_transform: Affine::IDENTITY,
             glyph_transform: None,

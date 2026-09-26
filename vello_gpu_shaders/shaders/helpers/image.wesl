@@ -12,6 +12,11 @@ const IMAGE_QUALITY_HIGH: u32 = 2u;
 const TINT_MODE_ALPHA_MASK: u32 = 0u;
 const TINT_MODE_MULTIPLY: u32 = 1u;
 
+/// Bit offsets of the coverage transfer strengths in texel2.z. Must match
+/// `GPU_TINT_CONTRAST_SHIFT` and `GPU_TINT_WEIGHT_SHIFT` in `vello_gpu/src/render/common.rs`.
+const TINT_CONTRAST_SHIFT: u32 = 8u;
+const TINT_WEIGHT_SHIFT: u32 = 16u;
+
 // Encoded image layout. Must match `GpuEncodedImage` in `vello_gpu/src/render/common.rs`.
 //
 // texel0.x: image_params
@@ -23,8 +28,28 @@ const TINT_MODE_MULTIPLY: u32 = 1u;
 // texel0.w/texel1.x/texel1.y/texel1.z: transform matrix [a, b, c, d]
 // texel1.w/texel2.x: translation [tx, ty]
 // texel2.y: premultiplied tint color packed as RGBA8 unorm
-// texel2.z: GPU tint mode
+// texel2.z: tint and coverage transfer
+//   bits 0-7: tint mode
+//   bits 8-15: coverage transfer contrast
+//   bits 16-23: coverage transfer weight
 // texel2.w: transparent padding pixels around the image in the atlas
+
+/// The tint mode.
+fn get_image_tint_mode(texel2: vec4<u32>) -> u32 { return texel2.z & 0xFFu; }
+
+/// Apply the coverage transfer of the tint to a sampled alpha value.
+///
+/// Must stay in sync with `CoverageContrast::apply` in `vello_common`.
+fn apply_coverage_contrast(texel2: vec4<u32>, a: f32) -> f32 {
+    let contrast = (texel2.z >> TINT_CONTRAST_SHIFT) & 0xFFu;
+    let weight = (texel2.z >> TINT_WEIGHT_SHIFT) & 0xFFu;
+    if (contrast | weight) == 0u {
+        return a;
+    }
+    let c = f32(contrast) * (1.0 / 255.0);
+    let w = f32(weight) * (1.0 / 255.0);
+    return a + c * a * (1.0 - a) * (2.0 * a - 1.0) + w * a * (1.0 - a);
+}
 
 /// The rendering quality of the image.
 fn get_image_quality(texel0: vec4<u32>) -> u32 { return texel0.x & 0x3u; }

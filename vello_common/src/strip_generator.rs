@@ -8,6 +8,7 @@ use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::geometry::RectU16;
 use crate::kurbo::{Affine, PathEl, Rect, Stroke};
+use crate::paint::CoverageContrast;
 use crate::peniko::Fill;
 use crate::strip::Strip;
 use crate::tile::Tiles;
@@ -126,6 +127,34 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
+        self.generate_filled_path_with_contrast(
+            path,
+            fill_rule,
+            transform,
+            aliasing_threshold,
+            CoverageContrast::NONE,
+            strip_storage,
+            clip_path,
+        );
+    }
+
+    /// Generate the strips for a filled path, remapping its 8-bit coverage through
+    /// `contrast` before clipping.
+    ///
+    /// This matches drawing the unclipped coverage as an image with an alpha-mask [`Tint`]
+    /// that carries the same `contrast`.
+    ///
+    /// [`Tint`]: crate::paint::Tint
+    pub fn generate_filled_path_with_contrast(
+        &mut self,
+        path: impl IntoIterator<Item = PathEl>,
+        fill_rule: Fill,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
+        contrast: CoverageContrast,
+        strip_storage: &mut StripStorage,
+        clip_path: Option<PathDataRef<'_>>,
+    ) {
         let cull_bbox = clip_path
             .map(|clip_path| clip_path.bbox)
             .unwrap_or(RectU16::new(0, 0, self.width, self.height));
@@ -138,7 +167,13 @@ impl StripGenerator {
             cull_bbox,
         );
 
-        self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path);
+        self.generate_with_clip(
+            aliasing_threshold,
+            contrast,
+            strip_storage,
+            fill_rule,
+            clip_path,
+        );
     }
 
     /// Generate the strips for a stroked path.
@@ -164,12 +199,19 @@ impl StripGenerator {
             &mut self.stroke_ctx,
             cull_bbox,
         );
-        self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path);
+        self.generate_with_clip(
+            aliasing_threshold,
+            CoverageContrast::NONE,
+            strip_storage,
+            Fill::NonZero,
+            clip_path,
+        );
     }
 
     fn generate_with_clip(
         &mut self,
         aliasing_threshold: Option<u8>,
+        contrast: CoverageContrast,
         strip_storage: &mut StripStorage,
         fill_rule: Fill,
         clip_path: Option<PathDataRef<'_>>,
@@ -188,6 +230,7 @@ impl StripGenerator {
             strip_storage,
             clip_path,
             |strips, alphas| {
+                let alphas_start = alphas.len();
                 strip::render(
                     level,
                     tiles,
@@ -197,6 +240,13 @@ impl StripGenerator {
                     aliasing_threshold,
                     line_buf,
                 );
+                if !contrast.is_none() {
+                    // Implicitly filled or empty areas need no remapping, as the transfer
+                    // preserves full and zero coverage.
+                    for alpha in &mut alphas[alphas_start..] {
+                        *alpha = contrast.apply_u8(*alpha);
+                    }
+                }
             },
         );
     }
@@ -303,11 +353,15 @@ fn render_with_clip(
 #[cfg(test)]
 mod tests {
     use alloc::format;
+    use alloc::vec::Vec;
 
+    use crate::clip::{PathDataRef, intersect};
     use crate::fearless_simd::Level;
-    use crate::kurbo::{Affine, Rect, Shape};
+    use crate::geometry::RectU16;
+    use crate::kurbo::{Affine, Circle, PathEl, Rect, Shape};
+    use crate::paint::CoverageContrast;
     use crate::peniko::Fill;
-    use crate::strip_generator::{StripGenerator, StripStorage};
+    use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
     #[test]
     fn reset() {
@@ -332,6 +386,106 @@ mod tests {
 
         assert!(generator.line_buf.is_empty());
         assert!(storage.is_empty());
+    }
+
+    fn contrast_test_path() -> impl Iterator<Item = PathEl> {
+        Circle::new((20.3, 18.7), 13.4).path_elements(0.1)
+    }
+
+    /// Only the alphas of the generated path are remapped.
+    #[test]
+    fn contrast_remaps_generated_alphas() {
+        let contrast = CoverageContrast::from_bits(204, 51);
+        let mut generator = StripGenerator::new(40, 40, Level::baseline());
+
+        // Generate the path twice into the same storage, so that the second fill must leave the
+        // alphas of the first one untouched.
+        let mut storage = StripStorage::new(GenerationMode::Append);
+        generator.generate_filled_path(
+            contrast_test_path(),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+            &mut storage,
+            None,
+        );
+        let linear_alphas = storage.alphas.clone();
+        generator.generate_filled_path_with_contrast(
+            contrast_test_path(),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+            contrast,
+            &mut storage,
+            None,
+        );
+
+        let (first_alphas, second_alphas) = storage.alphas.split_at(linear_alphas.len());
+        assert_eq!(first_alphas, linear_alphas);
+        let expected = linear_alphas
+            .iter()
+            .map(|a| contrast.apply_u8(*a))
+            .collect::<Vec<_>>();
+        assert_ne!(expected, linear_alphas);
+        assert_eq!(second_alphas, expected);
+    }
+
+    /// The transfer applies before clipping, like it does for an image with an alpha-mask tint.
+    #[test]
+    fn contrast_applies_before_clipping() {
+        let level = Level::baseline();
+        let contrast = CoverageContrast::from_bits(204, 51);
+        let mut generator = StripGenerator::new(40, 40, level);
+
+        let mut clip = StripStorage::new(GenerationMode::Replace);
+        generator.generate_filled_path(
+            Circle::new((26.6, 22.2), 11.3).path_elements(0.1),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+            &mut clip,
+            None,
+        );
+        let clip = PathDataRef {
+            strips: &clip.strips,
+            alphas: &clip.alphas,
+            bbox: RectU16::new(0, 0, 40, 40),
+        };
+        let generate = |generator: &mut StripGenerator, contrast, clip| {
+            let mut storage = StripStorage::new(GenerationMode::Replace);
+            generator.generate_filled_path_with_contrast(
+                contrast_test_path(),
+                Fill::NonZero,
+                Affine::IDENTITY,
+                None,
+                contrast,
+                &mut storage,
+                clip,
+            );
+            storage
+        };
+        let clip_path = |path: &StripStorage| {
+            let path = PathDataRef {
+                strips: &path.strips,
+                alphas: &path.alphas,
+                bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
+            };
+            let mut clipped = StripStorage::new(GenerationMode::Replace);
+            intersect(level, clip, path, &mut clipped);
+            clipped
+        };
+
+        let clipped = generate(&mut generator, contrast, Some(clip));
+        let expected = clip_path(&generate(&mut generator, contrast, None));
+        assert_eq!(clipped, expected);
+
+        // Applying the transfer after clipping would give a different result.
+        let mut transferred_after_clip =
+            clip_path(&generate(&mut generator, CoverageContrast::NONE, None));
+        for alpha in &mut transferred_after_clip.alphas {
+            *alpha = contrast.apply_u8(*alpha);
+        }
+        assert_ne!(clipped.alphas, transferred_after_clip.alphas);
     }
 
     /// Assert that `generate_filled_rect_fast` produces the same strips as the

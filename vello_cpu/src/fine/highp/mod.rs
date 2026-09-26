@@ -16,7 +16,7 @@
 use crate::filter::context::ScratchBuffer;
 use crate::filter::filter_highp;
 use crate::fine::FineKernel;
-use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt};
+use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt, apply_coverage_contrast};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use vello_common::fearless_simd::*;
@@ -117,6 +117,14 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
 
                 match tint.mode {
+                    TintMode::AlphaMask if !tint.contrast.is_none() => {
+                        for chunk in dest.chunks_exact_mut(16) {
+                            let pixel = f32x16::from_slice(simd, chunk);
+                            let alphas = apply_coverage_contrast(tint.contrast, pixel.splat_4th());
+                            let tinted = tint_v * alphas;
+                            tinted.store_slice(chunk);
+                        }
+                    }
                     TintMode::AlphaMask => {
                         for chunk in dest.chunks_exact_mut(16) {
                             let pixel = f32x16::from_slice(simd, chunk);

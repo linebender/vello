@@ -21,7 +21,7 @@ use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
-use vello_common::paint::{Paint, PaintType, Tint};
+use vello_common::paint::{CoverageContrast, Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
@@ -324,6 +324,11 @@ impl Scene {
 
     /// Fill a path with the current paint and fill rule.
     pub fn fill_path(&mut self, path: &BezPath) {
+        self.fill_path_with_contrast(path, CoverageContrast::NONE);
+    }
+
+    /// Fill a path, remapping its coverage through `contrast` before clipping.
+    pub(crate) fn fill_path_with_contrast(&mut self, path: &BezPath, contrast: CoverageContrast) {
         if !self.paint_has_area() {
             return;
         }
@@ -338,6 +343,7 @@ impl Scene {
                 ctx.render_state.fill_rule,
                 paint,
                 ctx.aliasing_threshold,
+                contrast,
             );
         });
     }
@@ -350,13 +356,15 @@ impl Scene {
         fill_rule: Fill,
         paint: Paint,
         aliasing_threshold: Option<u8>,
+        contrast: CoverageContrast,
     ) {
         self.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
-            strip_generator.generate_filled_path(
+            strip_generator.generate_filled_path_with_contrast(
                 path,
                 fill_rule,
                 transform,
                 aliasing_threshold,
+                contrast,
                 strip_storage,
                 clip_path.map(|clip| clip.path),
             );
@@ -488,6 +496,7 @@ impl Scene {
                     ctx.render_state.fill_rule,
                     paint,
                     ctx.aliasing_threshold,
+                    CoverageContrast::NONE,
                 );
             }
         });
@@ -609,6 +618,7 @@ impl Scene {
                     Fill::NonZero,
                     paint,
                     ctx.aliasing_threshold,
+                    CoverageContrast::NONE,
                 );
             }
         });

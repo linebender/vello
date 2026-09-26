@@ -31,7 +31,7 @@ use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, Paint, PremulColor};
+use vello_common::paint::{CoverageContrast, ImageResolver, Paint, PremulColor};
 use vello_common::pixmap::PixmapMut;
 use vello_common::record::{CommandRecorder, LayerClip, LayerProps, PoppedLayer};
 use vello_common::strip::Strip;
@@ -472,6 +472,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        contrast: CoverageContrast,
         mask: Option<Mask>,
     ) {
         let start = self.allocation_group.path.len() as u32;
@@ -484,6 +485,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             fill_rule,
             blend_mode,
             aliasing_threshold,
+            contrast,
             mask,
         });
     }
@@ -849,6 +851,7 @@ pub(crate) enum RenderTaskType {
         fill_rule: Fill,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        contrast: CoverageContrast,
         mask: Option<Mask>,
     },
     StrokePath {
@@ -947,7 +950,7 @@ mod tests {
     use crate::dispatch::multi_threaded::{MultiThreadedDispatcher, RenderTaskType};
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::peniko::{BlendMode, Fill};
-    use vello_common::paint::{Paint, PremulColor};
+    use vello_common::paint::{CoverageContrast, Paint, PremulColor};
 
     /// Ensure we don't cause a memory leak.
     #[test]
@@ -961,6 +964,7 @@ mod tests {
                 Paint::Solid(PremulColor::from_alpha_color(BLUE)),
                 BlendMode::default(),
                 None,
+                CoverageContrast::NONE,
                 None,
             );
             dispatcher.flush();

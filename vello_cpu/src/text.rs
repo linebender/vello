@@ -31,7 +31,7 @@ use kurbo::{Affine, BezPath, Rect};
 use peniko::BlendMode;
 use peniko::color::{AlphaColor, Srgb};
 use vello_common::fearless_simd::Level;
-use vello_common::paint::ImageId;
+use vello_common::paint::{CoverageContrast, ImageId};
 
 fn atlas_page_image_id(page_index: u32) -> ImageId {
     ImageId::new(ATLAS_IMAGE_ID_BASE + page_index)
@@ -446,6 +446,11 @@ impl glifo::GlyphRenderer for RenderContext {
     #[inline]
     fn set_tint(&mut self, tint: Option<vello_common::paint::Tint>) {
         Self::set_tint(self, tint);
+    }
+
+    #[inline]
+    fn fill_glyph_path(&mut self, path: &BezPath, contrast: CoverageContrast) {
+        self.fill_path_with_contrast(path, contrast);
     }
 
     #[inline]
