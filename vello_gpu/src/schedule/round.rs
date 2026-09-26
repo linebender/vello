@@ -26,7 +26,7 @@
 
 use super::ScheduleBuffers;
 use crate::draw::{Draw, ExternalTextureRun};
-use crate::filter::GpuFilterData;
+use crate::filter::GpuFilterHeader;
 use crate::target::{
     BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
     LayerTextureRegion, RootTarget, RoundBindings, TextureParity, TextureRegion,
@@ -511,8 +511,8 @@ pub(crate) struct FilterOp {
     pub(crate) textures: FilterTextureRegions,
     /// Texel offset of this filter's parameters in the filter data texture.
     pub(crate) filter_data_offset: u32,
-    /// Prepared filter parameters used to select and size passes.
-    pub(crate) gpu_filter: GpuFilterData,
+    /// Header of the encoded filter, used to select and size passes.
+    pub(crate) header: GpuFilterHeader,
 }
 
 /// A scheduled non-default blend between a parent and child layer.
@@ -538,7 +538,7 @@ mod tests {
         BlendOp, FilterOp, FilterTextureRegions, LayerStage, Round, RoundStage, Rounds,
         SchedulePoint,
     };
-    use crate::filter::GpuFilterData;
+    use crate::filter::GpuFilterHeader;
     use crate::schedule::ScheduleBuffers;
     use crate::target::{
         LayerTextureId, LayerTextureRegion, RoundBindings, TextureParity, TextureRegion,
@@ -573,7 +573,7 @@ mod tests {
                 region(TextureParity::Odd, 0),
             ),
             filter_data_offset,
-            gpu_filter: GpuFilterData::zeroed(),
+            header: GpuFilterHeader::zeroed(),
         }
     }
 

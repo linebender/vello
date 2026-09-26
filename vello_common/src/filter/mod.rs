@@ -7,6 +7,7 @@
 //! represent a special representation of each filter to be used as the basis for rendering in
 //! `vello_gpu` and `vello_cpu`.
 
+use crate::filter::color_matrix::ColorMatrix;
 use crate::filter::drop_shadow::{DropShadow, transform_shadow_params};
 use crate::filter::flood::Flood;
 use crate::filter::gaussian_blur::{GaussianBlur, transform_blur_params};
@@ -18,6 +19,7 @@ use crate::math::snap_up;
 use crate::tile::Tile;
 use crate::util::RectExt;
 
+pub mod color_matrix;
 pub mod drop_shadow;
 pub mod flood;
 pub mod gaussian_blur;
@@ -34,6 +36,8 @@ pub enum PreparedFilter {
     Offset(Offset),
     /// A drop shadow filter.
     DropShadow(DropShadow),
+    /// A color matrix filter.
+    ColorMatrix(ColorMatrix),
 }
 
 impl PreparedFilter {
@@ -96,8 +100,9 @@ impl PreparedFilter {
 
                 Self::Offset(offset)
             }
+            FilterPrimitive::ColorMatrix { matrix } => Self::ColorMatrix(ColorMatrix::new(*matrix)),
             _ => {
-                // Other primitives like Blend, ColorMatrix, ComponentTransfer, etc.
+                // Other primitives like Blend, ComponentTransfer, etc.
                 // are not yet implemented
                 unimplemented!("Other filter primitives not yet implemented");
             }

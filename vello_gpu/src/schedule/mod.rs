@@ -438,7 +438,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             ))?;
             let textures = FilterTextureRegions::new(region.texture, temporary.allocation.region);
 
-            if filter.data.needs_copy_pass() {
+            if filter.header.needs_copy_pass() {
                 self.cursor.require_scratch_texture();
             }
 
@@ -462,7 +462,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 FilterOp {
                     textures,
                     filter_data_offset: filter.data_offset,
-                    gpu_filter: filter.data,
+                    header: filter.header,
                 },
             );
 

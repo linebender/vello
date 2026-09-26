@@ -1033,7 +1033,7 @@ struct GpuResources {
     gradient_texture: Texture,
     /// Bind group for gradient texture
     gradient_bind_group: BindGroup,
-    /// Texture holding serialized `GpuFilterData` for all filter layers.
+    /// Texture holding the encoded filters of all filter layers.
     filter_data_texture: Texture,
     /// Bind group for the filter data texture.
     filter_base_bind_group: BindGroup,
