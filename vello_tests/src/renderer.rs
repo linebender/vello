@@ -322,6 +322,83 @@ fn create_wgpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
 static WGPU_DEVICE_QUEUE: std::sync::LazyLock<(wgpu::Device, wgpu::Queue)> =
     std::sync::LazyLock::new(create_wgpu_device_queue);
 
+/// Returns the device and queue shared by all wgpu tests.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn wgpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
+    WGPU_DEVICE_QUEUE.clone()
+}
+
+/// Serializes GPU work with the other wgpu tests, see `GpuRenderer::render`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn lock_wgpu_tests() -> std::sync::MutexGuard<'static, ()> {
+    WGPU_TEST_MUTEX.lock().unwrap()
+}
+
+/// Reads back an `Rgba8Unorm` texture.
+///
+/// This creates device resources every time it is called, which is fine for testing but
+/// would be a very bad example for something real.
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+pub fn read_rgba8_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+) -> Pixmap {
+    let width = u16::try_from(texture.width()).unwrap();
+    let height = u16::try_from(texture.height()).unwrap();
+    let row_bytes = usize::from(width) * 4;
+
+    // Create a buffer to copy the texture data
+    let bytes_per_row = (u32::from(width) * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+    let texture_copy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Output Buffer"),
+        size: u64::from(bytes_per_row) * u64::from(height),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Vello Readback"),
+    });
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &texture_copy_buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: None,
+            },
+        },
+        texture.size(),
+    );
+    queue.submit([encoder.finish()]);
+
+    // Map the buffer for reading
+    texture_copy_buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            if result.is_err() {
+                panic!("Failed to map texture for reading");
+            }
+        });
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+
+    // Read back the pixel data
+    let mut pixmap = Pixmap::new(width, height);
+    for (row, buf) in texture_copy_buffer
+        .slice(..)
+        .get_mapped_range()
+        .unwrap()
+        .chunks_exact(bytes_per_row as usize)
+        .zip(pixmap.data_as_u8_slice_mut().chunks_exact_mut(row_bytes))
+    {
+        buf.copy_from_slice(&row[..row_bytes]);
+    }
+    texture_copy_buffer.unmap();
+    pixmap
+}
+
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 pub struct GpuRenderer {
     scene: Scene,
@@ -636,83 +713,9 @@ impl Renderer for GpuRenderer {
         self.queue.submit([encoder.finish()]);
     }
 
-    // This method creates device resources every time it is called. This does not matter much for
-    // testing, but should not be used as a basis for implementing something real. This would be a
-    // very bad example for that.
     fn snapshot(&mut self) -> Pixmap {
         self.lock_gpu_test();
-
-        let width = self.scene.width();
-        let height = self.scene.height();
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Vello Readback"),
-            });
-
-        // Create a buffer to copy the texture data
-        let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
-        let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Output Buffer"),
-            size: u64::from(bytes_per_row) * u64::from(height),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &texture_copy_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(bytes_per_row),
-                    rows_per_image: None,
-                },
-            },
-            wgpu::Extent3d {
-                width: width.into(),
-                height: height.into(),
-                depth_or_array_layers: 1,
-            },
-        );
-
-        self.queue.submit([encoder.finish()]);
-
-        // Map the buffer for reading
-        texture_copy_buffer
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
-                if result.is_err() {
-                    panic!("Failed to map texture for reading");
-                }
-            });
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-
-        // Read back the pixel data
-        let mut pixmap = Pixmap::new(width, height);
-        for (row, buf) in texture_copy_buffer
-            .slice(..)
-            .get_mapped_range()
-            .unwrap()
-            .chunks_exact(bytes_per_row as usize)
-            .zip(
-                pixmap
-                    .data_as_u8_slice_mut()
-                    .chunks_exact_mut(width as usize * 4),
-            )
-        {
-            buf.copy_from_slice(&row[0..width as usize * 4]);
-        }
-        texture_copy_buffer.unmap();
-        drop(texture_copy_buffer);
+        let pixmap = read_rgba8_texture(&self.device, &self.queue, &self.texture);
         self.gpu_test_guard = None;
         pixmap
     }

@@ -43,9 +43,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
-use core::{fmt::Debug, num::NonZeroU64, ops::Range};
-#[cfg(feature = "text")]
-use glifo::PendingClearRect;
+use core::{convert::Infallible, fmt::Debug, num::NonZeroU64, ops::Range};
 use hashbrown::{HashMap, hash_map::Entry};
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::image_cache::{ImageCache, ImageResource};
@@ -155,7 +153,7 @@ pub struct Renderer {
     schedule_storage: ScheduleStorage,
     scratch_buffers: ScratchBuffers,
     layers_config: LayersConfig,
-    #[cfg(feature = "text")]
+    /// Zeroed staging data for clearing atlas regions.
     atlas_clear_scratch: Vec<u8>,
 }
 
@@ -204,7 +202,6 @@ impl Renderer {
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
-            #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
         };
 
@@ -266,6 +263,14 @@ impl Renderer {
         texture_bindings: &TextureBindings,
         target_init: TargetInit<'_>,
     ) -> Result<(), RenderError> {
+        let mut clear_region = |renderer: &mut Self, atlas_id, region| {
+            renderer.clear_atlas_region(queue, atlas_id, region);
+            Ok::<_, Infallible>(())
+        };
+        resources
+            .free_destroyed_images(self, &mut clear_region)
+            .unwrap_or_else(|error| match error {});
+
         #[cfg(feature = "text")]
         {
             resources.before_render(
@@ -313,11 +318,9 @@ impl Renderer {
         );
 
         #[cfg(feature = "text")]
-        resources.after_render(self, |renderer, rect| {
-            clear_atlas_region(queue, renderer, rect);
-
-            Ok::<(), RenderError>(())
-        })?;
+        resources
+            .after_render(self, clear_region)
+            .unwrap_or_else(|error| match error {});
         result
     }
 
@@ -329,7 +332,8 @@ impl Renderer {
     ///
     /// The scene should be sized to the atlas layer dimensions
     /// ([`AtlasConfig::atlas_size`]), with content positioned at the allocated offset
-    /// coordinates from `ImageCache::allocate`.
+    /// coordinates from `ImageCache::allocate`. It is composited with source-over; newly
+    /// allocated regions are transparent, since freed regions are cleared before reuse.
     ///
     /// This method creates its own command encoder and submits immediately,
     /// ensuring atlas content is committed before any subsequent
@@ -593,29 +597,6 @@ impl Renderer {
         );
     }
 
-    /// Destroy an image from the cache and clear the allocated slot in the atlas.
-    pub fn destroy_image(
-        &mut self,
-        resources: &mut Resources,
-        encoder: &mut CommandEncoder,
-        image_id: vello_common::paint::ImageId,
-    ) {
-        if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
-            let padding = image_resource.padding;
-
-            self.clear_atlas_region(
-                encoder,
-                image_resource.atlas_id,
-                [
-                    image_resource.offset[0] - padding,
-                    image_resource.offset[1] - padding,
-                ],
-                image_resource.width + padding * 2,
-                image_resource.height + padding * 2,
-            );
-        }
-    }
-
     /// Returns an individual image atlas texture.
     pub fn atlas_texture(&self, atlas_id: AtlasId) -> &Texture {
         self.programs
@@ -625,47 +606,59 @@ impl Renderer {
             .unwrap()
     }
 
-    /// Clear a specific region of the atlas texture.
-    fn clear_atlas_region(
-        &mut self,
-        encoder: &mut CommandEncoder,
-        atlas_id: AtlasId,
-        offset: [u16; 2],
-        width: u16,
-        height: u16,
-    ) {
-        let layer_view =
-            self.programs.resources.atlas_texture_views[atlas_id.as_u32() as usize].clone();
+    /// Clears a region of an atlas texture to transparent.
+    ///
+    /// Uses `queue.write_texture`, so the clear runs before the command buffers of the next
+    /// submission and before any later upload.
+    fn clear_atlas_region(&mut self, queue: &Queue, atlas_id: AtlasId, region: RectU16) {
+        /// Caps the zeroed staging data, so clearing a large region doesn't pin a buffer of its
+        /// size.
+        const MAX_CHUNK_BYTES: u32 = 1 << 20;
 
-        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Clear Atlas Region"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: &layer_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    // Don't clear entire texture, just the scissor region
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
+        let Some(texture) = self
+            .programs
+            .resources
+            .atlas_textures
+            .get(atlas_id.as_u32() as usize)
+        else {
+            // Not created yet, and textures are created zeroed.
+            return;
+        };
+        // TODO: Batch regions into one clear pipeline draw in an immediately submitted encoder,
+        // which avoids uploading zeros proportional to their area.
+        let bytes_per_row = u32::from(region.width()) * 4;
+        let chunk_rows = (MAX_CHUNK_BYTES / bytes_per_row).min(u32::from(region.height()));
+        let chunk_bytes = (chunk_rows * bytes_per_row) as usize;
+        if self.atlas_clear_scratch.len() < chunk_bytes {
+            self.atlas_clear_scratch.resize(chunk_bytes, 0);
+        }
+
+        for y in (u32::from(region.y0)..u32::from(region.y1)).step_by(chunk_rows as usize) {
+            let rows = chunk_rows.min(u32::from(region.y1) - y);
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: u32::from(region.x0),
+                        y,
+                        z: 0,
+                    },
+                    aspect: wgpu::TextureAspect::All,
                 },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
-
-        // Set scissor rectangle to limit clearing to specific region
-        render_pass.set_scissor_rect(
-            u32::from(offset[0]),
-            u32::from(offset[1]),
-            u32::from(width),
-            u32::from(height),
-        );
-        // Use atlas clear pipeline to render transparent pixels
-        render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
-        // Draw fullscreen quad
-        render_pass.draw(0..4, 0..1);
+                &self.atlas_clear_scratch[..(rows * bytes_per_row) as usize],
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: None,
+                },
+                Extent3d {
+                    width: u32::from(region.width()),
+                    height: rows,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
     }
 
     fn prepare_gpu_encoded_paints(
@@ -874,36 +867,6 @@ impl Renderer {
     }
 }
 
-#[cfg(feature = "text")]
-fn clear_atlas_region(queue: &Queue, renderer: &mut Renderer, rect: &PendingClearRect) {
-    // TODO: Can we optimize this more?
-    let byte_count = rect.width as usize * rect.height as usize * 4;
-    renderer.atlas_clear_scratch.resize(byte_count, 0);
-    queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: renderer.atlas_texture(AtlasId::new(rect.page_index)),
-            mip_level: 0,
-            origin: wgpu::Origin3d {
-                x: rect.x as u32,
-                y: rect.y as u32,
-                z: 0,
-            },
-            aspect: wgpu::TextureAspect::All,
-        },
-        &renderer.atlas_clear_scratch[..byte_count],
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(rect.width as u32 * 4),
-            rows_per_image: None,
-        },
-        Extent3d {
-            width: rect.width as u32,
-            height: rect.height as u32,
-            depth_or_array_layers: 1,
-        },
-    );
-}
-
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
@@ -947,8 +910,6 @@ struct Programs {
     clear_pipeline: RenderPipeline,
     /// User-target rectangle-clear pipeline.
     root_clear_pipeline: RenderPipeline,
-    /// Pipeline for clearing atlas regions.
-    atlas_clear_pipeline: RenderPipeline,
     /// Blend pipeline.
     blend_pipeline: RenderPipeline,
     /// Copy pipeline.
@@ -1344,44 +1305,6 @@ impl Programs {
             create_clear_pipeline("Clear Pipeline", wgpu::TextureFormat::Rgba8Unorm);
         let root_clear_pipeline =
             create_clear_pipeline("Root Clear Pipeline", render_target_config.format);
-
-        // Create atlas clear pipeline
-        let atlas_clear_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Atlas Clear Pipeline Layout"),
-                bind_group_layouts: &[],
-                immediate_size: 0,
-            });
-        // TODO: Change the atlas clear pipeline to use the existing layer clear mechanism.
-        let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Atlas Clear Pipeline"),
-            layout: Some(&atlas_clear_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &clear_shader,
-                // Use a different vertex shader entry point
-                entry_point: Some("vs_main_fullscreen"),
-                buffers: &[],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &clear_shader,
-                entry_point: Some("fs_transparent"),
-                targets: &[Some(ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
 
         let filter_texture_entry = wgpu::BindGroupLayoutEntry {
             binding: 0,
@@ -1780,7 +1703,6 @@ impl Programs {
             },
             clear_pipeline,
             root_clear_pipeline,
-            atlas_clear_pipeline,
             filter_input_bind_group_layouts,
             filter_sampler,
             blend_layer_bind_group_layout,
@@ -3127,7 +3049,7 @@ impl RendererContext<'_> {
 }
 
 impl Backend for RendererContext<'_> {
-    type Error = core::convert::Infallible;
+    type Error = Infallible;
 
     fn opaque_draw_pass(
         &mut self,

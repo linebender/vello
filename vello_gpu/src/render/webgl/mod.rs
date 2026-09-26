@@ -68,8 +68,6 @@ use crate::{
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-#[cfg(feature = "text")]
-use glifo::PendingClearRect;
 use hashbrown::HashMap;
 use resource::{Buffer, FragmentShader, Framebuffer, Program, Texture, VertexArray, VertexShader};
 use vello_common::color::{AlphaColor, Srgb};
@@ -457,6 +455,8 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
+        resources.free_destroyed_images(self, Self::clear_atlas_region)?;
+
         #[cfg(feature = "text")]
         resources.before_render(
             self,
@@ -492,7 +492,7 @@ impl WebGlRenderer {
         #[cfg(feature = "text")]
         // TODO: We should sort the rectangles once by atlas
         // page and then clear per atlas page instead of per rect.
-        resources.after_render(self, clear_atlas_region)?;
+        resources.after_render(self, Self::clear_atlas_region)?;
 
         Ok(())
     }
@@ -505,7 +505,8 @@ impl WebGlRenderer {
     ///
     /// The scene should be sized to the atlas layer dimensions
     /// ([`AtlasConfig::atlas_size`]), with content positioned at the allocated offset
-    /// coordinates from `ImageCache::allocate`.
+    /// coordinates from `ImageCache::allocate`. It is composited with source-over; newly
+    /// allocated regions are transparent, since freed regions are cleared before reuse.
     ///
     /// This method creates its own command encoder and submits immediately,
     /// ensuring atlas content is committed before any subsequent
@@ -782,30 +783,6 @@ impl WebGlRenderer {
         Ok(())
     }
 
-    /// Destroy an image from the cache and clear the allocated slot in the atlas.
-    pub fn destroy_image(
-        &mut self,
-        resources: &mut Resources,
-        image_id: ImageId,
-    ) -> Result<(), WebGlError> {
-        if let Some(image_resource) = resources.image_cache.get(image_id) {
-            let padding = image_resource.padding;
-            self.clear_atlas_region(
-                image_resource.atlas_id,
-                [
-                    image_resource.offset[0] - padding,
-                    image_resource.offset[1] - padding,
-                ],
-                image_resource.width + padding * 2,
-                image_resource.height + padding * 2,
-            )?;
-
-            let _ = resources.image_cache.deallocate(image_id);
-        }
-
-        Ok(())
-    }
-
     /// Returns an individual image atlas texture.
     pub fn atlas_texture(&self, atlas_id: AtlasId) -> &WebGlTexture {
         self.programs
@@ -826,46 +803,44 @@ impl WebGlRenderer {
         }
     }
 
-    /// Clear a specific region of an atlas texture.
-    fn clear_atlas_region(
-        &mut self,
-        atlas_id: AtlasId,
-        offset: [u16; 2],
-        width: u16,
-        height: u16,
-    ) -> Result<(), WebGlError> {
-        let temp_framebuffer = Framebuffer::new(&self.gl)?;
+    /// Clears a region of an atlas texture to transparent.
+    fn clear_atlas_region(&mut self, atlas_id: AtlasId, region: RectU16) -> Result<(), WebGlError> {
+        let resources = &mut self.programs.resources;
+        let Some(texture) = resources.atlas_textures.get(atlas_id.as_u32() as usize) else {
+            // Not created yet, and textures are created zeroed.
+            return Ok(());
+        };
+        let framebuffer = match resources.atlas_render_framebuffer.take() {
+            Some(framebuffer) => framebuffer,
+            None => Framebuffer::new(&self.gl)?,
+        };
 
-        // Bind our temporary framebuffer
         self.gl
-            .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&temp_framebuffer));
-
+            .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
         self.gl.framebuffer_texture_2d(
             WebGl2RenderingContext::FRAMEBUFFER,
             WebGl2RenderingContext::COLOR_ATTACHMENT0,
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.atlas_textures[atlas_id.as_u32() as usize]),
+            Some(texture),
             0,
         );
-
-        // Set viewport to match the atlas texture dimensions
-        let (atlas_width, atlas_height) = self.programs.resources.atlas_size;
-        self.gl
-            .viewport(0, 0, i32::from(atlas_width), i32::from(atlas_height));
-
-        // Enable scissor test and set scissor rectangle to our region
         self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.scissor(
-            offset[0] as i32,
-            offset[1] as i32,
-            width as i32,
-            height as i32,
+            i32::from(region.x0),
+            i32::from(region.y0),
+            i32::from(region.width()),
+            i32::from(region.height()),
         );
-
-        // Clear the region to transparent (0, 0, 0, 0)
         self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
         self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+        // Leave the view framebuffer bound, as `render` does, for callers reading it back.
+        self.gl.bind_framebuffer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            resources.view_framebuffer.binding(),
+        );
 
+        resources.atlas_render_framebuffer = Some(framebuffer);
         Ok(())
     }
 
@@ -1111,23 +1086,6 @@ impl WebGlRendererInit {
     }
 }
 
-#[cfg(feature = "text")]
-fn clear_atlas_region(
-    renderer: &mut WebGlRenderer,
-    rect: &PendingClearRect,
-) -> Result<(), WebGlError> {
-    // TODO: Similarly to wgpu, maybe this can be done in a more effective
-    // way?
-    renderer.clear_atlas_region(
-        AtlasId::new(rect.page_index),
-        [rect.x, rect.y],
-        rect.width,
-        rect.height,
-    )?;
-
-    Ok(())
-}
-
 /// Contains the WebGL programs and resources for rendering.
 #[derive(Debug)]
 pub(crate) struct WebGlPrograms {
@@ -1302,7 +1260,7 @@ pub(crate) struct WebGlResources {
     /// Dimensions of the intermediate layer and scratch textures.
     texture_size: SizeU16,
 
-    /// Cached framebuffer for rendering into an atlas texture in `render_to_atlas`.
+    /// Cached framebuffer for drawing into and clearing atlas textures.
     /// Reused to avoid create/delete overhead on every call.
     atlas_render_framebuffer: Option<Framebuffer>,
 
