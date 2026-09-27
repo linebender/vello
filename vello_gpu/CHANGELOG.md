@@ -12,6 +12,50 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- An `unminified` feature in `vello_gpu_shaders` for readable shader output. ([#1851][] by [@grebmeg][])
+- Non-blocking WebGL initialization through `WebGlRenderer::begin` and `begin_with`. ([#1823][] by [@grebmeg][])
+- `Scene::push_clip_rect` for non-isolated rectangular clipping. ([#1916][] by [@LaurenzV][])
+- Support for `ImageSampler::alpha`. ([#1880][] by [@LaurenzV][])
+
+### Changed
+
+- Breaking change: Renamed the `vello_hybrid` crate to `vello_gpu`. `HybridGlyphRunBackend` is now `GpuGlyphRunBackend`. ([#1883][] by [@grebmeg][], [#1918][] by [@LaurenzV][])
+- Breaking change: Updated `wgpu` to v30 and `fearless_simd` to v0.7.0. ([#1909][], [#1853][] by [@LaurenzV][])
+- Breaking change: External textures now use `Scene::set_paint`, replacing `draw_texture_rects` and adding support for arbitrary shapes, extend modes, and transparency hints. ([#1812][], [#1813][], [#1824][] by [@LaurenzV][])
+- Breaking change: Depth buffering is now optional, with caller-owned depth textures in wgpu and a `use_depth_buffer` argument in WebGL. ([#1808][], [#1810][] by [@grebmeg][])
+- Breaking change: Rendering now accepts configurable target clears through `TargetInit` in wgpu and a clear color in WebGL. ([#1869][] by [@LaurenzV][])
+- Breaking change: WebGL operations now return structured `WebGlError` results. ([#1892][] by [@LaurenzV][], [#1921][] by [@grebmeg][])
+- Breaking change: `RenderSize`, `RenderTargetConfig`, atlas configuration, and related dimensions now use `u16`. ([#1826][], [#1891][] by [@LaurenzV][])
+- Breaking change: Image atlases now use individual 2D textures, and `atlas_texture` takes an `AtlasId`. ([#1859][] by [@LaurenzV][])
+- Breaking change: WebGL probes now support configurable features, depth-buffer testing, and per-cell statistics. ([#1900][], [#1901][], [#1908][] by [@LaurenzV][])
+- Breaking change: Renamed `Scene::pop_clip_path` to `pop_clip`. ([#1942][] by [@LaurenzV][])
+- Breaking change: `GlyphRunBuilder::fill_glyphs` and `stroke_glyphs` now return `Result<(), glifo::GlyphRenderError>`. ([#1944][] by [@LaurenzV][])
+- Expanded shared type re-exports. ([#1881][] by [@LaurenzV][])
+- WebGL context creation now requests `failIfMajorPerformanceCaveat`. ([#1806][] by [@LaurenzV][])
+
+### Fixed
+
+- The `std` feature no longer implicitly enables `wgpu`. ([#1822][] by [@taj-p][])
+- Safari 15 probe crashes and incorrect filter rendering. ([#1814][], [#1821][] by [@LaurenzV][])
+- WebGL hangs on affected Intel GPUs. ([#1830][] by [@LaurenzV][])
+- Incorrect layer rendering and probe failures on affected Apple Silicon/Chrome versions. ([#1864][] by [@LaurenzV][])
+- Removed an artificial image-sampling offset. ([#1878][] by [@LaurenzV][])
+- Gradient cache collisions between premultiplied and unpremultiplied alpha interpolation. ([#1932][] by [@LaurenzV][])
+- Draws with non-invertible paint transforms are now skipped. ([#1949][] by [@grebmeg][])
+- Resetting a scene now also resets the aliasing threshold. ([#1945][] by [@LaurenzV][])
+- Incorrect placement of non-Apple `sbix` glyphs caused by the Apple Color Emoji workaround. ([#1936][] by [@LaurenzV][])
+
+### Optimized
+
+- Batch up to four external textures per draw call. ([#1858][] by [@LaurenzV][])
+- WebGL strip rendering through indexed instanced draws and `WEBGL_provoking_vertex` support. ([#1805][], [#1827][] by [@LaurenzV][])
+- Reduced embedded shader size through compaction and minification. ([#1831][] by [@LaurenzV][], [#1833][], [#1846][] by [@grebmeg][])
+- Reduced WebGL state management overhead. ([#1874][], [#1879][], [#1911][] by [@LaurenzV][])
+- Reduced wgpu strip-data uploads and strip-storage allocations. ([#1896][], [#1897][] by [@HigherOrderLogic][])
+- Rectangle rendering under rectangular clips. ([#1926][] by [@LaurenzV][])
+
 ## [0.2.0][] - 2026-08-07
 
 This release has an [MSRV][] of 1.88.
@@ -205,6 +249,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [@b0nes164]: https://github.com/b0nes164
 [@dipeshbabu]: https://github.com/dipeshbabu
 [@grebmeg]: https://github.com/grebmeg
+[@HigherOrderLogic]: https://github.com/HigherOrderLogic
 [@jesses-canva]: https://github.com/jesses-canva
 [@jrmoulton]: https://github.com/jrmoulton
 [@LaurenzV]: https://github.com/LaurenzV
@@ -302,6 +347,54 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1794]: https://github.com/linebender/vello/pull/1794
 [#1800]: https://github.com/linebender/vello/pull/1800
 [#1801]: https://github.com/linebender/vello/pull/1801
+[#1805]: https://github.com/linebender/vello/pull/1805
+[#1806]: https://github.com/linebender/vello/pull/1806
+[#1808]: https://github.com/linebender/vello/pull/1808
+[#1810]: https://github.com/linebender/vello/pull/1810
+[#1812]: https://github.com/linebender/vello/pull/1812
+[#1813]: https://github.com/linebender/vello/pull/1813
+[#1814]: https://github.com/linebender/vello/pull/1814
+[#1821]: https://github.com/linebender/vello/pull/1821
+[#1822]: https://github.com/linebender/vello/pull/1822
+[#1823]: https://github.com/linebender/vello/pull/1823
+[#1824]: https://github.com/linebender/vello/pull/1824
+[#1826]: https://github.com/linebender/vello/pull/1826
+[#1827]: https://github.com/linebender/vello/pull/1827
+[#1830]: https://github.com/linebender/vello/pull/1830
+[#1831]: https://github.com/linebender/vello/pull/1831
+[#1833]: https://github.com/linebender/vello/pull/1833
+[#1846]: https://github.com/linebender/vello/pull/1846
+[#1851]: https://github.com/linebender/vello/pull/1851
+[#1853]: https://github.com/linebender/vello/pull/1853
+[#1858]: https://github.com/linebender/vello/pull/1858
+[#1859]: https://github.com/linebender/vello/pull/1859
+[#1864]: https://github.com/linebender/vello/pull/1864
+[#1869]: https://github.com/linebender/vello/pull/1869
+[#1874]: https://github.com/linebender/vello/pull/1874
+[#1878]: https://github.com/linebender/vello/pull/1878
+[#1879]: https://github.com/linebender/vello/pull/1879
+[#1880]: https://github.com/linebender/vello/pull/1880
+[#1881]: https://github.com/linebender/vello/pull/1881
+[#1883]: https://github.com/linebender/vello/pull/1883
+[#1891]: https://github.com/linebender/vello/pull/1891
+[#1892]: https://github.com/linebender/vello/pull/1892
+[#1896]: https://github.com/linebender/vello/pull/1896
+[#1897]: https://github.com/linebender/vello/pull/1897
+[#1900]: https://github.com/linebender/vello/pull/1900
+[#1901]: https://github.com/linebender/vello/pull/1901
+[#1908]: https://github.com/linebender/vello/pull/1908
+[#1909]: https://github.com/linebender/vello/pull/1909
+[#1911]: https://github.com/linebender/vello/pull/1911
+[#1916]: https://github.com/linebender/vello/pull/1916
+[#1918]: https://github.com/linebender/vello/pull/1918
+[#1921]: https://github.com/linebender/vello/pull/1921
+[#1926]: https://github.com/linebender/vello/pull/1926
+[#1932]: https://github.com/linebender/vello/pull/1932
+[#1936]: https://github.com/linebender/vello/pull/1936
+[#1942]: https://github.com/linebender/vello/pull/1942
+[#1944]: https://github.com/linebender/vello/pull/1944
+[#1945]: https://github.com/linebender/vello/pull/1945
+[#1949]: https://github.com/linebender/vello/pull/1949
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0

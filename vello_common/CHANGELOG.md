@@ -12,6 +12,39 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- `TargetInit<C>` for configuring target clears or compositing over existing contents. ([#1866][] by [@LaurenzV][])
+- Public `pixmap::premultiply_rgba8` and `unpremultiply_rgba8` helpers. ([#1930][] by [@LaurenzV][])
+- `ImageSource::external_texture` for external GPU texture paints. ([#1824][] by [@LaurenzV][])
+- Support for `ImageSampler::alpha`. ([#1880][] by [@LaurenzV][])
+- Rectangular clip support in `ClipContext`, `ClipState`, and `ViewportState`. ([#1916][], [#1926][] by [@LaurenzV][])
+
+### Changed
+
+- Breaking change: Unified pixmap construction in `Pixmap::from_parts`, which now accepts `Vec<u8>` and `PixelMetadata`. ([#1834][] by [@LaurenzV][])
+- Breaking change: Replaced `Pixmap::take` and `take_unpremultiplied` with `take_rgba8` and `try_take_rgb8`, adding RGB output support. ([#1855][] by [@LaurenzV][])
+- Breaking change: Atlas sizes, allocation dimensions, and image-cache offsets now use `u16`; the `OffsetU32`, `SizeU32`, and `RectU32` geometry types have been removed. ([#1826][] by [@LaurenzV][])
+- Breaking change: Updated `fearless_simd` to v0.7.0 and adapted the SIMD utility APIs. ([#1853][] by [@LaurenzV][])
+- Breaking change: `ClipContext`, `ClipState`, and `ViewportState` rename `push_clip` to `push_clip_path`, and their clip accessors now return `ClipRef` instead of `PathDataRef`. ([#1916][], [#1926][] by [@LaurenzV][])
+- Breaking change: Probe APIs now support configurable features, depth-buffer testing, and per-cell statistics. ([#1901][], [#1908][] by [@LaurenzV][])
+- Breaking change: `EncodeExt::encode_into` now returns `Option<Paint>`. ([#1949][] by [@grebmeg][])
+
+### Removed
+
+- Breaking change: `EncodedExternalTexture`. ([#1824][] by [@LaurenzV][])
+- Breaking change: `ImageCache::allocate_excluding` and `MultiAtlasManager::try_allocate_excluding`. ([#1825][] by [@LaurenzV][])
+
+### Fixed
+
+- Gradient cache collisions between premultiplied and unpremultiplied alpha interpolation. ([#1932][] by [@LaurenzV][])
+- Color conversions on big-endian targets. ([#1845][] by [@LaurenzV][])
+
+### Optimized
+
+- Pixmap premultiplication and unpremultiplication. ([#1834][], [#1839][] by [@LaurenzV][])
+- Rectangular clip intersections. ([#1926][] by [@LaurenzV][])
+
 ## [0.2.0][] - 2026-08-07
 
 This release has an [MSRV][] of 1.88.
@@ -311,6 +344,23 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1778]: https://github.com/linebender/vello/pull/1778
 [#1779]: https://github.com/linebender/vello/pull/1779
 [#1801]: https://github.com/linebender/vello/pull/1801
+[#1824]: https://github.com/linebender/vello/pull/1824
+[#1825]: https://github.com/linebender/vello/pull/1825
+[#1826]: https://github.com/linebender/vello/pull/1826
+[#1834]: https://github.com/linebender/vello/pull/1834
+[#1839]: https://github.com/linebender/vello/pull/1839
+[#1845]: https://github.com/linebender/vello/pull/1845
+[#1853]: https://github.com/linebender/vello/pull/1853
+[#1855]: https://github.com/linebender/vello/pull/1855
+[#1866]: https://github.com/linebender/vello/pull/1866
+[#1880]: https://github.com/linebender/vello/pull/1880
+[#1901]: https://github.com/linebender/vello/pull/1901
+[#1908]: https://github.com/linebender/vello/pull/1908
+[#1916]: https://github.com/linebender/vello/pull/1916
+[#1926]: https://github.com/linebender/vello/pull/1926
+[#1930]: https://github.com/linebender/vello/pull/1930
+[#1932]: https://github.com/linebender/vello/pull/1932
+[#1949]: https://github.com/linebender/vello/pull/1949
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
