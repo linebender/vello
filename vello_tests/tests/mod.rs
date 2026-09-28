@@ -39,6 +39,7 @@ mod filter;
 mod fuzz_regression;
 mod glyph;
 mod gpu_depth;
+mod gpu_rect_parity;
 mod gpu_schedule;
 mod gradient;
 mod image;

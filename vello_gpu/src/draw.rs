@@ -177,7 +177,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         // Note: This will also advance the depth index for layer root draws even though
         // those _currently_ never use the depth buffer, but it's better to keep the
         // condition simple, and it's not incorrect to do so.
-        let depth_index = self.state.depth_counter.next(paint.opaque);
+        let (depth_index, opaque) = self.state.depth_counter.next(paint.opaque);
         let tile_bounds = self.state.target_bbox.to_tile_bounds();
         let geometry_shift = self.state.target.geometry_shift();
 
@@ -216,7 +216,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                     depth_index,
                 );
 
-                if !paint.opaque || !builder.push_opaque(strip, paint.texture_source) {
+                if !opaque || !builder.push_opaque(strip, paint.texture_source) {
                     builder
                         .draw
                         .push(builder.strips, strip, paint.texture_source);
@@ -232,14 +232,12 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         // For normal paths, the `visit_strip_fill_segments` method takes care of doing this.
         // For rectangles, we need to do this ourselves and can do a simple intersection.
         let clipped_rect = rect.intersect(self.state.target_bbox.as_rect());
-        if clipped_rect.is_zero_area() {
+        let Some(split) = split_rect(&clipped_rect) else {
             return;
-        }
+        };
 
         let paint = paint_resolver.pack(paint);
-        let depth_index = self.state.depth_counter.next(paint.opaque);
-
-        let split = split_rect(&clipped_rect);
+        let (depth_index, opaque) = self.state.depth_counter.next(paint.opaque);
 
         for part in [
             Some(split.main),
@@ -261,7 +259,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                 depth_index,
             );
 
-            if !(paint.opaque && part.frac == 0 && self.push_opaque(strip, paint.texture_source)) {
+            if !(opaque && part.is_full() && self.push_opaque(strip, paint.texture_source)) {
                 self.draw.push(self.strips, strip, paint.texture_source);
             }
         }
@@ -286,7 +284,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
             // layer as a fill.
 
             let strips = &strip_storage.strips[clip_path.strip_range.clone()];
-            let depth_index = self.state.depth_counter.next(false);
+            let (depth_index, _) = self.state.depth_counter.next(false);
             let tile_bounds = sample_bbox.to_tile_bounds();
 
             visit_strip_fill_segments(
@@ -309,12 +307,9 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         } else {
             // Otherwise, a simple rect blit covering the whole layer is enough.
 
-            let depth_index = self.state.depth_counter.next(false);
+            let (depth_index, _) = self.state.depth_counter.next(false);
 
-            let rect_part = RectPart {
-                rect: sample_bbox.shift(self.state.target.geometry_shift()),
-                frac: 0,
-            };
+            let rect_part = RectPart::full(sample_bbox.shift(self.state.target.geometry_shift()));
 
             self.draw.has_child_layer = true;
             self.draw.push(
@@ -393,6 +388,12 @@ impl<T: DrawTarget> DrawState<T> {
 /// represents a full rectangle.
 const RECT_STRIP_FLAG: u32 = 1 << 31;
 
+/// Number of low bits of [`GpuStrip::depth_index`] that hold the depth index.
+///
+/// This is the precision with which the shader maps depth indices to depth values. Rect strips
+/// carry the corner corrections of their part in the bits above.
+const DEPTH_INDEX_BITS: u32 = 24;
+
 impl GpuStrip {
     fn from_fill_segment(
         rect: RectU16,
@@ -426,10 +427,10 @@ impl GpuStrip {
             y: part.rect.y0,
             width: part.rect.width(),
             dense_width_or_rect_height: part.rect.height(),
-            col_idx_or_rect_frac: part.frac,
+            col_idx_or_rect_frac: part.alphas,
             payload,
             paint_and_rect_flag: paint | RECT_STRIP_FLAG,
-            depth_index,
+            depth_index: depth_index | (u32::from(part.corner_corrections) << DEPTH_INDEX_BITS),
         }
     }
 }
@@ -526,16 +527,24 @@ fn assign_external_texture_slot(
 /// Assigns monotonically increasing depth values to opaque strips.
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DepthCounter {
-    /// Number of opaque strips assigned so far.
+    /// The last assigned depth index.
     count: u32,
 }
 
 impl DepthCounter {
+    /// The largest depth index.
+    const MAX: u32 = (1 << DEPTH_INDEX_BITS) - 1;
+
+    /// Return the depth index of the next draw, and whether the draw may use the opaque pass.
+    ///
+    /// Opaque draws get an index of their own until the indices run out. Later draws share the
+    /// last index, which only the alpha pass orders correctly.
     #[inline(always)]
-    fn next(&mut self, opaque: bool) -> u32 {
+    fn next(&mut self, opaque: bool) -> (u32, bool) {
+        let opaque = opaque && self.count < Self::MAX;
         self.count += opaque as u32;
 
-        self.count
+        (self.count, opaque)
     }
 }
 
@@ -575,7 +584,10 @@ impl StripAlphaFillSegmentExt for StripAlphaFillSegment {
 
 #[cfg(test)]
 mod tests {
-    use super::{Draw, DrawBuffers, DrawBuilder, DrawState, ExternalTextureRun, OpaqueDraw};
+    use super::{
+        DEPTH_INDEX_BITS, DepthCounter, Draw, DrawBuffers, DrawBuilder, DrawState,
+        ExternalTextureRun, OpaqueDraw,
+    };
     use crate::GpuStrip;
     use crate::paint::{EXTERNAL_TEXTURE_SLOT_SHIFT, PaintResolver, TextureSourceId};
     use crate::scene::{RecordedDraw, RecordedRect};
@@ -1064,6 +1076,55 @@ mod tests {
                 .map(|strip| strip.depth_index)
                 .collect::<Vec<_>>(),
             [1, 2]
+        );
+    }
+
+    #[test]
+    fn opaque_draws_leave_opaque_pass_once_depth_indices_run_out() {
+        let mut case = DrawCase::new(RootTarget::UserSurface, RectU16::new(0, 0, 64, 8));
+        case.state.depth_counter = DepthCounter {
+            count: DepthCounter::MAX - 1,
+        };
+        let mut draw = Draw::default();
+
+        for x in [0.0, 8.0, 16.0] {
+            case.rect(&mut draw, rect(x), solid(1.0), no_paints());
+        }
+
+        assert_eq!(strip_xs(&case.buffers.opaque), [0]);
+        assert_eq!(
+            case.buffers
+                .strips
+                .ranged(&draw.strip_ranges)
+                .iter()
+                .map(|strip| (strip.x, strip.depth_index))
+                .collect::<Vec<_>>(),
+            [(8, DepthCounter::MAX), (16, DepthCounter::MAX)]
+        );
+    }
+
+    #[test]
+    fn rect_corner_corrections_are_stored_above_depth_index() {
+        let mut case = DrawCase::new(RootTarget::UserSurface, RectU16::new(0, 0, 64, 8));
+        let mut draw = Draw::default();
+
+        // The boundary alphas of this rect are 255, but its top-left alpha is 254.
+        case.rect(
+            &mut draw,
+            Rect::new(0.001, 0.001, 4.0, 4.0),
+            solid(1.0),
+            no_paints(),
+        );
+
+        assert!(case.buffers.opaque.is_empty());
+        assert_eq!(
+            case.buffers
+                .strips
+                .ranged(&draw.strip_ranges)
+                .iter()
+                .map(|strip| strip.depth_index)
+                .collect::<Vec<_>>(),
+            [1 | (0b11 << DEPTH_INDEX_BITS)]
         );
     }
 }
