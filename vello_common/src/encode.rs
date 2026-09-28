@@ -8,7 +8,9 @@ use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::{FloatExt, compute_erf7};
-use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor, Tint, TintMode};
+use crate::paint::{
+    CoverageContrast, Image, ImageSource, IndexedPaint, Paint, PremulColor, Tint, TintMode,
+};
 use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind, ImageQuality};
 use crate::util::f32_to_u8;
 use alloc::borrow::Cow;
@@ -497,6 +499,7 @@ impl EncodeExt for Image {
             let tint = tint.get_or_insert(Tint {
                 color: peniko::Color::WHITE,
                 mode: TintMode::Multiply,
+                contrast: CoverageContrast::NONE,
             });
             let alpha = (tint.color.components[3] * sampler.alpha).min(1.0);
             tint.color = tint.color.with_alpha(alpha);
@@ -1189,7 +1192,7 @@ mod tests {
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point, Rect};
-    use crate::paint::{Image, ImageId, ImageSource, Tint, TintMode};
+    use crate::paint::{CoverageContrast, Image, ImageId, ImageSource, Tint, TintMode};
     use crate::peniko::{ColorStop, ColorStops};
     use alloc::vec;
     use peniko::{
@@ -1438,11 +1441,14 @@ mod tests {
             },
         };
 
+        // Folding the sampler alpha into the tint must keep the coverage transfer.
+        let contrast = CoverageContrast::from_bits(128, 64);
         for mode in [TintMode::AlphaMask, TintMode::Multiply] {
             let mut paints = vec![];
             let tint = Tint {
                 color: Color::new([0.2, 0.4, 0.6, 0.8]),
                 mode,
+                contrast,
             };
             image.encode_into(&mut paints, Affine::IDENTITY, Some(tint));
 
@@ -1455,6 +1461,7 @@ mod tests {
                 Some(Tint {
                     color: Color::new([0.2, 0.4, 0.6, 0.4]),
                     mode,
+                    contrast,
                 })
             );
             assert!(encoded.may_have_transparency);
@@ -1474,6 +1481,7 @@ mod tests {
         let tint = Tint {
             color: Color::new([0.2, 0.4, 0.6, 0.8]),
             mode: TintMode::Multiply,
+            contrast: CoverageContrast::NONE,
         };
 
         image.encode_into(&mut paints, Affine::IDENTITY, Some(tint));
@@ -1487,6 +1495,7 @@ mod tests {
             Some(Tint {
                 color: Color::new([0.2, 0.4, 0.6, 1.0]),
                 mode: TintMode::Multiply,
+                contrast: CoverageContrast::NONE,
             })
         );
     }

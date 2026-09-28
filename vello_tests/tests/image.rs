@@ -11,7 +11,7 @@ use std::sync::Arc;
 use vello_common::color::palette::css::REBECCA_PURPLE;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::kurbo::{Shape, Triangle};
-use vello_common::paint::{Image, ImageSource, Tint, TintMode};
+use vello_common::paint::{CoverageContrast, Image, ImageSource, Tint, TintMode};
 use vello_common::peniko::Color;
 use vello_common::peniko::ImageSampler;
 use vello_common::peniko::{BlendMode, Compose, Extend, ImageQuality, Mix};
@@ -703,6 +703,11 @@ const HELLO_WORLD: &[Sprite] = &[
 /// Uses `ImageSource::OpaqueId` to demonstrate the image registry pattern.
 #[vello_test(width = 60, height = 30, skip_gpu)]
 fn image_spritesheet(ctx: &mut impl Renderer) {
+    render_hello_sprites(ctx, None);
+}
+
+/// Render "hello" from the glyph atlas, with an optional alpha-mask tint.
+fn render_hello_sprites(ctx: &mut impl Renderer, tint: Option<Tint>) {
     let atlas_id = ctx.register_image(load_image!("glyph_atlas"));
     let atlas_src = ImageSource::opaque_id(atlas_id);
 
@@ -712,24 +717,21 @@ fn image_spritesheet(ctx: &mut impl Renderer) {
     let mut cursor_x = start_x;
 
     for glyph in HELLO_WORLD {
-        render_sprite(ctx, &atlas_src, glyph, cursor_x, start_y, None);
+        render_sprite(ctx, &atlas_src, glyph, cursor_x, start_y, tint);
         cursor_x += glyph.width;
     }
 }
 
-/// Render a sprite from an atlas/spritesheet at a screen position, with an optional tint color.
+/// Render a sprite from an atlas/spritesheet at a screen position, with an optional tint.
 fn render_sprite(
     ctx: &mut impl Renderer,
     atlas_src: &ImageSource,
     glyph: &Sprite,
     screen_x: f64,
     screen_y: f64,
-    tint: Option<Color>,
+    tint: Option<Tint>,
 ) {
-    ctx.set_tint(tint.map(|color| Tint {
-        color,
-        mode: TintMode::AlphaMask,
-    }));
+    ctx.set_tint(tint);
     ctx.set_transform(Affine::translate((screen_x, screen_y + glyph.y_offset)));
     ctx.set_paint_transform(Affine::translate((-glyph.atlas_x, -glyph.atlas_y)));
     ctx.set_paint(Image {
@@ -747,24 +749,21 @@ fn render_sprite(
 /// Same as `image_spritesheet`, but renders "hello world" with a purple tint.
 #[vello_test(width = 60, height = 30, skip_multithreaded)]
 fn image_spritesheet_tinted(ctx: &mut impl Renderer) {
-    let atlas_id = ctx.register_image(load_image!("glyph_atlas"));
-    let atlas_src = ImageSource::opaque_id(atlas_id);
+    render_hello_sprites(ctx, Some(purple_alpha_mask(CoverageContrast::NONE)));
+}
 
-    let start_x = 10.0;
-    let start_y = 8.0;
+/// Same as `image_spritesheet_tinted`, with a coverage transfer that sharpens the glyphs.
+#[vello_test(width = 60, height = 30, skip_multithreaded)]
+fn image_spritesheet_tinted_coverage_contrast(ctx: &mut impl Renderer) {
+    let contrast = CoverageContrast::new(0.6, 0.0);
+    render_hello_sprites(ctx, Some(purple_alpha_mask(contrast)));
+}
 
-    let mut cursor_x = start_x;
-
-    for glyph in HELLO_WORLD {
-        render_sprite(
-            ctx,
-            &atlas_src,
-            glyph,
-            cursor_x,
-            start_y,
-            Some(REBECCA_PURPLE),
-        );
-        cursor_x += glyph.width;
+fn purple_alpha_mask(contrast: CoverageContrast) -> Tint {
+    Tint {
+        color: REBECCA_PURPLE,
+        mode: TintMode::AlphaMask,
+        contrast,
     }
 }
 
@@ -775,10 +774,12 @@ fn image_sampler_alpha(ctx: &mut impl Renderer) {
     let tinted = Some(Tint {
         color: REBECCA_PURPLE,
         mode: TintMode::Multiply,
+        contrast: CoverageContrast::NONE,
     });
     let masked = Some(Tint {
         color: REBECCA_PURPLE,
         mode: TintMode::AlphaMask,
+        contrast: CoverageContrast::NONE,
     });
 
     for (x, y, alpha, tint) in [
@@ -816,6 +817,7 @@ fn image_fully_transparent_tint(ctx: &mut impl Renderer) {
         ctx.set_tint(Some(Tint {
             color: Color::from_rgba8(255, 255, 255, 0),
             mode,
+            contrast: CoverageContrast::NONE,
         }));
         ctx.set_paint(image.clone());
         ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));

@@ -99,17 +99,19 @@ impl Worker {
                     fill_rule,
                     blend_mode,
                     aliasing_threshold,
+                    contrast,
                     mask,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
                     let path = &render_task.allocation_group.path
                         [path_range.start as usize..path_range.end as usize];
 
-                    self.strip_generator.generate_filled_path(
+                    self.strip_generator.generate_filled_path_with_contrast(
                         path.iter().copied(),
                         fill_rule,
                         transform,
                         aliasing_threshold,
+                        contrast,
                         &mut self.strip_storage,
                         path_clip.map(|clip| clip.path),
                     );

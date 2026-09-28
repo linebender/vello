@@ -518,7 +518,7 @@ pub(crate) struct GpuEncodedImage {
     pub transform: [f32; 6],
     /// Premultiplied tint color packed as RGBA8 unorm (`pack4x8unorm` layout).
     pub tint: u32,
-    /// GPU tint mode.
+    /// Packed tint mode and coverage transfer, see [`pack_tint`].
     pub tint_mode: u32,
     /// Number of transparent padding pixels around the image in the atlas.
     pub image_padding: u32,
@@ -665,16 +665,28 @@ pub(crate) fn pack_image_params(quality: u32, extend_x: u32, extend_y: u32) -> u
     (extend_y << 4) | (extend_x << 2) | quality
 }
 
+/// Bit offsets of the coverage transfer strengths in the packed tint mode.
+///
+/// Must match `TINT_CONTRAST_SHIFT` and `TINT_WEIGHT_SHIFT` in `helpers/image.wesl`.
+const GPU_TINT_CONTRAST_SHIFT: u32 = 8;
+const GPU_TINT_WEIGHT_SHIFT: u32 = 16;
+
 /// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.
 ///
 /// The tint color is premultiplied before packing into a u32 in the same layout
 /// as WGSL `pack4x8unorm`.
+///
+/// The tint mode occupies bits 0-7, followed by the 8-bit contrast and weight strengths of
+/// the coverage transfer.
 #[inline(always)]
 pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
     match tint {
         Some(t) => {
             let color = t.color.premultiply().to_rgba8().to_u32();
-            (color, t.mode.as_u32())
+            let mode = t.mode.as_u32()
+                | (u32::from(t.contrast.contrast_bits()) << GPU_TINT_CONTRAST_SHIFT)
+                | (u32::from(t.contrast.weight_bits()) << GPU_TINT_WEIGHT_SHIFT);
+            (color, mode)
         }
         // With no tint, use `u32::MAX` (which corresponds to 1.0 on all lanes).
         // Since we use `Multiply` this will essentially just yield the original image

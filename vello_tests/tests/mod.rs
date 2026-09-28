@@ -34,6 +34,7 @@ mod basic;
 mod blurred_rounded_rect;
 mod clip;
 mod compose;
+mod coverage_contrast;
 mod external_texture;
 mod filter;
 mod fuzz_regression;

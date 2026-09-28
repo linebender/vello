@@ -7,7 +7,7 @@ use crate::atlas::{AtlasPaint, AtlasSlot};
 use crate::color::{AlphaColor, Srgb};
 use crate::kurbo::{Affine, BezPath, Rect, Shape};
 use crate::peniko::BlendMode;
-use vello_common::paint::{Image, ImageSource, PaintType, Tint};
+use vello_common::paint::{CoverageContrast, Image, ImageSource, PaintType, Tint};
 
 // TODO: This trait is only temporary and will hopefully be replaced once we have a better
 // unifying imaging API.
@@ -78,6 +78,11 @@ pub trait GlyphRenderer: DrawSink {
 
     /// Set the tint for subsequent image draws.
     fn set_tint(&mut self, tint: Option<Tint>);
+
+    /// Fill a glyph outline with the current paint and transform, remapping its coverage
+    /// through `contrast` before clipping, like an alpha-mask [`Tint`] does for glyphs drawn
+    /// from the atlas.
+    fn fill_glyph_path(&mut self, path: &BezPath, contrast: CoverageContrast);
 
     /// Get the context color from the renderer's current paint, used for resolving the
     /// context-dependent colors of COLR glyphs.

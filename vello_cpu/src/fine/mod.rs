@@ -40,7 +40,7 @@ use vello_common::fearless_simd::{
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
+use vello_common::paint::{CoverageContrast, ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::Splat4thExt;
 use vello_common::tile::Tile;
@@ -170,6 +170,22 @@ pub(crate) fn u8_to_f32<S: Simd>(val: u8x16<S>) -> f32x16<S> {
     let p4 = p4.bitcast::<u32x4<S>>().to_float::<f32x4<S>>();
 
     simd.combine_f32x8(simd.combine_f32x4(p1, p2), simd.combine_f32x4(p3, p4))
+}
+
+/// [`CoverageContrast::apply`] for 16 values.
+///
+/// This uses the same operations in the same order, so the results are identical.
+#[inline(always)]
+pub(crate) fn apply_coverage_contrast<S: Simd>(
+    contrast: CoverageContrast,
+    a: f32x16<S>,
+) -> f32x16<S> {
+    let simd = a.simd;
+    let c = f32x16::splat(simd, contrast.contrast_strength());
+    let w = f32x16::splat(simd, contrast.weight_strength());
+    let one = f32x16::splat(simd, 1.0);
+    let two = f32x16::splat(simd, 2.0);
+    a + c * a * (one - a) * (two * a - one) + w * a * (one - a)
 }
 
 /// Trait for SIMD vector types used in compositing and blending operations.

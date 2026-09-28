@@ -41,10 +41,12 @@ import package::helpers::gradient::{
 import package::helpers::geometry::{pixel_to_ndc, quad_corner};
 import package::helpers::image::{
     TINT_MODE_MULTIPLY,
+    apply_coverage_contrast,
     get_image_extend_modes,
     get_image_offset,
     get_image_quality,
     get_image_size,
+    get_image_tint_mode,
     get_image_transform,
     get_image_translate
 };
@@ -402,7 +404,7 @@ fn fs_main(
             let image_quality = get_image_quality(image_texel0);
             let packed_tint = image_texel2.y;
             let image_tint = unpack4x8unorm(packed_tint);
-            let is_multiply = image_texel2.z == TINT_MODE_MULTIPLY;
+            let is_multiply = get_image_tint_mode(image_texel2) == TINT_MODE_MULTIPLY;
             let local_xy = sample_xy - image_offset;
             let extended_xy = vec2<f32>(
                 extend_mode(local_xy.x, image_extend_modes.x, image_size.x),
@@ -451,7 +453,7 @@ fn fs_main(
             }
 
             final_color = alpha * select(
-                image_tint * sample_color.a,
+                image_tint * apply_coverage_contrast(image_texel2, sample_color.a),
                 sample_color * image_tint,
                 is_multiply
             );

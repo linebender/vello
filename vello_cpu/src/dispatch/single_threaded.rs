@@ -19,7 +19,7 @@ use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, Paint, PremulColor};
+use vello_common::paint::{CoverageContrast, ImageResolver, Paint, PremulColor};
 use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::record::{
     CommandRecorder, LayerClip, LayerProps, Node, PoppedLayer, RecordedLayerKind,
@@ -296,17 +296,19 @@ impl Dispatcher for SingleThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        contrast: CoverageContrast,
         mask: Option<Mask>,
     ) {
         let strip_start = self.strip_storage.strips.len();
         let strip_storage = &mut self.strip_storage;
         self.viewport
             .with_generator_and_clip(|strip_generator, clip_path| {
-                strip_generator.generate_filled_path(
+                strip_generator.generate_filled_path_with_contrast(
                     path,
                     fill_rule,
                     transform,
                     aliasing_threshold,
+                    contrast,
                     strip_storage,
                     clip_path.map(|clip| clip.path),
                 );
@@ -569,6 +571,7 @@ mod tests {
             Paint::Solid(PremulColor::from_alpha_color(BLUE)),
             BlendMode::default(),
             None,
+            CoverageContrast::NONE,
             None,
         );
 
