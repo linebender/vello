@@ -1339,8 +1339,8 @@ fn calculate_bitmap_transform(
         Vec2::new(0.0, f64::from(font_size) / 8.0)
     } else {
         Vec2::new(
-            -f64::from(bitmap_glyph.bearing_x * font_units_to_size),
-            f64::from(bitmap_glyph.bearing_y * font_units_to_size),
+            f64::from(bitmap_glyph.bearing_x * font_units_to_size),
+            -f64::from(bitmap_glyph.bearing_y * font_units_to_size),
         )
     };
 
@@ -1360,7 +1360,7 @@ fn calculate_bitmap_transform(
         .pre_scale_non_uniform(f64::from(x_scale_factor), f64::from(y_scale_factor))
         // Apply inner bearings.
         .pre_translate(Vec2 {
-            x: (-bitmap_glyph.inner_bearing_x).into(),
+            x: bitmap_glyph.inner_bearing_x.into(),
             y: (-bitmap_glyph.inner_bearing_y).into(),
         })
         .pre_translate(origin_shift)
