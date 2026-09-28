@@ -21,7 +21,7 @@ use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
-use vello_common::paint::{Paint, PaintType, Tint};
+use vello_common::paint::{Paint, PaintType, PremulColor, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
@@ -297,8 +297,8 @@ impl Scene {
         // corner. For vello_gpu, we don't need this, because the GPU itself already applies
         // this shift automatically.
         let transform = self.effective_paint_transform();
-        match self.render_state.paint.clone() {
-            PaintType::Solid(s) => Some(s.into()),
+        match &self.render_state.paint {
+            PaintType::Solid(s) => Some(Paint::Solid(PremulColor::from_alpha_color(*s))),
             PaintType::Gradient(g) => g.encode_into(&mut self.encoded_paints, transform, None),
             PaintType::Image(i) => {
                 i.encode_into(&mut self.encoded_paints, transform, self.render_state.tint)
