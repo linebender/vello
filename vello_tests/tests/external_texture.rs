@@ -159,6 +159,29 @@ mod tests {
     }
 
     #[vello_test(gpu_only)]
+    fn external_texture_reflect_with_offset(ctx: &mut impl Renderer) {
+        let pixmap = Arc::new(Pixmap::from_parts(
+            vec![0, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255],
+            3,
+            1,
+            PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, false),
+        ));
+        let texture_id = ctx.register_external_texture(pixmap);
+
+        ctx.set_paint_transform(Affine::scale(3.0));
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(texture_id, RectU16::new(1, 0, 3, 1), false),
+            sampler: ImageSampler {
+                x_extend: Extend::Reflect,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Medium,
+                alpha: 1.0,
+            },
+        });
+        ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+    }
+
+    #[vello_test(gpu_only)]
     fn external_texture_with_paint_transform(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
