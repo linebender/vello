@@ -473,6 +473,7 @@ jobs:
         working-directory: vello_tests
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
+          WASM_BINDGEN_TEST_TIMEOUT: "1200"
 
   check-stable-wasm-webgl-examples:
     name: cargo check (wasm32 webgl examples)
