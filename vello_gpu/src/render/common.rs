@@ -19,16 +19,6 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::record::CommandRecorder;
 
-// GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
-pub(crate) const GPU_ENCODED_IMAGE_SIZE_TEXELS: u32 = (size_of::<GpuEncodedImage>() / 16) as u32;
-pub(crate) const GPU_LINEAR_GRADIENT_SIZE_TEXELS: u32 =
-    (size_of::<GpuLinearGradient>() / 16) as u32;
-pub(crate) const GPU_RADIAL_GRADIENT_SIZE_TEXELS: u32 =
-    (size_of::<GpuRadialGradient>() / 16) as u32;
-pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 = (size_of::<GpuSweepGradient>() / 16) as u32;
-pub(crate) const GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS: u32 =
-    (size_of::<GpuBlurredRoundedRect>() / 16) as u32;
-
 // TODO: If we want to use native bilinear sampling for uploaded images,
 // we can pass 1 instead of 0 here.
 pub(crate) const IMAGE_PADDING: u16 = 0;
@@ -485,6 +475,11 @@ impl GpuEncodedPaint {
             Self::SweepGradient(paint) => bytemuck::bytes_of(paint),
             Self::BlurredRoundedRect(paint) => bytemuck::bytes_of(paint),
         }
+    }
+
+    /// Number of `RGBA32Uint` texels occupied by this paint.
+    pub(crate) fn size_texels(&self) -> u32 {
+        u32::try_from(self.as_bytes().len() / 16).unwrap()
     }
 
     /// Serialize paint enums directly into the provided buffer. Returns the number of bytes written.

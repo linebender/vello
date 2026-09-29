@@ -48,12 +48,10 @@ use crate::{
     render::{
         Config,
         common::{
-            DeviceLimits, GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS, GPU_ENCODED_IMAGE_SIZE_TEXELS,
-            GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
-            GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuEncodedImage,
-            GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            ScratchBuffers, ScratchTexture, pack_image_offset, pack_image_params, pack_image_size,
-            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
+            DeviceLimits, GpuBlurredRoundedRect, GpuEncodedImage, GpuEncodedPaint,
+            GpuLinearGradient, GpuRadialGradient, GpuSweepGradient, ScratchBuffers, ScratchTexture,
+            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
+            pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -883,54 +881,40 @@ impl WebGlRenderer {
         let mut current_idx = 0;
         for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
             self.paint_idxs[encoded_paint_idx] = current_idx;
-            match paint {
-                EncodedPaint::Image(img) => {
-                    let gpu_image = match &img.source {
-                        ImageSource::OpaqueId { id, .. } => {
-                            let image_resource =
-                                image_cache.get(*id).ok_or(RenderError::MissingImage(*id))?;
-                            self.encode_image_paint(img, image_resource)
+            let gpu_paint = match paint {
+                EncodedPaint::Image(img) => match &img.source {
+                    ImageSource::OpaqueId { id, .. } => {
+                        let image_resource =
+                            image_cache.get(*id).ok_or(RenderError::MissingImage(*id))?;
+                        self.encode_image_paint(img, image_resource)
+                    }
+                    ImageSource::ExternalTexture {
+                        id, source_region, ..
+                    } => {
+                        let texture = texture_bindings
+                            .get(*id)
+                            .ok_or(RenderError::MissingTextureBinding(*id))?;
+                        if render_target_texture.is_some_and(|target| target == texture) {
+                            return Err(WebGlError::Render(RenderError::TextureFeedbackLoop(*id)));
                         }
-                        ImageSource::ExternalTexture {
-                            id, source_region, ..
-                        } => {
-                            let texture = texture_bindings
-                                .get(*id)
-                                .ok_or(RenderError::MissingTextureBinding(*id))?;
-                            if render_target_texture.is_some_and(|target| target == texture) {
-                                return Err(WebGlError::Render(RenderError::TextureFeedbackLoop(
-                                    *id,
-                                )));
-                            }
-                            Self::encode_external_texture_paint(img, *source_region)
-                        }
-                        ImageSource::Pixmap(_) => {
-                            panic!("pixmap image sources are not supported by Vello GPU")
-                        }
-                    };
-                    self.encoded_paints[encoded_paint_idx] = gpu_image;
-                    current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
-                }
+                        Self::encode_external_texture_paint(img, *source_region)
+                    }
+                    ImageSource::Pixmap(_) => {
+                        panic!("pixmap image sources are not supported by Vello GPU")
+                    }
+                },
                 EncodedPaint::Gradient(gradient) => {
                     let (gradient_start, gradient_width) =
                         self.gradient_cache.get_or_create_ramp(gradient);
-                    let gpu_gradient =
-                        self.encode_gradient_paint(gradient, gradient_width, gradient_start);
-                    let gradient_size_texels = match &gpu_gradient {
-                        GpuEncodedPaint::LinearGradient(_) => GPU_LINEAR_GRADIENT_SIZE_TEXELS,
-                        GpuEncodedPaint::RadialGradient(_) => GPU_RADIAL_GRADIENT_SIZE_TEXELS,
-                        GpuEncodedPaint::SweepGradient(_) => GPU_SWEEP_GRADIENT_SIZE_TEXELS,
-                        _ => unreachable!("encode_gradient_for_gpu only returns gradient types"),
-                    };
-                    self.encoded_paints[encoded_paint_idx] = gpu_gradient;
-                    current_idx += gradient_size_texels;
+                    self.encode_gradient_paint(gradient, gradient_width, gradient_start)
                 }
                 EncodedPaint::BlurredRoundedRect(blurred_rect) => {
-                    self.encoded_paints[encoded_paint_idx] =
-                        Self::encode_blurred_rounded_rect_paint(blurred_rect);
-                    current_idx += GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS;
+                    Self::encode_blurred_rounded_rect_paint(blurred_rect)
                 }
-            }
+            };
+
+            current_idx += gpu_paint.size_texels();
+            self.encoded_paints[encoded_paint_idx] = gpu_paint;
         }
         self.paint_idxs[encoded_paints.len()] = current_idx;
         Ok(())
