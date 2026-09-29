@@ -227,8 +227,9 @@ impl Renderer for CpuRenderer {
                 .external_textures
                 .get(id)
                 .unwrap_or_else(|| panic!("External texture {id:?} not found in test registry"));
+            let source_region = source_region.rect();
 
-            if *source_region == RectU16::new(0, 0, pixmap.width(), pixmap.height()) {
+            if source_region == RectU16::new(0, 0, pixmap.width(), pixmap.height()) {
                 image.image = ImageSource::Pixmap(Arc::clone(pixmap));
             } else {
                 let mut cropped = Pixmap::new(source_region.width(), source_region.height());

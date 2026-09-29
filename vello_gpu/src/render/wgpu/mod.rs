@@ -19,14 +19,15 @@ use crate::{
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
     gradient_cache::GradientRampCache,
-    paint::{PaintResolver, TextureSourceId},
+    paint::{ExternalSampler, PaintResolver, SamplerAddress, SamplerFilter, TextureSourceId},
     render::{
         Config,
         common::{
             DeviceLimits, GpuBlurredRoundedRect, GpuClearInstance, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            ScratchBuffers, ScratchTexture, pack_image_offset, pack_image_params, pack_image_size,
-            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
+            ScratchBuffers, ScratchTexture, encode_native_image_paint, pack_image_offset,
+            pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
+            pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -54,7 +55,7 @@ use vello_common::{
         MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
     geometry::{RectU16, SizeU16},
-    paint::ImageSource,
+    paint::{ImageSource, TextureRegion},
     peniko,
     pixmap::Pixmap,
     tile::Tile,
@@ -103,10 +104,10 @@ impl TextureBindings {
     ///
     /// ```ignore
     /// wgpu::BindGroupLayoutEntry {
-    ///     binding: 1,
+    ///     binding: 0,
     ///     visibility: wgpu::ShaderStages::FRAGMENT,
     ///     ty: wgpu::BindingType::Texture {
-    ///         sample_type: wgpu::TextureSampleType::Float { filterable: false },
+    ///         sample_type: wgpu::TextureSampleType::Float { filterable: true },
     ///         view_dimension: wgpu::TextureViewDimension::D2,
     ///         multisampled: false,
     ///     },
@@ -114,9 +115,10 @@ impl TextureBindings {
     /// }
     /// ```
     ///
-    /// This means the view must be a non-array 2D view of a float-sampleable texture (e.g. integer
-    /// formats are rejected by wgpu at bind time), the underlying texture must include
-    /// [`wgpu::TextureUsages::TEXTURE_BINDING`], and only mip level 0 is read.
+    /// This means the view must be a non-array 2D view of a filterable float texture (e.g.
+    /// `Rgba8Unorm`; integer and unfilterable float formats are rejected by wgpu at bind time).
+    /// The underlying texture must include [`wgpu::TextureUsages::TEXTURE_BINDING`], and only
+    /// mip level 0 is read.
     #[inline]
     pub fn insert(&mut self, texture_id: TextureId, view: TextureView) {
         self.views.insert(texture_id, view);
@@ -440,7 +442,8 @@ impl Renderer {
             .max(required_texture_size);
         let current_allocations = self.current_allocations();
         let paint_resolver =
-            PaintResolver::new(encoded_paints, &self.paint_idxs).with_image_cache(image_cache);
+            PaintResolver::new(encoded_paints, &self.paint_idxs, &self.encoded_paints)
+                .with_image_cache(image_cache);
         let schedule = Schedule::try_new(
             &mut self.schedule_storage,
             scene,
@@ -748,8 +751,13 @@ impl Renderer {
     fn encode_external_texture_paint(
         &self,
         image: &vello_common::encode::EncodedImage,
-        region: RectU16,
+        source_region: TextureRegion,
     ) -> GpuEncodedPaint {
+        if let Some(native_paint) = encode_native_image_paint(image) {
+            return native_paint;
+        }
+
+        let region = source_region.rect();
         let transform = image.transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(region.width(), region.height());
         let image_offset = pack_image_offset(region.x0, region.y0);
@@ -917,6 +925,8 @@ struct Programs {
     filter_input_bind_group_layouts: [BindGroupLayout; 2],
     /// Filter sampler.
     filter_sampler: Sampler,
+    /// Native image samplers shared by external texture slots.
+    external_samplers: HashMap<ExternalSampler, Sampler>,
     /// Blend bind group layout.
     blend_layer_bind_group_layout: BindGroupLayout,
     /// Copy bind group layout.
@@ -1134,13 +1144,22 @@ impl Programs {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: false,
             },
             count: None,
         };
-        let external_texture_layout_entries = [external_texture_layout_entry(0)];
+        let external_sampler_layout_entry = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        };
+        let external_texture_layout_entries = [
+            external_texture_layout_entry(0),
+            external_sampler_layout_entry(1),
+        ];
         let external_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("External Texture Bind Group Layout"),
@@ -1616,6 +1635,13 @@ impl Programs {
             ..Default::default()
         });
 
+        // The empty bind group needs a sampler even before any external image is drawn.
+        let mut external_samplers = HashMap::new();
+        external_samplers.insert(
+            ExternalSampler::DEFAULT,
+            Self::create_external_sampler(device, ExternalSampler::DEFAULT),
+        );
+
         let layer_textures: [Vec<TextureView>; 2] = core::array::from_fn(|_| Vec::new());
         let scratch_texture = None;
         let placeholder_external_texture_view = Self::create_placeholder_external_texture(device);
@@ -1661,6 +1687,7 @@ impl Programs {
             device,
             &external_texture_bind_group_layout,
             [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
+            [&external_samplers[&ExternalSampler::DEFAULT]; EXTERNAL_TEXTURE_SLOT_COUNT],
         );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
@@ -1765,6 +1792,7 @@ impl Programs {
             atlas_clear_pipeline,
             filter_input_bind_group_layouts,
             filter_sampler,
+            external_samplers,
             blend_layer_bind_group_layout,
             copy_bind_group_layout,
             strip_layer_bind_groups: HashMap::new(),
@@ -2025,15 +2053,42 @@ impl Programs {
         texture.create_view(&TextureViewDescriptor::default())
     }
 
+    fn create_external_sampler(device: &Device, key: ExternalSampler) -> Sampler {
+        let address_mode = |address| match address {
+            SamplerAddress::Pad => wgpu::AddressMode::ClampToEdge,
+            SamplerAddress::Repeat => wgpu::AddressMode::Repeat,
+            SamplerAddress::Reflect => wgpu::AddressMode::MirrorRepeat,
+        };
+        let filter = match key.filter {
+            SamplerFilter::Nearest => wgpu::FilterMode::Nearest,
+            SamplerFilter::Linear => wgpu::FilterMode::Linear,
+        };
+        device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("External Texture Sampler"),
+            address_mode_u: address_mode(key.address_x),
+            address_mode_v: address_mode(key.address_y),
+            mag_filter: filter,
+            min_filter: filter,
+            ..Default::default()
+        })
+    }
+
     fn create_external_texture_bind_group(
         device: &Device,
         external_texture_bind_group_layout: &BindGroupLayout,
         texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        samplers: [&Sampler; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
-        let entries = [wgpu::BindGroupEntry {
-            binding: 0,
-            resource: wgpu::BindingResource::TextureView(texture_views[0]),
-        }];
+        let entries = [
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(texture_views[0]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(samplers[0]),
+            },
+        ];
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("External Texture Bind Group"),
             layout: external_texture_bind_group_layout,
@@ -2364,11 +2419,13 @@ impl Programs {
         &self,
         device: &Device,
         texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        samplers: [&Sampler; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
         Self::create_external_texture_bind_group(
             device,
             &self.external_texture_bind_group_layout,
             texture_views,
+            samplers,
         )
     }
 
@@ -2652,15 +2709,28 @@ impl RendererContext<'_> {
                     Some(TextureSourceId::Atlas(atlas_id)) => {
                         atlas_texture_views[atlas_id.as_u32() as usize].clone()
                     }
-                    Some(TextureSourceId::External(texture_id)) => texture_bindings
+                    Some(TextureSourceId::External(texture_id, _)) => texture_bindings
                         .get(texture_id)
                         .expect("external texture binding was validated during paint preparation")
                         .clone(),
                     None => placeholder.clone(),
                 });
-                let bind_group = self
-                    .programs
-                    .create_run_external_texture_bind_group(self.device, texture_views.each_ref());
+                let sampler_keys = texture_sources.map(|source| match source {
+                    Some(TextureSourceId::External(_, sampler)) => sampler,
+                    _ => ExternalSampler::DEFAULT,
+                });
+                let samplers = sampler_keys.map(|key| {
+                    self.programs
+                        .external_samplers
+                        .entry(key)
+                        .or_insert_with(|| Programs::create_external_sampler(self.device, key))
+                        .clone()
+                });
+                let bind_group = self.programs.create_run_external_texture_bind_group(
+                    self.device,
+                    texture_views.each_ref(),
+                    samplers.each_ref(),
+                );
                 entry.insert(bind_group)
             }
         }

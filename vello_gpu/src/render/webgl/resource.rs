@@ -6,8 +6,8 @@ use core::ops::Deref;
 use crate::{WebGlError, WebGlOperation, WebGlResourceKind, WebGlShaderStage};
 
 use super::{
-    WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader, WebGlTexture,
-    WebGlVertexArrayObject,
+    WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlSampler, WebGlShader,
+    WebGlTexture, WebGlVertexArrayObject,
 };
 #[cfg(feature = "probe")]
 use web_sys::{WebGlRenderbuffer, WebGlSync};
@@ -91,6 +91,18 @@ impl GlResource for WebGlTexture {
 
     fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
         gl.delete_texture(Some(raw));
+    }
+}
+
+impl GlResource for WebGlSampler {
+    const KIND: WebGlResourceKind = WebGlResourceKind::Sampler;
+
+    fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
+        gl.create_sampler()
+    }
+
+    fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
+        gl.delete_sampler(Some(raw));
     }
 }
 
@@ -195,6 +207,7 @@ impl GlResource for WebGlVertexArrayObject {
 }
 
 pub(crate) type Texture = Resource<WebGlTexture>;
+pub(crate) type Sampler = Resource<WebGlSampler>;
 pub(crate) type Buffer = Resource<WebGlBuffer>;
 pub(crate) type Framebuffer = Resource<WebGlFramebuffer>;
 #[cfg(feature = "probe")]
