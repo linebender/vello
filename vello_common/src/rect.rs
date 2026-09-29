@@ -6,8 +6,10 @@
 use crate::kurbo::Rect;
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
+use crate::simd::element_wise_splat;
 use crate::strip::Strip;
 use crate::tile::Tile;
+use crate::util::f32_to_u8;
 use alloc::vec::Vec;
 use fearless_simd::*;
 
@@ -97,12 +99,20 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
             let alpha_start = alpha_buf.len() as u32;
 
             let y_cov = coverage(strip_y, rect_y0, rect_y1);
+            // Only the left-most and right-most tiles can have partial horizontal coverage,
+            // all tiles in-between are fully covered horizontally.
+            let left_alpha = combined_tile_alpha(s, &left_x_cov, &y_cov);
+            let right_alpha = combined_tile_alpha(s, &right_x_cov, &y_cov);
+            let interior_alpha = combined_tile_alpha(s, &[1.0; Tile::WIDTH as usize], &y_cov);
             let mut col = u32::from(left_tile_x);
             while col + u32::from(Tile::WIDTH) <= x_end {
-                // TODO: We could optimize this so this is only computed for the left-most and right-most
-                // tile of the edge, all intermediate tiles have full horizontal coverage.
-                let x_cov = coverage(col as u16, rect_x0, rect_x1);
-                let combined = combined_tile_alpha(s, &x_cov, &y_cov);
+                let combined = if col == u32::from(left_tile_x) {
+                    left_alpha
+                } else if col == u32::from(right_tile_x) {
+                    right_alpha
+                } else {
+                    interior_alpha
+                };
                 alpha_buf.extend_from_slice(combined.as_slice());
                 col += u32::from(Tile::WIDTH);
             }
@@ -165,14 +175,12 @@ fn combined_tile_alpha<S: Simd>(
     x_cov: &[f32; Tile::WIDTH as usize],
     y_cov: &[f32; Tile::HEIGHT as usize],
 ) -> u8x16<S> {
-    let mut buf = [0_u8; 16];
-    for (col, xc) in x_cov.iter().copied().enumerate() {
-        for (row, yc) in y_cov.iter().copied().enumerate() {
-            buf[col * Tile::HEIGHT as usize + row] = (xc * yc * 255.0 + 0.5) as u8;
-        }
-    }
+    // Tiles are stored in column-major order, so each x coverage is repeated
+    // for all rows, and the y coverages are repeated for all columns.
+    let x_cov = element_wise_splat(s, f32x4::from_slice(s, x_cov));
+    let y_cov = f32x16::block_splat(f32x4::from_slice(s, y_cov));
 
-    u8x16::from_slice(s, &buf)
+    f32_to_u8(x_cov * y_cov * 255.0 + 0.5)
 }
 
 #[cfg(test)]
