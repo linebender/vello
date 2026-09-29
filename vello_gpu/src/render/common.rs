@@ -17,7 +17,10 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::mem::size_of;
 use vello_common::color::{AlphaColor, Srgb};
+use vello_common::encode::EncodedImage;
 use vello_common::geometry::{RectU16, SizeU16};
+use vello_common::paint::{ImageSource, TextureRegion, TintMode};
+use vello_common::peniko::ImageQuality;
 use vello_common::record::CommandRecorder;
 
 // TODO: If we want to use native bilinear sampling for uploaded images,
@@ -218,10 +221,15 @@ impl LayersConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::DeviceLimits;
+    use super::{DeviceLimits, encode_native_image_paint};
     use crate::scene::RecordedDraw;
     use crate::{IntermediateTextureError, LayersConfig, MemorySettings, SizeU16};
+    use vello_common::TextureId;
+    use vello_common::encode::EncodedImage;
+    use vello_common::kurbo::{Affine, Vec2};
     use vello_common::multi_atlas::AtlasConfig;
+    use vello_common::paint::{ImageSource, TextureRegion, Tint, TintMode};
+    use vello_common::peniko::{Color, ImageQuality, ImageSampler};
     use vello_common::record::CommandRecorder;
 
     fn device_limits(max_texture_dimension_2d: u16) -> DeviceLimits {
@@ -371,6 +379,46 @@ mod tests {
             _ => panic!("expected TooLarge"),
         }
     }
+
+    #[test]
+    fn native_image_encoding_accepts_opacity_but_not_color_tint_or_bicubic() {
+        let mut image = EncodedImage {
+            source: ImageSource::external_texture(
+                TextureId(1),
+                TextureRegion::Full {
+                    width: 2,
+                    height: 2,
+                },
+                true,
+            ),
+            sampler: ImageSampler::default(),
+            may_have_transparency: true,
+            transform: Affine::IDENTITY,
+            x_advance: Vec2::new(1.0, 0.0),
+            y_advance: Vec2::new(0.0, 1.0),
+            tint: Some(Tint {
+                color: Color::new([1.0, 1.0, 1.0, 0.5]),
+                mode: TintMode::Multiply,
+            }),
+        };
+        assert!(encode_native_image_paint(&image).is_some());
+
+        image.tint = Some(Tint {
+            color: Color::new([0.5, 1.0, 1.0, 0.5]),
+            mode: TintMode::Multiply,
+        });
+        assert!(encode_native_image_paint(&image).is_none());
+
+        image.tint = Some(Tint {
+            color: Color::new([1.0, 1.0, 1.0, 0.5]),
+            mode: TintMode::AlphaMask,
+        });
+        assert!(encode_native_image_paint(&image).is_none());
+
+        image.tint = None;
+        image.sampler.quality = ImageQuality::High;
+        assert!(encode_native_image_paint(&image).is_none());
+    }
 }
 
 /// Dimensions of the rendering target.
@@ -455,6 +503,8 @@ pub struct GpuStrip {
 pub(crate) enum GpuEncodedPaint {
     /// An encoded image.
     Image(GpuEncodedImage),
+    /// A full external image sampled by the GPU sampler.
+    NativeImage(GpuNativeImage),
     /// An encoded linear gradient.
     LinearGradient(GpuLinearGradient),
     /// An encoded radial gradient.
@@ -476,6 +526,7 @@ const fn texels<T>() -> u32 {
 
 impl GpuEncodedPaint {
     const IMAGE_TEXELS: u32 = texels::<GpuEncodedImage>();
+    const NATIVE_IMAGE_TEXELS: u32 = texels::<GpuNativeImage>();
     const LINEAR_TEXELS: u32 = texels::<GpuLinearGradient>();
     const RADIAL_TEXELS: u32 = texels::<GpuRadialGradient>();
     const SWEEP_TEXELS: u32 = texels::<GpuSweepGradient>();
@@ -486,6 +537,7 @@ impl GpuEncodedPaint {
     pub(crate) fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Image(paint) => bytemuck::bytes_of(paint),
+            Self::NativeImage(paint) => bytemuck::bytes_of(paint),
             Self::LinearGradient(paint) => bytemuck::bytes_of(paint),
             Self::RadialGradient(paint) => bytemuck::bytes_of(paint),
             Self::SweepGradient(paint) => bytemuck::bytes_of(paint),
@@ -497,6 +549,7 @@ impl GpuEncodedPaint {
     pub(crate) fn size_texels(&self) -> u32 {
         match self {
             Self::Image(_) => Self::IMAGE_TEXELS,
+            Self::NativeImage(_) => Self::NATIVE_IMAGE_TEXELS,
             Self::LinearGradient(_) => Self::LINEAR_TEXELS,
             Self::RadialGradient(_) => Self::RADIAL_TEXELS,
             Self::SweepGradient(_) => Self::SWEEP_TEXELS,
@@ -514,6 +567,50 @@ impl GpuEncodedPaint {
             offset = end_offset;
         }
     }
+}
+
+/// GPU data for a full external image using native texture sampling.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub(crate) struct GpuNativeImage {
+    /// Affine transform [a, b, c, d, tx, ty] from view pixels to normalized UVs.
+    pub transform: [f32; 6],
+    /// Opacity as an 8-bit unorm value in the low byte.
+    pub opacity: u32,
+    pub _padding: u32,
+}
+
+pub(crate) fn encode_native_image_paint(image: &EncodedImage) -> Option<GpuEncodedPaint> {
+    let ImageSource::ExternalTexture {
+        source_region: TextureRegion::Full { width, height },
+        ..
+    } = &image.source
+    else {
+        return None;
+    };
+
+    if image.tint.is_some_and(|tint| {
+        tint.mode != TintMode::Multiply || tint.color.components[..3] != [1.0; 3]
+    }) || matches!(image.sampler.quality, ImageQuality::High)
+    {
+        return None;
+    }
+
+    let mut transform = image.transform.as_coeffs();
+
+    for index in [0, 2, 4] {
+        transform[index] /= f64::from(*width);
+    }
+
+    for index in [1, 3, 5] {
+        transform[index] /= f64::from(*height);
+    }
+
+    Some(GpuEncodedPaint::NativeImage(GpuNativeImage {
+        transform: transform.map(|x| x as f32),
+        opacity: pack_tint(image.tint).0 >> 24,
+        _padding: 0,
+    }))
 }
 
 /// GPU encoded image data.
@@ -696,7 +793,7 @@ pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
         // With no tint, use `u32::MAX` (which corresponds to 1.0 on all lanes).
         // Since we use `Multiply` this will essentially just yield the original image
         // sample, having the same effect as no tinting at all.
-        None => (u32::MAX, vello_common::paint::TintMode::Multiply.as_u32()),
+        None => (u32::MAX, TintMode::Multiply.as_u32()),
     }
 }
 
