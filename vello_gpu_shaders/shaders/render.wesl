@@ -26,7 +26,7 @@
 import package::helpers::alpha::unpack_alphas_from_channel;
 import package::helpers::blurred_rounded_rect::calculate_blurred_rounded_rect;
 import package::helpers::extend::extend_mode;
-import package::helpers::external_texture::sample_external_image;
+import package::helpers::external_texture::{sample_external_image, sample_external_yuv420};
 import package::helpers::gradient::{
     apply_gradient_transform,
     calculate_radial_gradient,
@@ -46,7 +46,9 @@ import package::helpers::image::{
     get_image_quality,
     get_image_size,
     get_image_transform,
-    get_image_translate
+    get_image_translate,
+    get_image_yuv_layout,
+    YUV_LAYOUT_NONE
 };
 import package::helpers::math::{NEARLY_ZERO_TOLERANCE, TWO_PI};
 import package::helpers::util::unpack_u16_pair;
@@ -224,6 +226,20 @@ var external_texture_2: texture_2d<f32>;
 
 @group(1) @binding(3)
 var external_texture_3: texture_2d<f32>;
+
+// Chroma planes of biplanar (Y'CbCr) external textures, one per slot; a placeholder for RGBA
+// slots. `external_texture_N` then holds the luma plane.
+@group(1) @binding(4)
+var external_texture_uv_0: texture_2d<f32>;
+
+@group(1) @binding(5)
+var external_texture_uv_1: texture_2d<f32>;
+
+@group(1) @binding(6)
+var external_texture_uv_2: texture_2d<f32>;
+
+@group(1) @binding(7)
+var external_texture_uv_3: texture_2d<f32>;
 
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
@@ -416,38 +432,90 @@ fn fs_main(
             let external_texture_slot =
                 (paint_and_rect_flag >> EXTERNAL_TEXTURE_SLOT_SHIFT) & 0x3u;
             let final_xy = image_offset + extended_xy;
+            // A biplanar slot (NV12 / P010) is converted from Y'CbCr while sampling; the
+            // format travels in image_params (see `helpers/image.wesl`).
+            let biplanar = get_image_yuv_layout(image_texel0) != YUV_LAYOUT_NONE;
+            let image_params = image_texel0.x;
             if external_texture_slot == 0u {
-                sample_color = sample_external_image(
-                    external_texture_0,
-                    image_quality,
-                    final_xy,
-                    image_offset,
-                    image_size,
-                );
+                if biplanar {
+                    sample_color = sample_external_yuv420(
+                        external_texture_0,
+                        external_texture_uv_0,
+                        image_quality,
+                        image_params,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                } else {
+                    sample_color = sample_external_image(
+                        external_texture_0,
+                        image_quality,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                }
             } else if external_texture_slot == 1u {
-                sample_color = sample_external_image(
-                    external_texture_1,
-                    image_quality,
-                    final_xy,
-                    image_offset,
-                    image_size,
-                );
+                if biplanar {
+                    sample_color = sample_external_yuv420(
+                        external_texture_1,
+                        external_texture_uv_1,
+                        image_quality,
+                        image_params,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                } else {
+                    sample_color = sample_external_image(
+                        external_texture_1,
+                        image_quality,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                }
             } else if external_texture_slot == 2u {
-                sample_color = sample_external_image(
-                    external_texture_2,
-                    image_quality,
-                    final_xy,
-                    image_offset,
-                    image_size,
-                );
+                if biplanar {
+                    sample_color = sample_external_yuv420(
+                        external_texture_2,
+                        external_texture_uv_2,
+                        image_quality,
+                        image_params,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                } else {
+                    sample_color = sample_external_image(
+                        external_texture_2,
+                        image_quality,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                }
             } else {
-                sample_color = sample_external_image(
-                    external_texture_3,
-                    image_quality,
-                    final_xy,
-                    image_offset,
-                    image_size,
-                );
+                if biplanar {
+                    sample_color = sample_external_yuv420(
+                        external_texture_3,
+                        external_texture_uv_3,
+                        image_quality,
+                        image_params,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                } else {
+                    sample_color = sample_external_image(
+                        external_texture_3,
+                        image_quality,
+                        final_xy,
+                        image_offset,
+                        image_size,
+                    );
+                }
             }
 
             final_color = alpha * select(

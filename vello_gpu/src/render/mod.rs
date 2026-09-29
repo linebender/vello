@@ -14,15 +14,18 @@ mod webgl;
 #[cfg(feature = "wgpu")]
 mod wgpu;
 
-pub use common::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
+pub use common::{
+    BiplanarLayout, ChromaSiting, ClearSettings, Config, GpuStrip, RenderSize, TargetInit,
+    YuvFormat, YuvMatrix, YuvRange,
+};
 
 #[cfg(feature = "webgl")]
 pub use webgl::{
     AtlasTextureInfo, IncompatibleContextReason, WebGlAtlasWriter, WebGlContextOperation,
-    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlRenderer, WebGlRendererInit,
-    WebGlRendererInitStatus, WebGlResourceKind, WebGlShaderInterfaceOperation,
-    WebGlShaderProgramOperation, WebGlShaderStage, WebGlTextureBindings,
-    WebGlTextureWithDimensions,
+    WebGlDataTransferOperation, WebGlError, WebGlExternalTextureBinding, WebGlOperation,
+    WebGlRenderer, WebGlRendererInit, WebGlRendererInitStatus, WebGlResourceKind,
+    WebGlShaderInterfaceOperation, WebGlShaderProgramOperation, WebGlShaderStage,
+    WebGlTextureBindings, WebGlTextureWithDimensions,
 };
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use webgl::{
@@ -30,4 +33,6 @@ pub use webgl::{
     probe::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus},
 };
 #[cfg(feature = "wgpu")]
-pub use wgpu::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
+pub use wgpu::{
+    AtlasWriter, ExternalTextureBinding, RenderTargetConfig, Renderer, TextureBindings,
+};

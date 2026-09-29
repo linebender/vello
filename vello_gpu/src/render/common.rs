@@ -505,9 +505,15 @@ impl GpuEncodedPaint {
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuEncodedImage {
-    /// Packed rendering quality and extend modes.
+    /// Packed rendering quality, extend modes and, for biplanar external textures, the
+    /// `Y'CbCr` format (see [`YuvFormat::image_params_bits`]).
+    /// Bit 12: chroma samples centred horizontally (0 = co-sited with the left luma sample)
+    /// Bit 11: 10-bit samples in the high bits of 16-bit texels
+    /// Bit 10: full range (0 = limited/video range)
+    /// Bits 8-9: colour matrix (0 = BT.601, 1 = BT.709, 2 = BT.2020 NCL)
+    /// Bits 6-7: plane layout (0 = RGBA texture, 1 = NV12, 2 = P010)
     /// Bits 4-5: `extend_y` (2 bits)
-    /// Bits 2-3: `extend_x` (2 bits)  
+    /// Bits 2-3: `extend_x` (2 bits)
     /// Bits 0-1: `quality` (2 bits)
     pub image_params: u32,
     /// Packed image width and height.
@@ -663,6 +669,107 @@ pub(crate) fn pack_image_params(quality: u32, extend_x: u32, extend_y: u32) -> u
     debug_assert!(extend_y <= 3, "extend_y must be 0-3 (2 bits)");
     debug_assert!(quality <= 3, "quality must be 0-3 (2 bits)");
     (extend_y << 4) | (extend_x << 2) | quality
+}
+
+/// [`pack_image_params`] plus the `Y'CbCr` format bits (6-12) of a biplanar external texture,
+/// or none for an RGBA source.
+#[inline(always)]
+pub(crate) fn pack_image_params_yuv(
+    quality: u32,
+    extend_x: u32,
+    extend_y: u32,
+    yuv: Option<YuvFormat>,
+) -> u32 {
+    pack_image_params(quality, extend_x, extend_y) | yuv.map_or(0, YuvFormat::image_params_bits)
+}
+
+/// Colour matrix of a `Y'CbCr` external texture (see [`YuvFormat`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum YuvMatrix {
+    /// ITU-R BT.601, standard-definition video.
+    Bt601,
+    /// ITU-R BT.709, high-definition video and the default of most encoders.
+    #[default]
+    Bt709,
+    /// ITU-R BT.2020 non-constant luminance. Only the matrix is applied: PQ and HLG transfer
+    /// functions are not, so HDR content renders as if it were SDR.
+    Bt2020Ncl,
+}
+
+/// Quantization range of `Y'CbCr` samples (see [`YuvFormat`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum YuvRange {
+    /// Video range: for 8-bit samples Y' spans 16..=235 and chroma 16..=240.
+    #[default]
+    Limited,
+    /// Full range: samples span the whole code range.
+    Full,
+}
+
+/// Horizontal position of the chroma samples relative to the luma samples (see [`YuvFormat`]).
+/// Vertically, 4:2:0 chroma is always centred between two luma rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ChromaSiting {
+    /// Co-sited with the left luma sample of each pair: the H.264, HEVC and VP9 default.
+    #[default]
+    Left,
+    /// Centred between the two luma samples: MPEG-1 and JPEG.
+    Center,
+}
+
+/// Plane layout of a biplanar texture pair (see [`YuvFormat`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum BiplanarLayout {
+    /// 8-bit samples: a luma plane sampled as one channel and a half-resolution chroma plane
+    /// sampled as two channels (Cb, Cr), e.g. `R8Unorm` and `Rg8Unorm` textures.
+    #[default]
+    Nv12,
+    /// 10-bit samples in the high bits of 16-bit texels: `R16Unorm` and `Rg16Unorm` textures.
+    P010,
+}
+
+/// How a biplanar `Y'CbCr` texture pair bound through `insert_biplanar` is interpreted while
+/// sampling: it is converted to opaque premultiplied RGBA in the shader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct YuvFormat {
+    /// Plane layout and sample depth.
+    pub layout: BiplanarLayout,
+    /// Colour matrix.
+    pub matrix: YuvMatrix,
+    /// Quantization range.
+    pub range: YuvRange,
+    /// Horizontal chroma siting.
+    pub siting: ChromaSiting,
+}
+
+impl YuvFormat {
+    /// NV12 planes carrying BT.709 limited-range video with left-sited chroma: what hardware
+    /// decoders output for most H.264 and HEVC streams.
+    pub const NV12_BT709_LIMITED: Self = Self {
+        layout: BiplanarLayout::Nv12,
+        matrix: YuvMatrix::Bt709,
+        range: YuvRange::Limited,
+        siting: ChromaSiting::Left,
+    };
+
+    /// The format's bits in `GpuEncodedImage::image_params` (bits 6-12; see the field's
+    /// documentation and `helpers/image.wesl`).
+    #[inline]
+    pub(crate) fn image_params_bits(self) -> u32 {
+        let layout = match self.layout {
+            BiplanarLayout::Nv12 => 1,
+            BiplanarLayout::P010 => 2,
+        };
+        let matrix = match self.matrix {
+            YuvMatrix::Bt601 => 0,
+            YuvMatrix::Bt709 => 1,
+            YuvMatrix::Bt2020Ncl => 2,
+        };
+        let full_range = u32::from(self.range == YuvRange::Full);
+        let ten_bit = u32::from(self.layout == BiplanarLayout::P010);
+        let centered = u32::from(self.siting == ChromaSiting::Center);
+        (layout << 6) | (matrix << 8) | (full_range << 10) | (ten_bit << 11) | (centered << 12)
+    }
 }
 
 /// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.

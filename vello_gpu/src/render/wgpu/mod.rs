@@ -27,9 +27,9 @@ use crate::{
             GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
             GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuClearInstance,
             GpuEncodedImage, GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient,
-            GpuSweepGradient, ScratchBuffers, ScratchTexture, pack_image_offset, pack_image_params,
-            pack_image_size, pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode,
-            pack_tint,
+            GpuSweepGradient, ScratchBuffers, ScratchTexture, YuvFormat, pack_image_offset,
+            pack_image_params, pack_image_params_yuv, pack_image_size,
+            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -87,10 +87,56 @@ pub struct RenderTargetConfig {
     pub height: u16,
 }
 
+/// A texture bound for image paints through [`TextureBindings`]: premultiplied RGBA sampled as
+/// is, or a biplanar `Y'CbCr` pair converted to RGBA while sampling.
+#[derive(Debug, Clone)]
+pub enum ExternalTextureBinding {
+    /// A premultiplied RGBA texture (see [`TextureBindings::insert`]).
+    Rgba(TextureView),
+    /// A luma plane and a half-resolution chroma plane (see [`TextureBindings::insert_biplanar`]).
+    Biplanar {
+        /// Full-resolution luma (Y') plane.
+        luma: TextureView,
+        /// Chroma (Cb, Cr) plane of ⌈width / 2⌉ × ⌈height / 2⌉ texels.
+        chroma: TextureView,
+        /// How the samples are interpreted.
+        format: YuvFormat,
+    },
+}
+
+impl ExternalTextureBinding {
+    /// The texture behind the slot's first binding: the RGBA texture or the luma plane.
+    #[inline]
+    pub(crate) fn primary(&self) -> &TextureView {
+        match self {
+            Self::Rgba(view) => view,
+            Self::Biplanar { luma, .. } => luma,
+        }
+    }
+
+    /// The chroma plane of a biplanar binding.
+    #[inline]
+    pub(crate) fn chroma(&self) -> Option<&TextureView> {
+        match self {
+            Self::Rgba(_) => None,
+            Self::Biplanar { chroma, .. } => Some(chroma),
+        }
+    }
+
+    /// The `Y'CbCr` format of a biplanar binding.
+    #[inline]
+    pub(crate) fn yuv_format(&self) -> Option<YuvFormat> {
+        match self {
+            Self::Rgba(_) => None,
+            Self::Biplanar { format, .. } => Some(*format),
+        }
+    }
+}
+
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct TextureBindings {
-    views: HashMap<TextureId, TextureView>,
+    bindings: HashMap<TextureId, ExternalTextureBinding>,
 }
 
 impl TextureBindings {
@@ -100,7 +146,7 @@ impl TextureBindings {
         Self::default()
     }
 
-    /// Insert or replace a texture binding.
+    /// Insert or replace a texture binding with a premultiplied RGBA texture.
     ///
     /// The [`TextureView`] must fit the following binding type.
     ///
@@ -122,21 +168,50 @@ impl TextureBindings {
     /// [`wgpu::TextureUsages::TEXTURE_BINDING`], and only mip level 0 is read.
     #[inline]
     pub fn insert(&mut self, texture_id: TextureId, view: TextureView) {
-        self.views.insert(texture_id, view);
+        self.bindings
+            .insert(texture_id, ExternalTextureBinding::Rgba(view));
+    }
+
+    /// Insert or replace a texture binding with a biplanar `Y'CbCr` texture pair, as hardware
+    /// video decoders produce: a full-resolution luma plane and a half-resolution chroma plane
+    /// holding Cb in its first channel and Cr in its second (NV12: `R8Unorm` and `Rg8Unorm`;
+    /// P010: `R16Unorm` and `Rg16Unorm`). The pair is converted to opaque premultiplied RGBA
+    /// while sampling, according to `format`; nothing is copied or converted up front.
+    ///
+    /// Both views must satisfy the requirements of [`Self::insert`]. The chroma plane must be
+    /// `⌈width / 2⌉ × ⌈height / 2⌉` texels for a `width × height` luma plane. The region of an
+    /// [`ImageSource::external_texture`](vello_common::paint::ImageSource::external_texture)
+    /// drawing this binding is in luma texels.
+    #[inline]
+    pub fn insert_biplanar(
+        &mut self,
+        texture_id: TextureId,
+        luma: TextureView,
+        chroma: TextureView,
+        format: YuvFormat,
+    ) {
+        self.bindings.insert(
+            texture_id,
+            ExternalTextureBinding::Biplanar {
+                luma,
+                chroma,
+                format,
+            },
+        );
     }
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&TextureView> {
-        self.views.get(&texture_id)
+    fn get(&self, texture_id: TextureId) -> Option<&ExternalTextureBinding> {
+        self.bindings.get(&texture_id)
     }
 
     /// Remove a texture binding.
     ///
-    /// This returns the removed [`TextureView`] binding if it existed.
+    /// This returns the removed binding if it existed.
     #[inline]
-    pub fn remove(&mut self, texture_id: TextureId) -> Option<TextureView> {
-        self.views.remove(&texture_id)
+    pub fn remove(&mut self, texture_id: TextureId) -> Option<ExternalTextureBinding> {
+        self.bindings.remove(&texture_id)
     }
 }
 
@@ -692,14 +767,23 @@ impl Renderer {
                         ImageSource::ExternalTexture {
                             id, source_region, ..
                         } => {
-                            let texture_view = texture_bindings
+                            let binding = texture_bindings
                                 .get(*id)
                                 .ok_or(RenderError::MissingTextureBinding(*id))?;
 
-                            if texture_view.texture() == render_target_texture {
+                            let planes = [Some(binding.primary()), binding.chroma()];
+                            if planes
+                                .into_iter()
+                                .flatten()
+                                .any(|view| view.texture() == render_target_texture)
+                            {
                                 return Err(RenderError::TextureFeedbackLoop(*id));
                             }
-                            self.encode_external_texture_paint(img, *source_region)
+                            self.encode_external_texture_paint(
+                                img,
+                                *source_region,
+                                binding.yuv_format(),
+                            )
                         }
                         ImageSource::Pixmap(_) => {
                             panic!("pixmap image sources are not supported by Vello GPU")
@@ -759,18 +843,21 @@ impl Renderer {
         })
     }
 
+    /// `region` is in texels of the texture, or of the luma plane for a biplanar binding.
     fn encode_external_texture_paint(
         &self,
         image: &vello_common::encode::EncodedImage,
         region: RectU16,
+        yuv: Option<YuvFormat>,
     ) -> GpuEncodedPaint {
         let transform = image.transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(region.width(), region.height());
         let image_offset = pack_image_offset(region.x0, region.y0);
-        let image_params = pack_image_params(
+        let image_params = pack_image_params_yuv(
             image.sampler.quality as u32,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
+            yuv,
         );
         let (tint, tint_mode) = pack_tint(image.tint);
 
@@ -1153,12 +1240,10 @@ impl Programs {
             },
             count: None,
         };
-        let external_texture_layout_entries = [
-            external_texture_layout_entry(0),
-            external_texture_layout_entry(1),
-            external_texture_layout_entry(2),
-            external_texture_layout_entry(3),
-        ];
+        // Bindings 0..SLOT_COUNT hold each slot's RGBA texture or luma plane, and
+        // SLOT_COUNT..2 * SLOT_COUNT the chroma plane of a biplanar slot (a placeholder otherwise).
+        let external_texture_layout_entries: [_; 2 * EXTERNAL_TEXTURE_SLOT_COUNT] =
+            core::array::from_fn(|binding| external_texture_layout_entry(binding as u32));
         let external_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("External Texture Bind Group Layout"),
@@ -1679,6 +1764,7 @@ impl Programs {
             device,
             &external_texture_bind_group_layout,
             [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
+            [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
         );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
@@ -2043,29 +2129,25 @@ impl Programs {
         texture.create_view(&TextureViewDescriptor::default())
     }
 
+    /// `primary_views` are the slots' RGBA textures or luma planes (bindings `0..SLOT_COUNT`),
+    /// `chroma_views` their chroma planes or the placeholder (bindings `SLOT_COUNT..2 * SLOT_COUNT`).
     fn create_external_texture_bind_group(
         device: &Device,
         external_texture_bind_group_layout: &BindGroupLayout,
-        texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        primary_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        chroma_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
-        let entries = [
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(texture_views[0]),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(texture_views[1]),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(texture_views[2]),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(texture_views[3]),
-            },
-        ];
+        let entries: [wgpu::BindGroupEntry<'_>; 2 * EXTERNAL_TEXTURE_SLOT_COUNT] =
+            core::array::from_fn(|binding| wgpu::BindGroupEntry {
+                binding: binding as u32,
+                resource: wgpu::BindingResource::TextureView(
+                    if binding < EXTERNAL_TEXTURE_SLOT_COUNT {
+                        primary_views[binding]
+                    } else {
+                        chroma_views[binding - EXTERNAL_TEXTURE_SLOT_COUNT]
+                    },
+                ),
+            });
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("External Texture Bind Group"),
             layout: external_texture_bind_group_layout,
@@ -2395,12 +2477,14 @@ impl Programs {
     fn create_run_external_texture_bind_group(
         &self,
         device: &Device,
-        texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        primary_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        chroma_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
         Self::create_external_texture_bind_group(
             device,
             &self.external_texture_bind_group_layout,
-            texture_views,
+            primary_views,
+            chroma_views,
         )
     }
 
@@ -2680,19 +2764,36 @@ impl RendererContext<'_> {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 let texture_sources = bindings.as_array();
-                let texture_views = core::array::from_fn(|slot| match texture_sources[slot] {
-                    Some(TextureSourceId::Atlas(atlas_id)) => {
-                        atlas_texture_views[atlas_id.as_u32() as usize].clone()
+                let external = |slot: usize| match texture_sources[slot] {
+                    Some(TextureSourceId::External(texture_id)) => {
+                        Some(texture_bindings.get(texture_id).expect(
+                            "external texture binding was validated during paint preparation",
+                        ))
                     }
-                    Some(TextureSourceId::External(texture_id)) => texture_bindings
-                        .get(texture_id)
-                        .expect("external texture binding was validated during paint preparation")
-                        .clone(),
-                    None => placeholder.clone(),
-                });
-                let bind_group = self
-                    .programs
-                    .create_run_external_texture_bind_group(self.device, texture_views.each_ref());
+                    _ => None,
+                };
+                let primary_views: [TextureView; EXTERNAL_TEXTURE_SLOT_COUNT] =
+                    core::array::from_fn(|slot| match texture_sources[slot] {
+                        Some(TextureSourceId::Atlas(atlas_id)) => {
+                            atlas_texture_views[atlas_id.as_u32() as usize].clone()
+                        }
+                        Some(TextureSourceId::External(_)) => {
+                            external(slot).expect("external").primary().clone()
+                        }
+                        None => placeholder.clone(),
+                    });
+                let chroma_views: [TextureView; EXTERNAL_TEXTURE_SLOT_COUNT] =
+                    core::array::from_fn(|slot| {
+                        external(slot)
+                            .and_then(ExternalTextureBinding::chroma)
+                            .unwrap_or(placeholder)
+                            .clone()
+                    });
+                let bind_group = self.programs.create_run_external_texture_bind_group(
+                    self.device,
+                    primary_views.each_ref(),
+                    chroma_views.each_ref(),
+                );
                 entry.insert(bind_group)
             }
         }

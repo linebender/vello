@@ -52,8 +52,9 @@ use crate::{
             GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
             GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            ScratchBuffers, ScratchTexture, pack_image_offset, pack_image_params, pack_image_size,
-            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
+            ScratchBuffers, ScratchTexture, YuvFormat, pack_image_offset, pack_image_params,
+            pack_image_params_yuv, pack_image_size, pack_radial_kind_and_swapped,
+            pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -171,10 +172,57 @@ pub struct WebGlRendererInit {
     layers_config: LayersConfig,
 }
 
+/// A texture bound for image paints through [`WebGlTextureBindings`]: premultiplied RGBA sampled
+/// as is, or a biplanar `Y'CbCr` pair converted to RGBA while sampling.
+#[derive(Debug, Clone)]
+pub enum WebGlExternalTextureBinding {
+    /// A premultiplied RGBA texture (see [`WebGlTextureBindings::insert`]).
+    Rgba(WebGlTexture),
+    /// A luma plane and a half-resolution chroma plane (see
+    /// [`WebGlTextureBindings::insert_biplanar`]).
+    Biplanar {
+        /// Full-resolution luma (Y') plane.
+        luma: WebGlTexture,
+        /// Chroma (Cb, Cr) plane of ⌈width / 2⌉ × ⌈height / 2⌉ texels.
+        chroma: WebGlTexture,
+        /// How the samples are interpreted.
+        format: YuvFormat,
+    },
+}
+
+impl WebGlExternalTextureBinding {
+    /// The texture behind the slot's first sampler: the RGBA texture or the luma plane.
+    #[inline]
+    fn primary(&self) -> &WebGlTexture {
+        match self {
+            Self::Rgba(texture) => texture,
+            Self::Biplanar { luma, .. } => luma,
+        }
+    }
+
+    /// The chroma plane of a biplanar binding.
+    #[inline]
+    fn chroma(&self) -> Option<&WebGlTexture> {
+        match self {
+            Self::Rgba(_) => None,
+            Self::Biplanar { chroma, .. } => Some(chroma),
+        }
+    }
+
+    /// The `Y'CbCr` format of a biplanar binding.
+    #[inline]
+    fn yuv_format(&self) -> Option<YuvFormat> {
+        match self {
+            Self::Rgba(_) => None,
+            Self::Biplanar { format, .. } => Some(*format),
+        }
+    }
+}
+
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct WebGlTextureBindings {
-    textures: HashMap<TextureId, WebGlTexture>,
+    bindings: HashMap<TextureId, WebGlExternalTextureBinding>,
 }
 
 impl WebGlTextureBindings {
@@ -184,7 +232,7 @@ impl WebGlTextureBindings {
         Self::default()
     }
 
-    /// Insert or replace a texture binding.
+    /// Insert or replace a texture binding with a premultiplied RGBA texture.
     ///
     /// The texture must satisfy the following requirements.
     ///
@@ -199,21 +247,49 @@ impl WebGlTextureBindings {
     ///   enabled therefore samples vertically flipped.
     #[inline]
     pub fn insert(&mut self, texture_id: TextureId, texture: WebGlTexture) {
-        self.textures.insert(texture_id, texture);
+        self.bindings
+            .insert(texture_id, WebGlExternalTextureBinding::Rgba(texture));
+    }
+
+    /// Insert or replace a texture binding with a biplanar `Y'CbCr` texture pair: a
+    /// full-resolution luma plane (e.g. `R8`) and a half-resolution chroma plane (e.g. `RG8`)
+    /// holding Cb in its first channel and Cr in its second. The pair is converted to opaque
+    /// premultiplied RGBA while sampling, according to `format`.
+    ///
+    /// Both textures must satisfy the requirements of [`Self::insert`]. The chroma plane must be
+    /// `⌈width / 2⌉ × ⌈height / 2⌉` texels for a `width × height` luma plane. The region of an
+    /// [`ImageSource::external_texture`](vello_common::paint::ImageSource::external_texture)
+    /// drawing this binding is in luma texels.
+    #[inline]
+    pub fn insert_biplanar(
+        &mut self,
+        texture_id: TextureId,
+        luma: WebGlTexture,
+        chroma: WebGlTexture,
+        format: YuvFormat,
+    ) {
+        self.bindings.insert(
+            texture_id,
+            WebGlExternalTextureBinding::Biplanar {
+                luma,
+                chroma,
+                format,
+            },
+        );
     }
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&WebGlTexture> {
-        self.textures.get(&texture_id)
+    fn get(&self, texture_id: TextureId) -> Option<&WebGlExternalTextureBinding> {
+        self.bindings.get(&texture_id)
     }
 
     /// Remove a texture binding.
     ///
-    /// This returns the removed texture binding if it existed.
+    /// This returns the removed binding if it existed.
     #[inline]
-    pub fn remove(&mut self, texture_id: TextureId) -> Option<WebGlTexture> {
-        self.textures.remove(&texture_id)
+    pub fn remove(&mut self, texture_id: TextureId) -> Option<WebGlExternalTextureBinding> {
+        self.bindings.remove(&texture_id)
     }
 }
 
@@ -894,15 +970,22 @@ impl WebGlRenderer {
                         ImageSource::ExternalTexture {
                             id, source_region, ..
                         } => {
-                            let texture = texture_bindings
+                            let binding = texture_bindings
                                 .get(*id)
                                 .ok_or(RenderError::MissingTextureBinding(*id))?;
-                            if render_target_texture.is_some_and(|target| target == texture) {
+                            let planes = [Some(binding.primary()), binding.chroma()];
+                            if render_target_texture.is_some_and(|target| {
+                                planes.into_iter().flatten().any(|plane| target == plane)
+                            }) {
                                 return Err(WebGlError::Render(RenderError::TextureFeedbackLoop(
                                     *id,
                                 )));
                             }
-                            Self::encode_external_texture_paint(img, *source_region)
+                            Self::encode_external_texture_paint(
+                                img,
+                                *source_region,
+                                binding.yuv_format(),
+                            )
                         }
                         ImageSource::Pixmap(_) => {
                             panic!("pixmap image sources are not supported by Vello GPU")
@@ -962,17 +1045,20 @@ impl WebGlRenderer {
         })
     }
 
+    /// `region` is in texels of the texture, or of the luma plane for a biplanar binding.
     fn encode_external_texture_paint(
         image: &vello_common::encode::EncodedImage,
         region: RectU16,
+        yuv: Option<YuvFormat>,
     ) -> GpuEncodedPaint {
         let transform = image.transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(region.width(), region.height());
         let image_offset = pack_image_offset(region.x0, region.y0);
-        let image_params = pack_image_params(
+        let image_params = pack_image_params_yuv(
             image.sampler.quality as u32,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
+            yuv,
         );
         let (tint, tint_mode) = pack_tint(image.tint);
 
@@ -1197,6 +1283,8 @@ struct StripUniforms {
     gradient_texture: WebGlUniformLocation,
     /// External texture locations, indexed by shader slot.
     external_textures: [WebGlUniformLocation; EXTERNAL_TEXTURE_SLOT_COUNT],
+    /// Chroma plane locations of biplanar external textures, indexed by shader slot.
+    external_texture_chromas: [WebGlUniformLocation; EXTERNAL_TEXTURE_SLOT_COUNT],
 }
 
 /// The framebuffer used for root-target rendering.
@@ -2150,6 +2238,12 @@ fn get_strip_uniforms(
         render::fragment::EXTERNAL_TEXTURE_2,
         render::fragment::EXTERNAL_TEXTURE_3,
     ];
+    let external_texture_chroma_names = [
+        render::fragment::EXTERNAL_TEXTURE_UV_0,
+        render::fragment::EXTERNAL_TEXTURE_UV_1,
+        render::fragment::EXTERNAL_TEXTURE_UV_2,
+        render::fragment::EXTERNAL_TEXTURE_UV_3,
+    ];
 
     Ok(StripUniforms {
         config_vs_block_index,
@@ -2172,6 +2266,12 @@ fn get_strip_uniforms(
             required_uniform_location(gl, program, external_texture_names[1])?,
             required_uniform_location(gl, program, external_texture_names[2])?,
             required_uniform_location(gl, program, external_texture_names[3])?,
+        ],
+        external_texture_chromas: [
+            required_uniform_location(gl, program, external_texture_chroma_names[0])?,
+            required_uniform_location(gl, program, external_texture_chroma_names[1])?,
+            required_uniform_location(gl, program, external_texture_chroma_names[2])?,
+            required_uniform_location(gl, program, external_texture_chroma_names[3])?,
         ],
     })
 }
@@ -2729,26 +2829,37 @@ impl WebGlRendererContext<'_> {
         self.draw_instanced_quads(count);
     }
 
-    /// Bind the external texture slots.
+    /// Bind the external texture slots: each slot's RGBA texture or luma plane, and, one unit
+    /// block up, its chroma plane or the placeholder.
     fn bind_external_textures(&self, bindings: &ExternalTextureBindings) -> Result<(), WebGlError> {
+        let placeholder = &self.programs.resources.placeholder_external_texture;
+        let slot_count = u32::try_from(EXTERNAL_TEXTURE_SLOT_COUNT).unwrap();
         for (slot, texture_source) in bindings.as_array().into_iter().enumerate() {
-            self.gl.active_texture(
-                WebGl2RenderingContext::TEXTURE0
-                    + EXTERNAL_TEXTURE_UNIT_START
-                    + u32::try_from(slot).unwrap(),
-            );
-            let texture: &WebGlTexture = match texture_source {
-                Some(TextureSourceId::Atlas(atlas_id)) => {
-                    &self.programs.resources.atlas_textures[atlas_id.as_u32() as usize]
+            let slot = u32::try_from(slot).unwrap();
+            let (primary, chroma): (&WebGlTexture, &WebGlTexture) = match texture_source {
+                Some(TextureSourceId::Atlas(atlas_id)) => (
+                    &self.programs.resources.atlas_textures[atlas_id.as_u32() as usize],
+                    placeholder,
+                ),
+                Some(TextureSourceId::External(texture_id)) => {
+                    let binding = self
+                        .texture_bindings
+                        .get(texture_id)
+                        .ok_or(RenderError::MissingTextureBinding(texture_id))?;
+                    (binding.primary(), binding.chroma().unwrap_or(placeholder))
                 }
-                Some(TextureSourceId::External(texture_id)) => self
-                    .texture_bindings
-                    .get(texture_id)
-                    .ok_or(RenderError::MissingTextureBinding(texture_id))?,
-                None => &self.programs.resources.placeholder_external_texture,
+                None => (placeholder, placeholder),
             };
+            self.gl.active_texture(
+                WebGl2RenderingContext::TEXTURE0 + EXTERNAL_TEXTURE_UNIT_START + slot,
+            );
             self.gl
-                .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(texture));
+                .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(primary));
+            self.gl.active_texture(
+                WebGl2RenderingContext::TEXTURE0 + EXTERNAL_TEXTURE_UNIT_START + slot_count + slot,
+            );
+            self.gl
+                .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(chroma));
         }
 
         Ok(())
@@ -2880,19 +2991,21 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 3);
 
         // External textures are rebound per run while drawing. Start from the placeholder so the
-        // sampler is valid for draws that don't reference one.
+        // samplers are valid for draws that don't reference one. Slot `i` samples its RGBA texture
+        // or luma plane from unit `START + i` and its chroma plane from `START + SLOT_COUNT + i`.
         self.bind_external_textures(&ExternalTextureBindings::EMPTY)?;
-        for (slot, uniform) in self
-            .programs
-            .strip_uniforms
+        let uniforms = &self.programs.strip_uniforms;
+        for (slot, (primary, chroma)) in uniforms
             .external_textures
             .iter()
+            .zip(&uniforms.external_texture_chromas)
             .enumerate()
         {
-            self.gl.uniform1i(
-                Some(uniform),
-                i32::try_from(EXTERNAL_TEXTURE_UNIT_START).unwrap() + i32::try_from(slot).unwrap(),
-            );
+            let slot = i32::try_from(slot).unwrap();
+            let start = i32::try_from(EXTERNAL_TEXTURE_UNIT_START).unwrap();
+            let slot_count = i32::try_from(EXTERNAL_TEXTURE_SLOT_COUNT).unwrap();
+            self.gl.uniform1i(Some(primary), start + slot);
+            self.gl.uniform1i(Some(chroma), start + slot_count + slot);
         }
 
         // TODO: Today, we only support early-z rejection on the final view. If we wanted to support

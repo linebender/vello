@@ -1,8 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use glifo::GlyphRunBackend;
@@ -18,8 +16,9 @@ use vello_cpu::{
     TargetInit as CpuTargetInit,
 };
 use vello_gpu::{
-    ClearSettings, RectU16, RenderSettings as GpuRenderSettings, Resources as GpuResources, Scene,
-    TargetInit as GpuTargetInit, TextureId,
+    BiplanarLayout, ChromaSiting, ClearSettings, RectU16, RenderSettings as GpuRenderSettings,
+    Resources as GpuResources, Scene, TargetInit as GpuTargetInit, TextureId, YuvFormat, YuvMatrix,
+    YuvRange,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -93,6 +92,8 @@ pub trait Renderer: Sized {
     fn render(&mut self);
     fn snapshot(&mut self) -> Pixmap;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
+    /// Binds a biplanar `Y'CbCr` texture pair (see [`YuvPlanes`]) as an external texture.
+    fn register_external_texture_yuv(&mut self, planes: &YuvPlanes) -> TextureId;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId;
 }
@@ -287,6 +288,10 @@ impl Renderer for CpuRenderer {
         unimplemented!("external textures are only supported by GPU renderer tests")
     }
 
+    fn register_external_texture_yuv(&mut self, _: &YuvPlanes) -> TextureId {
+        unimplemented!("external textures are only supported by GPU renderer tests")
+    }
+
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let id = self.resources.register_image(Arc::clone(&pixmap));
         ImageSource::opaque_id_with_transparency_hint(id, pixmap.may_have_transparency())
@@ -312,7 +317,8 @@ fn create_wgpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
     .expect("Failed to find an appropriate adapter");
     pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("Device"),
-        required_features: wgpu::Features::empty(),
+        // Optional, for P010 (16-bit normalized) plane textures where the adapter has them.
+        required_features: adapter.features() & wgpu::Features::TEXTURE_FORMAT_16BIT_NORM,
         ..Default::default()
     }))
     .expect("Failed to create device")
@@ -332,7 +338,7 @@ pub struct GpuRenderer {
     texture_view: wgpu::TextureView,
     depth_texture_view: Option<wgpu::TextureView>,
     renderer: vello_gpu::Renderer,
-    external_textures: HashMap<TextureId, wgpu::TextureView>,
+    external_textures: vello_gpu::TextureBindings,
     next_external_texture_id: u64,
     target_init: GpuTargetInit<'static>,
     gpu_test_guard: Option<std::sync::MutexGuard<'static, ()>>,
@@ -397,7 +403,7 @@ impl GpuRenderer {
             texture_view,
             depth_texture_view,
             renderer,
-            external_textures: HashMap::new(),
+            external_textures: vello_gpu::TextureBindings::new(),
             next_external_texture_id: 1,
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
             gpu_test_guard: None,
@@ -408,6 +414,15 @@ impl GpuRenderer {
         if self.gpu_test_guard.is_none() {
             self.gpu_test_guard = Some(WGPU_TEST_MUTEX.lock().unwrap());
         }
+    }
+
+    /// Whether the shared test device can create `R16Unorm` / `Rg16Unorm` textures (P010 planes).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn supports_16bit_norm_textures() -> bool {
+        WGPU_DEVICE_QUEUE
+            .0
+            .features()
+            .contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
     }
 
     fn upload_image_with_resources(
@@ -609,10 +624,6 @@ impl Renderer for GpuRenderer {
 
         let render_size = vello_gpu::RenderSize { width, height };
 
-        let mut texture_bindings = vello_gpu::TextureBindings::new();
-        for (texture_id, texture) in &self.external_textures {
-            texture_bindings.insert(*texture_id, texture.clone());
-        }
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -628,7 +639,7 @@ impl Renderer for GpuRenderer {
                 &render_size,
                 &self.texture_view,
                 self.depth_texture_view.as_ref(),
-                &texture_bindings,
+                &self.external_textures,
                 self.target_init,
             )
             .unwrap();
@@ -758,6 +769,75 @@ impl Renderer for GpuRenderer {
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.external_textures.insert(texture_id, view);
+        texture_id
+    }
+
+    fn register_external_texture_yuv(&mut self, planes: &YuvPlanes) -> TextureId {
+        let texture_id = TextureId(self.next_external_texture_id);
+        self.next_external_texture_id += 1;
+
+        let (luma_format, chroma_format) = match planes.format.layout {
+            BiplanarLayout::Nv12 => (wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm),
+            BiplanarLayout::P010 => (
+                wgpu::TextureFormat::R16Unorm,
+                wgpu::TextureFormat::Rg16Unorm,
+            ),
+        };
+        let bytes_per_sample = planes.bytes_per_sample();
+        let upload = |label, format, width: u32, height: u32, data: &[u8], channels: u32| {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                data,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(width * channels * bytes_per_sample),
+                    rows_per_image: None,
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            texture.create_view(&wgpu::TextureViewDescriptor::default())
+        };
+        let luma = upload(
+            "Test External Luma Plane",
+            luma_format,
+            u32::from(planes.width),
+            u32::from(planes.height),
+            &planes.luma,
+            1,
+        );
+        let chroma = upload(
+            "Test External Chroma Plane",
+            chroma_format,
+            u32::from(planes.chroma_width()),
+            u32::from(planes.chroma_height()),
+            &planes.chroma,
+            2,
+        );
+        self.external_textures
+            .insert_biplanar(texture_id, luma, chroma, planes.format);
         texture_id
     }
 
@@ -1091,6 +1171,76 @@ impl Renderer for GpuRenderer {
         texture_id
     }
 
+    fn register_external_texture_yuv(&mut self, planes: &YuvPlanes) -> TextureId {
+        let texture_id = TextureId(self.next_external_texture_id);
+        self.next_external_texture_id += 1;
+        assert_eq!(
+            planes.format.layout,
+            BiplanarLayout::Nv12,
+            "16-bit planes need EXT_texture_norm16, which these tests do not request"
+        );
+
+        let gl = &self.gl;
+        let upload = |internal_format: u32, format: u32, width: u16, height: u16, data: &[u8]| {
+            let texture = gl.create_texture().unwrap();
+            gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
+            // Rows of one- and two-byte texels are not padded to four bytes.
+            gl.pixel_storei(WebGl2RenderingContext::UNPACK_ALIGNMENT, 1);
+            gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                internal_format as i32,
+                width.into(),
+                height.into(),
+                0,
+                format,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                Some(data),
+            )
+            .unwrap();
+            gl.pixel_storei(WebGl2RenderingContext::UNPACK_ALIGNMENT, 4);
+            for (param, value) in [
+                (
+                    WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+                    WebGl2RenderingContext::NEAREST,
+                ),
+                (
+                    WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+                    WebGl2RenderingContext::NEAREST,
+                ),
+                (
+                    WebGl2RenderingContext::TEXTURE_WRAP_S,
+                    WebGl2RenderingContext::CLAMP_TO_EDGE,
+                ),
+                (
+                    WebGl2RenderingContext::TEXTURE_WRAP_T,
+                    WebGl2RenderingContext::CLAMP_TO_EDGE,
+                ),
+            ] {
+                gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, param, value as i32);
+            }
+            gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
+            texture
+        };
+        let luma = upload(
+            WebGl2RenderingContext::R8,
+            WebGl2RenderingContext::RED,
+            planes.width,
+            planes.height,
+            &planes.luma,
+        );
+        let chroma = upload(
+            WebGl2RenderingContext::RG8,
+            WebGl2RenderingContext::RG,
+            planes.chroma_width(),
+            planes.chroma_height(),
+            &planes.chroma,
+        );
+        self.external_textures
+            .insert_biplanar(texture_id, luma, chroma, planes.format);
+        texture_id
+    }
+
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let image_id = self.upload_image(&pixmap);
         ImageSource::opaque_id_with_transparency_hint(image_id, pixmap.may_have_transparency())
@@ -1118,6 +1268,122 @@ fn apply_rect_clear(pixmap: &mut Pixmap, color: AlphaColor<Srgb>, rects: &[RectU
             let start = y * width + usize::from(rect.x0);
             let end = y * width + usize::from(rect.x1);
             data[start..end].fill(color);
+        }
+    }
+}
+
+/// The planes of a 4:2:0 `Y'CbCr` image for [`Renderer::register_external_texture_yuv`]: `luma`
+/// holds `width × height` samples and `chroma` `⌈width / 2⌉ × ⌈height / 2⌉` interleaved
+/// (Cb, Cr) pairs. Samples are bytes for NV12 and little-endian 16-bit words with the value in
+/// the top ten bits for P010.
+#[derive(Debug, Clone)]
+pub struct YuvPlanes {
+    pub width: u16,
+    pub height: u16,
+    pub luma: Vec<u8>,
+    pub chroma: Vec<u8>,
+    pub format: YuvFormat,
+}
+
+impl YuvPlanes {
+    /// Converts an opaque RGBA pixmap with the matrix, range and siting of `format`, the way a
+    /// reference encoder would: luma per pixel; chroma from the two luma rows a chroma sample
+    /// sits between, and from the left luma column of each pair (left siting) or both columns
+    /// (centred siting).
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "codes are clamped to the sample range before the cast"
+    )]
+    pub fn from_pixmap(pixmap: &Pixmap, format: YuvFormat) -> Self {
+        let width = pixmap.width();
+        let height = pixmap.height();
+        let rgba = pixmap.data_as_u8_slice();
+        let (kr, kb) = match format.matrix {
+            YuvMatrix::Bt601 => (0.299_f64, 0.114_f64),
+            YuvMatrix::Bt709 => (0.2126, 0.0722),
+            YuvMatrix::Bt2020Ncl => (0.2627, 0.0593),
+        };
+        let ten_bit = format.layout == BiplanarLayout::P010;
+        let (code_max, luma_black, luma_range, chroma_zero, chroma_range) =
+            match (ten_bit, format.range) {
+                (false, YuvRange::Limited) => (255.0, 16.0, 219.0, 128.0, 224.0),
+                (false, YuvRange::Full) => (255.0, 0.0, 255.0, 128.0, 255.0),
+                (true, YuvRange::Limited) => (1023.0, 64.0, 876.0, 512.0, 896.0),
+                (true, YuvRange::Full) => (1023.0, 0.0, 1023.0, 512.0, 1023.0),
+            };
+        // Y', Pb, Pr of one pixel as fractions (Y' in 0..1, Pb/Pr in -0.5..0.5).
+        let ypbpr = |x: usize, y: usize| {
+            let i = (y * usize::from(width) + x) * 4;
+            let a = f64::from(rgba[i + 3]).max(1.0);
+            let channel = |c: usize| (f64::from(rgba[i + c]) / a).min(1.0);
+            let (r, g, b) = (channel(0), channel(1), channel(2));
+            let luma = kr * r + (1.0 - kr - kb) * g + kb * b;
+            (
+                luma,
+                (b - luma) / (2.0 * (1.0 - kb)),
+                (r - luma) / (2.0 * (1.0 - kr)),
+            )
+        };
+        let push = |out: &mut Vec<u8>, code: f64| {
+            let code = code.round().clamp(0.0, code_max);
+            if ten_bit {
+                out.extend_from_slice(&((code as u16) << 6).to_le_bytes());
+            } else {
+                out.push(code as u8);
+            }
+        };
+        let mut luma = Vec::new();
+        for y in 0..usize::from(height) {
+            for x in 0..usize::from(width) {
+                push(&mut luma, luma_black + luma_range * ypbpr(x, y).0);
+            }
+        }
+        let chroma_width = usize::from(width).div_ceil(2);
+        let chroma_height = usize::from(height).div_ceil(2);
+        let mut chroma = Vec::new();
+        for cy in 0..chroma_height {
+            for cx in 0..chroma_width {
+                let columns: &[usize] = match format.siting {
+                    ChromaSiting::Left => &[2 * cx],
+                    ChromaSiting::Center => &[2 * cx, 2 * cx + 1],
+                };
+                let mut sum = (0.0, 0.0);
+                let mut count = 0.0;
+                for &x in columns {
+                    for y in [2 * cy, 2 * cy + 1] {
+                        let x = x.min(usize::from(width) - 1);
+                        let y = y.min(usize::from(height) - 1);
+                        let (_, pb, pr) = ypbpr(x, y);
+                        sum.0 += pb;
+                        sum.1 += pr;
+                        count += 1.0;
+                    }
+                }
+                push(&mut chroma, chroma_zero + chroma_range * sum.0 / count);
+                push(&mut chroma, chroma_zero + chroma_range * sum.1 / count);
+            }
+        }
+        Self {
+            width,
+            height,
+            luma,
+            chroma,
+            format,
+        }
+    }
+
+    pub fn chroma_width(&self) -> u16 {
+        self.width.div_ceil(2)
+    }
+
+    pub fn chroma_height(&self) -> u16 {
+        self.height.div_ceil(2)
+    }
+
+    pub fn bytes_per_sample(&self) -> u32 {
+        match self.format.layout {
+            BiplanarLayout::Nv12 => 1,
+            BiplanarLayout::P010 => 2,
         }
     }
 }

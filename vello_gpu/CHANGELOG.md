@@ -12,6 +12,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- Biplanar Y'CbCr external textures. `TextureBindings::insert_biplanar` (and `WebGlTextureBindings::insert_biplanar`) binds a full-resolution luma plane and a half-resolution chroma plane, as hardware video decoders produce them (NV12; P010 on `wgpu`), together with a `YuvFormat` naming the colour matrix (BT.601, BT.709 or BT.2020 NCL), the quantization range and the horizontal chroma siting. The strip shader converts the samples to RGBA while sampling, at the paint's quality, so decoded video frames draw without a conversion pass. `ExternalTextureBinding` and `WebGlExternalTextureBinding` describe what a texture id is bound to. ([#XXXX][] by [@taj-p][])
+
+### Changed
+
+- Breaking change: `TextureBindings::remove` and `WebGlTextureBindings::remove` now return the removed `ExternalTextureBinding` / `WebGlExternalTextureBinding` rather than the texture, since a binding may hold two planes. ([#XXXX][] by [@taj-p][])
+
 ## [0.2.0][] - 2026-08-07
 
 This release has an [MSRV][] of 1.88.
@@ -302,6 +310,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1794]: https://github.com/linebender/vello/pull/1794
 [#1800]: https://github.com/linebender/vello/pull/1800
 [#1801]: https://github.com/linebender/vello/pull/1801
+[#XXXX]: https://github.com/linebender/vello/pull/XXXX
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0

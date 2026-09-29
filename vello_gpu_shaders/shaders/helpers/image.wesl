@@ -18,6 +18,11 @@ const TINT_MODE_MULTIPLY: u32 = 1u;
 //   bits 0-1: quality
 //   bits 2-3: extend_x
 //   bits 4-5: extend_y
+//   bits 6-7: plane layout of a biplanar external texture (0 = RGBA texture, 1 = NV12, 2 = P010)
+//   bits 8-9: Y'CbCr matrix (0 = BT.601, 1 = BT.709, 2 = BT.2020 NCL)
+//   bit 10: full range (0 = limited/video range)
+//   bit 11: 10-bit samples in the high bits of 16-bit texels
+//   bit 12: chroma samples centred horizontally (0 = co-sited with the left luma sample)
 // texel0.y: image_size, packed as [width:16, height:16]
 // texel0.z: image_offset, packed as [x:16, y:16]
 // texel0.w/texel1.x/texel1.y/texel1.z: transform matrix [a, b, c, d]
@@ -26,8 +31,16 @@ const TINT_MODE_MULTIPLY: u32 = 1u;
 // texel2.z: GPU tint mode
 // texel2.w: transparent padding pixels around the image in the atlas
 
+/// Plane layouts of an external texture (image_params bits 6-7).
+const YUV_LAYOUT_NONE: u32 = 0u;
+const YUV_LAYOUT_NV12: u32 = 1u;
+const YUV_LAYOUT_P010: u32 = 2u;
+
 /// The rendering quality of the image.
 fn get_image_quality(texel0: vec4<u32>) -> u32 { return texel0.x & 0x3u; }
+
+/// The plane layout of an external texture: `YUV_LAYOUT_NONE` for an RGBA texture.
+fn get_image_yuv_layout(texel0: vec4<u32>) -> u32 { return (texel0.x >> 6u) & 0x3u; }
 
 /// The extend modes in the horizontal and vertical direction.
 fn get_image_extend_modes(texel0: vec4<u32>) -> vec2<u32> {

@@ -13,10 +13,10 @@ mod tests {
     use vello_common::peniko::{Color, Extend, ImageAlphaType, ImageQuality, ImageSampler};
     use vello_common::pixmap::{PixelMetadata, Pixmap};
     use vello_dev_macros::vello_test;
-    use vello_gpu::TextureId;
+    use vello_gpu::{BiplanarLayout, ChromaSiting, TextureId, YuvFormat, YuvMatrix, YuvRange};
 
     use crate::load_image;
-    use crate::renderer::Renderer;
+    use crate::renderer::{Renderer, YuvPlanes};
 
     const SPRITES: [RectU16; 4] = [
         // Checkmark.
@@ -481,6 +481,369 @@ mod tests {
                 f64::from(source_region.width()),
                 f64::from(source_region.height()),
             ));
+        }
+    }
+
+    // --- Biplanar `Y'CbCr` (NV12 / P010) external textures -------------------------------------
+
+    fn yuv_sampler(quality: ImageQuality, extend: Extend, alpha: f32) -> ImageSampler {
+        ImageSampler {
+            x_extend: extend,
+            y_extend: extend,
+            quality,
+            alpha,
+        }
+    }
+
+    /// Fills `rect` with the `region` of a `Y'CbCr` texture; the paint transform set on `ctx`
+    /// places the texels.
+    fn fill_yuv_rect(
+        ctx: &mut impl Renderer,
+        texture_id: TextureId,
+        region: RectU16,
+        rect: Rect,
+        sampler: ImageSampler,
+    ) {
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(texture_id, region, false),
+            sampler,
+        });
+        ctx.fill_rect(&rect);
+    }
+
+    /// Texel `(0, 0)` at `(x, y)`, `scale` pixels per texel.
+    fn place(ctx: &mut impl Renderer, x: f64, y: f64, scale: f64) {
+        ctx.set_paint_transform(Affine::translate((x, y)) * Affine::scale(scale));
+    }
+
+    fn nv12(matrix: YuvMatrix, range: YuvRange, siting: ChromaSiting) -> YuvFormat {
+        YuvFormat {
+            layout: BiplanarLayout::Nv12,
+            matrix,
+            range,
+            siting,
+        }
+    }
+
+    fn color_grid_yuv(ctx: &mut impl Renderer, format: YuvFormat) -> TextureId {
+        let grid = load_image!("color_grid_16x16");
+        let planes = YuvPlanes::from_pixmap(&grid, format);
+        ctx.register_external_texture_yuv(&planes)
+    }
+
+    /// An opaque image with smooth colour gradients, so chroma subsampling loses nothing.
+    fn gradient_pixmap(width: u16, height: u16) -> Arc<Pixmap> {
+        let mut data = Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
+        for y in 0..height {
+            for x in 0..width {
+                let fx = f64::from(x) / f64::from(width.max(2) - 1);
+                let fy = f64::from(y) / f64::from(height.max(2) - 1);
+                data.extend_from_slice(&[
+                    (255.0 * fx) as u8,
+                    (255.0 * fy) as u8,
+                    (255.0 * (1.0 - fx) * (1.0 - fy)) as u8,
+                    255,
+                ]);
+            }
+        }
+        Arc::new(Pixmap::from_parts(
+            data,
+            width,
+            height,
+            PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, false),
+        ))
+    }
+
+    fn solid_yuv(ctx: &mut impl Renderer, r: u8, g: u8, b: u8) -> TextureId {
+        let pixmap = Pixmap::from_parts(
+            [r, g, b, 255].repeat(4),
+            2,
+            2,
+            PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, false),
+        );
+        let planes = YuvPlanes::from_pixmap(&pixmap, YuvFormat::NV12_BT709_LIMITED);
+        ctx.register_external_texture_yuv(&planes)
+    }
+
+    const GRID: RectU16 = RectU16::new(0, 0, 16, 16);
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_bt709_limited(ctx: &mut impl Renderer) {
+        let texture_id = color_grid_yuv(ctx, YuvFormat::NV12_BT709_LIMITED);
+        place(ctx, 10., 10., 5.);
+        fill_yuv_rect(
+            ctx,
+            texture_id,
+            GRID,
+            Rect::new(10., 10., 90., 90.),
+            yuv_sampler(ImageQuality::Low, Extend::Pad, 1.0),
+        );
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_bt601_full(ctx: &mut impl Renderer) {
+        let texture_id = color_grid_yuv(
+            ctx,
+            nv12(YuvMatrix::Bt601, YuvRange::Full, ChromaSiting::Left),
+        );
+        place(ctx, 10., 10., 5.);
+        fill_yuv_rect(
+            ctx,
+            texture_id,
+            GRID,
+            Rect::new(10., 10., 90., 90.),
+            yuv_sampler(ImageQuality::Low, Extend::Pad, 1.0),
+        );
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_quality_low(ctx: &mut impl Renderer) {
+        let texture_id = color_grid_yuv(ctx, YuvFormat::NV12_BT709_LIMITED);
+        place(ctx, 10., 10., 5.);
+        fill_yuv_rect(
+            ctx,
+            texture_id,
+            GRID,
+            Rect::new(10., 10., 90., 90.),
+            yuv_sampler(ImageQuality::Low, Extend::Pad, 1.0),
+        );
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_quality_medium(ctx: &mut impl Renderer) {
+        let texture_id = color_grid_yuv(ctx, YuvFormat::NV12_BT709_LIMITED);
+        place(ctx, 10., 10., 5.);
+        fill_yuv_rect(
+            ctx,
+            texture_id,
+            GRID,
+            Rect::new(10., 10., 90., 90.),
+            yuv_sampler(ImageQuality::Medium, Extend::Pad, 1.0),
+        );
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_quality_high(ctx: &mut impl Renderer) {
+        let texture_id = color_grid_yuv(ctx, YuvFormat::NV12_BT709_LIMITED);
+        place(ctx, 10., 10., 5.);
+        fill_yuv_rect(
+            ctx,
+            texture_id,
+            GRID,
+            Rect::new(10., 10., 90., 90.),
+            yuv_sampler(ImageQuality::High, Extend::Pad, 1.0),
+        );
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_odd_size_cropped_region(ctx: &mut impl Renderer) {
+        // A 15×13 source (an 8×7 chroma plane) drawn through the region (1, 1)..(14, 12): the
+        // chroma plane covers the region rounded outwards to whole chroma texels.
+        let planes =
+            YuvPlanes::from_pixmap(&gradient_pixmap(15, 13), YuvFormat::NV12_BT709_LIMITED);
+        let texture_id = ctx.register_external_texture_yuv(&planes);
+        place(ctx, 10. - 6., 10. - 6., 6.);
+        fill_yuv_rect(
+            ctx,
+            texture_id,
+            RectU16::new(1, 1, 14, 12),
+            Rect::new(10., 10., 88., 76.),
+            yuv_sampler(ImageQuality::Medium, Extend::Pad, 1.0),
+        );
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_siting_center(ctx: &mut impl Renderer) {
+        let texture_id = color_grid_yuv(
+            ctx,
+            nv12(YuvMatrix::Bt709, YuvRange::Limited, ChromaSiting::Center),
+        );
+        place(ctx, 10., 10., 5.);
+        fill_yuv_rect(
+            ctx,
+            texture_id,
+            GRID,
+            Rect::new(10., 10., 90., 90.),
+            yuv_sampler(ImageQuality::Medium, Extend::Pad, 1.0),
+        );
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_repeat(ctx: &mut impl Renderer) {
+        let texture_id = color_grid_yuv(ctx, YuvFormat::NV12_BT709_LIMITED);
+        place(ctx, 4., 4., 2.);
+        fill_yuv_rect(
+            ctx,
+            texture_id,
+            GRID,
+            Rect::new(0., 0., 100., 100.),
+            yuv_sampler(ImageQuality::Low, Extend::Repeat, 1.0),
+        );
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_mixed_with_rgba_and_atlas(ctx: &mut impl Renderer) {
+        // The same grid three ways in one run: `Y'CbCr` planes, an RGBA external texture and an
+        // atlas image; then a second `Y'CbCr` encoding below.
+        let yuv = color_grid_yuv(ctx, YuvFormat::NV12_BT709_LIMITED);
+        let rgba = ctx.register_external_texture(load_image!("color_grid_16x16"));
+        let atlas = ctx.get_image_source(load_image!("color_grid_16x16"));
+        let yuv_full = color_grid_yuv(
+            ctx,
+            nv12(YuvMatrix::Bt601, YuvRange::Full, ChromaSiting::Center),
+        );
+        let sampler = yuv_sampler(ImageQuality::Low, Extend::Pad, 1.0);
+
+        place(ctx, 4., 4., 2.);
+        fill_yuv_rect(ctx, yuv, GRID, Rect::new(4., 4., 36., 36.), sampler);
+        place(ctx, 36., 4., 2.);
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(rgba, GRID, false),
+            sampler,
+        });
+        ctx.fill_rect(&Rect::new(36., 4., 68., 36.));
+        place(ctx, 68., 4., 2.);
+        ctx.set_paint(Image {
+            image: atlas,
+            sampler,
+        });
+        ctx.fill_rect(&Rect::new(68., 4., 100., 36.));
+        place(ctx, 4., 40., 2.);
+        fill_yuv_rect(ctx, yuv_full, GRID, Rect::new(4., 40., 36., 72.), sampler);
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_five_sources_split_runs(ctx: &mut impl Renderer) {
+        // Five distinct textures need more than the four slots of one draw, so the strips are
+        // split into runs; every square must still show its own colour.
+        let colours = [
+            (220, 40, 40),
+            (40, 200, 40),
+            (40, 60, 220),
+            (230, 210, 30),
+            (200, 40, 200),
+        ];
+        let sampler = yuv_sampler(ImageQuality::Low, Extend::Pad, 1.0);
+        for (i, (r, g, b)) in colours.into_iter().enumerate() {
+            let texture_id = solid_yuv(ctx, r, g, b);
+            let x = 4. + 19. * i as f64;
+            place(ctx, x, 40., 8.);
+            fill_yuv_rect(
+                ctx,
+                texture_id,
+                RectU16::new(0, 0, 2, 2),
+                Rect::new(x, 40., x + 16., 56.),
+                sampler,
+            );
+        }
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_with_sampler_alpha(ctx: &mut impl Renderer) {
+        ctx.set_paint(AlphaColor::from_rgba8(0, 0, 255, 255));
+        ctx.fill_rect(&Rect::new(0., 0., 50., 100.));
+        let texture_id = color_grid_yuv(ctx, YuvFormat::NV12_BT709_LIMITED);
+        place(ctx, 10., 10., 5.);
+        fill_yuv_rect(
+            ctx,
+            texture_id,
+            GRID,
+            Rect::new(10., 10., 90., 90.),
+            yuv_sampler(ImageQuality::Low, Extend::Pad, 0.5),
+        );
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_nv12_in_blur_layer(ctx: &mut impl Renderer) {
+        let texture_id = color_grid_yuv(ctx, YuvFormat::NV12_BT709_LIMITED);
+        let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+            std_deviation: 3.0,
+            edge_mode: EdgeMode::None,
+        });
+        ctx.push_filter_layer(blur);
+        place(ctx, 18., 18., 4.);
+        fill_yuv_rect(
+            ctx,
+            texture_id,
+            GRID,
+            Rect::new(18., 18., 82., 82.),
+            yuv_sampler(ImageQuality::Medium, Extend::Pad, 1.0),
+        );
+        ctx.pop_layer();
+    }
+
+    /// The `Y'CbCr` path agrees with the RGBA path on content chroma subsampling cannot hurt: a
+    /// smooth gradient rendered from planes in every supported encoding (NV12 in three matrices,
+    /// both ranges and both sitings; P010 where the device has 16-bit formats) matches the same
+    /// gradient rendered from an RGBA texture to within quantization.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn external_texture_yuv_matches_rgba_source() {
+        use crate::renderer::GpuRenderer;
+        use crate::util::get_ctx;
+
+        const WIDTH: u16 = 64;
+        const HEIGHT: u16 = 48;
+        let source = gradient_pixmap(WIDTH, HEIGHT);
+        let region = RectU16::new(0, 0, WIDTH, HEIGHT);
+        let sampler = yuv_sampler(ImageQuality::Medium, Extend::Pad, 1.0);
+        let render = |bind: &dyn Fn(&mut GpuRenderer) -> TextureId| {
+            let mut ctx = get_ctx::<GpuRenderer>(
+                WIDTH,
+                HEIGHT,
+                false,
+                0,
+                "baseline",
+                vello_cpu::RenderMode::OptimizeSpeed,
+            );
+            let texture_id = bind(&mut ctx);
+            ctx.set_paint(Image {
+                image: ImageSource::external_texture(texture_id, region, false),
+                sampler,
+            });
+            ctx.fill_rect(&Rect::new(0., 0., WIDTH.into(), HEIGHT.into()));
+            ctx.render();
+            ctx.snapshot()
+        };
+        let expected = render(&|ctx| ctx.register_external_texture(Arc::clone(&source)));
+        // Ten-bit planes need `R16Unorm`/`Rg16Unorm`, an optional wgpu feature the test device
+        // enables when the adapter has it.
+        let p010 = GpuRenderer::supports_16bit_norm_textures().then_some(YuvFormat {
+            layout: BiplanarLayout::P010,
+            ..YuvFormat::NV12_BT709_LIMITED
+        });
+        let formats = [
+            Some(YuvFormat::NV12_BT709_LIMITED),
+            Some(nv12(YuvMatrix::Bt601, YuvRange::Full, ChromaSiting::Left)),
+            Some(nv12(
+                YuvMatrix::Bt2020Ncl,
+                YuvRange::Limited,
+                ChromaSiting::Center,
+            )),
+            p010,
+        ];
+        for format in formats.into_iter().flatten() {
+            let planes = YuvPlanes::from_pixmap(&source, format);
+            let actual = render(&|ctx| ctx.register_external_texture_yuv(&planes));
+            let mut worst = 0_u8;
+            let mut total = 0_u64;
+            for (e, a) in expected
+                .data_as_u8_slice()
+                .iter()
+                .zip(actual.data_as_u8_slice())
+            {
+                let diff = e.abs_diff(*a);
+                worst = worst.max(diff);
+                total += u64::from(diff);
+            }
+            let mean = total as f64 / expected.data_as_u8_slice().len() as f64;
+            // Eight-bit quantization of limited-range codes costs up to two levels per channel
+            // in the interior; the clamped chroma row and column at the edges cost a few more.
+            // A wrong matrix or range is off by tens of levels across the whole image.
+            assert!(
+                worst <= 12 && mean < 2.5,
+                "{format:?}: worst channel difference {worst}, mean {mean:.2}"
+            );
         }
     }
 }
