@@ -8,6 +8,7 @@
 //! Filters are applied to rendered layer pixmaps and may use scratch storage for
 //! intermediate buffers.
 
+mod color_matrix;
 pub(crate) mod context;
 mod drop_shadow;
 mod flood;
@@ -79,6 +80,9 @@ pub(crate) fn filter_lowp(
         PreparedFilter::DropShadow(drop_shadow) => {
             drop_shadow.execute_lowp(pixmap, filter_scratch);
         }
+        PreparedFilter::ColorMatrix(color_matrix) => {
+            color_matrix.execute_lowp(pixmap, filter_scratch);
+        }
     }
 }
 
@@ -116,6 +120,9 @@ pub(crate) fn filter_highp(
         }
         PreparedFilter::DropShadow(drop_shadow) => {
             drop_shadow.execute_highp(pixmap, filter_scratch);
+        }
+        PreparedFilter::ColorMatrix(color_matrix) => {
+            color_matrix.execute_highp(pixmap, filter_scratch);
         }
     }
 }

@@ -21,6 +21,7 @@
 //! - `GaussianBlur` - Gaussian blur filter
 //! - `DropShadow` - Drop shadow effect (compound primitive)
 //! - `DropShadowOnly` - Drop shadow effect without the original input
+//! - `ColorMatrix` - Matrix-based color transformation
 //! - `Offset` - Translation/shift (single primitive)
 //!
 //! **Note:** Currently only single primitive filters are supported. Filter graphs with
@@ -37,7 +38,6 @@
 //!   `Opacity`, `Saturate`, `Sepia`
 //!
 //! **Filter Primitives:**
-//! - `ColorMatrix` - Matrix-based color transformation
 //! - `Composite` - Porter-Duff compositing operations
 //! - `Blend` - Blend mode operations
 //! - `Morphology` - Dilate/erode operations
@@ -426,15 +426,13 @@ pub enum FilterPrimitive {
         /// Edge mode for handling boundaries during blur operation.
         edge_mode: EdgeMode,
     },
-    //
-    // ============================================================
-    // TODO: The following filter primitives are not yet implemented
-    // ============================================================
-    //
     /// Matrix-based color transformation.
     ///
     /// Applies a 4x5 matrix transformation to colors, allowing arbitrary
     /// color space transformations, hue shifts, and color adjustments.
+    ///
+    /// Like SVG `feColorMatrix`, the matrix is applied to straight (unpremultiplied) colors,
+    /// offsets are in `[0, 1]` units, and the results are clamped to `[0, 1]`.
     ColorMatrix {
         /// 4x5 color transformation matrix: 4 rows (R,G,B,A) × 5 columns (R,G,B,A,offset).
         /// Each output channel is computed as a linear combination of input channels plus offset.
@@ -450,7 +448,11 @@ pub enum FilterPrimitive {
         /// Vertical offset in pixels. Positive values shift down.
         dy: f32,
     },
-
+    //
+    // ============================================================
+    // TODO: The following filter primitives are not yet implemented
+    // ============================================================
+    //
     /// Composite two inputs using Porter-Duff compositing operations.
     ///
     /// Combines two input images using standard compositing operators
