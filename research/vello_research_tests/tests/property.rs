@@ -112,7 +112,8 @@ fn blurred_rounded_rect_invert(use_cpu: bool) {
     let radius = 0.0;
     let std_dev = 5.0;
 
-    let shape = rect.inflate(rect.origin().x.abs(), rect.origin().y.abs());
+    // Paint the whole canvas, so that the coverage can be compared at any point.
+    let shape = Rect::new(0., 0., f64::from(SIZE), f64::from(SIZE));
 
     let render = |invert: bool| {
         let mut scene = Scene::new();
@@ -158,8 +159,8 @@ fn blurred_rounded_rect_invert(use_cpu: bool) {
         alpha_at(&invert, 50, 50)
     );
 
-    // At every point within the painted (inflated) region, the invert coverage is the complement
-    // of the normal coverage, including at the partially-covered edges of the rectangle.
+    // At every point within the painted shape, the invert coverage is the complement of the
+    // normal coverage, including at the partially-covered edges of the rectangle.
     for &(x, y) in &[(50, 50), (30, 50), (50, 30), (25, 50), (50, 70), (35, 65)] {
         let sum = u16::from(alpha_at(&normal, x, y)) + u16::from(alpha_at(&invert, x, y));
         assert!(
