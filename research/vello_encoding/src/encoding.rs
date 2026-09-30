@@ -456,9 +456,11 @@ impl Encoding {
             })));
     }
 
-    // Encodes a blurred rounded rectangle brush.
-    //
-    // When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted.
+    /// Encodes a blurred rounded rectangle brush.
+    ///
+    /// Negative values of `std_dev` are treated as zero.
+    ///
+    /// When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted.
     pub fn encode_blurred_rounded_rect(
         &mut self,
         color: impl Into<DrawColor>,
@@ -468,8 +470,10 @@ impl Encoding {
         std_dev: f32,
         invert: bool,
     ) {
-        // The `invert` flag is packed into the sign bit of `std_dev`, which is otherwise
-        // always non-negative.
+        // A standard deviation is a magnitude, so negative (and NaN) values are clamped to
+        // zero. That leaves the sign bit of the encoded `std_dev` free to carry the `invert`
+        // flag (see `DrawBlurRoundedRect::std_dev`). This also works for a standard deviation
+        // of zero, as `-0.0` has its sign bit set.
         let std_dev = if invert {
             -std_dev.max(0.0)
         } else {

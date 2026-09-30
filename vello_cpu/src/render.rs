@@ -452,15 +452,25 @@ impl RenderContext {
     /// rounded rectangle is desired without clipping, use the simpler
     /// [`Self::fill_blurred_rounded_rect`], which will be easier to use for many users.
     ///
-    /// For performance reasons, `path` should not extend more than approximately 2.5 times
-    /// `std_dev` away from the edges of `rect` (as any such points will not be perceptably painted
-    /// to, but calculations will still be performed for them).
-    ///
     /// `path` is filled using the current fill rule.
     ///
-    /// When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
-    /// paint is fully opaque outside the blurred rectangle and fades to transparent inside it. This
-    /// can be used to implement inset box shadows.
+    /// The blurred rounded rectangle is `rect` with its corners rounded by `radius`, blurred by
+    /// a gaussian filter with a standard deviation of `std_dev`. Negative values of `std_dev`
+    /// are treated as zero.
+    ///
+    /// When `invert` is `false`, the paint is applied with the coverage (`alpha`) of the blurred
+    /// rounded rectangle. Points which are more than approximately 2.5 times `std_dev` outside
+    /// of the edges of `rect` will not be perceptibly painted to, but calculations will still
+    /// be performed for them. So for performance reasons, `path` should not extend further
+    /// than that.
+    ///
+    /// When `invert` is `true`, the inverse (`1 - alpha`) of that coverage is applied instead.
+    /// The coverage then falls off towards the inside of `rect`, and is effectively full at
+    /// all points of `path` which are more than approximately 2.5 times `std_dev` outside of
+    /// the edges of `rect`. This means that the extent of the painted area is determined only
+    /// by `path`, which can extend as far beyond `rect` as is needed.
+    /// This can be used to implement inset box shadows, by using the box as `path` and the
+    /// box translated by the offset of the shadow as `rect`.
     ///
     /// Note that this only works properly if the current paint is set to a solid color.
     /// If not, it will fall back to using black as the fill color.
