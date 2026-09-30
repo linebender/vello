@@ -473,6 +473,9 @@ jobs:
         working-directory: vello_tests
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
+          # See https://github.com/linebender/vello/pull/1958, this value needs to be
+          # large enough so no single test run exceeds it.
+          # Keep in sync with the 1200s timeout in `webdriver.json.
           WASM_BINDGEN_TEST_TIMEOUT: "1200"
 
   check-stable-wasm-webgl-examples:
