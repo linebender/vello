@@ -19,6 +19,7 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - `vello_encoding` is now re-exported from the `low_level` module. ([#1847][] by [@ChrisJr404][])
+- Breaking change: `Scene::draw_blurred_rounded_rect_in` now has an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. Use `false` to preserve the previous behavior. In `vello_encoding`, `Encoding::encode_blurred_rounded_rect` has the same new parameter, and the flag is encoded in the sign bit of `DrawBlurRoundedRect::std_dev`. ([#1718][] by [@nicoburns][])
 
 ### Changed
 
@@ -478,6 +479,7 @@ This release has an [MSRV][] of 1.75.
 [#1638]: https://github.com/linebender/vello/pull/1638
 [#1643]: https://github.com/linebender/vello/pull/1643
 [#1700]: https://github.com/linebender/vello/pull/1700
+[#1718]: https://github.com/linebender/vello/pull/1718
 [#1774]: https://github.com/linebender/vello/pull/1774
 [#1777]: https://github.com/linebender/vello/pull/1777
 [#1847]: https://github.com/linebender/vello/pull/1847
