@@ -315,9 +315,17 @@ impl Scene {
         invert_paint_transform(self.effective_paint_transform()).is_some()
     }
 
+    /// Whether a draw with the current paint can change the output.
+    ///
+    /// A fully transparent paint draws nothing, unless a filter is active: filters such as a flood
+    /// can make the transparent geometry visible.
+    fn paint_is_visible(&self) -> bool {
+        self.paint_visible || self.filter.is_some() || self.recorder.in_filter_layer()
+    }
+
     /// Whether drawing with the current paint can produce any pixels.
     fn paint_has_area(&self) -> bool {
-        self.paint_visible
+        self.paint_is_visible()
             && (matches!(self.render_state.paint, PaintType::Solid(_))
                 || self.paint_transform_has_area())
     }
@@ -559,7 +567,7 @@ impl Scene {
         std_dev: f32,
         invert: bool,
     ) {
-        if !self.paint_visible || !self.paint_transform_has_area() {
+        if !self.paint_is_visible() || !self.paint_transform_has_area() {
             return;
         }
 
