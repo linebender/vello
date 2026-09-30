@@ -750,8 +750,10 @@ fn read_blur_rect(cmd_ix: u32) -> CmdBlurRect {
     let width = bitcast<f32>(info[info_offset + 6u]);
     let height = bitcast<f32>(info[info_offset + 7u]);
     let radius = bitcast<f32>(info[info_offset + 8u]);
-    // The invert flag is packed into the sign bit of `std_dev`, which is otherwise
-    // always non-negative.
+    // The encoded `std_dev` carries two values: its magnitude is the standard deviation, and
+    // its sign bit is the invert flag (see `DrawBlurRoundedRect` in `vello_encoding`).
+    // The flag is read from the raw bits rather than by comparing against zero, as an inverse
+    // blur with a standard deviation of zero is encoded as `-0.0`.
     let std_dev_bits = info[info_offset + 9u];
     let std_dev = abs(bitcast<f32>(std_dev_bits));
     let invert = std_dev_bits >> 31u;

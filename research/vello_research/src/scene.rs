@@ -259,18 +259,28 @@ impl Scene {
 
     /// Draw a rounded rectangle blurred with a gaussian filter in `shape`.
     ///
-    /// For performance reasons, `shape` should not extend more than approximately 2.5 times
-    /// `std_dev` away from the edges of `rect` (as any such points will not be perceptably painted to,
-    /// but calculations will still be performed for them).
-    ///
     /// This method effectively draws the blurred rounded rectangle clipped to the given shape.
     /// If just the blurred rounded rectangle is desired without clipping,
     /// use the simpler [`Self::draw_blurred_rounded_rect`].
     /// For many users, that method will be easier to use.
     ///
-    /// When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
-    /// brush is fully opaque outside the blurred rounded rectangle and fades to transparent inside
-    /// it. This can be used to implement inset box shadows.
+    /// The blurred rounded rectangle is `rect` with its corners rounded by `radius`, blurred by
+    /// a gaussian filter with a standard deviation of `std_dev`. Negative values of `std_dev`
+    /// are treated as zero.
+    ///
+    /// When `invert` is `false`, `brush` is painted with the coverage (`alpha`) of the blurred
+    /// rounded rectangle. Points which are more than approximately 2.5 times `std_dev` outside
+    /// of the edges of `rect` will not be perceptibly painted to, but calculations will still
+    /// be performed for them. So for performance reasons, `shape` should not extend further
+    /// than that.
+    ///
+    /// When `invert` is `true`, the inverse (`1 - alpha`) of that coverage is painted instead.
+    /// The coverage then falls off towards the inside of `rect`, and is effectively full at
+    /// all points of `shape` which are more than approximately 2.5 times `std_dev` outside of
+    /// the edges of `rect`. This means that the extent of the painted area is determined only
+    /// by `shape`, which can extend as far beyond `rect` as is needed.
+    /// This can be used to implement inset box shadows, by using the box as `shape` and the
+    /// box translated by the offset of the shadow as `rect`.
     pub fn draw_blurred_rounded_rect_in(
         &mut self,
         shape: &impl Shape,
