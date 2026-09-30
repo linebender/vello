@@ -130,7 +130,7 @@ fn blurred_rounded_rect_invert(use_cpu: bool) {
             base_color: Some(TRANSPARENT),
             ..TestParams::new("blurred_rounded_rect_invert", SIZE, SIZE)
         };
-        vello_tests::render_then_debug_sync(&scene, &params).unwrap()
+        vello_research_tests::render_then_debug_sync(&scene, &params).unwrap()
     };
 
     let normal = render(false);
