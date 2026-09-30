@@ -18,6 +18,11 @@ This release has an [MSRV][] of 1.89.
 - `WebGlRenderer::begin_with_precompiled` adopts the canvas, WebGL context, and shader programs set up by the JavaScript module in `vello_gpu_shaders::webgl_bootstrap::JS_MODULE`, so compilation can start before the WebAssembly module is downloaded and instantiated. Programs that can't be adopted are reported with `WebGlError::IncompatiblePrecompiledShaders`.
 - `WebGlRendererInit::is_ready` for non-blocking readiness checks. WebGL initialization now flushes compile commands immediately, so compilation starts even if the caller keeps the main thread busy.
 - Anisotropic Gaussian blur: `FilterPrimitive::GaussianBlur` with a different standard deviation per axis, including blurs along one axis only. ([#1997][] by [@theashraf][])
+- `Scene::fill_blurred_rounded_rect_in` for painting a blurred rounded rectangle inside an arbitrary path, with an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. ([#1718][] by [@nicoburns][])
+
+### Changed
+
+- Breaking change: The `invert` parameter of `Scene::fill_blurred_rounded_rect` has been removed. Use `Scene::fill_blurred_rounded_rect_in` with `invert` set to `true` instead. ([#1718][] by [@nicoburns][])
 
 ### Fixed
 
@@ -352,6 +357,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1691]: https://github.com/linebender/vello/pull/1691
 [#1697]: https://github.com/linebender/vello/pull/1697
 [#1715]: https://github.com/linebender/vello/pull/1715
+[#1718]: https://github.com/linebender/vello/pull/1718
 [#1720]: https://github.com/linebender/vello/pull/1720
 [#1726]: https://github.com/linebender/vello/pull/1726
 [#1734]: https://github.com/linebender/vello/pull/1734

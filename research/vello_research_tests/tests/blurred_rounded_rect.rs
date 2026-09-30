@@ -13,7 +13,7 @@ use vello::Scene;
 use vello::kurbo::{Affine, Circle, Point, Rect, RoundedRect, Shape, Vec2};
 use vello::peniko::Fill;
 use vello::peniko::color::palette;
-use vello_tests::{TestParams, snapshot_test_sync};
+use vello_research_tests::{TestParams, snapshot_test_sync};
 
 fn snapshot_blurred_rounded_rect(
     name: &str,
