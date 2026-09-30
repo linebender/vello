@@ -15,19 +15,10 @@ use crate::filter::FILTER_ATLAS_PADDING;
 use crate::scene::{LayersConfig, MemorySettings, RecordedDraw};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
+use core::mem::size_of;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::record::CommandRecorder;
-
-// GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
-pub(crate) const GPU_ENCODED_IMAGE_SIZE_TEXELS: u32 = (size_of::<GpuEncodedImage>() / 16) as u32;
-pub(crate) const GPU_LINEAR_GRADIENT_SIZE_TEXELS: u32 =
-    (size_of::<GpuLinearGradient>() / 16) as u32;
-pub(crate) const GPU_RADIAL_GRADIENT_SIZE_TEXELS: u32 =
-    (size_of::<GpuRadialGradient>() / 16) as u32;
-pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 = (size_of::<GpuSweepGradient>() / 16) as u32;
-pub(crate) const GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS: u32 =
-    (size_of::<GpuBlurredRoundedRect>() / 16) as u32;
 
 // TODO: If we want to use native bilinear sampling for uploaded images,
 // we can pass 1 instead of 0 here.
@@ -474,7 +465,22 @@ pub(crate) enum GpuEncodedPaint {
     BlurredRoundedRect(GpuBlurredRoundedRect),
 }
 
+const fn texels<T>() -> u32 {
+    let bytes = size_of::<T>();
+    assert!(
+        bytes.is_multiple_of(16),
+        "GPU paints must occupy whole RGBA32Uint texels"
+    );
+    (bytes / 16) as u32
+}
+
 impl GpuEncodedPaint {
+    const IMAGE_TEXELS: u32 = texels::<GpuEncodedImage>();
+    const LINEAR_TEXELS: u32 = texels::<GpuLinearGradient>();
+    const RADIAL_TEXELS: u32 = texels::<GpuRadialGradient>();
+    const SWEEP_TEXELS: u32 = texels::<GpuSweepGradient>();
+    const BLURRED_RECT_TEXELS: u32 = texels::<GpuBlurredRoundedRect>();
+
     /// Returns the byte representation of this paint.
     #[inline]
     pub(crate) fn as_bytes(&self) -> &[u8] {
@@ -484,6 +490,17 @@ impl GpuEncodedPaint {
             Self::RadialGradient(paint) => bytemuck::bytes_of(paint),
             Self::SweepGradient(paint) => bytemuck::bytes_of(paint),
             Self::BlurredRoundedRect(paint) => bytemuck::bytes_of(paint),
+        }
+    }
+
+    /// Number of `RGBA32Uint` texels occupied by this paint.
+    pub(crate) fn size_texels(&self) -> u32 {
+        match self {
+            Self::Image(_) => Self::IMAGE_TEXELS,
+            Self::LinearGradient(_) => Self::LINEAR_TEXELS,
+            Self::RadialGradient(_) => Self::RADIAL_TEXELS,
+            Self::SweepGradient(_) => Self::SWEEP_TEXELS,
+            Self::BlurredRoundedRect(_) => Self::BLURRED_RECT_TEXELS,
         }
     }
 
