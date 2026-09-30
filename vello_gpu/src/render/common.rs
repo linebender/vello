@@ -467,7 +467,10 @@ pub(crate) enum GpuEncodedPaint {
 
 const fn texels<T>() -> u32 {
     let bytes = size_of::<T>();
-    assert!(bytes % 16 == 0);
+    assert!(
+        bytes.is_multiple_of(16),
+        "GPU paints must occupy whole RGBA32Uint texels"
+    );
     (bytes / 16) as u32
 }
 
