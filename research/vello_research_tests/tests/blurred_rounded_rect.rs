@@ -10,7 +10,7 @@
 //! These cases mirror the blurred rounded rectangle tests in the `vello_sparse_tests` crate.
 
 use vello::Scene;
-use vello::kurbo::{Affine, Circle, Point, Rect, RoundedRect, Shape, Vec2};
+use vello::kurbo::{Affine, BezPath, Circle, Point, Rect, RoundedRect, Shape, Vec2};
 use vello::peniko::Fill;
 use vello::peniko::color::palette;
 use vello_research_tests::{TestParams, snapshot_test_sync};
@@ -543,60 +543,47 @@ fn inverse_blurred_rounded_rect_in_rect_cpu() {
     );
 }
 
-/// The shape is filled with the current fill rule, so the overlapping region of the two
-/// circles is not painted.
+/// Two overlapping circles with opposite winding directions.
+///
+/// `draw_blurred_rounded_rect_in` always fills `shape` with the non-zero fill rule, so the
+/// overlapping region of the two circles (which has a winding number of zero) is not painted.
+/// This gives the same coverage as the even-odd case in the `vello_tests` crate.
+fn opposing_circles() -> BezPath {
+    let mut path = Circle::new(Point::new(35.0, 50.0), 40.0).to_path(0.1);
+    path.extend(
+        Circle::new(Point::new(65.0, 50.0), 40.0)
+            .to_path(0.1)
+            .reverse_subpaths(),
+    );
+    path
+}
+
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn blurred_rounded_rect_in_even_odd_gpu() {
-    let mut path = Circle::new(Point::new(35.0, 50.0), 40.0).to_path(0.1);
-    path.extend(Circle::new(Point::new(65.0, 50.0), 40.0).to_path(0.1));
-
-    let mut scene = Scene::new();
-    let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
-    scene.push_clip_layer(Fill::EvenOdd, Affine::IDENTITY, &path);
-    scene.draw_blurred_rounded_rect(
+    snapshot_blurred_rounded_rect_in(
+        "blurred_rounded_rect_in_even_odd",
+        &opposing_circles(),
+        10.0,
+        10.0,
+        false,
         Affine::IDENTITY,
-        rect,
-        palette::css::REBECCA_PURPLE,
-        10.0,
-        10.0,
+        false,
     );
-    scene.pop_layer();
-    let params = TestParams {
-        use_cpu: false,
-        base_color: Some(palette::css::WHITE),
-        ..TestParams::new("blurred_rounded_rect_in_even_odd", 100, 100)
-    };
-    snapshot_test_sync(scene, &params)
-        .unwrap()
-        .assert_mean_less_than(0.01);
 }
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn blurred_rounded_rect_in_even_odd_cpu() {
-    let mut path = Circle::new(Point::new(35.0, 50.0), 40.0).to_path(0.1);
-    path.extend(Circle::new(Point::new(65.0, 50.0), 40.0).to_path(0.1));
-
-    let mut scene = Scene::new();
-    let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
-    scene.push_clip_layer(Fill::EvenOdd, Affine::IDENTITY, &path);
-    scene.draw_blurred_rounded_rect(
+    snapshot_blurred_rounded_rect_in(
+        "blurred_rounded_rect_in_even_odd",
+        &opposing_circles(),
+        10.0,
+        10.0,
+        false,
         Affine::IDENTITY,
-        rect,
-        palette::css::REBECCA_PURPLE,
-        10.0,
-        10.0,
+        true,
     );
-    scene.pop_layer();
-    let params = TestParams {
-        use_cpu: true,
-        base_color: Some(palette::css::WHITE),
-        ..TestParams::new("blurred_rounded_rect_in_even_odd", 100, 100)
-    };
-    snapshot_test_sync(scene, &params)
-        .unwrap()
-        .assert_mean_less_than(0.01);
 }
 
 /// Emulate a CSS inset box shadow: the inverse blurred rounded rectangle is offset relative to
