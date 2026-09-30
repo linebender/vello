@@ -15,6 +15,7 @@ use crate::filter::FILTER_ATLAS_PADDING;
 use crate::scene::{LayersConfig, MemorySettings, RecordedDraw};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
+use core::mem::size_of;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::record::CommandRecorder;
@@ -464,7 +465,19 @@ pub(crate) enum GpuEncodedPaint {
     BlurredRoundedRect(GpuBlurredRoundedRect),
 }
 
+const fn texels<T>() -> u32 {
+    let bytes = size_of::<T>();
+    assert!(bytes % 16 == 0);
+    (bytes / 16) as u32
+}
+
 impl GpuEncodedPaint {
+    const IMAGE_TEXELS: u32 = texels::<GpuEncodedImage>();
+    const LINEAR_TEXELS: u32 = texels::<GpuLinearGradient>();
+    const RADIAL_TEXELS: u32 = texels::<GpuRadialGradient>();
+    const SWEEP_TEXELS: u32 = texels::<GpuSweepGradient>();
+    const BLURRED_RECT_TEXELS: u32 = texels::<GpuBlurredRoundedRect>();
+
     /// Returns the byte representation of this paint.
     #[inline]
     pub(crate) fn as_bytes(&self) -> &[u8] {
@@ -479,7 +492,13 @@ impl GpuEncodedPaint {
 
     /// Number of `RGBA32Uint` texels occupied by this paint.
     pub(crate) fn size_texels(&self) -> u32 {
-        u32::try_from(self.as_bytes().len() / 16).unwrap()
+        match self {
+            Self::Image(_) => Self::IMAGE_TEXELS,
+            Self::LinearGradient(_) => Self::LINEAR_TEXELS,
+            Self::RadialGradient(_) => Self::RADIAL_TEXELS,
+            Self::SweepGradient(_) => Self::SWEEP_TEXELS,
+            Self::BlurredRoundedRect(_) => Self::BLURRED_RECT_TEXELS,
+        }
     }
 
     /// Serialize paint enums directly into the provided buffer. Returns the number of bytes written.
