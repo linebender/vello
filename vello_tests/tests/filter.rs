@@ -52,8 +52,6 @@ fn filter_flood_star(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-/// A flood covers the drawn geometry even when the paint itself is fully transparent, both for a
-/// filter layer and for an inline filter effect.
 #[vello_test(skip_multithreaded)]
 fn filter_flood_transparent_paint(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
