@@ -123,7 +123,7 @@ struct Config {
 //       - Bits 0-25:
 //         - If paint_type = 0: unused
 //         - Bits 0-23: `paint_texture_idx` for every non-solid paint
-//         - Bits 24-25: external texture slot for external images; unused otherwise
+//         - Bits 24-25: reserved
 //
 //     When color_source = 1 (COLOR_SOURCE_LAYER):
 //       - Bits 0-7: opacity (0-255)
@@ -215,15 +215,6 @@ var<uniform> config: Config;
 
 @group(1) @binding(0)
 var external_texture_0: texture_2d<f32>;
-
-@group(1) @binding(1)
-var external_texture_1: texture_2d<f32>;
-
-@group(1) @binding(2)
-var external_texture_2: texture_2d<f32>;
-
-@group(1) @binding(3)
-var external_texture_3: texture_2d<f32>;
 
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
@@ -412,43 +403,14 @@ fn fs_main(
             // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
             // using GPU-native bilinear sampling
 
-            var sample_color: vec4<f32>;
-            let external_texture_slot =
-                (paint_and_rect_flag >> EXTERNAL_TEXTURE_SLOT_SHIFT) & 0x3u;
             let final_xy = image_offset + extended_xy;
-            if external_texture_slot == 0u {
-                sample_color = sample_external_image(
-                    external_texture_0,
-                    image_quality,
-                    final_xy,
-                    image_offset,
-                    image_size,
-                );
-            } else if external_texture_slot == 1u {
-                sample_color = sample_external_image(
-                    external_texture_1,
-                    image_quality,
-                    final_xy,
-                    image_offset,
-                    image_size,
-                );
-            } else if external_texture_slot == 2u {
-                sample_color = sample_external_image(
-                    external_texture_2,
-                    image_quality,
-                    final_xy,
-                    image_offset,
-                    image_size,
-                );
-            } else {
-                sample_color = sample_external_image(
-                    external_texture_3,
-                    image_quality,
-                    final_xy,
-                    image_offset,
-                    image_size,
-                );
-            }
+            let sample_color = sample_external_image(
+                external_texture_0,
+                image_quality,
+                final_xy,
+                image_offset,
+                image_size,
+            );
 
             final_color = alpha * select(
                 image_tint * sample_color.a,

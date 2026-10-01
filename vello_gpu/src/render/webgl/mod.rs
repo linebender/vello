@@ -2128,12 +2128,7 @@ fn get_strip_uniforms(
     let encoded_paints_texture_vs_name = render::vertex::ENCODED_PAINTS_TEXTURE;
     let gradient_texture_name = render::fragment::GRADIENT_TEXTURE;
     // TODO: Change it so this is based on `EXTERNAL_TEXTURE_SLOT_COUNT`.
-    let external_texture_names = [
-        render::fragment::EXTERNAL_TEXTURE_0,
-        render::fragment::EXTERNAL_TEXTURE_1,
-        render::fragment::EXTERNAL_TEXTURE_2,
-        render::fragment::EXTERNAL_TEXTURE_3,
-    ];
+    let external_texture_names = [render::fragment::EXTERNAL_TEXTURE_0];
 
     Ok(StripUniforms {
         config_vs_block_index,
@@ -2151,12 +2146,11 @@ fn get_strip_uniforms(
             encoded_paints_texture_vs_name,
         )?,
         gradient_texture: required_uniform_location(gl, program, gradient_texture_name)?,
-        external_textures: [
-            required_uniform_location(gl, program, external_texture_names[0])?,
-            required_uniform_location(gl, program, external_texture_names[1])?,
-            required_uniform_location(gl, program, external_texture_names[2])?,
-            required_uniform_location(gl, program, external_texture_names[3])?,
-        ],
+        external_textures: [required_uniform_location(
+            gl,
+            program,
+            external_texture_names[0],
+        )?],
     })
 }
 
