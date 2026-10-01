@@ -25,13 +25,13 @@ use vello_dev_macros::vello_test;
 fn filter_flood(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
 
-    ctx.push_filter_layer(filter_flood);
-    ctx.set_paint(REBECCA_PURPLE);
+    ctx.set_filter_effect(filter_flood);
+    ctx.set_paint(TRANSPARENT);
     ctx.fill_rect(&Rect::new(0.0, 8.0, 256.0, 32.0));
-    ctx.pop_layer();
+    ctx.reset_filter_effect();
 }
 
-/// Test flood filter filling a star shape with solid color using a mask.
+/// Test flood filter filling a star shape drawn with transparent paint using a mask.
 ///
 /// Note: SVG-compliant flood would use `feComposite` with `operator="in"`, which requires
 /// implementing the composite primitive and filter subregions.
@@ -46,7 +46,7 @@ fn filter_flood_star(ctx: &mut impl Renderer) {
     // not trying to test here.
     ctx.push_clip_layer(&star_path);
     ctx.push_filter_layer(filter_flood);
-    ctx.set_paint(REBECCA_PURPLE);
+    ctx.set_paint(TRANSPARENT);
     ctx.fill_path(&star_path);
     ctx.pop_layer();
     ctx.pop_layer();

@@ -239,16 +239,6 @@ impl<D> CommandRecorder<D> {
         !self.layer_stack.is_empty()
     }
 
-    /// Whether any of the currently open layers is a filter layer.
-    pub fn in_filter_layer(&self) -> bool {
-        self.layer_stack.iter().any(|layer| {
-            matches!(
-                self.layers[layer.id as usize].kind,
-                RecordedLayerKind::Filter { .. }
-            )
-        })
-    }
-
     /// Reset the command recorder.
     #[inline]
     pub fn reset(&mut self, width: u16, height: u16) {
