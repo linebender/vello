@@ -219,8 +219,6 @@ pub struct Scene {
     pub(crate) aliasing_threshold: Option<u8>,
     /// Storage for encoded non-solid paint data.
     pub(crate) encoded_paints: Vec<EncodedPaint>,
-    /// Whether the current paint is visible (e.g., alpha > 0).
-    paint_visible: bool,
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: RefCell<StripStorage>,
     /// Current filter effect applied to individual draw operations.
@@ -249,7 +247,6 @@ impl Scene {
             root_transforms: RootTransforms::default(),
             aliasing_threshold: None,
             encoded_paints: vec![],
-            paint_visible: true,
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
             recorder: CommandRecorder::new(width, height),
@@ -317,9 +314,7 @@ impl Scene {
 
     /// Whether drawing with the current paint can produce any pixels.
     fn paint_has_area(&self) -> bool {
-        self.paint_visible
-            && (matches!(self.render_state.paint, PaintType::Solid(_))
-                || self.paint_transform_has_area())
+        matches!(self.render_state.paint, PaintType::Solid(_)) || self.paint_transform_has_area()
     }
 
     /// Fill a path with the current paint and fill rule.
@@ -559,7 +554,7 @@ impl Scene {
         std_dev: f32,
         invert: bool,
     ) {
-        if !self.paint_visible || !self.paint_transform_has_area() {
+        if !self.paint_transform_has_area() {
             return;
         }
 
@@ -777,14 +772,6 @@ impl Scene {
     //       render time into a texture usable by the renderer backend.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.render_state.paint = paint.into();
-        self.set_paint_visible();
-    }
-
-    fn set_paint_visible(&mut self) {
-        self.paint_visible = match &self.render_state.paint {
-            PaintType::Solid(color) => color.components[3] != 0.0,
-            _ => true,
-        };
     }
 
     /// Set the tint for subsequent image paint operations.
@@ -878,8 +865,6 @@ impl Scene {
         self.root_transforms.reset();
         self.render_state.reset();
         self.aliasing_threshold = None;
-        self.set_paint_visible();
-
         self.recorder.reset(self.width, self.height);
         self.filter = None;
     }
@@ -896,10 +881,7 @@ impl Scene {
 
     /// Take current rendering state and reset the existing state to its default.
     pub fn take_current_state(&mut self) -> RenderState {
-        let state = core::mem::take(&mut self.render_state);
-        self.set_paint_visible();
-
-        state
+        core::mem::take(&mut self.render_state)
     }
 
     /// Save a copy of the current rendering state.
@@ -910,7 +892,6 @@ impl Scene {
     /// Restore rendering state.
     pub fn restore_state(&mut self, state: RenderState) {
         self.render_state = state;
-        self.set_paint_visible();
     }
 }
 
@@ -928,7 +909,7 @@ mod tests {
     use vello_common::kurbo::{BezPath, Rect};
     use vello_common::paint::{Image, ImageSource, Paint, PremulColor};
     use vello_common::peniko::ImageSampler;
-    use vello_common::peniko::color::palette::css::{BLUE, TRANSPARENT};
+    use vello_common::peniko::color::palette::css::BLUE;
     #[cfg(feature = "text")]
     use vello_common::peniko::{Blob, FontData};
     use vello_common::record::Drawable;
@@ -956,17 +937,6 @@ mod tests {
         };
         assert_eq!(rect.rect, Rect::new(20.5, 20.25, 50.5, 60.75));
         assert!(scene.strip_storage.borrow().strips.is_empty());
-    }
-
-    #[test]
-    fn reset_restores_default_paint_visibility() {
-        let mut scene = Scene::new(100, 100);
-        scene.set_paint(TRANSPARENT);
-
-        scene.reset();
-        scene.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
-
-        assert_eq!(scene.recorder.draws.len(), 1);
     }
 
     #[test]
