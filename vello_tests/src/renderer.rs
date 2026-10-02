@@ -228,7 +228,7 @@ impl Renderer for CpuRenderer {
                 .get(id)
                 .unwrap_or_else(|| panic!("External texture {id:?} not found in test registry"));
             assert_eq!(
-                *source_region,
+                source_region.rect(),
                 RectU16::new(0, 0, pixmap.width(), pixmap.height()),
                 "CPU test renderer only supports full external texture regions"
             );

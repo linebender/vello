@@ -71,6 +71,37 @@ impl ImageId {
     }
 }
 
+/// Region of an externally owned texture used by an image paint.
+///
+/// Whenever sampling the whole texture instead of a subregion from an atlas, you should **always**
+/// prefer using [`TextureRegion::Full`] over [`TextureRegion::Rect`], as it will
+/// have better performance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextureRegion {
+    /// The entire texture view.
+    ///
+    /// **It is important that the provided width and height match the actual dimensions of the
+    /// texture, otherwise, rendering might be corrupted!**
+    Full {
+        /// Width of the bound texture view.
+        width: u16,
+        /// Height of the bound texture view.
+        height: u16,
+    },
+    /// A subrectangle in texel coordinates.
+    Rect(RectU16),
+}
+
+impl TextureRegion {
+    /// Return the source region in texel coordinates.
+    pub const fn rect(self) -> RectU16 {
+        match self {
+            Self::Full { width, height } => RectU16::new(0, 0, width, height),
+            Self::Rect(rect) => rect,
+        }
+    }
+}
+
 /// Bitmap source used by `Image`.
 #[derive(Debug, Clone)]
 pub enum ImageSource {
@@ -88,8 +119,8 @@ pub enum ImageSource {
     ExternalTexture {
         /// Opaque external texture handle.
         id: TextureId,
-        /// Source region to sample from in texel coordinates.
-        source_region: RectU16,
+        /// Source region to sample from.
+        source_region: TextureRegion,
         /// Whether the source region may contain non-opaque pixels.
         may_have_transparency: bool,
     },
@@ -123,11 +154,11 @@ impl ImageSource {
     /// Panics if `source_region` is empty.
     pub fn external_texture(
         texture_id: TextureId,
-        source_region: RectU16,
+        source_region: TextureRegion,
         may_have_transparency: bool,
     ) -> Self {
         assert!(
-            !source_region.is_empty(),
+            !source_region.rect().is_empty(),
             "external texture source regions must not be empty"
         );
 

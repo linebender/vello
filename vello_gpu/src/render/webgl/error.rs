@@ -88,6 +88,8 @@ pub enum WebGlContextOperation {
 pub enum WebGlResourceKind {
     /// A texture.
     Texture,
+    /// A sampler.
+    Sampler,
     /// A buffer.
     Buffer,
     /// A framebuffer.

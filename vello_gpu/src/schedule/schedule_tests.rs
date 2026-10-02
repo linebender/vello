@@ -11,7 +11,11 @@ use vello_common::geometry::SizeU16;
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
 #[cfg(all(feature = "probe", feature = "webgl"))]
-use vello_common::{TextureId, geometry::RectU16, paint::ImageSource, probe};
+use vello_common::{
+    TextureId,
+    paint::{ImageSource, TextureRegion},
+    probe,
+};
 
 #[cfg(all(feature = "probe", feature = "webgl"))]
 #[test]
@@ -24,7 +28,10 @@ fn probe_scene_uses_depth_buffer_when_enabled() {
         &mut case.scene,
         ImageSource::external_texture(
             TextureId(0),
-            RectU16::new(0, 0, image.width(), image.height()),
+            TextureRegion::Full {
+                width: image.width(),
+                height: image.height(),
+            },
             image.may_have_transparency(),
         ),
         &elements,

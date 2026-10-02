@@ -14,10 +14,9 @@ use thiserror::Error;
 use vello_common::TextureId;
 use vello_common::color::palette::css;
 use vello_common::filter_effects::Filter;
-use vello_common::geometry::RectU16;
 use vello_common::image_cache::ImageCache;
 use vello_common::kurbo::{Affine, BezPath, Rect};
-use vello_common::paint::{ImageSource, PaintType};
+use vello_common::paint::{ImageSource, PaintType, TextureRegion};
 use vello_common::peniko::BlendMode;
 use vello_common::pixmap::Pixmap;
 use vello_common::probe::{Probe, ProbeFeature};
@@ -155,7 +154,10 @@ impl WebGlRenderer {
             &mut scene,
             ImageSource::external_texture(
                 probe_texture_id,
-                RectU16::new(0, 0, probe_image.width(), probe_image.height()),
+                TextureRegion::Full {
+                    width: probe_image.width(),
+                    height: probe_image.height(),
+                },
                 probe_image.may_have_transparency(),
             ),
             elements,

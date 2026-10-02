@@ -577,20 +577,27 @@ impl StripAlphaFillSegmentExt for StripAlphaFillSegment {
 mod tests {
     use super::{Draw, DrawBuffers, DrawBuilder, DrawState, ExternalTextureRun, OpaqueDraw};
     use crate::GpuStrip;
-    use crate::paint::{EXTERNAL_TEXTURE_SLOT_SHIFT, PaintResolver, TextureSourceId};
+    use crate::paint::{
+        EXTERNAL_TEXTURE_SLOT_SHIFT, ExternalSampler, PaintResolver, SamplerAddress, SamplerFilter,
+        TextureSourceId,
+    };
+    use crate::render::common::{GpuEncodedImage, GpuEncodedPaint, encode_native_image_paint};
     use crate::scene::{RecordedDraw, RecordedRect};
     use crate::target::{
         DrawTarget, LayerTextureId, LayerTextureRegion, RootTarget, TextureParity, TextureRegion,
     };
     use crate::util::VecExt;
     use alloc::vec::Vec;
+    use bytemuck::Zeroable;
     use vello_common::TextureId;
     use vello_common::encode::{EncodedImage, EncodedPaint};
     use vello_common::geometry::RectU16;
     use vello_common::image_cache::ImageCache;
     use vello_common::kurbo::{Affine, Rect, Vec2};
     use vello_common::multi_atlas::{AtlasConfig, AtlasId};
-    use vello_common::paint::{ImageId, ImageSource, IndexedPaint, Paint, PremulColor};
+    use vello_common::paint::{
+        ImageId, ImageSource, IndexedPaint, Paint, PremulColor, TextureRegion as ImageTextureRegion,
+    };
     use vello_common::peniko::color::palette::css::BLUE;
     use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
     use vello_common::strip_generator::StripStorage;
@@ -649,7 +656,18 @@ mod tests {
     }
 
     fn no_paints() -> PaintResolver<'static> {
-        PaintResolver::new(&[], &[])
+        PaintResolver::new(&[], &[], &[])
+    }
+
+    fn gpu_paints(encoded: &[EncodedPaint]) -> Vec<GpuEncodedPaint> {
+        encoded
+            .iter()
+            .map(|paint| match paint {
+                EncodedPaint::Image(image) => encode_native_image_paint(image)
+                    .unwrap_or_else(|| GpuEncodedPaint::Image(GpuEncodedImage::zeroed())),
+                _ => unreachable!("draw tests only use image paints"),
+            })
+            .collect()
     }
 
     fn gpu_strip(x: u16) -> GpuStrip {
@@ -681,7 +699,18 @@ mod tests {
     }
 
     fn external_sources<const N: usize>() -> [TextureSourceId; N] {
-        texture_ids().map(TextureSourceId::External)
+        texture_ids().map(external_source)
+    }
+
+    fn external_source(id: TextureId) -> TextureSourceId {
+        TextureSourceId::External(
+            id,
+            ExternalSampler {
+                filter: SamplerFilter::Nearest,
+                address_x: SamplerAddress::Pad,
+                address_y: SamplerAddress::Pad,
+            },
+        )
     }
 
     fn run_states(
@@ -696,12 +725,28 @@ mod tests {
     }
 
     fn external(texture_id: TextureId) -> EncodedPaint {
+        external_with_sampler(texture_id, ImageQuality::Low, Extend::Pad, Extend::Pad)
+    }
+
+    fn external_with_sampler(
+        texture_id: TextureId,
+        quality: ImageQuality,
+        x_extend: Extend,
+        y_extend: Extend,
+    ) -> EncodedPaint {
         EncodedPaint::Image(EncodedImage {
-            source: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 8, 8), true),
+            source: ImageSource::external_texture(
+                texture_id,
+                ImageTextureRegion::Full {
+                    width: 8,
+                    height: 8,
+                },
+                true,
+            ),
             sampler: ImageSampler {
-                x_extend: Extend::Pad,
-                y_extend: Extend::Pad,
-                quality: ImageQuality::Low,
+                x_extend,
+                y_extend,
+                quality,
                 alpha: 1.0,
             },
             may_have_transparency: true,
@@ -744,7 +789,8 @@ mod tests {
         let [texture_a, texture_b] = texture_ids();
         let encoded = [external(texture_a), external(texture_b)];
         let offsets = [0, 0];
-        let resolver = PaintResolver::new(&encoded, &offsets);
+        let gpu_paints = gpu_paints(&encoded);
+        let resolver = PaintResolver::new(&encoded, &offsets, &gpu_paints);
         let mut case = DrawCase::new(RootTarget::UserSurface, RectU16::new(0, 0, 32, 8));
         let mut draw = Draw::default();
         let mut other = Draw::default();
@@ -760,9 +806,9 @@ mod tests {
         assert_eq!(
             run_states(&draw.external_texture_runs),
             [
-                ([Some(TextureSourceId::External(texture_a))], 0),
-                ([Some(TextureSourceId::External(texture_b))], 2),
-                ([Some(TextureSourceId::External(texture_a))], 4),
+                ([Some(external_source(texture_a))], 0),
+                ([Some(external_source(texture_b))], 2),
+                ([Some(external_source(texture_a))], 4),
             ]
         );
     }
@@ -772,7 +818,8 @@ mod tests {
         let textures: [TextureId; 5] = texture_ids();
         let encoded = textures.map(external);
         let offsets = [0; 5];
-        let resolver = PaintResolver::new(&encoded, &offsets);
+        let gpu_paints = gpu_paints(&encoded);
+        let resolver = PaintResolver::new(&encoded, &offsets, &gpu_paints);
         let mut case = DrawCase::new(RootTarget::UserSurface, RectU16::new(0, 0, 32, 8));
         let mut draw = Draw::default();
 
@@ -788,12 +835,12 @@ mod tests {
         assert_eq!(
             run_states(&draw.external_texture_runs),
             [
-                ([Some(TextureSourceId::External(textures[0]))], 0),
-                ([Some(TextureSourceId::External(textures[1]))], 1),
-                ([Some(TextureSourceId::External(textures[2]))], 2),
-                ([Some(TextureSourceId::External(textures[3]))], 3),
-                ([Some(TextureSourceId::External(textures[4]))], 4),
-                ([Some(TextureSourceId::External(textures[0]))], 5),
+                ([Some(external_source(textures[0]))], 0),
+                ([Some(external_source(textures[1]))], 1),
+                ([Some(external_source(textures[2]))], 2),
+                ([Some(external_source(textures[3]))], 3),
+                ([Some(external_source(textures[4]))], 4),
+                ([Some(external_source(textures[0]))], 5),
             ]
         );
         assert_eq!(
@@ -810,7 +857,8 @@ mod tests {
     fn texture_runs_coalesce_distinct_paints_for_same_texture() {
         let [texture] = texture_ids();
         let encoded = [external(texture), external(texture)];
-        let resolver = PaintResolver::new(&encoded, &[0, 3]);
+        let gpu_paints = gpu_paints(&encoded);
+        let resolver = PaintResolver::new(&encoded, &[0, 3], &gpu_paints);
         let mut case = DrawCase::new(RootTarget::UserSurface, RectU16::new(0, 0, 8, 8));
         let mut draw = Draw::default();
 
@@ -819,7 +867,42 @@ mod tests {
 
         assert_eq!(
             run_states(&draw.external_texture_runs),
-            [([Some(TextureSourceId::External(texture))], 0)]
+            [([Some(external_source(texture))], 0)]
+        );
+    }
+
+    #[test]
+    fn texture_runs_separate_sampler_modes_for_same_texture() {
+        let [texture] = texture_ids();
+        let encoded = [
+            external(texture),
+            external_with_sampler(texture, ImageQuality::Medium, Extend::Repeat, Extend::Pad),
+        ];
+        let gpu_paints = gpu_paints(&encoded);
+        let resolver = PaintResolver::new(&encoded, &[0, 3], &gpu_paints);
+        let mut case = DrawCase::new(RootTarget::UserSurface, RectU16::new(0, 0, 8, 8));
+        let mut draw = Draw::default();
+
+        case.rect(&mut draw, rect(0.0), indexed(0), resolver);
+        case.rect(&mut draw, rect(4.0), indexed(1), resolver);
+
+        assert_eq!(draw.external_texture_runs.len(), 2);
+        assert_eq!(
+            run_states(&draw.external_texture_runs),
+            [
+                ([Some(external_source(texture))], 0),
+                (
+                    [Some(TextureSourceId::External(
+                        texture,
+                        ExternalSampler {
+                            filter: SamplerFilter::Linear,
+                            address_x: SamplerAddress::Repeat,
+                            address_y: SamplerAddress::Pad,
+                        },
+                    ))],
+                    1
+                ),
+            ]
         );
     }
 
@@ -829,7 +912,9 @@ mod tests {
         let mut image_cache = ImageCache::new_with_config(AtlasConfig::default());
         let image_id = image_cache.allocate(1, 1, 0).unwrap();
         let encoded = [external(texture), atlas_image(image_id)];
-        let resolver = PaintResolver::new(&encoded, &[0, 0]).with_image_cache(&image_cache);
+        let gpu_paints = gpu_paints(&encoded);
+        let resolver =
+            PaintResolver::new(&encoded, &[0, 0], &gpu_paints).with_image_cache(&image_cache);
         let mut case = DrawCase::new(RootTarget::UserSurface, RectU16::new(0, 0, 16, 8));
         let mut draw = Draw::default();
 
@@ -841,9 +926,9 @@ mod tests {
         assert_eq!(
             run_states(&draw.external_texture_runs),
             [
-                ([Some(TextureSourceId::External(texture))], 0),
+                ([Some(external_source(texture))], 0),
                 ([Some(TextureSourceId::Atlas(AtlasId::new(0)))], 1),
-                ([Some(TextureSourceId::External(texture))], 2),
+                ([Some(external_source(texture))], 2),
             ]
         );
     }
@@ -954,7 +1039,8 @@ mod tests {
         let [texture_id] = texture_ids();
         let encoded = [external(texture_id)];
         let offsets = [0];
-        let resolver = PaintResolver::new(&encoded, &offsets);
+        let gpu_paints = gpu_paints(&encoded);
+        let resolver = PaintResolver::new(&encoded, &offsets, &gpu_paints);
         let mut case = DrawCase::new(RootTarget::UserSurface, RectU16::new(0, 0, 8, 8));
         let mut draw = Draw::default();
 
