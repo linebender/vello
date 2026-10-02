@@ -491,11 +491,6 @@ jobs:
           toolchain: ${{ env.RUST_STABLE_VER }}
           targets: wasm32-unknown-unknown
 
-      - name: restore cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.event_name != 'merge_group' }}
-
       - name: install wasm-pack
         uses: taiki-e/install-action@v2
         with:
@@ -657,8 +652,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: install nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
 
       - name: install native dependencies
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libfontconfig-dev
@@ -668,8 +665,7 @@ jobs:
         with:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      # We test documentation using nightly to match docs.rs.
       - name: cargo doc
         run: cargo doc --workspace --locked --all-features --no-deps --document-private-items
         env:
-          RUSTDOCFLAGS: '--cfg docsrs -D warnings'
+          RUSTDOCFLAGS: '-D warnings'
