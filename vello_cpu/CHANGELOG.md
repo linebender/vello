@@ -12,6 +12,40 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- `RenderContext::push_clip_rect` for non-isolated rectangular clipping. ([#1916][] by [@LaurenzV][])
+- Support for `ImageSampler::alpha`. ([#1880][] by [@LaurenzV][])
+
+### Changed
+
+- Breaking change: Replaced `CompositeMode` with `TargetInit`, adding configurable target clears. ([#1866][] by [@LaurenzV][])
+- Breaking change: Renamed `RenderContext::pop_clip_path` to `pop_clip`. ([#1942][] by [@LaurenzV][])
+- Breaking change: `GlyphRunBuilder::fill_glyphs` and `stroke_glyphs` now return `Result<(), glifo::GlyphRenderError>`. ([#1944][] by [@LaurenzV][])
+- Breaking change: Updated `fearless_simd` to v0.7.0. ([#1853][] by [@LaurenzV][])
+- Breaking change: Reorganized shared type re-exports and removed the crate-root `Paint` re-export. ([#1881][] by [@LaurenzV][])
+- Root-level blend operations are now isolated from the target background. ([#1865][] by [@LaurenzV][])
+- Bitmap glyphs now consistently use bilinear sampling (`ImageQuality::Medium`) instead of switching to bicubic sampling when downscaled. ([#1970][] by [@LaurenzV][])
+
+### Fixed
+
+- Image-sampling errors near texel boundaries with `Repeat`, `Reflect`, and bilinear/bicubic filtering. ([#1946][], [#1950][] by [@LaurenzV][])
+- Scene contents being cut off when compositing over a background in the u8 pipeline. ([#1933][] by [@LaurenzV][])
+- Layer opacity is now clamped to the range 0 to 1. ([#1856][] by [@LaurenzV][])
+- Rendering on big-endian targets. ([#1845][] by [@LaurenzV][])
+- Gradient cache collisions between premultiplied and unpremultiplied alpha interpolation. ([#1932][] by [@LaurenzV][])
+- Draws with non-invertible paint transforms are now skipped. ([#1949][] by [@grebmeg][])
+- Resetting a render context now also resets the aliasing threshold. ([#1945][] by [@LaurenzV][])
+- Incorrect placement of non-Apple `sbix` glyphs caused by the Apple Color Emoji workaround. ([#1936][] by [@LaurenzV][])
+- Incorrect `sbix` glyph placement caused by sign errors in bearing offsets. ([#1939][] by [@LaurenzV][])
+
+### Optimized
+
+- Rectangle rendering. ([#1962][] by [@nicoburns][])
+- Rectangle rendering in multi-threaded contexts. ([#1924][] by [@LaurenzV][])
+- Rectangle rendering under rectangular clips. ([#1926][] by [@LaurenzV][])
+- Transparency hints for rendered pixmaps. ([#1867][] by [@LaurenzV][])
+
 ## [0.2.0][] - 2026-08-07
 
 This release has an [MSRV][] of 1.88.
@@ -276,6 +310,29 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1763]: https://github.com/linebender/vello/pull/1763
 [#1787]: https://github.com/linebender/vello/pull/1787
 [#1803]: https://github.com/linebender/vello/pull/1803
+[#1845]: https://github.com/linebender/vello/pull/1845
+[#1853]: https://github.com/linebender/vello/pull/1853
+[#1856]: https://github.com/linebender/vello/pull/1856
+[#1865]: https://github.com/linebender/vello/pull/1865
+[#1866]: https://github.com/linebender/vello/pull/1866
+[#1867]: https://github.com/linebender/vello/pull/1867
+[#1880]: https://github.com/linebender/vello/pull/1880
+[#1881]: https://github.com/linebender/vello/pull/1881
+[#1916]: https://github.com/linebender/vello/pull/1916
+[#1924]: https://github.com/linebender/vello/pull/1924
+[#1926]: https://github.com/linebender/vello/pull/1926
+[#1932]: https://github.com/linebender/vello/pull/1932
+[#1933]: https://github.com/linebender/vello/pull/1933
+[#1936]: https://github.com/linebender/vello/pull/1936
+[#1939]: https://github.com/linebender/vello/pull/1939
+[#1942]: https://github.com/linebender/vello/pull/1942
+[#1944]: https://github.com/linebender/vello/pull/1944
+[#1945]: https://github.com/linebender/vello/pull/1945
+[#1946]: https://github.com/linebender/vello/pull/1946
+[#1949]: https://github.com/linebender/vello/pull/1949
+[#1950]: https://github.com/linebender/vello/pull/1950
+[#1962]: https://github.com/linebender/vello/pull/1962
+[#1970]: https://github.com/linebender/vello/pull/1970
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
