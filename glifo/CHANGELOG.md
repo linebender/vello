@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+## [0.4.0][] - 2026-10-02
+
+This release has an [MSRV][] of 1.89.
+
 ### Changed
 
 - Breaking change: Glyph filling and stroking methods now return `Result<(), GlyphRenderError>`. ([#1944][] by [@LaurenzV][])
@@ -83,7 +87,8 @@ Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@con
 [#1944]: https://github.com/linebender/vello/pull/1944
 [#1970]: https://github.com/linebender/vello/pull/1970
 
-[Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.3.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.4.0...HEAD
+[0.4.0]: https://github.com/linebender/vello/compare/glifo-v0.3.0...glifo-v0.4.0
 [0.3.0]: https://github.com/linebender/vello/compare/glifo-v0.2.0...glifo-v0.3.0
 [0.2.0]: https://github.com/linebender/vello/compare/glifo-v0.1.1...glifo-v0.2.0
 [0.1.1]: https://github.com/linebender/vello/compare/glifo-v0.1.0...glifo-v0.1.1

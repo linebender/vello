@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+## [0.11.0][] - 2026-10-02
+
+This release has an [MSRV][] of 1.89.
+
 ### Added
 
 - `vello_encoding` is now re-exported from the `low_level` module. ([#1847][] by [@ChrisJr404][])
@@ -481,7 +485,8 @@ This release has an [MSRV][] of 1.75.
 [#1936]: https://github.com/linebender/vello/pull/1936
 [#1939]: https://github.com/linebender/vello/pull/1939
 
-[Unreleased]: https://github.com/linebender/vello/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/linebender/vello/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/linebender/vello/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/linebender/vello/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/linebender/vello/compare/v0.7.0...v0.8.0

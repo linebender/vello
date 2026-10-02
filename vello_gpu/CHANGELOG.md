@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+## [0.3.0][] - 2026-10-02
+
+This release has an [MSRV][] of 1.89.
+
 **As part of this release, "Vello Hybrid" has been renamed into "Vello GPU"**.
 
 ### Added
@@ -405,7 +409,8 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1966]: https://github.com/linebender/vello/pull/1966
 [#1970]: https://github.com/linebender/vello/pull/1970
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
+[0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9

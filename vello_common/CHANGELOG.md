@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+## [0.3.0][] - 2026-10-02
+
+This release has an [MSRV][] of 1.89.
+
 ### Added
 
 - `TargetInit<C>` for configuring target clears or compositing over existing contents. ([#1866][] by [@LaurenzV][])
@@ -364,7 +368,8 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1949]: https://github.com/linebender/vello/pull/1949
 [#1962]: https://github.com/linebender/vello/pull/1962
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
+[0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0
 [0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
