@@ -240,7 +240,7 @@ fn render_uncached_bitmap_glyph(
         sampler: ImageSampler {
             x_extend: Extend::Pad,
             y_extend: Extend::Pad,
-            quality: quality_for_scale(&outline_transform),
+            quality: ImageQuality::Medium,
             alpha: 1.0,
         },
     };
@@ -466,7 +466,7 @@ fn insert_and_render_bitmap(
         atlas_slot,
         transform,
         glyph.area,
-        quality_for_scale(&transform),
+        ImageQuality::Medium,
         None,
     );
     CacheResult::CachedAndRendered
@@ -556,7 +556,7 @@ fn render_bitmap_glyph_from_atlas(
         atlas_slot,
         transform,
         area,
-        quality_for_scale(&transform),
+        ImageQuality::Medium,
         None,
     );
 }
@@ -610,20 +610,6 @@ pub(crate) fn calculate_raster_metrics(bounds: &Rect) -> RasterMetrics {
         height,
         bearing_x: min_x as i16,
         bearing_y: flipped_min_y as i16,
-    }
-}
-
-/// Choose image sampling quality based on downscale factor.
-///
-/// Returns `High` when the transform scales below 50% (where aliasing is
-/// visible), `Medium` otherwise.
-#[inline]
-pub fn quality_for_scale(transform: &Affine) -> ImageQuality {
-    let [a, _, _, d, _, _] = transform.as_coeffs();
-    if a < 0.5 || d < 0.5 {
-        ImageQuality::High
-    } else {
-        ImageQuality::Medium
     }
 }
 

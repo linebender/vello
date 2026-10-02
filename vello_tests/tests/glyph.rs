@@ -727,7 +727,7 @@ fn glyphs_small_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
         .unwrap();
 }
 
-#[vello_test(width = 250, height = 70, skip_gpu, glyph)]
+#[vello_test(width = 250, height = 70, skip_gpu, glyph, cpu_u8_tolerance = 1)]
 fn glyphs_bitmap_noto(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size);
@@ -922,7 +922,7 @@ fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer, enable_c
     );
 }
 
-#[vello_test(width = 250, height = 70, skip_gpu)]
+#[vello_test(width = 250, height = 70, skip_gpu, cpu_u8_tolerance = 1)]
 fn glyphs_bitmap_noto_stroked(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size);

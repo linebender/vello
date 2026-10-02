@@ -4,7 +4,6 @@
 //! Tests for GitHub issues.
 
 use crate::renderer::Renderer;
-use crate::util::layout_glyphs_noto_cbtf;
 use crate::util::stops_blue_green_red_yellow;
 use std::sync::Arc;
 use vello_common::color::PremulRgba8;
@@ -800,19 +799,26 @@ fn issue_1707_transparent_solid_fill(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
 }
 
-#[vello_test(width = 32, height = 32, skip_gpu, cpu_u8_tolerance = 1)]
+#[vello_test(skip_gpu, cpu_u8_tolerance = 1)]
 fn issue_bicubic_filtering_clamping(ctx: &mut impl Renderer) {
-    let font_size = 10.0;
-    let (font, glyphs) = layout_glyphs_noto_cbtf("👀", font_size);
+    let mut pixmap = Pixmap::new(5, 5);
+    pixmap.set_pixel(2, 2, Color::WHITE.premultiply().to_rgba8());
+    let image = ctx.get_image_source(Arc::new(pixmap));
 
     ctx.set_paint(BLACK);
-    ctx.fill_rect(&Rect::new(0.0, 0.0, 32.0, 32.0));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
 
-    ctx.set_transform(Affine::translate((5.0, 19.0)));
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .fill_glyphs(glyphs.into_iter())
-        .unwrap();
+    ctx.set_paint_transform(Affine::scale(20.0));
+    ctx.set_paint(Image {
+        image,
+        sampler: ImageSampler {
+            x_extend: Extend::Pad,
+            y_extend: Extend::Pad,
+            quality: ImageQuality::High,
+            alpha: 1.0,
+        },
+    });
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
 }
 
 #[vello_test(skip_multithreaded, gpu_no_depth)]
