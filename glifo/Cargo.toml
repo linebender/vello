@@ -1,6 +1,6 @@
 [package]
 name = "glifo"
-version = "0.3.0"
+version = "0.4.0"
 description = "Glifo provides APIs for efficiently rendering text."
 keywords = ["text", "layout"]
 categories = ["gui", "graphics"]
