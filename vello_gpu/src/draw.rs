@@ -447,7 +447,7 @@ impl LayerTextureRegion {
 }
 
 /// Number of external textures that can be sampled by one strip draw.
-pub(crate) const EXTERNAL_TEXTURE_SLOT_COUNT: usize = 4;
+pub(crate) const EXTERNAL_TEXTURE_SLOT_COUNT: usize = 1;
 
 /// External texture bindings for one strip draw.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
@@ -461,7 +461,7 @@ impl ExternalTextureBindings {
     };
 
     /// Return the existing slot for `texture_source`, or insert it into the first empty slot.
-    /// Returns `None` when all four slots are occupied by other textures.
+    /// Returns `None` when the slot is occupied by another texture.
     #[inline]
     fn get_or_insert(&mut self, texture_source: TextureSourceId) -> Option<u8> {
         // This iteration order assumes slots are assigned without leaving "holes" in-between,
@@ -684,7 +684,12 @@ mod tests {
         texture_ids().map(TextureSourceId::External)
     }
 
-    fn run_states(runs: &[ExternalTextureRun]) -> Vec<([Option<TextureSourceId>; 4], usize)> {
+    fn run_states(
+        runs: &[ExternalTextureRun],
+    ) -> Vec<(
+        [Option<TextureSourceId>; super::EXTERNAL_TEXTURE_SLOT_COUNT],
+        usize,
+    )> {
         runs.iter()
             .map(|run| (run.bindings.as_array(), run.strips_start))
             .collect()
@@ -754,15 +759,11 @@ mod tests {
 
         assert_eq!(
             run_states(&draw.external_texture_runs),
-            [(
-                [
-                    Some(TextureSourceId::External(texture_a)),
-                    Some(TextureSourceId::External(texture_b)),
-                    None,
-                    None,
-                ],
-                0,
-            )]
+            [
+                ([Some(TextureSourceId::External(texture_a))], 0),
+                ([Some(TextureSourceId::External(texture_b))], 2),
+                ([Some(TextureSourceId::External(texture_a))], 4),
+            ]
         );
     }
 
@@ -787,24 +788,12 @@ mod tests {
         assert_eq!(
             run_states(&draw.external_texture_runs),
             [
-                (
-                    [
-                        Some(TextureSourceId::External(textures[0])),
-                        Some(TextureSourceId::External(textures[1])),
-                        Some(TextureSourceId::External(textures[2])),
-                        Some(TextureSourceId::External(textures[3]))
-                    ],
-                    0
-                ),
-                (
-                    [
-                        Some(TextureSourceId::External(textures[4])),
-                        Some(TextureSourceId::External(textures[0])),
-                        None,
-                        None,
-                    ],
-                    4,
-                ),
+                ([Some(TextureSourceId::External(textures[0]))], 0),
+                ([Some(TextureSourceId::External(textures[1]))], 1),
+                ([Some(TextureSourceId::External(textures[2]))], 2),
+                ([Some(TextureSourceId::External(textures[3]))], 3),
+                ([Some(TextureSourceId::External(textures[4]))], 4),
+                ([Some(TextureSourceId::External(textures[0]))], 5),
             ]
         );
         assert_eq!(
@@ -813,7 +802,7 @@ mod tests {
                 .iter()
                 .map(|strip| (strip.paint_and_rect_flag >> EXTERNAL_TEXTURE_SLOT_SHIFT) & 0x3)
                 .collect::<Vec<_>>(),
-            [0, 1, 2, 3, 0, 1]
+            [0, 0, 0, 0, 0, 0]
         );
     }
 
@@ -830,10 +819,7 @@ mod tests {
 
         assert_eq!(
             run_states(&draw.external_texture_runs),
-            [(
-                [Some(TextureSourceId::External(texture)), None, None, None],
-                0,
-            )]
+            [([Some(TextureSourceId::External(texture))], 0)]
         );
     }
 
@@ -853,15 +839,13 @@ mod tests {
 
         assert_eq!(draw.strip_ranges.len(), 3);
         assert_eq!(
-            draw.external_texture_runs[0].bindings.as_array(),
+            run_states(&draw.external_texture_runs),
             [
-                Some(TextureSourceId::External(texture)),
-                Some(TextureSourceId::Atlas(AtlasId::new(0))),
-                None,
-                None,
+                ([Some(TextureSourceId::External(texture))], 0),
+                ([Some(TextureSourceId::Atlas(AtlasId::new(0)))], 1),
+                ([Some(TextureSourceId::External(texture))], 2),
             ]
         );
-        assert_eq!(draw.external_texture_runs[0].strips_start, 0);
     }
 
     #[test]
@@ -908,25 +892,19 @@ mod tests {
         assert_eq!(
             run_states(draw.external_texture_runs()),
             [
-                (
-                    [
-                        Some(textures[0]),
-                        Some(textures[1]),
-                        Some(textures[2]),
-                        Some(textures[3]),
-                    ],
-                    0,
-                ),
-                (
-                    [
-                        Some(textures[4]),
-                        Some(textures[0]),
-                        Some(textures[5]),
-                        Some(textures[6]),
-                    ],
-                    19,
-                ),
-                ([Some(textures[7]), Some(textures[1]), None, None], 28,),
+                ([Some(textures[0])], 0),
+                ([Some(textures[1])], 6),
+                ([Some(textures[2])], 8),
+                ([Some(textures[0])], 13),
+                ([Some(textures[1])], 15),
+                ([Some(textures[3])], 16),
+                ([Some(textures[0])], 18),
+                ([Some(textures[4])], 19),
+                ([Some(textures[0])], 22),
+                ([Some(textures[5])], 23),
+                ([Some(textures[6])], 26),
+                ([Some(textures[7])], 28),
+                ([Some(textures[1])], 30),
             ]
         );
         let original_slots = external_texture_slots(&draw);
@@ -941,25 +919,19 @@ mod tests {
         assert_eq!(
             run_states(draw.external_texture_runs()),
             [
-                ([Some(textures[7]), Some(textures[1]), None, None], 0,),
-                (
-                    [
-                        Some(textures[4]),
-                        Some(textures[0]),
-                        Some(textures[5]),
-                        Some(textures[6]),
-                    ],
-                    4,
-                ),
-                (
-                    [
-                        Some(textures[0]),
-                        Some(textures[1]),
-                        Some(textures[2]),
-                        Some(textures[3]),
-                    ],
-                    13,
-                ),
+                ([Some(textures[1])], 0),
+                ([Some(textures[7])], 2),
+                ([Some(textures[6])], 4),
+                ([Some(textures[5])], 6),
+                ([Some(textures[0])], 9),
+                ([Some(textures[4])], 10),
+                ([Some(textures[0])], 13),
+                ([Some(textures[3])], 14),
+                ([Some(textures[1])], 16),
+                ([Some(textures[0])], 17),
+                ([Some(textures[2])], 19),
+                ([Some(textures[1])], 24),
+                ([Some(textures[0])], 26),
             ]
         );
     }

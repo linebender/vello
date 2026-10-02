@@ -1138,12 +1138,7 @@ impl Programs {
             },
             count: None,
         };
-        let external_texture_layout_entries = [
-            external_texture_layout_entry(0),
-            external_texture_layout_entry(1),
-            external_texture_layout_entry(2),
-            external_texture_layout_entry(3),
-        ];
+        let external_texture_layout_entries = [external_texture_layout_entry(0)];
         let external_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("External Texture Bind Group Layout"),
@@ -2033,24 +2028,10 @@ impl Programs {
         external_texture_bind_group_layout: &BindGroupLayout,
         texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
-        let entries = [
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(texture_views[0]),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(texture_views[1]),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(texture_views[2]),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(texture_views[3]),
-            },
-        ];
+        let entries = [wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(texture_views[0]),
+        }];
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("External Texture Bind Group"),
             layout: external_texture_bind_group_layout,
