@@ -12,6 +12,8 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+**As part of this release, "Vello Hybrid" has been renamed into "Vello GPU"**.
+
 ### Added
 
 - An `unminified` feature in `vello_gpu_shaders` for readable shader output. ([#1851][] by [@grebmeg][])
