@@ -13,12 +13,20 @@ fn extend_mode(t: f32, mode: u32, max: f32) -> f32 {
             return clamp(t, 0.0, max - 1.0);
         }
         case EXTEND_REPEAT: {
-            return extend_mode_normalized(t / max, mode) * max;
+            return euclid_mod(floor(t), max);
         }
         case EXTEND_REFLECT, default: {
-            return extend_mode_normalized(t / max, mode) * max;
+            let period = max + max;
+            let r = euclid_mod(floor(t), period);
+            return select(r, period - 1.0 - r, r >= max);
         }
     }
+}
+
+fn euclid_mod(t: f32, m: f32) -> f32 {
+    let q = round(t / m);
+    let r = fma(q, -m, t);
+    return select(r, r + m, r < 0.0);
 }
 
 fn extend_mode_normalized(t: f32, mode: u32) -> f32 {

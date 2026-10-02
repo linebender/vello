@@ -130,7 +130,7 @@ mod tests {
         fill_sprite_rect(ctx, texture_id, SPRITES[3], 25., 25., ImageQuality::Low);
     }
 
-    #[vello_test(gpu_only)]
+    #[vello_test]
     fn external_texture_circle(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
@@ -142,7 +142,7 @@ mod tests {
         ctx.fill_path(&Circle::new((50., 50.), 40.).to_path(0.1));
     }
 
-    #[vello_test(gpu_only)]
+    #[vello_test]
     fn external_texture_repeat(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
@@ -156,6 +156,29 @@ mod tests {
             },
         });
         ctx.fill_rect(&Rect::new(5., 5., 95., 95.));
+    }
+
+    #[vello_test(gpu_only)]
+    fn external_texture_reflect_with_offset(ctx: &mut impl Renderer) {
+        let pixmap = Arc::new(Pixmap::from_parts(
+            vec![0, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255],
+            3,
+            1,
+            PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, false),
+        ));
+        let texture_id = ctx.register_external_texture(pixmap);
+
+        ctx.set_paint_transform(Affine::scale(3.0));
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(texture_id, RectU16::new(1, 0, 3, 1), false),
+            sampler: ImageSampler {
+                x_extend: Extend::Reflect,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Medium,
+                alpha: 1.0,
+            },
+        });
+        ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
     }
 
     #[vello_test(gpu_only)]
@@ -175,7 +198,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(5., 5., 95., 95.));
     }
 
-    #[vello_test(gpu_only)]
+    #[vello_test]
     fn external_texture_with_scene_transform_2(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
@@ -209,7 +232,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(5., 5., 95., 95.));
     }
 
-    #[vello_test(width = 96, height = 96, gpu_only, gpu_no_depth)]
+    #[vello_test(width = 96, height = 96, gpu_no_depth)]
     fn external_texture_opaque_interleaving(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(solid_pixmap(192, 0, 0, 192));
 
@@ -222,7 +245,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(48., 16., 88., 56.));
     }
 
-    #[vello_test(width = 96, height = 96, gpu_only, gpu_no_depth)]
+    #[vello_test(width = 96, height = 96, gpu_no_depth)]
     fn external_texture_runs_with_opaque_prefix(ctx: &mut impl Renderer) {
         let red_texture = ctx.register_external_texture(solid_pixmap(255, 0, 0, 255));
         let green_texture = ctx.register_external_texture(solid_pixmap(0, 255, 0, 255));
@@ -239,7 +262,7 @@ mod tests {
         fill_texture_rect(ctx, red_texture, 48., 48., 40., 40., true);
     }
 
-    #[vello_test(gpu_only, gpu_no_depth)]
+    #[vello_test(gpu_no_depth)]
     fn external_texture_root_painter_order(ctx: &mut impl Renderer) {
         let coral = ctx.register_external_texture(solid_pixmap(225, 87, 89, 255));
         let teal = ctx.register_external_texture(solid_pixmap(42, 157, 143, 255));
@@ -264,7 +287,7 @@ mod tests {
         fill_texture_rect(ctx, coral, 44., 44., 12., 12., false);
     }
 
-    #[vello_test(gpu_only)]
+    #[vello_test]
     fn external_texture_atlas_interleaving(ctx: &mut impl Renderer) {
         let atlas_red = ctx.get_image_source(solid_pixmap(254, 0, 0, 254));
         let external_green = ctx.register_external_texture(solid_pixmap(0, 254, 0, 254));
@@ -279,7 +302,7 @@ mod tests {
         draw_atlas_rect(ctx, atlas_magenta, Rect::new(66., 66., 90., 90.));
     }
 
-    #[vello_test(gpu_only)]
+    #[vello_test]
     fn external_texture_layer_before_external(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(solid_pixmap(128, 0, 0, 128));
 
@@ -293,7 +316,7 @@ mod tests {
         ctx.pop_layer();
     }
 
-    #[vello_test(gpu_only)]
+    #[vello_test]
     fn external_texture_external_before_layer(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(solid_pixmap(0, 255, 0, 255));
 
@@ -307,7 +330,7 @@ mod tests {
         ctx.pop_layer();
     }
 
-    #[vello_test(gpu_only)]
+    #[vello_test]
     fn external_texture_layer_circle_orders(ctx: &mut impl Renderer) {
         let blue_texture = ctx.register_external_texture(solid_pixmap(0, 0, 255, 255));
         let red_texture = ctx.register_external_texture(solid_pixmap(255, 0, 0, 255));
