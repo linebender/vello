@@ -42,6 +42,7 @@ This release has an [MSRV][] of 1.89.
 
 ### Optimized
 
+- Rectangle rendering. ([#1962][] by [@nicoburns][])
 - Pixmap premultiplication and unpremultiplication. ([#1834][], [#1839][] by [@LaurenzV][])
 - Rectangular clip intersections. ([#1926][] by [@LaurenzV][])
 
@@ -361,6 +362,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1930]: https://github.com/linebender/vello/pull/1930
 [#1932]: https://github.com/linebender/vello/pull/1932
 [#1949]: https://github.com/linebender/vello/pull/1949
+[#1962]: https://github.com/linebender/vello/pull/1962
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0

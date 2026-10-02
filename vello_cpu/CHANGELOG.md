@@ -25,6 +25,7 @@ This release has an [MSRV][] of 1.89.
 - Breaking change: Updated `fearless_simd` to v0.7.0. ([#1853][] by [@LaurenzV][])
 - Breaking change: Reorganized shared type re-exports and removed the crate-root `Paint` re-export. ([#1881][] by [@LaurenzV][])
 - Root-level blend operations are now isolated from the target background. ([#1865][] by [@LaurenzV][])
+- Bitmap glyphs now consistently use bilinear sampling (`ImageQuality::Medium`) instead of switching to bicubic sampling when downscaled. ([#1970][] by [@LaurenzV][])
 
 ### Fixed
 
@@ -36,9 +37,11 @@ This release has an [MSRV][] of 1.89.
 - Draws with non-invertible paint transforms are now skipped. ([#1949][] by [@grebmeg][])
 - Resetting a render context now also resets the aliasing threshold. ([#1945][] by [@LaurenzV][])
 - Incorrect placement of non-Apple `sbix` glyphs caused by the Apple Color Emoji workaround. ([#1936][] by [@LaurenzV][])
+- Incorrect `sbix` glyph placement caused by sign errors in bearing offsets. ([#1939][] by [@LaurenzV][])
 
 ### Optimized
 
+- Rectangle rendering. ([#1962][] by [@nicoburns][])
 - Rectangle rendering in multi-threaded contexts. ([#1924][] by [@LaurenzV][])
 - Rectangle rendering under rectangular clips. ([#1926][] by [@LaurenzV][])
 - Transparency hints for rendered pixmaps. ([#1867][] by [@LaurenzV][])
@@ -321,12 +324,15 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1932]: https://github.com/linebender/vello/pull/1932
 [#1933]: https://github.com/linebender/vello/pull/1933
 [#1936]: https://github.com/linebender/vello/pull/1936
+[#1939]: https://github.com/linebender/vello/pull/1939
 [#1942]: https://github.com/linebender/vello/pull/1942
 [#1944]: https://github.com/linebender/vello/pull/1944
 [#1945]: https://github.com/linebender/vello/pull/1945
 [#1946]: https://github.com/linebender/vello/pull/1946
 [#1949]: https://github.com/linebender/vello/pull/1949
 [#1950]: https://github.com/linebender/vello/pull/1950
+[#1962]: https://github.com/linebender/vello/pull/1962
+[#1970]: https://github.com/linebender/vello/pull/1970
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0

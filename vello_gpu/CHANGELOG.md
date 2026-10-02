@@ -34,9 +34,11 @@ This release has an [MSRV][] of 1.89.
 - Breaking change: `GlyphRunBuilder::fill_glyphs` and `stroke_glyphs` now return `Result<(), glifo::GlyphRenderError>`. ([#1944][] by [@LaurenzV][])
 - Expanded shared type re-exports. ([#1881][] by [@LaurenzV][])
 - WebGL context creation now requests `failIfMajorPerformanceCaveat`. ([#1806][] by [@LaurenzV][])
+- Bitmap glyphs now consistently use bilinear sampling (`ImageQuality::Medium`) instead of switching to bicubic sampling when downscaled. ([#1970][] by [@LaurenzV][])
 
 ### Fixed
 
+- Fully transparent draws are no longer skipped, fixing missing output from filters such as flood effects. ([#1966][] by [@AdrianEddy][], [@LaurenzV][])
 - The `std` feature no longer implicitly enables `wgpu`. ([#1822][] by [@taj-p][])
 - Safari 15 probe crashes and incorrect filter rendering. ([#1814][], [#1821][] by [@LaurenzV][])
 - WebGL hangs on affected Intel GPUs. ([#1830][] by [@LaurenzV][])
@@ -46,10 +48,11 @@ This release has an [MSRV][] of 1.89.
 - Draws with non-invertible paint transforms are now skipped. ([#1949][] by [@grebmeg][])
 - Resetting a scene now also resets the aliasing threshold. ([#1945][] by [@LaurenzV][])
 - Incorrect placement of non-Apple `sbix` glyphs caused by the Apple Color Emoji workaround. ([#1936][] by [@LaurenzV][])
+- Incorrect `sbix` glyph placement caused by sign errors in bearing offsets. ([#1939][] by [@LaurenzV][])
 
 ### Optimized
 
-- Batch up to four external textures per draw call. ([#1858][] by [@LaurenzV][])
+- Rectangle rendering. ([#1962][] by [@nicoburns][])
 - WebGL strip rendering through indexed instanced draws and `WEBGL_provoking_vertex` support. ([#1805][], [#1827][] by [@LaurenzV][])
 - Reduced embedded shader size through compaction and minification. ([#1831][] by [@LaurenzV][], [#1833][], [#1846][] by [@grebmeg][])
 - Reduced WebGL state management overhead. ([#1874][], [#1879][], [#1911][] by [@LaurenzV][])
@@ -246,6 +249,7 @@ This is the initial release. No changelog was kept for this release.
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
 [@DJMcNab]: https://github.com/DJMcNab
+[@AdrianEddy]: https://github.com/AdrianEddy
 [@b0nes164]: https://github.com/b0nes164
 [@dipeshbabu]: https://github.com/dipeshbabu
 [@grebmeg]: https://github.com/grebmeg
@@ -366,7 +370,6 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1846]: https://github.com/linebender/vello/pull/1846
 [#1851]: https://github.com/linebender/vello/pull/1851
 [#1853]: https://github.com/linebender/vello/pull/1853
-[#1858]: https://github.com/linebender/vello/pull/1858
 [#1859]: https://github.com/linebender/vello/pull/1859
 [#1864]: https://github.com/linebender/vello/pull/1864
 [#1869]: https://github.com/linebender/vello/pull/1869
@@ -391,10 +394,14 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1926]: https://github.com/linebender/vello/pull/1926
 [#1932]: https://github.com/linebender/vello/pull/1932
 [#1936]: https://github.com/linebender/vello/pull/1936
+[#1939]: https://github.com/linebender/vello/pull/1939
 [#1942]: https://github.com/linebender/vello/pull/1942
 [#1944]: https://github.com/linebender/vello/pull/1944
 [#1945]: https://github.com/linebender/vello/pull/1945
 [#1949]: https://github.com/linebender/vello/pull/1949
+[#1962]: https://github.com/linebender/vello/pull/1962
+[#1966]: https://github.com/linebender/vello/pull/1966
+[#1970]: https://github.com/linebender/vello/pull/1970
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0

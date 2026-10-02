@@ -23,6 +23,7 @@ This release has an [MSRV][] of 1.89.
 ### Fixed
 
 - Incorrect placement of non-Apple `sbix` glyphs caused by the Apple Color Emoji workaround. ([#1936][] by [@LaurenzV][])
+- Incorrect `sbix` glyph placement caused by sign errors in bearing offsets. ([#1939][] by [@LaurenzV][])
 
 ## [0.10.0][] - 2026-08-14
 
@@ -334,7 +335,6 @@ This release has an [MSRV][] of 1.75.
 
 - Initial release
 
-[@grebmeg]: https://github.com/grebmeg
 [@raphlinus]: https://github.com/raphlinus
 [@ArthurCose]: https://github.com/ArthurCose
 [@armansito]: https://github.com/armansito
@@ -477,10 +477,9 @@ This release has an [MSRV][] of 1.75.
 [#1774]: https://github.com/linebender/vello/pull/1774
 [#1777]: https://github.com/linebender/vello/pull/1777
 [#1847]: https://github.com/linebender/vello/pull/1847
-[#1872]: https://github.com/linebender/vello/pull/1872
-[#1883]: https://github.com/linebender/vello/pull/1883
 [#1909]: https://github.com/linebender/vello/pull/1909
 [#1936]: https://github.com/linebender/vello/pull/1936
+[#1939]: https://github.com/linebender/vello/pull/1939
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.10.0...HEAD
 [0.10.0]: https://github.com/linebender/vello/compare/v0.9.0...v0.10.0

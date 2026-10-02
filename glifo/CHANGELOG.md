@@ -16,10 +16,16 @@ This release has an [MSRV][] of 1.89.
 
 - Breaking change: Glyph filling and stroking methods now return `Result<(), GlyphRenderError>`. ([#1944][] by [@LaurenzV][])
 - Breaking change: `GlyphAtlas::replay_pending_atlas_commands` now accepts a fallible callback. ([#1890][] by [@LaurenzV][])
+- Bitmap glyphs now consistently use bilinear sampling (`ImageQuality::Medium`) instead of switching to bicubic sampling when downscaled. ([#1970][] by [@LaurenzV][])
+
+### Removed
+
+- Breaking change: `renderer::quality_for_scale`. ([#1970][] by [@LaurenzV][])
 
 ### Fixed
 
 - Incorrect placement of non-Apple `sbix` glyphs caused by the Apple Color Emoji workaround. ([#1936][] by [@LaurenzV][])
+- Incorrect `sbix` glyph placement caused by sign errors in bearing offsets. ([#1939][] by [@LaurenzV][])
 
 ## [0.3.0][] - 2026-08-07
 
@@ -73,7 +79,9 @@ Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@con
 [#1774]: https://github.com/linebender/vello/pull/1774
 [#1890]: https://github.com/linebender/vello/pull/1890
 [#1936]: https://github.com/linebender/vello/pull/1936
+[#1939]: https://github.com/linebender/vello/pull/1939
 [#1944]: https://github.com/linebender/vello/pull/1944
+[#1970]: https://github.com/linebender/vello/pull/1970
 
 [Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/glifo-v0.2.0...glifo-v0.3.0
