@@ -12,6 +12,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- `RenderContext::fill_blurred_rounded_rect_in` for painting a blurred rounded rectangle inside an arbitrary path, with an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. ([#1718][] by [@nicoburns][])
+
+### Changed
+
+- Breaking change: The `invert` parameter of `RenderContext::fill_blurred_rounded_rect` has been removed. Use `RenderContext::fill_blurred_rounded_rect_in` with `invert` set to `true` instead. ([#1718][] by [@nicoburns][])
+
 ## [0.3.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.
@@ -305,6 +313,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1703]: https://github.com/linebender/vello/pull/1703
 [#1705]: https://github.com/linebender/vello/pull/1705
 [#1715]: https://github.com/linebender/vello/pull/1715
+[#1718]: https://github.com/linebender/vello/pull/1718
 [#1720]: https://github.com/linebender/vello/pull/1720
 [#1723]: https://github.com/linebender/vello/pull/1723
 [#1726]: https://github.com/linebender/vello/pull/1726
