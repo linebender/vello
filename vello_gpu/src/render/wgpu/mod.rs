@@ -193,6 +193,7 @@ impl Renderer {
                 render_target_config,
                 layer_config,
                 resource_texture_dimension_2d,
+                settings.pipeline_cache.as_ref(),
             ),
             gradient_cache,
             encoded_paints: Vec::new(),
@@ -1090,6 +1091,7 @@ impl Programs {
         render_target_config: &RenderTargetConfig,
         layer_config: LayersConfig,
         resource_texture_dimension_2d: u32,
+        pipeline_cache: Option<&wgpu::PipelineCache>,
     ) -> Self {
         let strip_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1240,7 +1242,7 @@ impl Programs {
                     depth_stencil,
                     multisample: wgpu::MultisampleState::default(),
                     multiview_mask: None,
-                    cache: None,
+                    cache: pipeline_cache,
                 })
             };
 
@@ -1317,7 +1319,7 @@ impl Programs {
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
                 multiview_mask: None,
-                cache: None,
+                cache: pipeline_cache,
             })
         };
         let clear_pipeline =
@@ -1360,7 +1362,7 @@ impl Programs {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
-            cache: None,
+            cache: pipeline_cache,
         });
 
         let filter_texture_entry = wgpu::BindGroupLayoutEntry {
@@ -1461,7 +1463,7 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            cache: None,
+            cache: pipeline_cache,
             multiview_mask: None,
         });
 
@@ -1590,7 +1592,7 @@ impl Programs {
                     depth_stencil: None,
                     multisample: wgpu::MultisampleState::default(),
                     multiview_mask: None,
-                    cache: None,
+                    cache: pipeline_cache,
                 })
             };
         let blend_pipeline = create_texture_op_pipeline(
