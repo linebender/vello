@@ -148,46 +148,57 @@ fn inverse_blurred_rounded_rect_in_rect(ctx: &mut impl Renderer) {
     rect_in_with(ctx, &path, 10.0, 10.0, true, Affine::IDENTITY);
 }
 
-/// Emulate a CSS inset box shadow: the inverse blurred rounded rectangle is offset relative to
-/// the border box it is painted into, and clipped to that border box.
+/// Emulate a CSS inset box shadow: the inverse blurred rounded rectangle is shrunk by the spread
+/// and offset relative to the border box it is painted into, and clipped to that border box.
 fn inset_box_shadow(
     ctx: &mut impl Renderer,
     offset: Vec2,
+    spread: f32,
     radius: f32,
     std_dev: f32,
     affine: Affine,
 ) {
     let border_box = Rect::new(20.0, 20.0, 80.0, 80.0);
     let path = RoundedRect::from_rect(border_box, f64::from(radius)).to_path(0.1);
+    let spread = f64::from(spread);
+    let shadow_rect = border_box.inflate(-spread, -spread) + offset;
+    let shadow_radius = (radius - spread as f32).max(0.0);
 
     ctx.set_transform(affine);
     ctx.set_paint(PALE_GOLDENROD);
     ctx.fill_path(&path);
 
     ctx.set_paint(REBECCA_PURPLE);
-    ctx.fill_blurred_rounded_rect_in(&path, &(border_box + offset), radius, std_dev, true);
+    ctx.fill_blurred_rounded_rect_in(&path, &shadow_rect, shadow_radius, std_dev, true);
 }
 
 #[vello_test]
 fn inset_box_shadow_offset_down_right(ctx: &mut impl Renderer) {
-    inset_box_shadow(ctx, Vec2::new(8.0, 8.0), 10.0, 6.0, Affine::IDENTITY);
+    inset_box_shadow(ctx, Vec2::new(8.0, 8.0), 0.0, 10.0, 6.0, Affine::IDENTITY);
 }
 
 #[vello_test]
 fn inset_box_shadow_offset_up_left(ctx: &mut impl Renderer) {
-    inset_box_shadow(ctx, Vec2::new(-8.0, -8.0), 10.0, 6.0, Affine::IDENTITY);
+    inset_box_shadow(ctx, Vec2::new(-8.0, -8.0), 0.0, 10.0, 6.0, Affine::IDENTITY);
 }
 
 #[vello_test]
 fn inset_box_shadow_offset_horizontal(ctx: &mut impl Renderer) {
-    inset_box_shadow(ctx, Vec2::new(12.0, 0.0), 10.0, 4.0, Affine::IDENTITY);
+    inset_box_shadow(ctx, Vec2::new(12.0, 0.0), 0.0, 10.0, 4.0, Affine::IDENTITY);
 }
 
 /// An offset shadow larger than the blur, so the shadow has a hard edge and only covers the
 /// top and left of the border box.
 #[vello_test]
 fn inset_box_shadow_offset_without_blur(ctx: &mut impl Renderer) {
-    inset_box_shadow(ctx, Vec2::new(15.0, 15.0), 0.0, 0.0, Affine::IDENTITY);
+    inset_box_shadow(ctx, Vec2::new(15.0, 15.0), 0.0, 0.0, 0.0, Affine::IDENTITY);
+}
+
+/// A spread shrinks the shadow rectangle (and its corner radius), so the shadow also covers the
+/// bottom and right of the border box despite the offset.
+#[vello_test]
+fn inset_box_shadow_with_spread(ctx: &mut impl Renderer) {
+    inset_box_shadow(ctx, Vec2::new(4.0, 4.0), 8.0, 10.0, 4.0, Affine::IDENTITY);
 }
 
 #[vello_test]
@@ -195,6 +206,7 @@ fn inset_box_shadow_offset_with_transform(ctx: &mut impl Renderer) {
     inset_box_shadow(
         ctx,
         Vec2::new(8.0, 8.0),
+        0.0,
         10.0,
         6.0,
         Affine::rotate_about(20.0_f64.to_radians(), Point::new(50.0, 50.0)),

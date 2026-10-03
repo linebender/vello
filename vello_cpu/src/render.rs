@@ -469,8 +469,9 @@ impl RenderContext {
     /// all points of `path` which are more than approximately 2.5 times `std_dev` outside of
     /// the edges of `rect`. This means that the extent of the painted area is determined only
     /// by `path`, which can extend as far beyond `rect` as is needed.
-    /// This can be used to implement inset box shadows, by using the box as `path` and the
-    /// box translated by the offset of the shadow as `rect`.
+    /// This can be used to implement inset box shadows, by using the box as `path`, the box
+    /// shrunk by the spread of the shadow and translated by its offset as `rect`, and the
+    /// corner radius of the box reduced by the spread as `radius`.
     ///
     /// Note that this only works properly if the current paint is set to a solid color.
     /// If not, it will fall back to using black as the fill color.
