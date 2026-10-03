@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Changed
+
+- Breaking change: `Scene::draw_blurred_rounded_rect_in` now has an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. Use `false` to preserve the previous behavior. `vello_encoding::Encoding::encode_blurred_rounded_rect` has the same new parameter. ([#1718][] by [@nicoburns][])
+
 ## [0.11.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.
@@ -19,7 +23,6 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - `vello_encoding` is now re-exported from the `low_level` module. ([#1847][] by [@ChrisJr404][])
-- Breaking change: `Scene::draw_blurred_rounded_rect_in` now has an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. Use `false` to preserve the previous behavior. In `vello_encoding`, `Encoding::encode_blurred_rounded_rect` has the same new parameter, and the flag is encoded in the sign bit of `DrawBlurRoundedRect::std_dev`. ([#1718][] by [@nicoburns][])
 
 ### Changed
 
