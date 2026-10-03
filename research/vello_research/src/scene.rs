@@ -279,8 +279,9 @@ impl Scene {
     /// all points of `shape` which are more than approximately 2.5 times `std_dev` outside of
     /// the edges of `rect`. This means that the extent of the painted area is determined only
     /// by `shape`, which can extend as far beyond `rect` as is needed.
-    /// This can be used to implement inset box shadows, by using the box as `shape` and the
-    /// box translated by the offset of the shadow as `rect`.
+    /// This can be used to implement inset box shadows, by using the box as `shape`, the box
+    /// shrunk by the spread of the shadow and translated by its offset as `rect`, and the
+    /// corner radius of the box reduced by the spread as `radius`.
     pub fn draw_blurred_rounded_rect_in(
         &mut self,
         shape: &impl Shape,

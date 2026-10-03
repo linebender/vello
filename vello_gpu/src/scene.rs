@@ -610,8 +610,9 @@ impl Scene {
     /// all points of `path` which are more than approximately 2.5 times `std_dev` outside of
     /// the edges of `rect`. This means that the extent of the painted area is determined only
     /// by `path`, which can extend as far beyond `rect` as is needed.
-    /// This can be used to implement inset box shadows, by using the box as `path` and the
-    /// box translated by the offset of the shadow as `rect`.
+    /// This can be used to implement inset box shadows, by using the box as `path`, the box
+    /// shrunk by the spread of the shadow and translated by its offset as `rect`, and the
+    /// corner radius of the box reduced by the spread as `radius`.
     ///
     /// This operation uses the current transform and paint transform. Like Vello CPU, it only
     /// uses solid paints; non-solid paints fall back to black.

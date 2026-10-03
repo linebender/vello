@@ -586,11 +586,12 @@ fn blurred_rounded_rect_in_even_odd_cpu() {
     );
 }
 
-/// Emulate a CSS inset box shadow: the inverse blurred rounded rectangle is offset relative to
-/// the border box it is painted into, and clipped to that border box.
+/// Emulate a CSS inset box shadow: the inverse blurred rounded rectangle is shrunk by the spread
+/// and offset relative to the border box it is painted into, and clipped to that border box.
 fn snapshot_inset_box_shadow(
     name: &str,
     offset: Vec2,
+    spread: f64,
     radius: f64,
     std_dev: f64,
     affine: Affine,
@@ -610,9 +611,9 @@ fn snapshot_inset_box_shadow(
     scene.draw_blurred_rounded_rect_in(
         &shape,
         affine,
-        border_box + offset,
+        border_box.inflate(-spread, -spread) + offset,
         palette::css::REBECCA_PURPLE,
-        radius,
+        (radius - spread).max(0.0),
         std_dev,
         true,
     );
@@ -633,6 +634,7 @@ fn inset_box_shadow_offset_down_right_gpu() {
     snapshot_inset_box_shadow(
         "inset_box_shadow_offset_down_right",
         Vec2::new(8.0, 8.0),
+        0.0,
         10.0,
         6.0,
         Affine::IDENTITY,
@@ -646,6 +648,7 @@ fn inset_box_shadow_offset_down_right_cpu() {
     snapshot_inset_box_shadow(
         "inset_box_shadow_offset_down_right",
         Vec2::new(8.0, 8.0),
+        0.0,
         10.0,
         6.0,
         Affine::IDENTITY,
@@ -659,6 +662,7 @@ fn inset_box_shadow_offset_up_left_gpu() {
     snapshot_inset_box_shadow(
         "inset_box_shadow_offset_up_left",
         Vec2::new(-8.0, -8.0),
+        0.0,
         10.0,
         6.0,
         Affine::IDENTITY,
@@ -672,6 +676,7 @@ fn inset_box_shadow_offset_up_left_cpu() {
     snapshot_inset_box_shadow(
         "inset_box_shadow_offset_up_left",
         Vec2::new(-8.0, -8.0),
+        0.0,
         10.0,
         6.0,
         Affine::IDENTITY,
@@ -685,6 +690,7 @@ fn inset_box_shadow_offset_horizontal_gpu() {
     snapshot_inset_box_shadow(
         "inset_box_shadow_offset_horizontal",
         Vec2::new(12.0, 0.0),
+        0.0,
         10.0,
         4.0,
         Affine::IDENTITY,
@@ -698,6 +704,7 @@ fn inset_box_shadow_offset_horizontal_cpu() {
     snapshot_inset_box_shadow(
         "inset_box_shadow_offset_horizontal",
         Vec2::new(12.0, 0.0),
+        0.0,
         10.0,
         4.0,
         Affine::IDENTITY,
@@ -715,6 +722,7 @@ fn inset_box_shadow_offset_without_blur_gpu() {
         Vec2::new(15.0, 15.0),
         0.0,
         0.0,
+        0.0,
         Affine::IDENTITY,
         false,
     );
@@ -728,6 +736,37 @@ fn inset_box_shadow_offset_without_blur_cpu() {
         Vec2::new(15.0, 15.0),
         0.0,
         0.0,
+        0.0,
+        Affine::IDENTITY,
+        true,
+    );
+}
+
+/// A spread shrinks the shadow rectangle (and its corner radius), so the shadow also covers the
+/// bottom and right of the border box despite the offset.
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn inset_box_shadow_with_spread_gpu() {
+    snapshot_inset_box_shadow(
+        "inset_box_shadow_with_spread",
+        Vec2::new(4.0, 4.0),
+        8.0,
+        10.0,
+        4.0,
+        Affine::IDENTITY,
+        false,
+    );
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn inset_box_shadow_with_spread_cpu() {
+    snapshot_inset_box_shadow(
+        "inset_box_shadow_with_spread",
+        Vec2::new(4.0, 4.0),
+        8.0,
+        10.0,
+        4.0,
         Affine::IDENTITY,
         true,
     );
@@ -739,6 +778,7 @@ fn inset_box_shadow_offset_with_transform_gpu() {
     snapshot_inset_box_shadow(
         "inset_box_shadow_offset_with_transform",
         Vec2::new(8.0, 8.0),
+        0.0,
         10.0,
         6.0,
         Affine::rotate_about(20.0_f64.to_radians(), Point::new(50.0, 50.0)),
@@ -752,6 +792,7 @@ fn inset_box_shadow_offset_with_transform_cpu() {
     snapshot_inset_box_shadow(
         "inset_box_shadow_offset_with_transform",
         Vec2::new(8.0, 8.0),
+        0.0,
         10.0,
         6.0,
         Affine::rotate_about(20.0_f64.to_radians(), Point::new(50.0, 50.0)),
