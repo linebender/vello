@@ -260,8 +260,10 @@ fn snapshot_inverse_blurred_rounded_rect(
 ) {
     let mut scene = Scene::new();
     let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
+    // Extend the shape to the blur kernel, so the fully covered area outside of `rect` is painted.
+    let kernel_size = 2.5 * std_dev;
     scene.draw_blurred_rounded_rect_in(
-        &rect,
+        &rect.inflate(kernel_size, kernel_size),
         affine,
         rect,
         palette::css::REBECCA_PURPLE,
