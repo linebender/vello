@@ -128,7 +128,7 @@ impl Resources {
         Ok(())
     }
 
-    pub(crate) fn after_render<T, E>(
+    pub(crate) fn maintain_glyphs<T, E>(
         &mut self,
         backend: &mut T,
         mut clear_rect: impl FnMut(&mut T, &PendingClearRect) -> Result<(), E>,

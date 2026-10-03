@@ -91,6 +91,7 @@ pub trait Renderer: Sized {
     fn reset(&mut self);
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>);
     fn render(&mut self);
+    fn maintain_glyphs(&mut self);
     fn snapshot(&mut self) -> Pixmap;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
@@ -105,6 +106,24 @@ pub struct CpuRenderer {
     target_init: GpuTargetInit<'static>,
 }
 
+impl CpuRenderer {
+    pub fn new_with_resources(
+        width: u16,
+        height: u16,
+        settings: RenderSettings,
+        render_mode: RenderMode,
+        resources: Resources,
+    ) -> Self {
+        Self {
+            ctx: RenderContext::new_with(width, height, settings),
+            resources,
+            render_mode,
+            target: Pixmap::new(width, height),
+            target_init: GpuTargetInit::Clear(ClearSettings::default()),
+        }
+    }
+}
+
 impl Renderer for CpuRenderer {
     type GlyphRunBackend<'a> = vello_cpu::CpuGlyphRunBackend<'a>;
 
@@ -116,13 +135,7 @@ impl Renderer for CpuRenderer {
         render_mode: RenderMode,
     ) -> Self {
         let settings = RenderSettings { level, num_threads };
-        Self {
-            ctx: RenderContext::new_with(width, height, settings),
-            resources: Resources::new(),
-            render_mode,
-            target: Pixmap::new(width, height),
-            target_init: GpuTargetInit::Clear(ClearSettings::default()),
-        }
+        Self::new_with_resources(width, height, settings, render_mode, Resources::new())
     }
 
     fn fill_path(&mut self, path: &BezPath) {
@@ -279,6 +292,10 @@ impl Renderer for CpuRenderer {
         );
     }
 
+    fn maintain_glyphs(&mut self) {
+        self.resources.maintain_glyphs();
+    }
+
     fn snapshot(&mut self) -> Pixmap {
         self.target.clone()
     }
@@ -340,7 +357,7 @@ pub struct GpuRenderer {
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl GpuRenderer {
-    fn new_with_settings(
+    pub fn new_with_settings(
         width: u16,
         height: u16,
         settings: GpuRenderSettings,
@@ -636,6 +653,12 @@ impl Renderer for GpuRenderer {
         self.queue.submit([encoder.finish()]);
     }
 
+    fn maintain_glyphs(&mut self) {
+        self.lock_gpu_test();
+        self.renderer
+            .maintain_glyphs(&mut self.resources, &self.queue);
+    }
+
     // This method creates device resources every time it is called. This does not matter much for
     // testing, but should not be used as a basis for implementing something real. This would be a
     // very bad example for that.
@@ -784,6 +807,45 @@ pub struct GpuRenderer {
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl GpuRenderer {
+    pub fn new_with_settings(
+        width: u16,
+        height: u16,
+        settings: GpuRenderSettings,
+        use_depth_buffer: bool,
+    ) -> Self {
+        use wasm_bindgen::JsCast;
+        use web_sys::HtmlCanvasElement;
+
+        let scene = Scene::new_with(width, height, settings.level);
+        // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
+        // the pixmap for diff checking.
+        let document = web_sys::window().unwrap().document().unwrap();
+        let canvas = document
+            .create_element("canvas")
+            .unwrap()
+            .dyn_into::<HtmlCanvasElement>()
+            .unwrap();
+        canvas.set_width(width.into());
+        canvas.set_height(height.into());
+        let (renderer, resources) =
+            vello_gpu::WebGlRenderer::new_with(&canvas, settings, use_depth_buffer).unwrap();
+        let gl = canvas
+            .get_context("webgl2")
+            .unwrap()
+            .unwrap()
+            .dyn_into::<WebGl2RenderingContext>()
+            .unwrap();
+        Self {
+            scene,
+            resources,
+            renderer,
+            gl,
+            external_textures: vello_gpu::WebGlTextureBindings::new(),
+            next_external_texture_id: 1,
+            clear_color: AlphaColor::TRANSPARENT,
+        }
+    }
+
     fn upload_image(&mut self, pixmap: &Arc<Pixmap>) -> ImageId {
         self.renderer
             .upload_image(&mut self.resources, pixmap)
@@ -814,9 +876,6 @@ impl Renderer for GpuRenderer {
         _: RenderMode,
         use_depth_buffer: bool,
     ) -> Self {
-        use wasm_bindgen::JsCast;
-        use web_sys::HtmlCanvasElement;
-
         if num_threads != 0 {
             panic!("GPU renderer doesn't support multi-threading");
         }
@@ -824,34 +883,7 @@ impl Renderer for GpuRenderer {
         let mut settings = GpuRenderSettings::default();
         // See the comment above for why we change the `min_texture_size`.
         settings.memory_settings.layers_config.min_texture_size = vello_gpu::SizeU16::new(100);
-        let scene = Scene::new_with(width, height, settings.level);
-        // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
-        // the pixmap for diff checking.
-        let document = web_sys::window().unwrap().document().unwrap();
-        let canvas = document
-            .create_element("canvas")
-            .unwrap()
-            .dyn_into::<HtmlCanvasElement>()
-            .unwrap();
-        canvas.set_width(width.into());
-        canvas.set_height(height.into());
-        let (renderer, resources) =
-            vello_gpu::WebGlRenderer::new_with(&canvas, settings, use_depth_buffer).unwrap();
-        let gl = canvas
-            .get_context("webgl2")
-            .unwrap()
-            .unwrap()
-            .dyn_into::<WebGl2RenderingContext>()
-            .unwrap();
-        Self {
-            scene,
-            resources,
-            renderer,
-            gl,
-            external_textures: vello_gpu::WebGlTextureBindings::new(),
-            next_external_texture_id: 1,
-            clear_color: AlphaColor::TRANSPARENT,
-        }
+        Self::new_with_settings(width, height, settings, use_depth_buffer)
     }
 
     fn fill_path(&mut self, path: &BezPath) {
@@ -1003,6 +1035,10 @@ impl Renderer for GpuRenderer {
                 self.clear_color,
             )
             .unwrap();
+    }
+
+    fn maintain_glyphs(&mut self) {
+        self.renderer.maintain_glyphs(&mut self.resources).unwrap();
     }
 
     fn snapshot(&mut self) -> Pixmap {

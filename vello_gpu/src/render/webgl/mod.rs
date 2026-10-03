@@ -34,6 +34,8 @@ pub use error::{
     WebGlShaderStage,
 };
 
+#[cfg(feature = "text")]
+use crate::GlyphMaintenance;
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
@@ -400,7 +402,7 @@ impl WebGlRenderer {
                 ));
             }
         }
-        let resources = Resources::new(settings.memory_settings.image_atlas_config);
+        let resources = Resources::new(&settings);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
 
         // Estimate the maximum number of gradient cache entries based on the resource texture
@@ -488,11 +490,19 @@ impl WebGlRenderer {
         )?;
 
         #[cfg(feature = "text")]
-        // TODO: We should sort the rectangles once by atlas
-        // page and then clear per atlas page instead of per rect.
-        resources.after_render(self, clear_atlas_region)?;
+        if resources.glyph_maintenance == GlyphMaintenance::PerRender {
+            self.maintain_glyphs(resources)?;
+        }
 
         Ok(())
+    }
+
+    /// Run one glyph cache maintenance pass. See [`GlyphMaintenance`].
+    #[cfg(feature = "text")]
+    pub fn maintain_glyphs(&mut self, resources: &mut Resources) -> Result<(), WebGlError> {
+        // TODO: We should sort the rectangles once by atlas
+        // page and then clear per atlas page instead of per rect.
+        resources.maintain_glyphs(self, clear_atlas_region)
     }
 
     /// Render a `scene` directly into an atlas layer.

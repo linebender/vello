@@ -9,6 +9,8 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+#[cfg(feature = "text")]
+use crate::GlyphMaintenance;
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
@@ -177,7 +179,7 @@ impl Renderer {
                 .unwrap_or(u16::MAX),
         };
         settings.memory_settings.normalize(&device_limits);
-        let resources = Resources::new(settings.memory_settings.image_atlas_config);
+        let resources = Resources::new(&settings);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
         // Estimate the maximum number of gradient cache entries based on the resource texture
         // dimension and the maximum gradient LUT size - worst case scenario.
@@ -310,12 +312,22 @@ impl Renderer {
         );
 
         #[cfg(feature = "text")]
-        resources.after_render(self, |renderer, rect| {
-            clear_atlas_region(queue, renderer, rect);
-
-            Ok::<(), RenderError>(())
-        })?;
+        if resources.glyph_maintenance == GlyphMaintenance::PerRender {
+            self.maintain_glyphs(resources, queue);
+        }
         result
+    }
+
+    /// Run one glyph cache maintenance pass. See [`GlyphMaintenance`].
+    #[cfg(feature = "text")]
+    pub fn maintain_glyphs(&mut self, resources: &mut Resources, queue: &Queue) {
+        resources
+            .maintain_glyphs(self, |renderer, rect| {
+                clear_atlas_region(queue, renderer, rect);
+
+                Ok::<(), core::convert::Infallible>(())
+            })
+            .unwrap_or_else(|error| match error {});
     }
 
     /// Render a `scene` directly into an atlas layer.
