@@ -14,7 +14,8 @@ use vello_common::kurbo::{Shape, Triangle};
 use vello_common::paint::{Image, ImageSource, Tint, TintMode};
 use vello_common::peniko::Color;
 use vello_common::peniko::ImageSampler;
-use vello_common::peniko::{BlendMode, Compose, Extend, ImageQuality, Mix};
+use vello_common::peniko::{BlendMode, Compose, Extend, ImageAlphaType, ImageQuality, Mix};
+use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_dev_macros::vello_test;
 
 fn rgb_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
@@ -33,6 +34,21 @@ fn rgb_img_2x2(ctx: &mut impl Renderer) -> ImageSource {
 
 fn rgb_img_2x3(ctx: &mut impl Renderer) -> ImageSource {
     ctx.get_image_source(load_image!("rgb_image_2x3"))
+}
+
+fn checkerboard_4x4(ctx: &mut impl Renderer) -> ImageSource {
+    let data = (0..16)
+        .flat_map(|i| {
+            let v = if (i % 4 + i / 4) % 2 == 0 { 0 } else { 255 };
+            [v, v, v, 255]
+        })
+        .collect();
+    ctx.get_image_source(Arc::new(Pixmap::from_parts(
+        data,
+        4,
+        4,
+        PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, false),
+    )))
 }
 
 fn rgba_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
@@ -551,6 +567,19 @@ fn image_bilinear_10x_scale_2(ctx: &mut impl Renderer) {
 //
 // We also ported the cubic polynomials directly from current Skia, while tiny-skia (seems?) to use
 // either an outdated version or a slightly adapted one.
+// The padded area right of and below the image should repeat the edge texels.
+#[vello_test]
+fn image_bilinear_pad(ctx: &mut impl Renderer) {
+    let image_source = checkerboard_4x4(ctx);
+    quality(
+        ctx,
+        Affine::translate((10.0, 10.0)) * Affine::scale(10.0),
+        image_source,
+        ImageQuality::Medium,
+        Extend::Pad,
+    );
+}
+
 #[vello_test]
 fn image_bicubic_identity(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
@@ -632,6 +661,18 @@ fn image_bicubic_10x_scale_2(ctx: &mut impl Renderer) {
         image_source,
         ImageQuality::High,
         Extend::Reflect,
+    );
+}
+
+#[vello_test]
+fn image_bicubic_pad(ctx: &mut impl Renderer) {
+    let image_source = checkerboard_4x4(ctx);
+    quality(
+        ctx,
+        Affine::translate((10.0, 10.0)) * Affine::scale(10.0),
+        image_source,
+        ImageQuality::High,
+        Extend::Pad,
     );
 }
 

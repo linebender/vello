@@ -90,5 +90,6 @@ fn sample_external_image(
             image_size,
         );
     }
-    return textureLoad(external_texture, vec2<u32>(coords), 0);
+    let image_max = image_offset + image_size - vec2(1.0);
+    return textureLoad(external_texture, vec2<u32>(clamp(coords, image_offset, image_max)), 0);
 }
