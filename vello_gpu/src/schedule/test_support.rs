@@ -7,7 +7,7 @@ use super::{Backend, IntermediateTextureAllocations, Schedule, ScheduleStorage};
 use crate::paint::PaintResolver;
 use crate::schedule::round::DrawPass;
 use crate::target::RootTarget;
-use crate::{RenderError, Scene};
+use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::filter_effects::Filter;
@@ -61,6 +61,23 @@ impl SceneCase {
         max_textures: usize,
         use_depth_buffer: bool,
     ) -> Result<ScheduledCase, RenderError> {
+        self.schedule_with_region(
+            root_target,
+            texture_size,
+            max_textures,
+            use_depth_buffer,
+            None,
+        )
+    }
+
+    fn schedule_with_region(
+        &self,
+        root_target: RootTarget,
+        texture_size: SizeU16,
+        max_textures: usize,
+        use_depth_buffer: bool,
+        root_region: Option<&[RectU16]>,
+    ) -> Result<ScheduledCase, RenderError> {
         let mut storage = ScheduleStorage::default();
         let encoded = &self.scene.encoded_paints;
         let offsets = vec![0; encoded.len()];
@@ -73,6 +90,7 @@ impl SceneCase {
             texture_size,
             IntermediateTextureAllocations::default(),
             Some(max_textures),
+            root_region,
         )?;
 
         Ok(ScheduledCase {
@@ -101,6 +119,7 @@ impl SceneCase {
             texture_size,
             IntermediateTextureAllocations::default(),
             Some(max_textures),
+            None,
         )
     }
 
@@ -110,6 +129,22 @@ impl SceneCase {
             SizeU16::new(64),
             8,
             use_depth_buffer,
+        )
+        .unwrap()
+    }
+
+    /// Schedule the scene into the user surface, confined to `region`.
+    pub(super) fn schedule_root_region(
+        &self,
+        region: &[RectU16],
+        use_depth_buffer: bool,
+    ) -> ScheduledCase {
+        self.schedule_with_region(
+            RootTarget::UserSurface,
+            SizeU16::new(64),
+            8,
+            use_depth_buffer,
+            Some(region),
         )
         .unwrap()
     }
@@ -201,6 +236,31 @@ impl ScheduledCase {
                 }
             })
             .collect()
+    }
+
+    /// All strips drawn into the root target, opaque ones first.
+    pub(super) fn root_strips(&self) -> Vec<GpuStrip> {
+        let mut strips = self.storage.buffers.draw_buffers.opaque.strips().to_vec();
+        for round in self.schedule.rounds.iter() {
+            if let Some(draw) = round.root_draw_pass(&self.storage.buffers, self.root_target) {
+                strips.extend(draw.strips.iter().copied());
+            }
+        }
+        strips
+    }
+
+    /// All strips drawn into layer textures.
+    pub(super) fn layer_strips(&self) -> Vec<GpuStrip> {
+        let mut strips = Vec::new();
+        for round in self.schedule.rounds.iter() {
+            for draw in round
+                .layer_passes(&self.storage.buffers)
+                .filter_map(|pass| pass.draw)
+            {
+                strips.extend(draw.strips.iter().copied());
+            }
+        }
+        strips
     }
 
     pub(super) fn opaque_x(&self) -> Vec<u16> {

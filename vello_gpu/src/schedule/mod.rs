@@ -133,7 +133,7 @@ pub(crate) use self::execute::{Backend, execute};
 use self::round::{
     BlendOp, FilterOp, FilterTextureRegions, Round, RoundStage, Rounds, SchedulePoint,
 };
-use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState, RectU16Ext};
+use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState, RectU16Ext, RegionCull};
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
@@ -172,6 +172,7 @@ impl Schedule {
         texture_size: SizeU16,
         backend_allocations: IntermediateTextureAllocations,
         max_textures: Option<usize>,
+        root_region: Option<&[RectU16]>,
     ) -> Result<Self, RenderError> {
         storage.clear();
 
@@ -193,6 +194,7 @@ impl Schedule {
             paint_resolver,
             texture_size,
             storage,
+            root_region,
         );
 
         let schedule = scheduler.build()?;
@@ -289,6 +291,9 @@ struct Scheduler<'a, 'p> {
     texture_size: SizeU16,
     /// Reusable buffers populated while constructing the schedule.
     storage: &'p mut ScheduleStorage,
+    /// Culls root draws outside the region a render is confined to. Layers are never culled,
+    /// since filters can move their pixels into the region.
+    root_cull: Option<RegionCull<'a>>,
 }
 
 impl<'a, 'p> Scheduler<'a, 'p> {
@@ -302,6 +307,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         paint_resolver: PaintResolver<'a>,
         texture_size: SizeU16,
         storage: &'p mut ScheduleStorage,
+        root_region: Option<&'a [RectU16]>,
     ) -> Self {
         Self {
             recorder,
@@ -313,6 +319,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             cursor: Cursor::new(Atlases::new(texture_size)),
             texture_size,
             storage,
+            root_cull: root_region.map(RegionCull::new),
         }
     }
 
@@ -365,6 +372,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 &mut state,
                 &mut self.storage.buffers.draw_buffers,
                 Some(&layer),
+                self.root_cull,
                 |builder| {
                     builder.push_layer_fill(layer.sample_region, 1.0, None, self.strip_storage);
                 },
@@ -379,7 +387,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 // First submit all the draws. Note that unlike for layers, it's fine to submit
                 // the draws before scheduling the child node. This is because the root target is
                 // _already_ allocated, so we don't need to ensure lazy allocation here.
-                self.push_draws(&cmd.draws, &mut state, rounds);
+                self.push_draws(&cmd.draws, &mut state, self.root_cull, rounds);
 
                 // Next, we schedule the layer node. This might trigger advances to our current
                 // base round.
@@ -388,7 +396,13 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 // Finally, we also schedule the layer sampling operation. It's guaranteed to be
                 // a simple layer, since we know for sure that the root isn't a blend target.
                 if let Some(child) = child {
-                    self.compose_simple_layer(child.props, child.layer, &mut state, rounds);
+                    self.compose_simple_layer(
+                        child.props,
+                        child.layer,
+                        &mut state,
+                        self.root_cull,
+                        rounds,
+                    );
                 }
             }
         };
@@ -415,7 +429,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             let target = self.ensure_layer_target(&mut layer)?;
 
             // Now schedule the draws.
-            self.push_draws(&cmd.draws, &mut target.schedule_state, rounds);
+            self.push_draws(&cmd.draws, &mut target.schedule_state, None, rounds);
 
             // And optionally the composition of the child layer node.
             if let Some(child) = child {
@@ -571,6 +585,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         &mut self,
         draws: &core::ops::Range<u32>,
         state: &mut TargetScheduleState<T>,
+        cull: Option<RegionCull<'_>>,
         rounds: &mut Rounds,
     ) {
         if draws.is_empty() {
@@ -582,6 +597,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             &mut self.storage.buffers.draw_buffers,
             // Normal draws don't depend on any child layer.
             None,
+            cull,
             |builder| {
                 for draw in &self.recorder.draws[draws.start as usize..draws.end as usize] {
                     builder.push_draw(draw, self.strip_storage, self.paint_resolver);
@@ -602,7 +618,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let opacity = child_props.opacity;
 
         if blend_mode == BlendMode::default() {
-            self.compose_simple_layer(child_props, child_layer, parent_state, rounds);
+            self.compose_simple_layer(child_props, child_layer, parent_state, None, rounds);
 
             return Ok(());
         }
@@ -734,6 +750,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         props: &LayerProps,
         child_layer: ScheduledLayer,
         parent_state: &mut TargetScheduleState<T>,
+        cull: Option<RegionCull<'_>>,
         rounds: &mut Rounds,
     ) {
         // Schedule the actual layer fill command.
@@ -741,6 +758,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             parent_state,
             &mut self.storage.buffers.draw_buffers,
             Some(&child_layer),
+            cull,
             |builder| {
                 builder.push_layer_fill(
                     child_layer.sample_region,
@@ -931,6 +949,7 @@ impl Rounds {
         state: &mut TargetScheduleState<T>,
         draw_buffers: &mut DrawBuffers,
         sampled_layer: Option<&ScheduledLayer>,
+        cull: Option<RegionCull<'_>>,
         f: impl FnOnce(&mut DrawBuilder<'_, T>),
     ) -> SchedulePoint {
         let sampled_layer_round_bindings = sampled_layer
@@ -957,7 +976,7 @@ impl Rounds {
         let target_round = self.round_mut(draw_point.round);
         let target_draw = state.draw_state.target.draw_mut(target_round);
 
-        let mut builder = DrawBuilder::new(target_draw, draw_buffers, &mut state.draw_state);
+        let mut builder = DrawBuilder::new(target_draw, draw_buffers, &mut state.draw_state, cull);
         f(&mut builder);
 
         draw_point

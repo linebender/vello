@@ -137,6 +137,78 @@ impl TextureBindings {
     }
 }
 
+/// The part of the target that [`Renderer::render`] writes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RenderRegion<'a> {
+    /// The whole target.
+    #[default]
+    Viewport,
+    /// The pixels covered by these rectangles.
+    ///
+    /// Pixels outside the rectangles are left untouched, while the scene is drawn inside them
+    /// exactly as a [`Viewport`](Self::Viewport) render would draw it. The [`TargetInit`] is
+    /// confined to the rectangles as well, so for example [`ClearSettings::Viewport`] only clears
+    /// the covered pixels. Rectangles are clamped to the target and may overlap.
+    ///
+    /// Root draws are issued once per rectangle, so merge damage into a few rectangles.
+    Rects(&'a [RectU16]),
+}
+
+/// Clamp `rects` to `bounds` and write the pixels they cover to `out`, as pairwise-disjoint,
+/// non-empty rectangles.
+///
+/// Root draws are replayed once per region rectangle, so overlapping rectangles would composite
+/// translucent content more than once. Disjoint input is passed through unchanged.
+fn normalize_region(rects: &[RectU16], bounds: RectU16, out: &mut Vec<RectU16>) {
+    out.clear();
+
+    for rect in rects {
+        let rect = rect.intersect(bounds);
+        if rect.is_empty() {
+            continue;
+        }
+
+        // Subtract the rectangles accepted so far, keeping the remaining pieces at the end of
+        // `out`.
+        let accepted = out.len();
+        out.push(rect);
+        for index in 0..accepted {
+            let cover = out[index];
+            let mut piece_index = accepted;
+            while piece_index < out.len() {
+                let piece = out[piece_index];
+                if piece.intersect(cover).is_empty() {
+                    piece_index += 1;
+                } else {
+                    out.swap_remove(piece_index);
+                    push_difference(piece, cover, out);
+                }
+            }
+        }
+    }
+}
+
+/// Push the (up to four) parts of `rect` that `cover` does not overlap.
+///
+/// `rect` must overlap `cover`.
+fn push_difference(rect: RectU16, cover: RectU16, out: &mut Vec<RectU16>) {
+    if rect.y0 < cover.y0 {
+        out.push(RectU16::new(rect.x0, rect.y0, rect.x1, cover.y0));
+    }
+    if cover.y1 < rect.y1 {
+        out.push(RectU16::new(rect.x0, cover.y1, rect.x1, rect.y1));
+    }
+
+    let y0 = rect.y0.max(cover.y0);
+    let y1 = rect.y1.min(cover.y1);
+    if rect.x0 < cover.x0 {
+        out.push(RectU16::new(rect.x0, y0, cover.x0, y1));
+    }
+    if cover.x1 < rect.x1 {
+        out.push(RectU16::new(cover.x1, y0, rect.x1, y1));
+    }
+}
+
 /// Vello GPU's renderer.
 #[derive(Debug)]
 pub struct Renderer {
@@ -152,6 +224,8 @@ pub struct Renderer {
     schedule_storage: ScheduleStorage,
     scratch_buffers: ScratchBuffers,
     layers_config: LayersConfig,
+    /// Normalized rectangles of the current [`RenderRegion`].
+    region_rects: Vec<RectU16>,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
 }
@@ -201,6 +275,7 @@ impl Renderer {
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
+            region_rects: Vec::new(),
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
         };
@@ -249,6 +324,11 @@ impl Renderer {
     /// The [WebGPU render pass validation rules] require every color and depth attachment view in
     /// a render pass to have matching render extents.
     ///
+    /// `region` selects the pixels of the target that are written. Passing
+    /// [`RenderRegion::Rects`] redraws only those rectangles, for example the damaged parts of a
+    /// target whose contents persist between frames. `view` must then be at least `render_size`,
+    /// since scissor rectangles are validated against it.
+    ///
     /// [WebGPU render pass validation rules]: https://gpuweb.github.io/gpuweb/#abstract-opdef-gpurenderpassdescriptor-valid-usage
     pub fn render(
         &mut self,
@@ -262,6 +342,7 @@ impl Renderer {
         depth_view: Option<&TextureView>,
         texture_bindings: &TextureBindings,
         target_init: TargetInit<'_>,
+        region: RenderRegion<'_>,
     ) -> Result<(), RenderError> {
         #[cfg(feature = "text")]
         {
@@ -305,6 +386,7 @@ impl Renderer {
             &resources.image_cache,
             &scene.encoded_paints,
             target_init,
+            region,
             RootTarget::UserSurface,
             texture_bindings,
         );
@@ -378,6 +460,7 @@ impl Renderer {
             &dummy_image_cache,
             encoded_paints,
             TargetInit::SrcOver,
+            RenderRegion::Viewport,
             RootTarget::AtlasLayer,
             texture_bindings,
         );
@@ -416,6 +499,7 @@ impl Renderer {
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
         target_init: TargetInit<'_>,
+        region: RenderRegion<'_>,
         root_output_target: RootTarget,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
@@ -426,6 +510,14 @@ impl Renderer {
             texture_bindings,
             view.texture(),
         )?;
+        let root_region = match region {
+            RenderRegion::Viewport => None,
+            RenderRegion::Rects(rects) => {
+                let bounds = RectU16::new(0, 0, render_size.width, render_size.height);
+                normalize_region(rects, bounds, &mut self.region_rects);
+                Some(self.region_rects.as_slice())
+            }
+        };
         let required_texture_size = self
             .layers_config
             .required_intermediate_texture_size(&scene.recorder)?;
@@ -449,6 +541,7 @@ impl Renderer {
             texture_size,
             current_allocations,
             self.layers_config.max_textures,
+            root_region,
         )?;
         self.programs
             .prepare_intermediate_textures(device, &schedule);
@@ -489,6 +582,7 @@ impl Renderer {
             external_texture_bind_groups: HashMap::new(),
             scratch_buffers: &mut self.scratch_buffers,
             root_load_op: wgpu::LoadOp::Load,
+            root_region,
         };
 
         ctx.init_root_clear(target_init, root_output_target);
@@ -1287,7 +1381,7 @@ impl Programs {
                 0 => Uint32x2,
                 1 => Uint32x2,
                 2 => Uint32x2,
-                3 => Uint32,
+                3 => Float32x4,
             ],
         };
         let create_clear_pipeline = |label, format| {
@@ -2587,21 +2681,39 @@ struct RendererContext<'a> {
     external_texture_bind_groups: HashMap<ExternalTextureBindings, BindGroup>,
     scratch_buffers: &'a mut ScratchBuffers,
     root_load_op: wgpu::LoadOp<wgpu::Color>,
+    /// Pairwise-disjoint rectangles that root drawing is confined to, if any.
+    root_region: Option<&'a [RectU16]>,
 }
 
 impl RendererContext<'_> {
     fn init_root_clear(&mut self, target_init: TargetInit<'_>, root_target: RootTarget) {
-        self.root_load_op = match target_init {
-            TargetInit::SrcOver => wgpu::LoadOp::Load,
-            TargetInit::Clear(ClearSettings::Viewport { color }) => {
-                wgpu::LoadOp::Clear(clear_color(color))
-            }
-            TargetInit::Clear(clear @ ClearSettings::Rects { .. }) => {
-                self.clear_pass_inner(DrawPassTarget::Root(root_target), clear);
-
-                wgpu::LoadOp::Load
-            }
+        let target = DrawPassTarget::Root(root_target);
+        let TargetInit::Clear(clear) = target_init else {
+            return;
         };
+        let color = clear.clear_color();
+        match (clear, self.root_region) {
+            (ClearSettings::Viewport { .. }, None) => {
+                self.root_load_op = wgpu::LoadOp::Clear(clear_color(color));
+            }
+            (ClearSettings::Rects { rects, .. }, None) => {
+                self.clear_rects(target, color, rects.iter().copied());
+            }
+            // A load-op clear covers the whole target, so a confined viewport clear draws the
+            // region's rectangles instead.
+            (ClearSettings::Viewport { .. }, Some(region)) => {
+                self.clear_rects(target, color, region.iter().copied());
+            }
+            (ClearSettings::Rects { rects, .. }, Some(region)) => {
+                self.clear_rects(
+                    target,
+                    color,
+                    rects
+                        .iter()
+                        .flat_map(|rect| region.iter().map(|covered| rect.intersect(*covered))),
+                );
+            }
+        }
     }
 
     fn finish_root_clear(&mut self) {
@@ -2816,6 +2928,28 @@ impl RendererContext<'_> {
             }
         };
 
+        // A confined root replays its draws under the scissor of each region rectangle. The
+        // rectangles are disjoint, so each pixel is drawn by at most one replay.
+        let region = match target {
+            DrawPassTarget::Root(_) => self.root_region,
+            DrawPassTarget::Layer(_) => None,
+        };
+        let draw_in_region =
+            |render_pass: &mut wgpu::RenderPass<'_>, first_instance, count| match region {
+                None => draw_strip_runs(render_pass, first_instance, count),
+                Some(region) => {
+                    for rect in region {
+                        render_pass.set_scissor_rect(
+                            u32::from(rect.x0),
+                            u32::from(rect.y0),
+                            u32::from(rect.width()),
+                            u32::from(rect.height()),
+                        );
+                        draw_strip_runs(render_pass, first_instance, count);
+                    }
+                }
+            };
+
         if opaque_count > 0 {
             // Opaque pass
             debug_assert!(
@@ -2823,7 +2957,7 @@ impl RendererContext<'_> {
                 "opaque strips require the final view depth attachment"
             );
             render_pass.set_pipeline(&self.programs.opaque_strip_pipeline);
-            draw_strip_runs(&mut render_pass, 0, opaque_count);
+            draw_in_region(&mut render_pass, 0, opaque_count);
         }
 
         if alpha_count > 0 {
@@ -2839,7 +2973,7 @@ impl RendererContext<'_> {
                 render_pass.set_pipeline(&self.programs.intermediate_strip_pipeline);
             }
 
-            draw_strip_runs(&mut render_pass, opaque_count, alpha_count);
+            draw_in_region(&mut render_pass, opaque_count, alpha_count);
         }
     }
 
@@ -3007,20 +3141,15 @@ impl RendererContext<'_> {
         }
     }
 
-    fn clear_pass_inner(&mut self, target: DrawPassTarget, settings: ClearSettings<'_>) {
-        let color = settings.clear_color();
-
+    fn clear_rects(
+        &mut self,
+        target: DrawPassTarget,
+        color: AlphaColor<Srgb>,
+        rects: impl IntoIterator<Item = RectU16>,
+    ) {
         let view = match target {
             DrawPassTarget::Root(_) => self.view,
             DrawPassTarget::Layer(target) => self.programs.resources.layer_view(target),
-        };
-        let rects = match settings {
-            ClearSettings::Viewport { .. } => {
-                Self::clear_full_target(self.encoder, view, clear_color(color));
-
-                return;
-            }
-            ClearSettings::Rects { rects, .. } => rects,
         };
 
         let (target_size, pipeline) = match target {
@@ -3041,11 +3170,11 @@ impl RendererContext<'_> {
         };
         let bounds = RectU16::new(0, 0, target_size[0], target_size[1]);
         let target_size = target_size.map(u32::from);
-        let color = color.premultiply().to_rgba8().to_u32();
+        let color = color.premultiply().components;
         self.scratch_buffers.clear_instances.clear();
         self.scratch_buffers.clear_instances.extend(
             rects
-                .iter()
+                .into_iter()
                 .map(|rect| rect.intersect(bounds))
                 .filter(|rect| !rect.is_empty())
                 .map(|rect| GpuClearInstance {
@@ -3150,12 +3279,10 @@ impl Backend for RendererContext<'_> {
     }
 
     fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) -> Result<(), Self::Error> {
-        self.clear_pass_inner(
+        self.clear_rects(
             DrawPassTarget::Layer(target),
-            ClearSettings::Rects {
-                color: AlphaColor::TRANSPARENT,
-                rects,
-            },
+            AlphaColor::TRANSPARENT,
+            rects.iter().copied(),
         );
 
         Ok(())
@@ -3428,5 +3555,86 @@ fn clear_color(color: AlphaColor<Srgb>) -> wgpu::Color {
         g: f64::from(g),
         b: f64::from(b),
         a: f64::from(a),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_region;
+    use alloc::vec::Vec;
+    use vello_common::geometry::RectU16;
+
+    const BOUNDS: RectU16 = RectU16::new(0, 0, 40, 40);
+
+    fn normalize(rects: &[RectU16]) -> Vec<RectU16> {
+        let mut out = Vec::new();
+        normalize_region(rects, BOUNDS, &mut out);
+        out
+    }
+
+    /// Assert that `output` covers exactly the pixels of `input` within [`BOUNDS`], each once.
+    fn assert_disjoint_cover(input: &[RectU16], output: &[RectU16]) {
+        assert!(output.iter().all(|rect| !rect.is_empty()));
+        for y in 0..BOUNDS.y1 {
+            for x in 0..BOUNDS.x1 {
+                let expected = usize::from(input.iter().any(|rect| rect.contains(x, y)));
+                let covered = output.iter().filter(|rect| rect.contains(x, y)).count();
+                assert_eq!(covered, expected, "pixel ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn region_is_clamped_to_target() {
+        let rects = [
+            RectU16::new(10, 20, 30, 35),
+            RectU16::new(30, 30, 60, 60),
+            RectU16::new(50, 50, 60, 60),
+            RectU16::new(5, 5, 5, 12),
+        ];
+
+        assert_eq!(
+            normalize(&rects),
+            [RectU16::new(10, 20, 30, 35), RectU16::new(30, 30, 40, 40)]
+        );
+        assert!(normalize(&[RectU16::new(50, 0, 60, 10)]).is_empty());
+        assert!(normalize(&[]).is_empty());
+    }
+
+    #[test]
+    fn disjoint_region_is_unchanged() {
+        // Rectangles that only share edges don't overlap.
+        let rects = [
+            RectU16::new(0, 0, 10, 10),
+            RectU16::new(10, 0, 20, 10),
+            RectU16::new(0, 10, 20, 20),
+        ];
+
+        assert_eq!(normalize(&rects), rects);
+    }
+
+    #[test]
+    fn overlapping_region_becomes_disjoint() {
+        let cases: &[&[RectU16]] = &[
+            &[RectU16::new(0, 0, 20, 20), RectU16::new(10, 10, 30, 30)],
+            &[RectU16::new(0, 0, 30, 30), RectU16::new(5, 5, 10, 10)],
+            &[RectU16::new(5, 5, 10, 10), RectU16::new(0, 0, 30, 30)],
+            &[RectU16::new(4, 4, 12, 12), RectU16::new(4, 4, 12, 12)],
+            &[
+                RectU16::new(10, 0, 20, 30),
+                RectU16::new(0, 10, 30, 20),
+                RectU16::new(5, 5, 25, 25),
+            ],
+            &[
+                RectU16::new(0, 0, 40, 8),
+                RectU16::new(0, 0, 8, 40),
+                RectU16::new(4, 4, 36, 36),
+                RectU16::new(30, 2, 45, 45),
+            ],
+        ];
+
+        for rects in cases {
+            assert_disjoint_cover(rects, &normalize(rects));
+        }
     }
 }
