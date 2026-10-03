@@ -13,7 +13,7 @@
 use core::ops::RangeInclusive;
 
 use crate::{AtlasId, Resources, Scene};
-use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
+use glifo::atlas::PendingBitmapUpload;
 use glifo::renderer::replay_atlas_commands;
 use glifo::{
     AtlasCacher, AtlasSlot, DrawSink, GLYPH_PADDING, Glyph, GlyphAtlas, GlyphCacheConfig,
@@ -22,6 +22,7 @@ use glifo::{
 use peniko::BlendMode;
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
+use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Rect};
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Image, ImageSource, PaintType};
@@ -131,14 +132,16 @@ impl Resources {
     pub(crate) fn after_render<T, E>(
         &mut self,
         backend: &mut T,
-        mut clear_rect: impl FnMut(&mut T, &PendingClearRect) -> Result<(), E>,
+        mut clear_region: impl FnMut(&mut T, AtlasId, RectU16) -> Result<(), E>,
     ) -> Result<(), E> {
         self.glyph_prep_cache.maintain();
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             glyph_resources.maintain(&mut self.image_cache);
             // TODO: A clear error drops pending clears after their slots were deallocated.
             for rect in glyph_resources.glyph_atlas.drain_pending_clear_rects() {
-                clear_rect(backend, &rect)?;
+                let region =
+                    RectU16::new(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
+                clear_region(backend, AtlasId::new(rect.page_index), region)?;
             }
         }
 
