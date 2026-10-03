@@ -66,7 +66,9 @@ fn blurred_rounded_rect_with_transform(ctx: &mut impl Renderer) {
 
 fn inverse_rect_with(ctx: &mut impl Renderer, radius: f32, std_dev: f32, affine: Affine) {
     let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
-    let path = rect.to_path(0.1);
+    // Extend the path to the blur kernel, so the fully covered area outside of `rect` is painted.
+    let kernel_size = 2.5 * f64::from(std_dev);
+    let path = rect.inflate(kernel_size, kernel_size).to_path(0.1);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.set_transform(affine);
     ctx.fill_blurred_rounded_rect_in(&path, &rect, radius, std_dev, true);
