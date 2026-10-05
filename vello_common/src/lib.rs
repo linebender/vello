@@ -124,6 +124,7 @@ pub mod reexports {
         pub use super::shared::*;
         pub use crate::TextureId;
         pub use crate::geometry::{RectU16, SizeU16};
+        pub use crate::image_cache::{ImageCache, ImageResource};
         pub use crate::multi_atlas::{
             AllocationStrategy, AtlasConfig, AtlasError, AtlasId, AtlasLayerDiagnostics,
             AtlasSpaceDiagnostics,

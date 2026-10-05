@@ -38,6 +38,8 @@ mod external_texture;
 mod filter;
 mod fuzz_regression;
 mod glyph;
+#[cfg(not(target_arch = "wasm32"))]
+mod gpu_atlas;
 mod gpu_depth;
 mod gpu_schedule;
 mod gradient;

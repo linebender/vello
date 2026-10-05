@@ -812,6 +812,11 @@ impl Scene {
         self.transforms_mut().set_transform(transform);
     }
 
+    /// Get the current transform.
+    pub fn transform(&self) -> &Affine {
+        self.transforms().transform()
+    }
+
     /// Reset the transform to identity.
     pub fn reset_transform(&mut self) {
         self.transforms_mut().reset_transform();
