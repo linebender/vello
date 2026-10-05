@@ -3,6 +3,35 @@
 
 //! Shared encoded blurred rounded rectangle accessors and evaluation.
 
+import package::helpers::paint::{PAINT_TEXTURE_INDEX_MASK, load_encoded_paint_texel};
+
+fn get_blurred_rounded_rect_sample_xy(
+    scene_strip: vec2<u32>,
+    corner: vec2<f32>,
+    width: u32,
+    height: u32,
+) -> vec2<f32> {
+    return vec2<f32>(
+        f32(scene_strip.x) + corner.x * f32(width),
+        f32(scene_strip.y) + corner.y * f32(height),
+    );
+}
+
+fn sample_blurred_rounded_rect(
+    encoded_paints_texture: texture_2d<u32>,
+    tex_width_bits: u32,
+    paint_and_rect_flag: u32,
+    sample_xy: vec2<f32>,
+) -> vec4<f32> {
+    let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+    let texel0 = load_encoded_paint_texel(encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u);
+    let texel1 = load_encoded_paint_texel(encoded_paints_texture, tex_width_bits, paint_tex_idx, 1u);
+    let texel2 = load_encoded_paint_texel(encoded_paints_texture, tex_width_bits, paint_tex_idx, 2u);
+    let texel3 = load_encoded_paint_texel(encoded_paints_texture, tex_width_bits, paint_tex_idx, 3u);
+    let texel4 = load_encoded_paint_texel(encoded_paints_texture, tex_width_bits, paint_tex_idx, 4u);
+    return calculate_blurred_rounded_rect(sample_xy, texel0, texel1, texel2, texel3, texel4);
+}
+
 /// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
 fn get_blurred_rounded_rect_transform(texel0: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(

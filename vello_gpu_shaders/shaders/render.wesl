@@ -23,32 +23,22 @@
 // - If color source is layer, the fragment shader samples the layer texture and applies layer opacity.
 // More details in the `StripInstance` documentation below.
 
-import package::helpers::alpha::unpack_alphas_from_channel;
-import package::helpers::blurred_rounded_rect::calculate_blurred_rounded_rect;
-import package::helpers::extend::extend_mode;
-import package::helpers::external_texture::sample_external_image;
-import package::helpers::gradient::{
-    apply_gradient_transform,
-    calculate_radial_gradient,
-    get_gradient_extend_mode,
-    get_gradient_start,
-    get_gradient_texture_width,
-    get_sweep_inv_angle_delta,
-    get_sweep_start_angle,
-    sample_gradient_lut,
-    xy_to_unit_angle
+import package::helpers::alpha::sample_strip_alpha;
+import package::helpers::blurred_rounded_rect::{
+    get_blurred_rounded_rect_sample_xy,
+    sample_blurred_rounded_rect,
 };
-import package::helpers::geometry::{pixel_to_ndc, quad_corner};
+import package::helpers::external_texture::sample_image_paint;
+import package::helpers::gradient::get_gradient_sample_xy;
+import package::helpers::gradient::sample_linear_gradient;
+import package::helpers::gradient::sample_radial_gradient;
+import package::helpers::gradient::sample_sweep_gradient;
+import package::helpers::geometry::{pixel_to_ndc, quad_corner, rect_coverage};
 import package::helpers::image::{
-    TINT_MODE_MULTIPLY,
-    get_image_extend_modes,
-    get_image_offset,
-    get_image_quality,
-    get_image_size,
     get_image_transform,
     get_image_translate
 };
-import package::helpers::math::{NEARLY_ZERO_TOLERANCE, TWO_PI};
+import package::helpers::paint::{PAINT_TEXTURE_INDEX_MASK, load_encoded_paint_texel};
 import package::helpers::util::unpack_u16_pair;
 
 // Color source modes - where the fragment shader gets color data from.
@@ -65,8 +55,6 @@ const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3u;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4u;
 const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5u;
 
-// 24 bits for paint indices.
-const PAINT_TEXTURE_INDEX_MASK: u32 = 0x00FFFFFFu;
 const EXTERNAL_TEXTURE_SLOT_SHIFT: u32 = 24u;
 
 const RECT_STRIP_FLAG: u32 = 0x80000000u;
@@ -270,9 +258,15 @@ fn vs_main(
 
         if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let image_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let image_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-            let image_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
+            let image_texel0 = load_encoded_paint_texel(
+                encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 0u,
+            );
+            let image_texel1 = load_encoded_paint_texel(
+                encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 1u,
+            );
+            let image_texel2 = load_encoded_paint_texel(
+                encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 2u,
+            );
             // Use view coordinates for image sampling (always in global view space)
             let pos = vec2<f32>(
                 f32(scene_strip.x) + x * f32(width),
@@ -280,12 +274,11 @@ fn vs_main(
             );
             out.sample_xy = get_image_translate(image_texel1, image_texel2)
                 + get_image_transform(image_texel0, image_texel1) * pos;
-        } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT || paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
+        } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             // Use view coordinates for gradient transform (always in global view space)
-            out.sample_xy = vec2<f32>(
-                f32(scene_strip.x) + x * f32(width),
-                f32(scene_strip.y) + y * f32(height)
-            );
+            out.sample_xy = get_gradient_sample_xy(scene_strip, corner, width, height);
+        } else if paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
+            out.sample_xy = get_blurred_rounded_rect_sample_xy(scene_strip, corner, width, height);
         }
     } else if color_source == COLOR_SOURCE_LAYER {
         let source = unpack_u16_pair(instance.payload);
@@ -328,49 +321,11 @@ fn fs_main(
 ) -> @location(0) vec4<f32> {
     var alpha = 1.0;
     let is_rect = (paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
-    // TODO: Explore doing these calculations only for rectangle parts that actually need anti-aliasing. See
-    // https://github.com/linebender/vello/pull/1482#discussion_r2861311034
     if is_rect && rect_frac != 0u {
-        let frac = unpack4x8unorm(rect_frac);
-        // Calculate how much of the pixel is actually covered by the rect.
-        // We do this by simply calculating the fractions in the x and y direction, and
-        // then multiplying them.
-        // For (maybe?) better performance, we calculate the x and y dimension in a single
-        // pass by packing everything into a vec2.
-        let rect_size = vec2<f32>(unpack_u16_pair(dense_end_or_rect_size));
-        let tc = tex_coord;
-        // + 0.5 and -0.5 since the fragment shader positions the coordinates in the center of the pixel.
-        let bottom_and_right = min(tc + 0.5, rect_size - frac.zw);
-        let top_and_left = max(tc - 0.5, frac.xy);
-        let a = clamp(bottom_and_right - top_and_left, vec2(0.0), vec2(1.0));
-        alpha = a.x * a.y;
+        alpha = rect_coverage(dense_end_or_rect_size, rect_frac, tex_coord);
     } else if !is_rect && dense_end_or_rect_size != 0u {
-        let x = u32(floor(tex_coord.x));
-        let y = u32(floor(tex_coord.y));
-        // Retrieve alpha value from the texture. We store 16 1-byte alpha
-        // values per texel, with each color channel packing 4 alpha values.
-        // The code here assumes the strip height is 4, i.e., each color
-        // channel encodes the alpha values for a single column within a strip.
-        // Divide x by 4 to get the texel position.
-        let alphas_index = x;
-        let alphas_tex_width = 1u << config.alphas_tex_width_bits;
-        // Which texel contains the alpha values for this column
-        let texel_index = alphas_index / 4u;
-        // Which channel (R,G,B,A) in the texel contains the alpha values for this column
-        let channel_index = alphas_index % 4u;
-        // Calculate texel coordinates
-        let tex_x = texel_index & (alphas_tex_width - 1u);
-        let tex_y = texel_index >> config.alphas_tex_width_bits;
-
-        // Load all 4 channels from the texture
-        let rgba_values = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0);
-
-        // Get the column's alphas from the appropriate RGBA channel based on the index
-        let alphas_u32 = unpack_alphas_from_channel(rgba_values, channel_index);
-        // Extract the alpha value for the current y-position from the packed u32 data
-        alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
+        alpha = sample_strip_alpha(alphas_texture, config.alphas_tex_width_bits, tex_coord);
     }
-    // Apply the alpha value to the unpacked RGBA color or sampled paint.
     let color_source = (paint_and_rect_flag >> 29u) & 0x3u;
     var final_color: vec4<f32>;
 
@@ -379,156 +334,39 @@ fn fs_main(
 
         // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
         if paint_type == PAINT_TYPE_SOLID {
-            final_color = alpha * unpack4x8unorm(payload);
+            final_color = unpack4x8unorm(payload);
         } else if paint_type == PAINT_TYPE_IMAGE {
-            let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let image_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let image_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
-            let image_offset = get_image_offset(image_texel0);
-            let image_size = get_image_size(image_texel0);
-            let image_extend_modes = get_image_extend_modes(image_texel0);
-            let image_quality = get_image_quality(image_texel0);
-            let packed_tint = image_texel2.y;
-            let image_tint = unpack4x8unorm(packed_tint);
-            let is_multiply = image_texel2.z == TINT_MODE_MULTIPLY;
-            let extended_xy = vec2<f32>(
-                extend_mode(sample_xy.x, image_extend_modes.x, image_size.x),
-                extend_mode(sample_xy.y, image_extend_modes.y, image_size.y)
-            );
-
-            // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
-            // using GPU-native bilinear sampling
-
-            let final_xy = image_offset + extended_xy;
-            let sample_color = sample_external_image(
-                external_texture_0,
-                image_quality,
-                final_xy,
-                image_offset,
-                image_size,
-            );
-
-            final_color = alpha * select(
-                image_tint * sample_color.a,
-                sample_color * image_tint,
-                is_multiply
+            final_color = sample_image_paint(
+                encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                external_texture_0, paint_and_rect_flag, sample_xy,
             );
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT {
-            let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let gradient_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let gradient_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-
-            // Calculate fragment position and apply affine transform
-            let fragment_pos = sample_xy;
-            let grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
-
-            // For linear gradient, t-value is just the x coordinate in gradient space
-            let t_value = grad_pos.x + 0.00001;
-            let gradient_color = sample_gradient_lut(
-                gradient_texture,
-                t_value,
-                get_gradient_extend_mode(gradient_texel0),
-                get_gradient_start(gradient_texel0),
-                get_gradient_texture_width(gradient_texel0)
+            final_color = sample_linear_gradient(
+                encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                gradient_texture, paint_and_rect_flag, sample_xy,
             );
-            final_color = alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_RADIAL_GRADIENT {
-            let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let gradient_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let gradient_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-            let gradient_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
-            let gradient_texel3 = load_encoded_paint_texel(paint_tex_idx, 3u);
-
-            // Calculate fragment position and apply affine transform
-            let fragment_pos = sample_xy;
-            let grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
-
-            // For radial gradient, calculate distance from center
-            let gradient_result = calculate_radial_gradient(grad_pos, gradient_texel2, gradient_texel3);
-            let gradient_color = sample_gradient_lut(
-                gradient_texture,
-                gradient_result.x,
-                get_gradient_extend_mode(gradient_texel0),
-                get_gradient_start(gradient_texel0),
-                get_gradient_texture_width(gradient_texel0)
-            );
-            final_color = select(
-                vec4<f32>(0.0, 0.0, 0.0, 0.0),
-                alpha * gradient_color,
-                gradient_result.y != 0.0
+            final_color = sample_radial_gradient(
+                encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                gradient_texture, paint_and_rect_flag, sample_xy,
             );
         } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
-            let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let gradient_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let gradient_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-            let gradient_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
-
-            // Calculate fragment position and apply affine transform
-            let fragment_pos = sample_xy;
-            var grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
-
-            // Before passing the position to the angle calculation, we bias
-            // very small coordinates to 0. Otherwise the sweep gradient's seam
-            // may flicker, because the angle calculation uses the coordinates'
-            // signs to select a quadrant. For coordinates around 0, slight
-            // noise in the coordinate calculation can then land the
-            // calculation in different quadrants. That flickering is quite
-            // noticeable as the seam is not anti-aliased. The flickering may
-            // vary across machines. See
-            // <https://github.com/linebender/vello/pull/1352>.
-            grad_pos = select(grad_pos, vec2(0.0), abs(grad_pos) < vec2(NEARLY_ZERO_TOLERANCE));
-
-            // For sweep gradient, calculate angle from center using fast polynomial approximation
-            let unit_angle = xy_to_unit_angle(grad_pos.x, grad_pos.y);
-            // Convert unit angle [0, 1) to radians [0, 2π)
-            let angle = unit_angle * TWO_PI;
-            let t_value = (angle - get_sweep_start_angle(gradient_texel2)) * get_sweep_inv_angle_delta(gradient_texel2);
-            let gradient_color = sample_gradient_lut(
-                gradient_texture,
-                t_value,
-                get_gradient_extend_mode(gradient_texel0),
-                get_gradient_start(gradient_texel0),
-                get_gradient_texture_width(gradient_texel0)
+            final_color = sample_sweep_gradient(
+                encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                gradient_texture, paint_and_rect_flag, sample_xy,
             );
-            final_color = alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
-            let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let blurred_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let blurred_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-            let blurred_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
-            let blurred_texel3 = load_encoded_paint_texel(paint_tex_idx, 3u);
-            let blurred_texel4 = load_encoded_paint_texel(paint_tex_idx, 4u);
-            final_color = alpha * calculate_blurred_rounded_rect(
-                sample_xy,
-                blurred_texel0,
-                blurred_texel1,
-                blurred_texel2,
-                blurred_texel3,
-                blurred_texel4,
+            final_color = sample_blurred_rounded_rect(
+                encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                paint_and_rect_flag, sample_xy,
             );
         }
     } else if color_source == COLOR_SOURCE_LAYER {
         let layer_opacity = f32(paint_and_rect_flag & 0xffu) * (1.0 / 255.0);
-        final_color = alpha * layer_opacity * textureLoad(layer_input_texture, vec2<i32>(sample_xy), 0);
+        final_color = layer_opacity * textureLoad(layer_input_texture, vec2<i32>(sample_xy), 0);
     } else {
         final_color = vec4<f32>(0.0);
     }
 
-    return final_color;
-}
-
-// Convert a flat texel index to 2D texture coordinates for the encoded paints texture.
-fn encoded_paint_coord(flat_idx: u32) -> vec2<u32> {
-    return vec2<u32>(
-        flat_idx & ((1u << config.encoded_paints_tex_width_bits) - 1u),
-        flat_idx >> config.encoded_paints_tex_width_bits
-    );
-}
-
-fn load_encoded_paint_texel(paint_tex_idx: u32, texel_offset: u32) -> vec4<u32> {
-    return textureLoad(
-        encoded_paints_texture,
-        encoded_paint_coord(paint_tex_idx + texel_offset),
-        0,
-    );
+    return alpha * final_color;
 }

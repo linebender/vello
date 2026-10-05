@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Shared encoded image accessors and atlas sampling (bilinear/bicubic) helpers.
+//! Shared encoded image accessors and cubic filter weights.
 
 /// Image rendering quality.
 const IMAGE_QUALITY_LOW: u32 = 0u;
