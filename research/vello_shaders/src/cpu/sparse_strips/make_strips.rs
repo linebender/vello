@@ -391,7 +391,7 @@ fn traverse_cpu<const IS_WINDING: bool>(
             bounds = tile_bounds(tile);
         }
 
-        processor.rasterize_line_to_tile(tile, &bounds);
+        processor.rasterize_line_to_tile(tile, bounds);
     }
 
     // Process the last tile and finalize.

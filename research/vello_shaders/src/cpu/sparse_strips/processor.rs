@@ -162,21 +162,21 @@ impl<'a, const IS_WINDING: bool> StripProcessor<'a, IS_WINDING> {
 
     /// Accumulate the winding of the line of `tile` into the tile at `tile_bounds` (the top left
     /// and bottom right corners of the tile in device space).
-    pub(super) fn rasterize_line_to_tile(&mut self, tile: Tile, tile_bounds: &[Point; 2]) {
+    pub(super) fn rasterize_line_to_tile(&mut self, tile: Tile, tile_bounds: [Point; 2]) {
         let line = self.lines[tile.line_idx() as usize];
         let canonical_y_dir = line.p1.y >= line.p0.y;
         if canonical_y_dir {
-            self.rasterize_line_to_tile_impl::<true>(tile, tile_bounds, &line);
+            self.rasterize_line_to_tile_impl::<true>(tile, tile_bounds, line);
         } else {
-            self.rasterize_line_to_tile_impl::<false>(tile, tile_bounds, &line);
+            self.rasterize_line_to_tile_impl::<false>(tile, tile_bounds, line);
         }
     }
 
     fn rasterize_line_to_tile_impl<const CANONICAL_Y_DIR: bool>(
         &mut self,
         tile: Tile,
-        tile_bounds: &[Point; 2],
-        line: &Line,
+        tile_bounds: [Point; 2],
+        line: Line,
     ) {
         let canonical_x_dir = line.p1.x >= line.p0.x;
 
@@ -211,7 +211,7 @@ impl<'a, const IS_WINDING: bool> StripProcessor<'a, IS_WINDING> {
         let (clipped_line, top_is_on_left_edge, bot_is_on_left_edge) = Tile::clip_to_tile(
             line,
             tile_bounds,
-            &derivs,
+            derivs,
             tile.intersection_mask(),
             canonical_x_dir,
             CANONICAL_Y_DIR,
@@ -687,7 +687,7 @@ mod tests {
         let (x, y) = (f32::from(tx) * 16.0, f32::from(ty) * 16.0);
         let bounds = [Point::new(x, y), Point::new(x + 16.0, y + 16.0)];
         for idx in 0..lines.len() {
-            processor.rasterize_line_to_tile(Tile::new(tx, ty, idx as u32, 0), &bounds);
+            processor.rasterize_line_to_tile(Tile::new(tx, ty, idx as u32, 0), bounds);
         }
         let mut masks = [0; MASK_WORDS_PER_TILE];
         processor.resolve_masks(&mut masks);
@@ -766,7 +766,7 @@ mod tests {
         let eo = unpack(&rasterize_in_tile::<false>(&lines, 1, 1, 1));
         let nz2 = unpack(&rasterize_in_tile::<true>(&lines, 1, 1, 2));
         let holes: Vec<u16> = inside.iter().map(|m| !m).collect();
-        assert!(inside.iter().any(|&m| m == 0xffff), "{inside:?}");
+        assert!(inside.contains(&0xffff), "{inside:?}");
         assert_eq!(nz, holes);
         assert_eq!(eo, holes);
         // With backdrop 2, the winding is 1 or 2 everywhere.

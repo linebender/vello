@@ -787,7 +787,7 @@ mod tests {
     }
 
     /// A line's endpoints in tile units (exact).
-    fn to_tiles(line: &Line) -> (f64, f64, f64, f64) {
+    fn to_tiles(line: Line) -> (f64, f64, f64, f64) {
         let ts = f64::from(TILE_SIZE);
         (
             f64::from(line.p0.x) / ts,
@@ -799,7 +799,7 @@ mod tests {
 
     /// Generous bound (in tiles) on the tiler's f32 error when it computes where `line` crosses
     /// a tile row edge.
-    fn tolerance(line: &Line) -> f64 {
+    fn tolerance(line: Line) -> f64 {
         let (x0, y0, x1, y1) = to_tiles(line);
         let slope = if y0 == y1 {
             0.0
@@ -811,9 +811,14 @@ mod tests {
         1e-4 + 2e-6 * (mx + slope * my)
     }
 
-    /// Whether `line` intersects the closed box `[x0, x1] × [y0, y1]` (in tiles). Liang-Barsky.
-    fn hits_box(line: &Line, x0: f64, x1: f64, y0: f64, y1: f64) -> bool {
+    /// Whether `line` intersects the closed box `[x0, x1] × [y0, y1]` (in tiles). Liang-Barsky,
+    /// after an exact bounding-box test: the parametric test loses precision with huge
+    /// coordinates (e.g. a line from y = 1e30 to y = 1e7 "touches" row 0).
+    fn hits_box(line: Line, x0: f64, x1: f64, y0: f64, y1: f64) -> bool {
         let (ax, ay, bx, by) = to_tiles(line);
+        if ax.max(bx) < x0 || ax.min(bx) > x1 || ay.max(by) < y0 || ay.min(by) > y1 {
+            return false;
+        }
         let (dx, dy) = (bx - ax, by - ay);
         let (mut t0, mut t1) = (0.0_f64, 1.0_f64);
         for (p, q) in [(-dx, ax - x0), (dx, x1 - ax), (-dy, ay - y0), (dy, y1 - ay)] {
@@ -975,15 +980,15 @@ mod tests {
                     }
                     // The segment touches the tile (edge and corner touches count).
                     let (c, r) = (f64::from(t.x), f64::from(t.y));
-                    let eps = tolerance(&seg);
+                    let eps = tolerance(seg);
                     assert!(
-                        hits_box(&seg, c - eps, c + 1.0 + eps, r - eps, r + 1.0 + eps),
+                        hits_box(seg, c - eps, c + 1.0 + eps, r - eps, r + 1.0 + eps),
                         "tile not touched by its segment: {t:?}, {seg:?}"
                     );
                 }
 
                 let ts = f64::from(TILE_SIZE);
-                for (k, (kind, seg)) in segs.iter().enumerate() {
+                for (k, &(kind, seg)) in segs.iter().enumerate() {
                     let eps = tolerance(seg);
                     for r in g.min_y..g.rows {
                         for c in g.min_x..g.columns {
@@ -1004,10 +1009,7 @@ mod tests {
                     }
                     // A line entirely left of the grid that spans a tile row is a culling event.
                     let (y_min, y_max) = (seg.p0.y.min(seg.p1.y), seg.p0.y.max(seg.p1.y));
-                    if *kind == Kind::Left
-                        && y_min != y_max
-                        && y_max > g.top()
-                        && y_min < g.bottom()
+                    if kind == Kind::Left && y_min != y_max && y_max > g.top() && y_min < g.bottom()
                     {
                         assert!(culled, "no culling event for {seg:?}, {clip:?}");
                     }
@@ -1036,7 +1038,7 @@ mod tests {
     fn expected_winding(lines: &[Line], r: u16, c: f64) -> Option<i32> {
         let r = f64::from(r);
         let mut winding = 0;
-        for line in lines {
+        for &line in lines {
             let (x0, y0, x1, y1) = to_tiles(line);
             let (tx, ty, bx, by, dir) = if y0 < y1 {
                 (x0, y0, x1, y1, 1)

@@ -40,9 +40,9 @@ impl Tile {
     ///     broken by the tiler.)
     #[inline(always)]
     pub(super) fn clip_to_tile(
-        line: &Line,
-        tile_bounds: &[Point; 2],
-        derivatives: &[f32; 4],
+        line: Line,
+        tile_bounds: [Point; 2],
+        derivatives: [f32; 4],
         intersection_mask: u32,
         canonical_x_dir: bool,
         canonical_y_dir: bool,
@@ -166,9 +166,9 @@ mod tests {
         let dy = line.p1.y - line.p0.y;
         let inv = |d: f32| if d.abs() <= 1e-5 { 0.0 } else { 1.0 / d };
         Tile::clip_to_tile(
-            &line,
-            &bounds(tx, ty),
-            &[dx, dy, inv(dx), inv(dy)],
+            line,
+            bounds(tx, ty),
+            [dx, dy, inv(dx), inv(dy)],
             mask,
             line.p1.x >= line.p0.x,
             line.p1.y >= line.p0.y,
