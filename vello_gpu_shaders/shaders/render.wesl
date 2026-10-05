@@ -353,8 +353,7 @@ fn fs_main(
         // channel encodes the alpha values for a single column within a strip.
         // Divide x by 4 to get the texel position.
         let alphas_index = x;
-        let tex_dimensions = textureDimensions(alphas_texture);
-        let alphas_tex_width = tex_dimensions.x;
+        let alphas_tex_width = 1u << config.alphas_tex_width_bits;
         // Which texel contains the alpha values for this column
         let texel_index = alphas_index / 4u;
         // Which channel (R,G,B,A) in the texel contains the alpha values for this column
