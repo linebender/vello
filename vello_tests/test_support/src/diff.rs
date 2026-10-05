@@ -19,6 +19,7 @@ pub struct DiffReport {
 }
 
 impl DiffReport {
+    /// Compute aggregate statistics from the individual pixel differences.
     pub fn new(pixels: Vec<PixelDiff>) -> Self {
         let max_difference = pixels.iter().fold([0; 4], |mut max, p| {
             for (m, d) in max.iter_mut().zip(&p.difference) {

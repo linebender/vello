@@ -1,0 +1,34 @@
+[package]
+name = "vello_test_support"
+description = "Shared image snapshot comparison and reporting for Vello tests"
+categories = ["development-tools::testing", "graphics"]
+keywords = ["testing", "snapshots", "images"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+image = { workspace = true, features = ["png"] }
+serde = { workspace = true, features = ["derive", "std"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oxipng = { workspace = true, features = ["freestanding", "parallel"] }
+serde_json = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlImageElement",
+    "Blob",
+    "BlobPropertyBag",
+    "Url",
+] }
+
+[lints]
+workspace = true

@@ -28,10 +28,8 @@ fearless_simd = { workspace = true }
 wgpu = { workspace = true, default-features = true }
 pollster = { workspace = true }
 vello_dev_macros = { workspace = true }
+vello_test_support = { workspace = true }
 bytemuck = { workspace = true }
-image = { workspace = true, features = ["png"] }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
 
@@ -47,10 +45,6 @@ web-sys = { workspace = true, features = [
     "Window",
     "Element",
     "HtmlElement",
-    "HtmlImageElement",
-    "Blob",
-    "BlobPropertyBag",
-    "Url",
     "Response",
 ] }
 wasm-bindgen = { workspace = true }
