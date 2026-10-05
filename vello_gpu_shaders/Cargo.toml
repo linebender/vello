@@ -31,6 +31,7 @@ wgsl-types = "=0.4.0"
 
 [dev-dependencies]
 naga = { workspace = true, features = ["wgsl-in", "wgsl-out", "glsl-out"] }
+wesl = "=0.4.0"
 
 [features]
 default = ["blurred_rounded_rect", "image_bicubic", "gradient_sweep"]

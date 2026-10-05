@@ -14,6 +14,41 @@ mod types;
 
 include!(concat!(env!("OUT_DIR"), "/compiled_shaders.rs"));
 
+#[cfg(test)]
+mod feature_tests {
+    use naga::front::wgsl;
+    use naga::valid::{Capabilities, ValidationFlags, Validator};
+    use wesl::Wesl;
+
+    #[test]
+    fn shader_feature_combinations_compile() {
+        let features = ["blurred_rounded_rect", "image_bicubic", "gradient_sweep"];
+        for mask in [0b000, 0b001, 0b010, 0b100, 0b111] {
+            let mut compiler = Wesl::new("shaders");
+            compiler.use_stripping(true);
+            for (bit, feature) in features.iter().enumerate() {
+                compiler.set_feature(feature, mask & (1 << bit) != 0);
+            }
+            let source = compiler
+                .compile(&"package::render".parse().unwrap())
+                .expect("render shader links")
+                .to_string();
+            let module = wgsl::parse_str(&source).expect("linked WGSL parses");
+            Validator::new(ValidationFlags::all(), Capabilities::all())
+                .validate(&module)
+                .expect("linked WGSL validates");
+            #[cfg(feature = "glsl")]
+            crate::compile::compile_wgsl_shader(
+                &source,
+                "render",
+                "vs_main",
+                "fs_main",
+                &std::collections::BTreeMap::new(),
+            );
+        }
+    }
+}
+
 #[cfg(all(test, feature = "glsl"))]
 mod tests {
     use naga::front::wgsl;

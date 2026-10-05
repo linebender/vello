@@ -28,6 +28,7 @@ members = [
     "vello_gpu_shaders",
     "vello_toy",
     "vello_tests",
+    "vello_tests/feature_tests",
     "vello_tests/test_support",
     "vello_tests/vello_dev_macros",
     "vello_tests/vello_example_scenes",

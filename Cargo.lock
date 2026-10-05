@@ -4592,6 +4592,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vello_gpu_feature_tests"
+version = "0.0.0"
+dependencies = [
+ "pollster",
+ "vello_common",
+ "vello_cpu",
+ "vello_gpu",
+ "vello_test_support",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+ "wgpu",
+]
+
+[[package]]
 name = "vello_gpu_shaders"
 version = "0.3.0"
 dependencies = [

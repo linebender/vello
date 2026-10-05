@@ -21,6 +21,10 @@ env:
   # List of packages that can not target Wasm.
   # `vello_research_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_research_tests --exclude xtask"
+  # See https://github.com/linebender/vello/pull/1958, this value needs to be
+  # large enough so no single test run exceeds it.
+  # Keep in sync with the 1200s timeout in `vello_tests/webdriver.json`.
+  WASM_BINDGEN_TEST_TIMEOUT: "1200"
   # The files stored in LFS the tests need to access, in JSON format
   LFS_FILES: '["research/vello_research_tests/snapshots/*.png", "vello_tests/snapshots/*.png"]'
 
@@ -348,6 +352,14 @@ jobs:
           # However, if we do, the tests are designed to be robust against that, if this environment variable is set.
           # If we do run out of bandwidth, uncomment the following line and inform @DJMcNab.
           # VELLO_SKIP_LFS_SNAPSHOTS: all
+
+      - name: run shader compilation tests
+        if: matrix.os == 'ubuntu-latest'
+        run: bash vello_tests/feature_tests/run.sh --features wgpu --release
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+          RUSTFLAGS: ${{ matrix.rustflags }}
+          VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
       
       - name: Upload test results due to failure
         uses: actions/upload-artifact@v4
@@ -473,10 +485,12 @@ jobs:
         working-directory: vello_tests
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-          # See https://github.com/linebender/vello/pull/1958, this value needs to be
-          # large enough so no single test run exceeds it.
-          # Keep in sync with the 1200s timeout in `webdriver.json.
-          WASM_BINDGEN_TEST_TIMEOUT: "1200"
+
+      - name: run shader compilation tests
+        run: bash vello_tests/feature_tests/run.sh --mode no-install --headless --chrome --features webgl --release
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+          WASM_BINDGEN_TEST_WEBDRIVER_JSON: ${{ github.workspace }}/vello_tests/webdriver.json
 
   check-stable-wasm-webgl-examples:
     name: cargo check (wasm32 webgl examples)
