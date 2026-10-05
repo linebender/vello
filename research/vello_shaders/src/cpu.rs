@@ -29,6 +29,7 @@ mod path_tiling;
 mod path_tiling_setup;
 mod pathtag_reduce;
 mod pathtag_scan;
+pub mod sparse_strips;
 mod tile_alloc;
 mod util;
 

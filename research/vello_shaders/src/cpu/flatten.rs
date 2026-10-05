@@ -79,7 +79,7 @@ fn write_line(
     p0: Vec2,
     p1: Vec2,
     bbox: &mut IntBbox,
-    lines: &mut [LineSoup],
+    lines: &mut Vec<LineSoup>,
 ) {
     assert!(
         !p0.is_nan() && !p1.is_nan(),
@@ -87,12 +87,14 @@ fn write_line(
     );
     bbox.add_pt(p0);
     bbox.add_pt(p1);
-    lines[line_ix] = LineSoup {
+    // Lines are always written in order, so `line_ix` is the next slot.
+    debug_assert_eq!(line_ix, lines.len(), "lines must be written in order");
+    lines.push(LineSoup {
         path_ix,
         _padding: Default::default(),
         p0: p0.to_array(),
         p1: p1.to_array(),
-    };
+    });
 }
 
 fn write_line_with_transform(
@@ -102,7 +104,7 @@ fn write_line_with_transform(
     p1: Vec2,
     transform: &Transform,
     bbox: &mut IntBbox,
-    lines: &mut [LineSoup],
+    lines: &mut Vec<LineSoup>,
 ) {
     write_line(
         line_ix,
@@ -120,7 +122,7 @@ fn output_line(
     p1: Vec2,
     line_ix: &mut usize,
     bbox: &mut IntBbox,
-    lines: &mut [LineSoup],
+    lines: &mut Vec<LineSoup>,
 ) {
     write_line(*line_ix, path_ix, p0, p1, bbox, lines);
     *line_ix += 1;
@@ -132,7 +134,7 @@ fn output_line_with_transform(
     p1: Vec2,
     transform: &Transform,
     line_ix: &mut usize,
-    lines: &mut [LineSoup],
+    lines: &mut Vec<LineSoup>,
     bbox: &mut IntBbox,
 ) {
     write_line_with_transform(*line_ix, path_ix, p0, p1, transform, bbox, lines);
@@ -147,7 +149,7 @@ fn output_two_lines_with_transform(
     p11: Vec2,
     transform: &Transform,
     line_ix: &mut usize,
-    lines: &mut [LineSoup],
+    lines: &mut Vec<LineSoup>,
     bbox: &mut IntBbox,
 ) {
     write_line_with_transform(*line_ix, path_ix, p00, p01, transform, bbox, lines);
@@ -163,7 +165,7 @@ fn flatten_arc(
     angle: f32,
     transform: &Transform,
     line_ix: &mut usize,
-    lines: &mut [LineSoup],
+    lines: &mut Vec<LineSoup>,
     bbox: &mut IntBbox,
 ) {
     const MIN_THETA: f32 = 0.0001;
@@ -208,7 +210,7 @@ fn flatten_euler(
     start_p: Vec2,
     end_p: Vec2,
     line_ix: &mut usize,
-    lines: &mut [LineSoup],
+    lines: &mut Vec<LineSoup>,
     bbox: &mut IntBbox,
 ) {
     // Flatten in local coordinates if this is a stroke. Flatten in device space otherwise.
@@ -392,7 +394,7 @@ fn draw_cap(
     offset_tangent: Vec2,
     transform: &Transform,
     line_ix: &mut usize,
-    lines: &mut [LineSoup],
+    lines: &mut Vec<LineSoup>,
     bbox: &mut IntBbox,
 ) {
     if cap_style == Style::FLAGS_CAP_BITS_ROUND {
@@ -434,7 +436,7 @@ fn draw_join(
     n_next: Vec2,
     transform: &Transform,
     line_ix: &mut usize,
-    lines: &mut [LineSoup],
+    lines: &mut Vec<LineSoup>,
     bbox: &mut IntBbox,
 ) {
     let mut front0 = p0 + n_prev;
@@ -663,14 +665,14 @@ const PATH_TAG_QUADTO: u8 = 2;
 const PATH_TAG_CUBICTO: u8 = 3;
 const PATH_TAG_F32: u8 = 8;
 
-fn flatten_main(
+pub(super) fn flatten_main(
     n_wg: u32,
     config: &ConfigUniform,
     scene: &[u32],
     tag_monoids: &[PathMonoid],
     path_bboxes: &mut [PathBbox],
     bump: &mut BumpAllocators,
-    lines: &mut [LineSoup],
+    lines: &mut Vec<LineSoup>,
 ) {
     let mut line_ix = 0;
     let pathtags = &scene[config.layout.path_tag_base as usize..];
@@ -851,6 +853,7 @@ pub fn flatten(n_wg: u32, resources: &[CpuBinding<'_>]) {
     let mut path_bboxes = resources[3].as_slice_mut();
     let mut bump = resources[4].as_typed_mut();
     let mut lines = resources[5].as_slice_mut();
+    let mut line_vec = Vec::new();
     flatten_main(
         n_wg,
         &config,
@@ -858,6 +861,9 @@ pub fn flatten(n_wg: u32, resources: &[CpuBinding<'_>]) {
         &tag_monoids,
         &mut path_bboxes,
         &mut bump,
-        &mut lines,
+        &mut line_vec,
     );
+    // Like the GPU shader, only write lines that fit; `bump.lines` reports the full count.
+    let n = line_vec.len().min(lines.len());
+    lines[..n].copy_from_slice(&line_vec[..n]);
 }
