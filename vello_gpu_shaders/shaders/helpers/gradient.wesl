@@ -92,6 +92,7 @@ fn sample_radial_gradient(
     );
 }
 
+@if(gradient_sweep)
 fn sample_sweep_gradient(
     encoded_paints_texture: texture_2d<u32>,
     tex_width_bits: u32,

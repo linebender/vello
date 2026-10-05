@@ -72,6 +72,12 @@ fn load_shader_infos(shader_dir: &Path) -> Vec<ShaderInfo> {
     let mut compiler = Wesl::new(shader_dir);
 
     compiler.use_stripping(true);
+    compiler.set_feature(
+        "blurred_rounded_rect",
+        cfg!(feature = "blurred_rounded_rect"),
+    );
+    compiler.set_feature("image_bicubic", cfg!(feature = "image_bicubic"));
+    compiler.set_feature("gradient_sweep", cfg!(feature = "gradient_sweep"));
 
     shader_names
         .into_iter()

@@ -13,6 +13,7 @@ import package::helpers::image::{
     get_image_quality,
     get_image_size,
 };
+@if(image_bicubic)
 import package::helpers::image::cubic_weights;
 import package::helpers::paint::{PAINT_TEXTURE_INDEX_MASK, load_encoded_paint_texel};
 
@@ -82,6 +83,7 @@ fn external_bilinear_sample(
 
 // This is the same as `helpers::image::bicubic_sample`, but for a 2D texture
 // instead of an atlas texture array.
+@if(image_bicubic)
 fn external_bicubic_sample(
     external_texture: texture_2d<f32>,
     coords: vec2<f32>,
@@ -131,6 +133,7 @@ fn sample_external_image(
     image_offset: vec2<f32>,
     image_size: vec2<f32>,
 ) -> vec4<f32> {
+    @if(image_bicubic)
     if quality == IMAGE_QUALITY_HIGH {
         return external_bicubic_sample(external_texture, coords, image_offset, image_size);
     }

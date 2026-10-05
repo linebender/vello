@@ -24,6 +24,7 @@
 // More details in the `StripInstance` documentation below.
 
 import package::helpers::alpha::sample_strip_alpha;
+@if(blurred_rounded_rect)
 import package::helpers::blurred_rounded_rect::{
     get_blurred_rounded_rect_sample_xy,
     sample_blurred_rounded_rect,
@@ -32,6 +33,7 @@ import package::helpers::external_texture::sample_image_paint;
 import package::helpers::gradient::get_gradient_sample_xy;
 import package::helpers::gradient::sample_linear_gradient;
 import package::helpers::gradient::sample_radial_gradient;
+@if(gradient_sweep)
 import package::helpers::gradient::sample_sweep_gradient;
 import package::helpers::geometry::{pixel_to_ndc, quad_corner, rect_coverage};
 import package::helpers::image::{
@@ -278,6 +280,7 @@ fn vs_main(
             // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = get_gradient_sample_xy(scene_strip, corner, width, height);
         } else if paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
+            @if(blurred_rounded_rect)
             out.sample_xy = get_blurred_rounded_rect_sample_xy(scene_strip, corner, width, height);
         }
     } else if color_source == COLOR_SOURCE_LAYER {
@@ -351,11 +354,13 @@ fn fs_main(
                 gradient_texture, paint_and_rect_flag, sample_xy,
             );
         } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
+            @if(gradient_sweep)
             final_color = sample_sweep_gradient(
                 encoded_paints_texture, config.encoded_paints_tex_width_bits,
                 gradient_texture, paint_and_rect_flag, sample_xy,
             );
         } else if paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
+            @if(blurred_rounded_rect)
             final_color = sample_blurred_rounded_rect(
                 encoded_paints_texture, config.encoded_paints_tex_width_bits,
                 paint_and_rect_flag, sample_xy,

@@ -35,7 +35,7 @@ pub use error::{
 };
 
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
-use crate::render::common::IMAGE_PADDING;
+use crate::render::common::{IMAGE_PADDING, assert_paint_supported};
 use crate::util::RangedSlice;
 use crate::{
     ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
@@ -915,6 +915,8 @@ impl WebGlRenderer {
 
         let mut current_idx = 0;
         for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
+            assert_paint_supported(paint);
+
             self.paint_idxs[encoded_paint_idx] = current_idx;
             let gpu_paint = match paint {
                 EncodedPaint::Image(img) => match &img.source {

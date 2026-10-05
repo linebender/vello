@@ -24,7 +24,12 @@ bytemuck = { workspace = true, features = [] }
 smallvec = { workspace = true }
 glifo = { workspace = true }
 skrifa = { workspace = true }
-vello_gpu = { workspace = true, default-features = false, features = ["text"] }
+vello_gpu = { workspace = true, default-features = false, features = [
+    "text",
+    "blurred_rounded_rect",
+    "image_bicubic",
+    "gradient_sweep",
+] }
 vello_common = { workspace = true, features = ["pico_svg", "png"] }
 image = { workspace = true, features = ["jpeg"] }
 vello_cpu = { workspace = true, optional = true }

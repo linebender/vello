@@ -59,6 +59,7 @@ fn get_image_translate(texel1: vec4<u32>, texel2: vec4<u32>) -> vec2<f32> {
 
 // Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)
 // Mitchell-Netravali cubic filter coefficients with parameters B=1/3 and C=1/3
+@if(image_bicubic)
 const MF: array<vec4<f32>, 4> = array<vec4<f32>, 4>(
     vec4<f32>(
         (1.0 / 6.0) / 3.0,
@@ -87,6 +88,7 @@ const MF: array<vec4<f32>, 4> = array<vec4<f32>, 4>(
 );
 
 // Calculate the weights for a single fractional value (same as CPU weights function)
+@if(image_bicubic)
 fn cubic_weights(fract: f32) -> vec4<f32> {
     return vec4<f32>(
         single_weight(fract, MF[0][0], MF[0][1], MF[0][2], MF[0][3]),
@@ -98,6 +100,7 @@ fn cubic_weights(fract: f32) -> vec4<f32> {
 
 // Calculate a weight based on the fractional value t and the cubic coefficients
 // This matches the CPU implementation exactly
+@if(image_bicubic)
 fn single_weight(t: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
     return t * (t * (t * d + c) + b) + a;
 }

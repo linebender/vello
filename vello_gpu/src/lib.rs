@@ -27,6 +27,11 @@
 //! - `wgpu_default` (enabled by default): Enables wgpu with its default hardware
 //!   backends (such as Vulkan, Metal, and DX12).
 //! - `text` (enabled by default): Enables glyph rendering ([`Scene::glyph_run`]).
+//! - `blurred_rounded_rect` (enabled by default): Enables rendering of blurred
+//!   rounded rectangles.
+//! - `image_bicubic` (enabled by default): Enables rendering of images with
+//!   `ImageQuality::High`
+//! - `gradient_sweep` (enabled by default): Enables rendering of sweep gradients
 //! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL
 //!   shaders for compatibility.
 //!
