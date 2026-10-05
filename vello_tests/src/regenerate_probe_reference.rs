@@ -23,7 +23,7 @@ fn reference_path(element: probe::ProbeFeature, extension: &str) -> PathBuf {
     let name = match element {
         probe::ProbeFeature::SolidRect => "probe_solid_rect",
         probe::ProbeFeature::AlphaBlending => "probe_alpha_blending",
-        probe::ProbeFeature::Gradient => "probe_gradient",
+        probe::ProbeFeature::LinearGradient => "probe_linear_gradient",
         probe::ProbeFeature::ImageNearest => "probe_image_nearest",
         probe::ProbeFeature::Filter => "probe_filter",
         probe::ProbeFeature::ImageBilinear => "probe_image_bilinear",
@@ -31,6 +31,11 @@ fn reference_path(element: probe::ProbeFeature, extension: &str) -> PathBuf {
         probe::ProbeFeature::Blending => "probe_blending",
         probe::ProbeFeature::Transformed => "probe_transformed",
         probe::ProbeFeature::DepthBuffer => "probe_depth_buffer",
+        probe::ProbeFeature::DropShadow => "probe_drop_shadow",
+        probe::ProbeFeature::BlurredRoundedRect => "probe_blurred_rounded_rect",
+        probe::ProbeFeature::RadialGradient => "probe_radial_gradient",
+        probe::ProbeFeature::SweepGradient => "probe_sweep_gradient",
+        probe::ProbeFeature::ImageBicubic => "probe_image_bicubic",
     };
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../vello_common/assets")
@@ -54,6 +59,11 @@ impl ProbeRenderer for CpuProbeContext<'_> {
 
     fn fill_rect(&mut self, rect: &Rect) {
         self.0.fill_rect(rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
+        self.0
+            .fill_blurred_rounded_rect(rect, radius, std_dev, invert);
     }
 
     fn push_layer(&mut self, blend_mode: Option<BlendMode>, opacity: Option<f32>) {
@@ -161,7 +171,7 @@ mod tests {
     fn probe_failure_reports_statistics_per_cell() {
         let elements = [
             probe::ProbeFeature::SolidRect,
-            probe::ProbeFeature::Gradient,
+            probe::ProbeFeature::LinearGradient,
         ];
         let mut actual = render_probe_pixmap(&elements);
         actual.set_pixel(0, 0, css::BLACK.premultiply().to_rgba8());
@@ -173,7 +183,7 @@ mod tests {
         assert_eq!(statistics.len(), 2);
         assert_eq!(statistics[0].feature, probe::ProbeFeature::SolidRect);
         assert_eq!(statistics[0].different_pixel_count, 1);
-        assert_eq!(statistics[1].feature, probe::ProbeFeature::Gradient);
+        assert_eq!(statistics[1].feature, probe::ProbeFeature::LinearGradient);
         assert_eq!(statistics[1].different_pixel_count, 0);
     }
 
@@ -192,7 +202,7 @@ mod tests {
     fn full_probe_row_matches_reference() {
         assert_elements_match_reference(&[
             probe::ProbeFeature::SolidRect,
-            probe::ProbeFeature::Gradient,
+            probe::ProbeFeature::LinearGradient,
             probe::ProbeFeature::DepthBuffer,
         ]);
     }
