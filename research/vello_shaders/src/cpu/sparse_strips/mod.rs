@@ -31,6 +31,7 @@ pub mod reference;
 pub mod sink;
 pub mod tile;
 
+mod clip;
 mod lut;
 mod make_strips;
 mod processor;
