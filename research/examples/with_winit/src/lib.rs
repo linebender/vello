@@ -110,7 +110,12 @@ struct RenderState {
 #[cfg(not(target_os = "android"))]
 // TODO: Make this set configurable through the command line
 // Alternatively, load anti-aliasing shaders on demand/asynchronously
-const AA_CONFIGS: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
+const AA_CONFIGS: [AaConfig; 4] = [
+    AaConfig::Area,
+    AaConfig::Msaa8,
+    AaConfig::Msaa16,
+    AaConfig::SparseMsaa16,
+];
 
 #[cfg(target_os = "android")]
 // Hard code to only one on Android whilst we are working on startup speed
@@ -543,6 +548,12 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                     .or(scene_params.base_color)
                     .unwrap_or(palette::css::BLACK);
                 let antialiasing_method = AA_CONFIGS[self.aa_config_ix as usize];
+                // The CPU sparse strips can't be combined with `--use-cpu`; use area instead.
+                #[cfg(not(target_arch = "wasm32"))]
+                let antialiasing_method = match antialiasing_method {
+                    AaConfig::SparseMsaa16 if self.use_cpu => AaConfig::Area,
+                    method => method,
+                };
                 let render_params = vello::RenderParams {
                     base_color,
                     width,

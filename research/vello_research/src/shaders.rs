@@ -39,6 +39,10 @@ pub struct FullShaders {
     pub fine_area: Option<ShaderId>,
     pub fine_msaa8: Option<ShaderId>,
     pub fine_msaa16: Option<ShaderId>,
+    // Sparse strips (`AaConfig::SparseMsaa16`). Only built if supported and not `use_cpu`.
+    pub strip_scatter: Option<ShaderId>,
+    pub coarse_sparse: Option<ShaderId>,
+    pub fine_sparse_msaa16: Option<ShaderId>,
     // 2-level dispatch works for CPU pathtag scan even for large
     // inputs, 3-level is not yet implemented.
     pub pathtag_is_cpu: bool,
@@ -245,6 +249,46 @@ pub(crate) fn full_shaders(
     } else {
         None
     };
+    // The sparse strips are produced on the CPU and consumed by these GPU-only shaders,
+    // so they can't be combined with `use_cpu`.
+    let sparse = aa_support.sparse_msaa16 && !options.use_cpu;
+    let strip_scatter = if sparse {
+        Some(add_shader!(
+            strip_scatter,
+            [Uniform, BufReadOnly, BufReadOnly, Buffer, Buffer],
+            CpuShaderType::Missing
+        ))
+    } else {
+        None
+    };
+    let coarse_sparse = if sparse {
+        Some(add_shader!(
+            coarse_sparse,
+            [
+                Uniform,
+                BufReadOnly,
+                BufReadOnly,
+                BufReadOnly,
+                BufReadOnly,
+                BufReadOnly,
+                Buffer,
+                Buffer,
+                Buffer,
+            ],
+            CpuShaderType::Missing
+        ))
+    } else {
+        None
+    };
+    let fine_sparse_msaa16 = if sparse {
+        Some(add_shader!(
+            fine_sparse_msaa16,
+            fine_resources[..fine_resources.len() - 1],
+            CpuShaderType::Missing
+        ))
+    } else {
+        None
+    };
 
     Ok(FullShaders {
         pathtag_reduce,
@@ -269,6 +313,9 @@ pub(crate) fn full_shaders(
         fine_area,
         fine_msaa8,
         fine_msaa16,
+        strip_scatter,
+        coarse_sparse,
+        fine_sparse_msaa16,
         pathtag_is_cpu: options.use_cpu,
     })
 }

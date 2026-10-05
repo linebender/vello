@@ -55,6 +55,24 @@ struct FineResources {
     out_image: ImageProxy,
 }
 
+/// The resolved scene, and the resources shared by all coarse pipelines.
+struct CoarseSetup {
+    recording: Recording,
+    /// The packed scene, which is never empty.
+    packed: Vec<u8>,
+    cpu_config: vello_encoding::RenderConfig,
+    gradient_image: ResourceProxy,
+    image_atlas: ImageProxy,
+    config_buf: ResourceProxy,
+}
+
+/// Buffers made by `Render::record_draw_to_tile_alloc`, used by the later stages.
+struct DrawTileBuffers {
+    draw_monoid_buf: ResourceProxy,
+    bin_header_buf: ResourceProxy,
+    path_buf: ResourceProxy,
+}
+
 /// A collection of internal buffers that are used for debug visualization when the
 /// `debug_layers` feature is enabled. The contents of these buffers remain GPU resident
 /// and must be freed directly by the caller.
@@ -141,6 +159,26 @@ impl Render {
         params: &RenderParams,
         robust: bool,
     ) -> Recording {
+        let setup = Self::prepare_coarse(encoding, resolver, persistent_image_atlas, params);
+        if params.antialiasing_method == AaConfig::SparseMsaa16 {
+            #[cfg(feature = "wgpu")]
+            {
+                return self.render_encoding_coarse_sparse(setup, shaders, params, robust);
+            }
+            #[cfg(not(feature = "wgpu"))]
+            panic!("`AaConfig::SparseMsaa16` requires the `wgpu` feature");
+        }
+        self.render_encoding_coarse_gpu(setup, shaders, params, robust)
+    }
+
+    /// Resolve the encoding, and prepare the resources shared by all coarse pipelines:
+    /// the gradient ramps, the image atlas and the render config.
+    fn prepare_coarse(
+        encoding: &Encoding,
+        resolver: &mut Resolver,
+        persistent_image_atlas: &mut Option<ImageProxy>,
+        params: &RenderParams,
+    ) -> CoarseSetup {
         use vello_encoding::RenderConfig;
         let mut recording = Recording::default();
         let mut packed = vec![];
@@ -216,9 +254,6 @@ impl Render {
                 params.height
             );
         }
-        let buffer_sizes = &cpu_config.buffer_sizes;
-        let wg_counts = &cpu_config.workgroup_counts;
-
         if packed.is_empty() {
             // HACK: wgpu doesn't allow empty buffers, so we make sure that the scene buffer we upload
             // can contain at least one array item.
@@ -226,10 +261,38 @@ impl Render {
             // is zero.
             packed.resize(size_of::<u32>(), u8::MAX);
         }
-        let scene_buf = ResourceProxy::Buffer(recording.upload("vello.scene", packed));
         let config_buf = ResourceProxy::Buffer(
             recording.upload_uniform("vello.config", bytemuck::bytes_of(&cpu_config.gpu)),
         );
+        CoarseSetup {
+            recording,
+            packed,
+            cpu_config,
+            gradient_image,
+            image_atlas,
+            config_buf,
+        }
+    }
+
+    /// The GPU coarse pipeline, used for the area and MSAA modes.
+    fn render_encoding_coarse_gpu(
+        &mut self,
+        setup: CoarseSetup,
+        shaders: &FullShaders,
+        params: &RenderParams,
+        robust: bool,
+    ) -> Recording {
+        let CoarseSetup {
+            mut recording,
+            packed,
+            cpu_config,
+            gradient_image,
+            image_atlas,
+            config_buf,
+        } = setup;
+        let buffer_sizes = &cpu_config.buffer_sizes;
+        let wg_counts = &cpu_config.workgroup_counts;
+        let scene_buf = ResourceProxy::Buffer(recording.upload("vello.scene", packed));
         let info_bin_data_buf = ResourceProxy::new_buf(
             buffer_sizes.bin_data.size_in_bytes() as u64,
             "vello.info_bin_data_buf",
@@ -326,115 +389,21 @@ impl Render {
                 lines_buf,
             ],
         );
-        let draw_reduced_buf = ResourceProxy::new_buf(
-            buffer_sizes.draw_reduced.size_in_bytes().into(),
-            "vello.draw_reduced_buf",
+        let DrawTileBuffers {
+            draw_monoid_buf,
+            bin_header_buf,
+            path_buf,
+        } = Self::record_draw_to_tile_alloc(
+            &mut recording,
+            shaders,
+            &cpu_config,
+            config_buf,
+            scene_buf,
+            path_bbox_buf,
+            info_bin_data_buf,
+            bump_buf,
+            tile_buf,
         );
-        recording.dispatch(
-            shaders.draw_reduce,
-            wg_counts.draw_reduce,
-            [config_buf, scene_buf, draw_reduced_buf],
-        );
-        let draw_monoid_buf = ResourceProxy::new_buf(
-            buffer_sizes.draw_monoids.size_in_bytes().into(),
-            "vello.draw_monoid_buf",
-        );
-        let clip_inp_buf = ResourceProxy::new_buf(
-            buffer_sizes.clip_inps.size_in_bytes().into(),
-            "vello.clip_inp_buf",
-        );
-        recording.dispatch(
-            shaders.draw_leaf,
-            wg_counts.draw_leaf,
-            [
-                config_buf,
-                scene_buf,
-                draw_reduced_buf,
-                path_bbox_buf,
-                draw_monoid_buf,
-                info_bin_data_buf,
-                clip_inp_buf,
-            ],
-        );
-        recording.free_resource(draw_reduced_buf);
-        let clip_el_buf = ResourceProxy::new_buf(
-            buffer_sizes.clip_els.size_in_bytes().into(),
-            "vello.clip_el_buf",
-        );
-        let clip_bic_buf = ResourceProxy::new_buf(
-            buffer_sizes.clip_bics.size_in_bytes().into(),
-            "vello.clip_bic_buf",
-        );
-        if wg_counts.clip_reduce.0 > 0 {
-            recording.dispatch(
-                shaders.clip_reduce,
-                wg_counts.clip_reduce,
-                [clip_inp_buf, path_bbox_buf, clip_bic_buf, clip_el_buf],
-            );
-        }
-        let clip_bbox_buf = ResourceProxy::new_buf(
-            buffer_sizes.clip_bboxes.size_in_bytes().into(),
-            "vello.clip_bbox_buf",
-        );
-        if wg_counts.clip_leaf.0 > 0 {
-            recording.dispatch(
-                shaders.clip_leaf,
-                wg_counts.clip_leaf,
-                [
-                    config_buf,
-                    clip_inp_buf,
-                    path_bbox_buf,
-                    clip_bic_buf,
-                    clip_el_buf,
-                    draw_monoid_buf,
-                    clip_bbox_buf,
-                ],
-            );
-        }
-        recording.free_resource(clip_inp_buf);
-        recording.free_resource(clip_bic_buf);
-        recording.free_resource(clip_el_buf);
-        let draw_bbox_buf = ResourceProxy::new_buf(
-            buffer_sizes.draw_bboxes.size_in_bytes().into(),
-            "vello.draw_bbox_buf",
-        );
-        let bin_header_buf = ResourceProxy::new_buf(
-            buffer_sizes.bin_headers.size_in_bytes().into(),
-            "vello.bin_header_buf",
-        );
-        recording.dispatch(
-            shaders.binning,
-            wg_counts.binning,
-            [
-                config_buf,
-                draw_monoid_buf,
-                path_bbox_buf,
-                clip_bbox_buf,
-                draw_bbox_buf,
-                bump_buf,
-                info_bin_data_buf,
-                bin_header_buf,
-            ],
-        );
-        recording.free_resource(draw_monoid_buf);
-        recording.free_resource(clip_bbox_buf);
-        // Note: this only needs to be rounded up because of the workaround to store the tile_offset
-        // in storage rather than workgroup memory.
-        let path_buf =
-            ResourceProxy::new_buf(buffer_sizes.paths.size_in_bytes().into(), "vello.path_buf");
-        recording.dispatch(
-            shaders.tile_alloc,
-            wg_counts.tile_alloc,
-            [
-                config_buf,
-                scene_buf,
-                draw_bbox_buf,
-                bump_buf,
-                path_buf,
-                tile_buf,
-            ],
-        );
-        recording.free_resource(draw_bbox_buf);
         recording.free_resource(tagmonoid_buf);
         let indirect_count_buf = BufferProxy::new(
             buffer_sizes.indirect_count.size_in_bytes().into(),
@@ -556,6 +525,340 @@ impl Render {
         recording
     }
 
+    /// Records the draw object, clip, binning and tile allocation stages, which all coarse
+    /// pipelines share.
+    fn record_draw_to_tile_alloc(
+        recording: &mut Recording,
+        shaders: &FullShaders,
+        cpu_config: &vello_encoding::RenderConfig,
+        config_buf: ResourceProxy,
+        scene_buf: ResourceProxy,
+        path_bbox_buf: ResourceProxy,
+        info_bin_data_buf: ResourceProxy,
+        bump_buf: ResourceProxy,
+        tile_buf: ResourceProxy,
+    ) -> DrawTileBuffers {
+        let buffer_sizes = &cpu_config.buffer_sizes;
+        let wg_counts = &cpu_config.workgroup_counts;
+        let draw_reduced_buf = ResourceProxy::new_buf(
+            buffer_sizes.draw_reduced.size_in_bytes().into(),
+            "vello.draw_reduced_buf",
+        );
+        recording.dispatch(
+            shaders.draw_reduce,
+            wg_counts.draw_reduce,
+            [config_buf, scene_buf, draw_reduced_buf],
+        );
+        let draw_monoid_buf = ResourceProxy::new_buf(
+            buffer_sizes.draw_monoids.size_in_bytes().into(),
+            "vello.draw_monoid_buf",
+        );
+        let clip_inp_buf = ResourceProxy::new_buf(
+            buffer_sizes.clip_inps.size_in_bytes().into(),
+            "vello.clip_inp_buf",
+        );
+        recording.dispatch(
+            shaders.draw_leaf,
+            wg_counts.draw_leaf,
+            [
+                config_buf,
+                scene_buf,
+                draw_reduced_buf,
+                path_bbox_buf,
+                draw_monoid_buf,
+                info_bin_data_buf,
+                clip_inp_buf,
+            ],
+        );
+        recording.free_resource(draw_reduced_buf);
+        let clip_el_buf = ResourceProxy::new_buf(
+            buffer_sizes.clip_els.size_in_bytes().into(),
+            "vello.clip_el_buf",
+        );
+        let clip_bic_buf = ResourceProxy::new_buf(
+            buffer_sizes.clip_bics.size_in_bytes().into(),
+            "vello.clip_bic_buf",
+        );
+        if wg_counts.clip_reduce.0 > 0 {
+            recording.dispatch(
+                shaders.clip_reduce,
+                wg_counts.clip_reduce,
+                [clip_inp_buf, path_bbox_buf, clip_bic_buf, clip_el_buf],
+            );
+        }
+        let clip_bbox_buf = ResourceProxy::new_buf(
+            buffer_sizes.clip_bboxes.size_in_bytes().into(),
+            "vello.clip_bbox_buf",
+        );
+        if wg_counts.clip_leaf.0 > 0 {
+            recording.dispatch(
+                shaders.clip_leaf,
+                wg_counts.clip_leaf,
+                [
+                    config_buf,
+                    clip_inp_buf,
+                    path_bbox_buf,
+                    clip_bic_buf,
+                    clip_el_buf,
+                    draw_monoid_buf,
+                    clip_bbox_buf,
+                ],
+            );
+        }
+        recording.free_resource(clip_inp_buf);
+        recording.free_resource(clip_bic_buf);
+        recording.free_resource(clip_el_buf);
+        let draw_bbox_buf = ResourceProxy::new_buf(
+            buffer_sizes.draw_bboxes.size_in_bytes().into(),
+            "vello.draw_bbox_buf",
+        );
+        let bin_header_buf = ResourceProxy::new_buf(
+            buffer_sizes.bin_headers.size_in_bytes().into(),
+            "vello.bin_header_buf",
+        );
+        recording.dispatch(
+            shaders.binning,
+            wg_counts.binning,
+            [
+                config_buf,
+                draw_monoid_buf,
+                path_bbox_buf,
+                clip_bbox_buf,
+                draw_bbox_buf,
+                bump_buf,
+                info_bin_data_buf,
+                bin_header_buf,
+            ],
+        );
+        recording.free_resource(draw_monoid_buf);
+        recording.free_resource(clip_bbox_buf);
+        // Note: this only needs to be rounded up because of the workaround to store the tile_offset
+        // in storage rather than workgroup memory.
+        let path_buf =
+            ResourceProxy::new_buf(buffer_sizes.paths.size_in_bytes().into(), "vello.path_buf");
+        recording.dispatch(
+            shaders.tile_alloc,
+            wg_counts.tile_alloc,
+            [
+                config_buf,
+                scene_buf,
+                draw_bbox_buf,
+                bump_buf,
+                path_buf,
+                tile_buf,
+            ],
+        );
+        recording.free_resource(draw_bbox_buf);
+        DrawTileBuffers {
+            draw_monoid_buf,
+            bin_header_buf,
+            path_buf,
+        }
+    }
+
+    /// The coarse pipeline for [`AaConfig::SparseMsaa16`].
+    ///
+    /// The sparse strips are made on the CPU, which replaces the GPU path tag, bbox and
+    /// flatten stages, as well as path counting and tiling. The GPU still runs the draw
+    /// object, clip, binning and tile allocation stages; then `strip_scatter` writes the strip
+    /// records into the allocated tiles, `backdrop_dyn` prefix-sums their backdrop deltas,
+    /// and `coarse_sparse` emits `CMD_MASK` and `CMD_SOLID` commands for fine.
+    #[cfg(feature = "wgpu")]
+    fn render_encoding_coarse_sparse(
+        &mut self,
+        setup: CoarseSetup,
+        shaders: &FullShaders,
+        params: &RenderParams,
+        robust: bool,
+    ) -> Recording {
+        use vello_encoding::PathBbox;
+        use vello_shaders::cpu::sparse_strips::{
+            MASK_WORDS_PER_TILE, StripRecord, render_sparse_strips,
+        };
+
+        // The workgroup size of `strip_scatter`.
+        const SCATTER_WG_SIZE: u32 = 256;
+        // The maximum number of `strip_scatter` workgroups per dispatch row.
+        const SCATTER_MAX_WGS_X: u32 = 32768;
+
+        assert!(
+            !shaders.pathtag_is_cpu,
+            "`AaConfig::SparseMsaa16` is not supported with `RendererOptions::use_cpu`"
+        );
+        let not_configured = "shaders not configured to support AA mode: sparse_msaa16";
+        let strip_scatter = shaders.strip_scatter.expect(not_configured);
+        let coarse_sparse = shaders.coarse_sparse.expect(not_configured);
+
+        let CoarseSetup {
+            mut recording,
+            packed,
+            cpu_config,
+            gradient_image,
+            image_atlas,
+            config_buf,
+        } = setup;
+        let buffer_sizes = &cpu_config.buffer_sizes;
+        let wg_counts = &cpu_config.workgroup_counts;
+
+        // Make the sparse strips on the CPU. (`bytemuck::pod_collect_to_vec` would need
+        // bytemuck's `extern_crate_alloc` feature.)
+        let scene: Vec<u32> = packed
+            .chunks_exact(4)
+            .map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        let strips = render_sparse_strips(&cpu_config.gpu, &scene);
+        let n_records = u32::try_from(strips.records.len()).expect("too many sparse strip records");
+        // wgpu doesn't allow empty buffers, so pad empty uploads. The padding is never read:
+        // `n_records` is the true count, and no path or mask block refers to the padding.
+        let mut path_bboxes = strips.path_bboxes;
+        if path_bboxes.is_empty() {
+            path_bboxes.push(PathBbox::default());
+        }
+        let mut records = strips.records;
+        if records.is_empty() {
+            records.push(StripRecord::default());
+        }
+        let mut masks = strips.masks;
+        if masks.is_empty() {
+            masks.resize(MASK_WORDS_PER_TILE, 0);
+        }
+
+        let scene_buf = ResourceProxy::Buffer(recording.upload("vello.scene", packed));
+        let path_bbox_data: &[u8] = bytemuck::cast_slice(&path_bboxes);
+        let path_bbox_buf =
+            ResourceProxy::Buffer(recording.upload("vello.path_bbox_buf", path_bbox_data));
+        let record_data: &[u8] = bytemuck::cast_slice(&records);
+        let records_buf =
+            ResourceProxy::Buffer(recording.upload("vello.strip_records", record_data));
+        let mask_data: &[u8] = bytemuck::cast_slice(&masks);
+        let masks_buf = ResourceProxy::Buffer(recording.upload("vello.strip_masks", mask_data));
+        let info_bin_data_buf = ResourceProxy::new_buf(
+            buffer_sizes.bin_data.size_in_bytes().into(),
+            "vello.info_bin_data_buf",
+        );
+        let tile_buf =
+            ResourceProxy::new_buf(buffer_sizes.tiles.size_in_bytes().into(), "vello.tile_buf");
+        let ptcl_buf =
+            ResourceProxy::new_buf(buffer_sizes.ptcl.size_in_bytes().into(), "vello.ptcl_buf");
+        let bump_buf = BufferProxy::new(
+            buffer_sizes.bump_alloc.size_in_bytes().into(),
+            "vello.bump_buf",
+        );
+        recording.clear_all(bump_buf);
+        let bump_buf = ResourceProxy::Buffer(bump_buf);
+
+        let DrawTileBuffers {
+            draw_monoid_buf,
+            bin_header_buf,
+            path_buf,
+        } = Self::record_draw_to_tile_alloc(
+            &mut recording,
+            shaders,
+            &cpu_config,
+            config_buf,
+            scene_buf,
+            path_bbox_buf,
+            info_bin_data_buf,
+            bump_buf,
+            tile_buf,
+        );
+        recording.free_resource(path_bbox_buf);
+
+        // One invocation per record. The dispatch is split over y when it would need more
+        // than `SCATTER_MAX_WGS_X` workgroups, and is empty if there are no records.
+        let n_scatter_wgs = n_records.div_ceil(SCATTER_WG_SIZE);
+        let scatter_wgs_x = n_scatter_wgs.min(SCATTER_MAX_WGS_X);
+        let scatter_wgs_y = n_scatter_wgs.div_ceil(SCATTER_MAX_WGS_X);
+        if n_records != 0 {
+            // Matches `StripScatterConfig` in `strip_scatter.wgsl`.
+            let scatter_config: [u32; 4] = [
+                n_records,
+                cpu_config.gpu.layout.n_draw_objects,
+                scatter_wgs_x * SCATTER_WG_SIZE,
+                0,
+            ];
+            let scatter_config_buf = ResourceProxy::Buffer(recording.upload_uniform(
+                "vello.strip_scatter_config",
+                bytemuck::bytes_of(&scatter_config),
+            ));
+            recording.dispatch(
+                strip_scatter,
+                (scatter_wgs_x, scatter_wgs_y, 1),
+                [
+                    scatter_config_buf,
+                    records_buf,
+                    path_buf,
+                    bump_buf,
+                    tile_buf,
+                ],
+            );
+            recording.free_resource(scatter_config_buf);
+        }
+        recording.free_resource(records_buf);
+        recording.dispatch(
+            shaders.backdrop,
+            wg_counts.backdrop,
+            [config_buf, bump_buf, path_buf, tile_buf],
+        );
+        recording.dispatch(
+            coarse_sparse,
+            wg_counts.coarse,
+            [
+                config_buf,
+                scene_buf,
+                draw_monoid_buf,
+                bin_header_buf,
+                info_bin_data_buf,
+                path_buf,
+                tile_buf,
+                bump_buf,
+                ptcl_buf,
+            ],
+        );
+        // Still needed, as it writes the `ptcl[0] = ~0` failure marker which fine checks. The
+        // indirect dispatch size it computes (for path tiling) is unused.
+        let indirect_count_buf = BufferProxy::new(
+            buffer_sizes.indirect_count.size_in_bytes().into(),
+            "vello.indirect_count",
+        );
+        recording.dispatch(
+            shaders.path_tiling_setup,
+            wg_counts.path_tiling_setup,
+            [bump_buf, indirect_count_buf.into(), ptcl_buf],
+        );
+        recording.free_buffer(indirect_count_buf);
+        recording.free_resource(scene_buf);
+        recording.free_resource(draw_monoid_buf);
+        recording.free_resource(bin_header_buf);
+        recording.free_resource(path_buf);
+        let out_image = ImageProxy::new(params.width, params.height, ImageFormat::Rgba8);
+        let blend_spill_buf = BufferProxy::new(
+            buffer_sizes.blend_spill.size_in_bytes().into(),
+            "vello.blend_spill",
+        );
+        self.fine_wg_count = Some(wg_counts.fine);
+        self.fine_resources = Some(FineResources {
+            aa_config: params.antialiasing_method,
+            config_buf,
+            bump_buf,
+            tile_buf,
+            // Fine reads the masks through the segments binding.
+            segments_buf: masks_buf,
+            ptcl_buf,
+            gradient_image,
+            info_bin_data_buf,
+            blend_spill_buf: ResourceProxy::Buffer(blend_spill_buf),
+            image_atlas: ResourceProxy::Image(image_atlas),
+            out_image,
+        });
+        if robust {
+            recording.download(*bump_buf.as_buf().unwrap());
+        }
+        recording.free_resource(bump_buf);
+        // There are no flattened lines to capture for the debug layers.
+        recording
+    }
+
     /// Run fine rasterization assuming the coarse phase succeeded.
     pub fn record_fine(&mut self, shaders: &FullShaders, recording: &mut Recording) {
         let fine_wg_count = self.fine_wg_count.take().unwrap();
@@ -566,6 +869,25 @@ impl Render {
                     shaders
                         .fine_area
                         .expect("shaders not configured to support AA mode: area"),
+                    fine_wg_count,
+                    [
+                        fine.config_buf,
+                        fine.segments_buf,
+                        fine.ptcl_buf,
+                        fine.info_bin_data_buf,
+                        fine.blend_spill_buf,
+                        ResourceProxy::Image(fine.out_image),
+                        fine.gradient_image,
+                        fine.image_atlas,
+                    ],
+                );
+            }
+            AaConfig::SparseMsaa16 => {
+                // The CPU masks are bound in place of the segments.
+                recording.dispatch(
+                    shaders
+                        .fine_sparse_msaa16
+                        .expect("shaders not configured to support AA mode: sparse_msaa16"),
                     fine_wg_count,
                     [
                         fine.config_buf,

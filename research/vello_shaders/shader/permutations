@@ -5,3 +5,7 @@ fine
 + fine_area
 + fine_msaa8: msaa msaa8
 + fine_msaa16: msaa msaa16
++ fine_sparse_msaa16: sparse
+coarse
++ coarse
++ coarse_sparse: sparse

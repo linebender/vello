@@ -86,6 +86,22 @@ fn alloc_cmd(size: u32) {
 }
 
 fn write_path(tile: Tile, tile_ix: u32, draw_flags: u32) {
+#ifdef sparse
+    // Sparse strips (`AaConfig::SparseMsaa16`): `strip_scatter` stores the CPU mask
+    // block index plus one, and leaves zero in tiles fully covered by the path.
+    // The fill rule has already been applied by the CPU.
+    let mask_ix = tile.segment_count_or_ix;
+    if mask_ix != 0u {
+        alloc_cmd(2u);
+        ptcl[cmd_offset] = CMD_MASK;
+        ptcl[cmd_offset + 1u] = mask_ix - 1u;
+        cmd_offset += 2u;
+    } else {
+        alloc_cmd(1u);
+        ptcl[cmd_offset] = CMD_SOLID;
+        cmd_offset += 1u;
+    }
+#else
     // We overload the "segments" field to store both count (written by
     // path_count stage) and segment allocation (used by path_tiling and
     // fine).
@@ -107,6 +123,7 @@ fn write_path(tile: Tile, tile_ix: u32, draw_flags: u32) {
         ptcl[cmd_offset] = CMD_SOLID;
         cmd_offset += 1u;
     }
+#endif
 }
 
 fn write_color(color: CmdColor) {

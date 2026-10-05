@@ -64,6 +64,7 @@ impl Snapshot {
                     AaConfig::Area => "Analytic Area",
                     AaConfig::Msaa16 => "16xMSAA",
                     AaConfig::Msaa8 => "8xMSAA",
+                    AaConfig::SparseMsaa16 => "16xMSAA (CPU sparse strips)",
                 }
             ),
             format!("Resolution: {viewport_width}x{viewport_height}"),

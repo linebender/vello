@@ -305,3 +305,139 @@ fn sink_merges_adjacent_spans() {
     assert_eq!(sink.records.len(), 3);
     assert_eq!(sink.records[2], StripRecord::delta(3, 6, 0, 1));
 }
+
+/// Statistics of the per-pixel difference between two decoded outputs over the viewport.
+#[derive(Clone, Copy, Debug, Default)]
+struct DiffStats {
+    /// Sum over pixels of |popcount difference|.
+    popcount: u64,
+    /// Sum over pixels of the number of differing samples.
+    samples: u64,
+    /// Number of differing pixels.
+    pixels: u64,
+    /// Largest |popcount difference| of a pixel.
+    max: u32,
+}
+
+impl DiffStats {
+    fn of(a: &[u16], b: &[u16], width: u32, height: u32) -> Self {
+        let stride = (width.div_ceil(TILE_SIZE as u32) * TILE_SIZE as u32) as usize;
+        let mut stats = Self::default();
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let (a, b) = (a[y * stride + x], b[y * stride + x]);
+                let d = a.count_ones().abs_diff(b.count_ones());
+                stats.popcount += u64::from(d);
+                stats.samples += u64::from((a ^ b).count_ones());
+                stats.pixels += u64::from(a != b);
+                stats.max = stats.max.max(d);
+            }
+        }
+        stats
+    }
+
+    fn add(&mut self, other: Self) {
+        self.popcount += other.popcount;
+        self.samples += other.samples;
+        self.pixels += other.pixels;
+        self.max = self.max.max(other.max);
+    }
+}
+
+fn perimeter(lines: &[Line]) -> f64 {
+    lines
+        .iter()
+        .map(|l| f64::from(l.p1.x - l.p0.x).hypot(f64::from(l.p1.y - l.p0.y)))
+        .sum()
+}
+
+/// A random test path: a star polygon for even `i`, else a random (generally self-intersecting)
+/// polygon. Both may extend past any edge of a `width` x `height` viewport.
+fn random_path(rng: &mut XorShift, i: usize, width: u32, height: u32) -> Vec<Line> {
+    let (w, h) = (width as f32, height as f32);
+    let n = 3 + i % 14;
+    if i.is_multiple_of(2) {
+        let cx = -0.1 * w + 1.2 * w * rng.next_f32();
+        let cy = -0.1 * h + 1.2 * h * rng.next_f32();
+        let r = 4.0 + 0.5 * w.min(h) * rng.next_f32();
+        star_polygon(rng, cx, cy, r, n).0
+    } else {
+        let pts: Vec<(f32, f32)> = (0..n)
+            .map(|_| {
+                (
+                    -0.15 * w + 1.3 * w * rng.next_f32(),
+                    -0.15 * h + 1.3 * h * rng.next_f32(),
+                )
+            })
+            .collect();
+        polygon(&pts)
+    }
+}
+
+/// The LUT quantizes the line offset and slope, so samples very close to an edge may differ
+/// from the exact reference. This bounds the summed |popcount difference| of a path relative to
+/// its perimeter (which overestimates the edge length inside the viewport).
+fn max_popcount_diff(perimeter: f64) -> f64 {
+    0.25 * perimeter + 8.0
+}
+
+#[test]
+fn skia_matches_reference() {
+    let mut rng = XorShift(0x2545_f491_4f6c_dd1d);
+    // A ragged viewport.
+    let (w, h) = (200, 150);
+    let mut total = DiffStats::default();
+    let mut total_perimeter = 0.0;
+    for i in 0..80 {
+        let lines = random_path(&mut rng, i, w, h);
+        let perimeter = perimeter(&lines);
+        for even_odd in [false, true] {
+            let skia = render(&lines, even_odd, w, h, Backend::Skia);
+            let reference = render(&lines, even_odd, w, h, Backend::Reference);
+            let stats = DiffStats::of(&skia, &reference, w, h);
+            assert!(
+                stats.popcount as f64 <= max_popcount_diff(perimeter),
+                "path {i} even_odd {even_odd}: {stats:?}, perimeter {perimeter}: {lines:?}"
+            );
+            total.add(stats);
+            total_perimeter += perimeter;
+        }
+    }
+    println!(
+        "skia vs reference, per px of perimeter: |popcount diff| {:.4}, differing samples {:.4}, \
+         differing pixels {:.4}; max |popcount diff| of a pixel {}",
+        total.popcount as f64 / total_perimeter,
+        total.samples as f64 / total_perimeter,
+        total.pixels as f64 / total_perimeter,
+        total.max,
+    );
+}
+
+#[test]
+fn skia_matches_reference_across_paths() {
+    // One rasterizer for a whole scene, as in `render_sparse_strips_with`: the winding histogram
+    // and tile buffers are reused across paths, and must be reset correctly in between.
+    let mut rng = XorShift(0x0123_4567_89ab_cdef);
+    let (w, h) = (130, 100);
+    let paths: Vec<Vec<Line>> = (0..40).map(|i| random_path(&mut rng, i, w, h)).collect();
+    let mut skia = StripSink::new(w.div_ceil(TILE_SIZE as u32));
+    let mut reference = StripSink::new(w.div_ceil(TILE_SIZE as u32));
+    let mut rasterizer = Rasterizer::new(w, h);
+    for (path_ix, lines) in paths.iter().enumerate() {
+        let even_odd = path_ix % 3 == 0;
+        skia.begin_path(path_ix as u32);
+        rasterizer.rasterize_path(lines, even_odd, &mut skia);
+        reference.begin_path(path_ix as u32);
+        rasterize_path_reference(lines, even_odd, w, h, &mut reference);
+    }
+    for (path_ix, lines) in paths.iter().enumerate() {
+        let a = decode(&skia.records, &skia.masks, path_ix as u32, w, h);
+        let b = decode(&reference.records, &reference.masks, path_ix as u32, w, h);
+        let stats = DiffStats::of(&a, &b, w, h);
+        let perimeter = perimeter(lines);
+        assert!(
+            stats.popcount as f64 <= max_popcount_diff(perimeter),
+            "path {path_ix}: {stats:?}, perimeter {perimeter}: {lines:?}"
+        );
+    }
+}

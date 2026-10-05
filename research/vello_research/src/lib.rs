@@ -192,6 +192,14 @@ pub enum AaConfig {
     ///
     /// Can only be used if [enabled][AaSupport::msaa16] for the `Renderer`.
     Msaa16,
+    /// CPU sparse strips with 16-sample (MSAA16) coverage masks.
+    ///
+    /// This is a temporary stand-in for GPU sparse strips: paths are rasterized on the CPU
+    /// into per-pixel sample masks, which the GPU coarse and fine stages then consume.
+    /// Requires `RendererOptions::use_cpu` to be `false`.
+    ///
+    /// Can only be used if [enabled][AaSupport::sparse_msaa16] for the `Renderer`.
+    SparseMsaa16,
 }
 
 /// Represents the set of anti-aliasing configurations to enable during pipeline creation.
@@ -209,6 +217,8 @@ pub struct AaSupport {
     pub msaa8: bool,
     /// Support [`AaConfig::Msaa16`].
     pub msaa16: bool,
+    /// Support [`AaConfig::SparseMsaa16`].
+    pub sparse_msaa16: bool,
 }
 
 impl AaSupport {
@@ -220,6 +230,7 @@ impl AaSupport {
             area: true,
             msaa8: true,
             msaa16: true,
+            sparse_msaa16: true,
         }
     }
 
@@ -231,6 +242,7 @@ impl AaSupport {
             area: true,
             msaa8: false,
             msaa16: false,
+            sparse_msaa16: false,
         }
     }
 }
@@ -241,12 +253,14 @@ impl FromIterator<AaConfig> for AaSupport {
             area: false,
             msaa8: false,
             msaa16: false,
+            sparse_msaa16: false,
         };
         for config in iter {
             match config {
                 AaConfig::Area => result.area = true,
                 AaConfig::Msaa8 => result.msaa8 = true,
                 AaConfig::Msaa16 => result.msaa16 = true,
+                AaConfig::SparseMsaa16 => result.sparse_msaa16 = true,
             }
         }
         result
@@ -294,6 +308,13 @@ pub enum Error {
     #[cfg(feature = "wgpu")]
     #[error("wgpu Error from scope")]
     WgpuErrorFromScope(#[from] wgpu::Error),
+
+    /// [`AaConfig::SparseMsaa16`] was used with a `Renderer` created with
+    /// `RendererOptions::use_cpu`. The sparse strips already run on the CPU, and their
+    /// output can only be consumed by the GPU shaders.
+    #[cfg(feature = "wgpu")]
+    #[error("`AaConfig::SparseMsaa16` requires `RendererOptions::use_cpu` to be false")]
+    SparseMsaa16RequiresGpu,
 
     /// Failed to create [`GpuProfiler`].
     /// See [`wgpu_profiler::CreationError`] for more information.
@@ -481,6 +502,7 @@ impl Renderer {
         texture: &TextureView,
         params: &RenderParams,
     ) -> Result<()> {
+        self.check_params(params)?;
         let (recording, target) = render::render_full(
             scene,
             &mut self.resolver,
@@ -513,6 +535,16 @@ impl Renderer {
             }
         }
 
+        Ok(())
+    }
+
+    /// Checks that `params` can be rendered by this renderer.
+    fn check_params(&self, params: &RenderParams) -> Result<()> {
+        // With `use_cpu`, the sparse strip output would have to flow into the CPU shaders,
+        // which is not supported.
+        if params.antialiasing_method == AaConfig::SparseMsaa16 && self.shaders.pathtag_is_cpu {
+            return Err(Error::SparseMsaa16RequiresGpu);
+        }
         Ok(())
     }
 
@@ -724,6 +756,7 @@ impl Renderer {
         texture: &TextureView,
         params: &RenderParams,
     ) -> Result<RenderResult> {
+        self.check_params(params)?;
         let mut render = Render::new();
         let encoding = scene.encoding();
         // TODO: turn this on; the download feature interacts with CPU dispatch.

@@ -17,8 +17,15 @@ struct Tile {
 @group(0) @binding(0)
 var<uniform> config: Config;
 
+#ifdef sparse
+// Sparse strips (`AaConfig::SparseMsaa16`): 16-sample coverage masks written by the
+// CPU, 128 words per 16x16 tile. See `vello_shaders::cpu::sparse_strips`.
+@group(0) @binding(1)
+var<storage> masks: array<u32>;
+#else
 @group(0) @binding(1)
 var<storage> segments: array<Segment>;
+#endif
 
 #import blend
 #import ptcl
@@ -995,6 +1002,7 @@ fn bicubic_sample(
 const PIXELS_PER_THREAD = 4u;
 
 #ifndef msaa
+#ifndef sparse
 
 // Analytic area anti-aliasing.
 //
@@ -1058,6 +1066,7 @@ fn fill_path(fill: CmdFill, xy: vec2<f32>, result: ptr<function, array<f32, PIXE
     *result = area;
 }
 
+#endif // sparse
 #endif
 
 // The X size should be 16 / PIXELS_PER_THREAD
@@ -1093,6 +1102,22 @@ fn main(
             break;
         }
         switch tag {
+#ifdef sparse
+            case CMD_MASK: {
+                // Pixel (x, y) of the tile is the u16 at index y * 16 + x of the mask
+                // block, and bit k is sample k. This thread owns x = 4 * local_id.x + i.
+                let block = ptcl[cmd_ix + 1u];
+                let base = block * 128u + local_id.y * 8u + local_id.x * 2u;
+                let w0 = masks[base];
+                let w1 = masks[base + 1u];
+                // assumes PIXELS_PER_THREAD == 4
+                area[0] = f32(countOneBits(w0 & 0xffffu)) * 0.0625;
+                area[1] = f32(countOneBits(w0 >> 16u)) * 0.0625;
+                area[2] = f32(countOneBits(w1 & 0xffffu)) * 0.0625;
+                area[3] = f32(countOneBits(w1 >> 16u)) * 0.0625;
+                cmd_ix += 2u;
+            }
+#else
             case CMD_FILL: {
                 let fill = read_fill(cmd_ix);
 #ifdef msaa
@@ -1102,6 +1127,7 @@ fn main(
 #endif
                 cmd_ix += 4u;
             }
+#endif
             case CMD_SOLID: {
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     area[i] = 1.0;
