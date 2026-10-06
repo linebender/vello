@@ -143,6 +143,7 @@ pub struct PerformancePanel<const N: usize> {
     backend: &'static str,
     stages: [PerformanceStage; N],
     timing_note: &'static str,
+    shader_compilation: Option<ShaderCompilation>,
     element: HtmlElement,
     last_frame_timestamp: Option<f64>,
     last_panel_update: f64,
@@ -201,6 +202,7 @@ impl<const N: usize> PerformancePanel<N> {
             backend,
             stages,
             timing_note,
+            shader_compilation: None,
             element,
             last_frame_timestamp: None,
             last_panel_update: 0.0,
@@ -209,6 +211,20 @@ impl<const N: usize> PerformancePanel<N> {
             total_times: Vec::with_capacity(MAX_SAMPLES),
             gpu_times: Vec::with_capacity(MAX_SAMPLES),
         }
+    }
+
+    pub fn with_shader_compilation_stats(
+        mut self,
+        shader_count: u32,
+        poll_count: u32,
+        elapsed_ms: f64,
+    ) -> Self {
+        self.shader_compilation = Some(ShaderCompilation {
+            shader_count,
+            poll_count,
+            elapsed_ms,
+        });
+        self
     }
 
     pub fn record_gpu_time(&mut self, duration_ms: Option<f64>) {
@@ -289,6 +305,7 @@ impl<const N: usize> PerformancePanel<N> {
             backend: self.backend,
             stages: &self.stages,
             timing_note: self.timing_note,
+            shader_compilation: self.shader_compilation,
             scene,
             scene_count,
             width,
@@ -304,10 +321,18 @@ impl<const N: usize> PerformancePanel<N> {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ShaderCompilation {
+    shader_count: u32,
+    poll_count: u32,
+    elapsed_ms: f64,
+}
+
 struct PanelSnapshot<'a, const N: usize> {
     backend: &'a str,
     stages: &'a [PerformanceStage; N],
     timing_note: &'a str,
+    shader_compilation: Option<ShaderCompilation>,
     scene: usize,
     scene_count: usize,
     width: u32,
@@ -359,6 +384,11 @@ fn format_panel_html<const N: usize>(panel: &PanelSnapshot<'_, N>) -> String {
     if panel.gpu.is_some() {
         html.push_str(
             r#"<span class="vello-perf-tooltip-row"><strong>GPU execution</strong><span>GPU time for rendering, submission, and presentation commands. Results arrive asynchronously and overlap CPU work.</span></span>"#,
+        );
+    }
+    if panel.shader_compilation.is_some() {
+        html.push_str(
+            r#"<span class="vello-perf-tooltip-row"><strong>Shader readiness</strong><span>One-time wall-clock duration and completion-status poll count from issuing the first shader compile until all programs were linked.</span></span>"#,
         );
     }
     html.push_str(
@@ -461,6 +491,23 @@ fn format_panel_html<const N: usize>(panel: &PanelSnapshot<'_, N>) -> String {
   <strong>Full GPU execution</strong><strong>{:.2} ms avg</strong>
 </div>"#,
             gpu.average,
+        )
+        .unwrap();
+    }
+    if let Some(shader_compilation) = panel.shader_compilation {
+        let poll_label = if shader_compilation.poll_count == 1 {
+            "poll"
+        } else {
+            "polls"
+        };
+        write!(
+            html,
+            r#"<div style="display:flex;justify-content:space-between;margin-top:3px">
+  <strong>Shader readiness</strong><strong>{:.2} ms · {} shaders · {} {poll_label}</strong>
+</div>"#,
+            shader_compilation.elapsed_ms,
+            shader_compilation.shader_count,
+            shader_compilation.poll_count,
         )
         .unwrap();
     }
