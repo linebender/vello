@@ -4563,6 +4563,7 @@ dependencies = [
  "vello_common",
  "vello_gpu_shaders",
  "web-sys",
+ "web-time",
  "wgpu",
 ]
 

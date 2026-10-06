@@ -23,6 +23,7 @@ wgpu = { workspace = true, default-features = false, optional = true }
 vello_gpu_shaders = { workspace = true, optional = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
+web-time = { workspace = true, optional = true }
 
 js-sys = { workspace = true, optional = true }
 web-sys = { workspace = true, features = [
@@ -58,7 +59,13 @@ wgpu_default = ["wgpu", "wgpu/default"]
 # Add support for text rendering.
 text = ["dep:glifo", "glifo/std"]
 probe = ["vello_common/probe"]
-webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_gpu_shaders", "vello_gpu_shaders/glsl"]
+webgl = [
+    "dep:js-sys",
+    "dep:web-sys",
+    "dep:vello_gpu_shaders",
+    "dep:web-time",
+    "vello_gpu_shaders/glsl",
+]
 
 [lints]
 workspace = true
