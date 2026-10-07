@@ -26,6 +26,7 @@ use vello_example_scenes::{
 };
 use vello_gpu::{RenderSettings, Scene};
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 struct RendererWrapper {
@@ -35,10 +36,22 @@ struct RendererWrapper {
 }
 
 impl RendererWrapper {
-    fn new(canvas: HtmlCanvasElement) -> Self {
+    async fn new(canvas: HtmlCanvasElement) -> Self {
         let settings = RenderSettings::default();
-        let (renderer, resources) = vello_gpu::WebGlRenderer::new_with(&canvas, settings, true)
+        let (mut init, resources) = vello_gpu::WebGlRenderer::begin_with(&canvas, settings, true)
             .expect("failed to create WebGL renderer");
+        let renderer = loop {
+            match init
+                .try_finish()
+                .expect("failed to finish WebGL renderer initialization")
+            {
+                vello_gpu::WebGlRendererInitStatus::Complete(renderer) => break renderer,
+                vello_gpu::WebGlRendererInitStatus::Pending(pending) => {
+                    init = pending;
+                    next_animation_frame().await;
+                }
+            }
+        };
 
         Self {
             renderer,
@@ -82,13 +95,14 @@ struct AppState {
 }
 
 impl AppState {
-    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<Scene>]>) -> Self {
+    async fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<Scene>]>) -> Self {
         let width = canvas.width();
         let height = canvas.height();
         let current_scene = initial_scene_index(scenes.len());
 
-        let mut renderer_wrapper = RendererWrapper::new(canvas.clone());
+        let mut renderer_wrapper = RendererWrapper::new(canvas.clone()).await;
         let probe_indicator = ProbeIndicator::new(&mut renderer_wrapper.renderer);
+        let shader_compilation = renderer_wrapper.renderer.shader_compilation_stats();
         let timing_note = if renderer_wrapper.gpu_timer.is_some() {
             "GPU queries are asynchronous and may arrive several frames later"
         } else {
@@ -122,6 +136,11 @@ impl AppState {
                     },
                 ],
                 timing_note,
+            )
+            .with_shader_compilation_stats(
+                shader_compilation.shader_count,
+                shader_compilation.poll_count,
+                shader_compilation.elapsed.as_secs_f64() * 1_000.0,
             ),
             canvas,
         };
@@ -396,6 +415,16 @@ extern "C" {
     fn request_animation_frame(f: &Closure<dyn FnMut(f64)>);
 }
 
+async fn next_animation_frame() {
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        web_sys::window()
+            .unwrap()
+            .request_animation_frame(&resolve)
+            .unwrap();
+    });
+    JsFuture::from(promise).await.unwrap();
+}
+
 /// Creates a `HTMLCanvasElement` of the given dimensions and renders the given scenes into it,
 /// with interactive controls for panning, zooming, and switching between scenes.
 pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
@@ -434,7 +463,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         v.into_boxed_slice()
     };
 
-    let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes)));
+    let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));
 
     // Set up animation frame loop
     {
@@ -611,7 +640,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         mut renderer,
         mut resources,
         ..
-    } = RendererWrapper::new(canvas);
+    } = RendererWrapper::new(canvas).await;
 
     let render_size = vello_gpu::RenderSize { width, height };
     renderer

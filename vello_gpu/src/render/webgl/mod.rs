@@ -66,6 +66,7 @@ use crate::{
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::time::Duration;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use hashbrown::HashMap;
@@ -86,11 +87,17 @@ use vello_common::{
     tile::Tile,
 };
 use vello_gpu_shaders::{blend, copy, filter as filter_shader, render};
-use web_sys::wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
     WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = performance, js_name = now)]
+    fn performance_now() -> f64;
+}
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -213,6 +220,26 @@ impl WebGlTextureBindings {
     pub fn remove(&mut self, texture_id: TextureId) -> Option<WebGlTexture> {
         self.textures.remove(&texture_id)
     }
+}
+
+/// Shader compilation statistics recorded while creating a [`WebGlRenderer`].
+///
+/// Only the WebGL backend reports these, because `KHR_parallel_shader_compile` lets it detect
+/// when compilation actually finishes. WebGPU signals completion through
+/// `createRenderPipelineAsync`, but wgpu exposes only synchronous pipeline creation, which may
+/// return before the driver finishes compiling. Timing those calls would underreport the cost.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ShaderCompilationStats {
+    /// Number of vertex and fragment shaders compiled.
+    pub shader_count: u32,
+    /// Number of non-blocking completion-status polls.
+    ///
+    /// This is zero when initialization is completed through [`WebGlRendererInit::finish`]
+    /// without first calling [`WebGlRendererInit::try_finish`].
+    pub poll_count: u32,
+    /// Wall-clock time from issuing the first compilation until all programs were confirmed
+    /// linked.
+    pub elapsed: Duration,
 }
 
 /// Current allocation state of the WebGL image/glyph atlas textures.
@@ -423,6 +450,14 @@ impl WebGlRenderer {
         };
 
         Ok((init, resources))
+    }
+
+    /// Returns the shaders compiled while creating this renderer and the time spent.
+    ///
+    /// When initialization is polled with [`WebGlRendererInit::try_finish`], `elapsed` also
+    /// includes time between polls, so its resolution is limited by the polling frequency.
+    pub fn shader_compilation_stats(&self) -> ShaderCompilationStats {
+        self.programs.shader_compilation_stats
     }
 
     /// Render `scene` using WebGL2
@@ -1066,7 +1101,8 @@ impl WebGlRendererInit {
     ///
     /// On browsers without the extension, this synchronously finishes initialization and returns
     /// [`WebGlRendererInitStatus::Complete`].
-    pub fn try_finish(self) -> Result<WebGlRendererInitStatus, WebGlError> {
+    pub fn try_finish(mut self) -> Result<WebGlRendererInitStatus, WebGlError> {
+        self.programs.poll_count += 1;
         if self.programs.is_complete(&self.gl) {
             Ok(WebGlRendererInitStatus::Complete(self.finish()?))
         } else {
@@ -1131,6 +1167,8 @@ pub(crate) struct WebGlPrograms {
     copy_program: Program,
     /// Uniform locations for the copy program.
     copy_uniforms: CopyUniforms,
+    /// Shader compilation stats.
+    shader_compilation_stats: ShaderCompilationStats,
     /// WebGL resources for rendering.
     pub(crate) resources: WebGlResources,
     /// Dimensions of the rendering target.
@@ -1362,6 +1400,9 @@ struct PendingShaderProgram {
 }
 
 impl PendingShaderProgram {
+    /// One vertex and one fragment shader.
+    const SHADER_COUNT: u32 = 2;
+
     fn new(
         gl: &WebGl2RenderingContext,
         vertex_src: &str,
@@ -1458,6 +1499,8 @@ impl PendingShaderProgram {
 #[derive(Debug)]
 struct PendingWebGlPrograms {
     parallel_shader_compile: bool,
+    compilation_start_ms: f64,
+    poll_count: u32,
     strip_program: PendingShaderProgram,
     filter_program: PendingShaderProgram,
     blend_program: PendingShaderProgram,
@@ -1467,6 +1510,8 @@ struct PendingWebGlPrograms {
 }
 
 impl PendingWebGlPrograms {
+    const PROGRAM_COUNT: u32 = 4;
+
     /// Starts compiling all programs before performing any blocking status queries.
     fn new(
         gl: WebGl2RenderingContext,
@@ -1480,6 +1525,7 @@ impl PendingWebGlPrograms {
             .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
             .is_some();
 
+        let compilation_start_ms = performance_now();
         let strip_program =
             PendingShaderProgram::new(&gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE)?;
         let filter_program = PendingShaderProgram::new(
@@ -1509,6 +1555,8 @@ impl PendingWebGlPrograms {
 
         Ok(Self {
             parallel_shader_compile,
+            compilation_start_ms,
+            poll_count: 0,
             strip_program,
             filter_program,
             blend_program,
@@ -1537,6 +1585,13 @@ impl PendingWebGlPrograms {
         let filter_program = self.filter_program.finish(gl)?;
         let blend_program = self.blend_program.finish(gl)?;
         let copy_program = self.copy_program.finish(gl)?;
+        let shader_compilation_stats = ShaderCompilationStats {
+            shader_count: Self::PROGRAM_COUNT * PendingShaderProgram::SHADER_COUNT,
+            poll_count: self.poll_count,
+            elapsed: Duration::from_secs_f64(
+                (performance_now() - self.compilation_start_ms) / 1_000.0,
+            ),
+        };
 
         let filter_uniforms = get_filter_pass_uniforms(gl, &filter_program)?;
         let blend_uniforms = get_blend_uniforms(gl, &blend_program)?;
@@ -1558,6 +1613,7 @@ impl PendingWebGlPrograms {
             blend_uniforms,
             copy_program,
             copy_uniforms,
+            shader_compilation_stats,
             resources: self.resources,
             render_size: RenderSize {
                 width: 0,

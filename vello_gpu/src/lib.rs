@@ -111,9 +111,9 @@ pub mod util;
 
 #[cfg(feature = "webgl")]
 pub use render::{
-    AtlasTextureInfo, IncompatibleContextReason, WebGlAtlasWriter, WebGlContextOperation,
-    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlRenderer, WebGlRendererInit,
-    WebGlRendererInitStatus, WebGlResourceKind, WebGlShaderInterfaceOperation,
+    AtlasTextureInfo, IncompatibleContextReason, ShaderCompilationStats, WebGlAtlasWriter,
+    WebGlContextOperation, WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlRenderer,
+    WebGlRendererInit, WebGlRendererInitStatus, WebGlResourceKind, WebGlShaderInterfaceOperation,
     WebGlShaderProgramOperation, WebGlShaderStage, WebGlTextureBindings,
     WebGlTextureWithDimensions,
 };

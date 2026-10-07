@@ -25,6 +25,7 @@ log = { workspace = true }
 hashbrown = { workspace = true }
 
 js-sys = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
 web-sys = { workspace = true, features = [
     "HtmlCanvasElement",
     "WebGl2RenderingContext",
@@ -58,7 +59,13 @@ wgpu_default = ["wgpu", "wgpu/default"]
 # Add support for text rendering.
 text = ["dep:glifo", "glifo/std"]
 probe = ["vello_common/probe"]
-webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_gpu_shaders", "vello_gpu_shaders/glsl"]
+webgl = [
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+    "dep:vello_gpu_shaders",
+    "vello_gpu_shaders/glsl",
+]
 
 [lints]
 workspace = true
