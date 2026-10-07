@@ -335,6 +335,10 @@ impl vello_common::probe::ProbeRenderer for Scene {
         Self::fill_rect(self, rect);
     }
 
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
+        Self::fill_blurred_rounded_rect(self, rect, radius, std_dev, invert);
+    }
+
     fn push_layer(&mut self, blend_mode: Option<BlendMode>, opacity: Option<f32>) {
         Self::push_layer(self, None, blend_mode, opacity, None, None);
     }

@@ -8,7 +8,7 @@ use crate::color::{AlphaColor, palette::css};
 use crate::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
-use crate::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape};
+use crate::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Vec2};
 use crate::paint::{Image, ImageSource, PaintType};
 use crate::peniko::{
     BlendMode, ColorStop, ColorStops, Compose, Extend, Gradient, ImageAlphaType, ImageQuality,
@@ -35,7 +35,7 @@ const PATH_TOLERANCE: f64 = 0.1;
 pub const ALL_PROBE_ELEMENTS: &[ProbeFeature] = &[
     ProbeFeature::SolidRect,
     ProbeFeature::AlphaBlending,
-    ProbeFeature::Gradient,
+    ProbeFeature::LinearGradient,
     ProbeFeature::ImageNearest,
     ProbeFeature::Filter,
     ProbeFeature::ImageBilinear,
@@ -43,6 +43,11 @@ pub const ALL_PROBE_ELEMENTS: &[ProbeFeature] = &[
     ProbeFeature::Blending,
     ProbeFeature::Transformed,
     ProbeFeature::DepthBuffer,
+    ProbeFeature::DropShadow,
+    ProbeFeature::BlurredRoundedRect,
+    ProbeFeature::RadialGradient,
+    ProbeFeature::SweepGradient,
+    ProbeFeature::ImageBicubic,
 ];
 
 /// Per-channel absolute tolerance used when comparing probe pixels.
@@ -76,7 +81,7 @@ pub enum ProbeFeature {
     /// Alpha blending overlapping shapes.
     AlphaBlending,
     /// Drawing a linear gradient.
-    Gradient,
+    LinearGradient,
     /// Drawing an image with nearest-neighbor sampling.
     ImageNearest,
     /// Applying a filter effect.
@@ -91,6 +96,16 @@ pub enum ProbeFeature {
     Transformed,
     /// Layering opaque draws and a transparent foreground to exercise depth buffering.
     DepthBuffer,
+    /// Applying an offset, blurred drop shadow to a shape.
+    DropShadow,
+    /// Drawing a blurred rounded rectangle.
+    BlurredRoundedRect,
+    /// Drawing a radial gradient.
+    RadialGradient,
+    /// Drawing a sweep gradient.
+    SweepGradient,
+    /// Drawing an image with bicubic sampling.
+    ImageBicubic,
 }
 
 /// Summary of the differences between one expected and actual probe cell.
@@ -180,6 +195,7 @@ pub trait ProbeRenderer {
     fn set_paint(&mut self, paint: PaintType);
     fn fill_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool);
     fn push_layer(&mut self, blend_mode: Option<BlendMode>, opacity: Option<f32>);
     fn push_filter_layer(&mut self, filter: Filter);
     fn pop_layer(&mut self);
@@ -229,7 +245,7 @@ fn reference_data(feature: ProbeFeature) -> &'static [u8; CELL_DATA_LEN] {
     match feature {
         ProbeFeature::SolidRect => include_bytes!("../assets/probe_solid_rect.rgba"),
         ProbeFeature::AlphaBlending => include_bytes!("../assets/probe_alpha_blending.rgba"),
-        ProbeFeature::Gradient => include_bytes!("../assets/probe_gradient.rgba"),
+        ProbeFeature::LinearGradient => include_bytes!("../assets/probe_linear_gradient.rgba"),
         ProbeFeature::ImageNearest => include_bytes!("../assets/probe_image_nearest.rgba"),
         ProbeFeature::Filter => include_bytes!("../assets/probe_filter.rgba"),
         ProbeFeature::ImageBilinear => include_bytes!("../assets/probe_image_bilinear.rgba"),
@@ -237,6 +253,13 @@ fn reference_data(feature: ProbeFeature) -> &'static [u8; CELL_DATA_LEN] {
         ProbeFeature::Blending => include_bytes!("../assets/probe_blending.rgba"),
         ProbeFeature::Transformed => include_bytes!("../assets/probe_transformed.rgba"),
         ProbeFeature::DepthBuffer => include_bytes!("../assets/probe_depth_buffer.rgba"),
+        ProbeFeature::DropShadow => include_bytes!("../assets/probe_drop_shadow.rgba"),
+        ProbeFeature::BlurredRoundedRect => {
+            include_bytes!("../assets/probe_blurred_rounded_rect.rgba")
+        }
+        ProbeFeature::RadialGradient => include_bytes!("../assets/probe_radial_gradient.rgba"),
+        ProbeFeature::SweepGradient => include_bytes!("../assets/probe_sweep_gradient.rgba"),
+        ProbeFeature::ImageBicubic => include_bytes!("../assets/probe_image_bicubic.rgba"),
     }
 }
 
@@ -327,7 +350,8 @@ fn image_paint(image: ImageSource, quality: ImageQuality) -> PaintType {
 pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource, elements: &[ProbeFeature]) {
     let layout = GridLayout::from_elements(elements);
     let image_nearest = image_paint(image.clone(), ImageQuality::Low);
-    let image_bilinear = image_paint(image, ImageQuality::Medium);
+    let image_bilinear = image_paint(image.clone(), ImageQuality::Medium);
+    let image_bicubic = image_paint(image, ImageQuality::High);
     ctx.set_transform(Affine::IDENTITY);
 
     for (index, element) in elements.iter().copied().enumerate() {
@@ -337,6 +361,7 @@ pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource, elements: &
             element,
             &image_nearest,
             &image_bilinear,
+            &image_bicubic,
         );
     }
 }
@@ -347,6 +372,7 @@ fn draw_probe_element(
     element: ProbeFeature,
     image_nearest: &PaintType,
     image_bilinear: &PaintType,
+    image_bicubic: &PaintType,
 ) {
     match element {
         ProbeFeature::SolidRect => {
@@ -376,7 +402,7 @@ fn draw_probe_element(
                     .to_path(PATH_TOLERANCE),
             );
         }
-        ProbeFeature::Gradient => {
+        ProbeFeature::LinearGradient => {
             let rect = centered_rect(cell, RECT_SIZE, RECT_SIZE);
             ctx.set_paint(linear_gradient(&rect).into());
             ctx.fill_rect(&rect);
@@ -391,6 +417,35 @@ fn draw_probe_element(
         }
         ProbeFeature::Blending => draw_layered_difference_circles(ctx, cell),
         ProbeFeature::DepthBuffer => draw_depth_buffer_rects(ctx, cell),
+        ProbeFeature::DropShadow => draw_drop_shadow_rect(ctx, cell),
+        ProbeFeature::BlurredRoundedRect => {
+            ctx.set_paint(css::REBECCA_PURPLE.into());
+            ctx.fill_blurred_rounded_rect(&centered_rect(cell, 8.0, 8.0), 2.0, 0.75, false);
+        }
+        ProbeFeature::RadialGradient => {
+            let rect = centered_rect(cell, RECT_SIZE, RECT_SIZE);
+            let gradient = Gradient::new_radial(rect.center(), (RECT_SIZE * 0.5) as f32)
+                .with_stops([css::BLUE, css::RED]);
+            ctx.set_paint(gradient.into());
+            ctx.fill_rect(&rect);
+        }
+        ProbeFeature::SweepGradient => {
+            let rect = centered_rect(cell, RECT_SIZE, RECT_SIZE);
+            let gradient = Gradient::new_sweep(rect.center(), 0.0, core::f32::consts::TAU)
+                .with_stops([css::BLUE, css::RED]);
+            ctx.set_paint(gradient.into());
+            ctx.fill_rect(&rect);
+        }
+        ProbeFeature::ImageBicubic => {
+            let rect = centered_rect(cell, RECT_SIZE, RECT_SIZE);
+            ctx.set_paint(image_bicubic.clone());
+            ctx.set_paint_transform(
+                Affine::translate((rect.x0, rect.y0))
+                    * Affine::scale(RECT_SIZE / IMAGE_SOURCE_SIZE),
+            );
+            ctx.fill_rect(&rect);
+            ctx.reset_paint_transform();
+        }
     }
 }
 
@@ -435,6 +490,24 @@ fn draw_blurred_rect(ctx: &mut impl ProbeRenderer, rect: Rect) {
     });
     ctx.push_filter_layer(blur);
     ctx.set_paint(css::REBECCA_PURPLE.into());
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+}
+
+fn draw_drop_shadow_rect(ctx: &mut impl ProbeRenderer, cell: Rect) {
+    let offset = 1.5;
+    let std_deviation = 0.5;
+    let centering_offset = f64::from(offset) * 0.5 + f64::from(std_deviation);
+    let rect = centered_rect(cell, 8.0, 8.0) - Vec2::new(centering_offset, centering_offset);
+    let shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: offset,
+        dy: offset,
+        std_deviation,
+        color: css::BLACK.with_alpha(0.75),
+        edge_mode: EdgeMode::None,
+    });
+    ctx.push_filter_layer(shadow);
+    ctx.set_paint(css::BLUE.into());
     ctx.fill_rect(&rect);
     ctx.pop_layer();
 }
