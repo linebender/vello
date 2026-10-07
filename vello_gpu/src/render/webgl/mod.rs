@@ -87,12 +87,17 @@ use vello_common::{
     tile::Tile,
 };
 use vello_gpu_shaders::{blend, copy, filter as filter_shader, render};
-use web_sys::wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
     WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
-use web_time::Instant;
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = performance, js_name = now)]
+    fn performance_now() -> f64;
+}
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -1494,7 +1499,7 @@ impl PendingShaderProgram {
 #[derive(Debug)]
 struct PendingWebGlPrograms {
     parallel_shader_compile: bool,
-    compilation_start: Instant,
+    compilation_start_ms: f64,
     poll_count: u32,
     strip_program: PendingShaderProgram,
     filter_program: PendingShaderProgram,
@@ -1520,7 +1525,7 @@ impl PendingWebGlPrograms {
             .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
             .is_some();
 
-        let compilation_start = Instant::now();
+        let compilation_start_ms = performance_now();
         let strip_program =
             PendingShaderProgram::new(&gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE)?;
         let filter_program = PendingShaderProgram::new(
@@ -1550,7 +1555,7 @@ impl PendingWebGlPrograms {
 
         Ok(Self {
             parallel_shader_compile,
-            compilation_start,
+            compilation_start_ms,
             poll_count: 0,
             strip_program,
             filter_program,
@@ -1583,7 +1588,9 @@ impl PendingWebGlPrograms {
         let shader_compilation_stats = ShaderCompilationStats {
             shader_count: Self::PROGRAM_COUNT * PendingShaderProgram::SHADER_COUNT,
             poll_count: self.poll_count,
-            elapsed: self.compilation_start.elapsed(),
+            elapsed: Duration::from_secs_f64(
+                (performance_now() - self.compilation_start_ms) / 1_000.0,
+            ),
         };
 
         let filter_uniforms = get_filter_pass_uniforms(gl, &filter_program)?;

@@ -4562,8 +4562,8 @@ dependencies = [
  "thiserror 2.0.18",
  "vello_common",
  "vello_gpu_shaders",
+ "wasm-bindgen",
  "web-sys",
- "web-time",
  "wgpu",
 ]
 
