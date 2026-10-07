@@ -25,6 +25,7 @@ use vello_common::encode::{EncodeExt, EncodedPaint, invert_paint_transform};
 use vello_common::fearless_simd::Level;
 use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
@@ -122,6 +123,8 @@ pub struct RasterizerSettings {
     ///
     /// See [`RenderContext::render_with`] for more information.
     pub offset: (u16, u16),
+    /// Optional viewport sub-rectangle (in scene coordinates) to restrict rasterization to.
+    pub viewport: Option<RectU16>,
 }
 
 impl Default for RasterizerSettings {
@@ -131,6 +134,7 @@ impl Default for RasterizerSettings {
             target_init: TargetInit::Clear(AlphaColor::TRANSPARENT),
             pixel_format: PixelFormat::Rgba8,
             offset: (0, 0),
+            viewport: None,
         }
     }
 }

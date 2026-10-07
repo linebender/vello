@@ -16,6 +16,7 @@ use foldhash::fast::FixedState;
 use hashbrown::HashMap;
 use hashbrown::hash_map::RawEntryMut;
 use smallvec::SmallVec;
+use vello_common::geometry::RectU16;
 pub use vello_common::image_cache::ImageCache;
 pub use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::ImageId;
@@ -272,6 +273,24 @@ impl GlyphAtlas {
         let atlas_slot = self.insert_entry(image_cache, key, raster_metrics)?;
         let (atlas_w, atlas_h) = image_cache.atlas_manager().config().atlas_size;
         let recorder = self.recorder_for_page(atlas_slot.page_index, atlas_w, atlas_h);
+        let slot_rect = RectU16::new(
+            atlas_slot.x.saturating_sub(GLYPH_PADDING),
+            atlas_slot.y.saturating_sub(GLYPH_PADDING),
+            atlas_slot
+                .x
+                .saturating_add(atlas_slot.width)
+                .saturating_add(GLYPH_PADDING)
+                .min(atlas_w),
+            atlas_slot
+                .y
+                .saturating_add(atlas_slot.height)
+                .saturating_add(GLYPH_PADDING)
+                .min(atlas_h),
+        );
+        match &mut recorder.dirty_rect {
+            Some(dirty) => dirty.union(slot_rect),
+            None => recorder.dirty_rect = Some(slot_rect),
+        }
         Some((atlas_slot, recorder))
     }
 
@@ -318,6 +337,7 @@ impl GlyphAtlas {
                     result = f(recorder);
                 }
                 recorder.commands.clear();
+                recorder.dirty_rect = None;
             }
         }
 
