@@ -1491,4 +1491,67 @@ mod tests {
 
         assert!(resources.glyph_resources.is_some());
     }
+
+    #[test]
+    fn render_with_viewport_restricts_drawing_to_subregion() {
+        use vello_common::TargetInit;
+        use vello_common::color::{AlphaColor, Srgb};
+        use vello_common::geometry::RectU16;
+        use vello_common::peniko::kurbo::Rect;
+        use vello_common::pixmap::Pixmap;
+
+        let mut ctx = RenderContext::new(100, 100);
+        // Fill full 100x100 canvas with red
+        ctx.set_paint(AlphaColor::<Srgb>::from_rgba8(255, 0, 0, 255));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+        ctx.flush();
+
+        let mut full_target = Pixmap::new(100, 100);
+        let mut sub_target = Pixmap::new(100, 100);
+        let mut resources = Resources::new();
+
+        // Render full scene
+        ctx.render_with(
+            &mut full_target,
+            &mut resources,
+            RasterizerSettings {
+                target_init: TargetInit::Clear(AlphaColor::TRANSPARENT),
+                ..Default::default()
+            },
+        );
+
+        // Render with a 32x32 viewport at (32, 32)
+        let vp = RectU16::new(32, 32, 64, 64);
+        ctx.render_with(
+            &mut sub_target,
+            &mut resources,
+            RasterizerSettings {
+                target_init: TargetInit::Clear(AlphaColor::TRANSPARENT),
+                viewport: Some(vp),
+                ..Default::default()
+            },
+        );
+
+        // Inside the viewport, both targets should have identical red pixels
+        for y in 32..64 {
+            for x in 32..64 {
+                let idx = (y * 100 + x) * 4;
+                assert_eq!(
+                    &sub_target.data_as_u8_slice()[idx..idx + 4],
+                    &full_target.data_as_u8_slice()[idx..idx + 4],
+                    "pixel inside viewport at ({}, {}) must match full render",
+                    x,
+                    y
+                );
+            }
+        }
+
+        // Outside the viewport, sub_target must remain transparent (untouched by rasterizer)
+        let outside_idx = 0; // (0, 0) is well outside (32, 32)..(64, 64)
+        assert_eq!(
+            &sub_target.data_as_u8_slice()[outside_idx..outside_idx + 4],
+            &[0, 0, 0, 0],
+            "pixel outside viewport must remain clear"
+        );
+    }
 }
