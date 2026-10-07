@@ -73,10 +73,17 @@ impl DeviceLimits {
         // we enforce an additional limit on intermediate data textures.
         const MAX_RESOURCE_TEXTURE_DIMENSION_2D: u16 = 4096;
 
-        u32::from(
+        let dimension = u32::from(
             self.max_texture_dimension_2d
                 .min(MAX_RESOURCE_TEXTURE_DIMENSION_2D),
-        )
+        );
+
+        debug_assert!(
+            dimension.is_power_of_two(),
+            "Resource texture dimension must be a power of two"
+        );
+
+        dimension
     }
 }
 
