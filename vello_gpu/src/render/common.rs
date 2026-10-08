@@ -139,8 +139,8 @@ pub(crate) struct GpuClearInstance {
     pub(crate) size: [u32; 2],
     /// Width and height of the target texture.
     pub(crate) target_size: [u32; 2],
-    /// Premultiplied clear color.
-    pub(crate) color: u32,
+    /// Premultiplied clear color, unquantized so that it matches a load-op clear.
+    pub(crate) color: [f32; 4],
 }
 
 impl MemorySettings {
@@ -435,7 +435,7 @@ pub struct Config {
 /// This struct corresponds to the `StripInstance` struct in the shader.
 /// See the `StripInstance` documentation in `render.wesl` for detailed field descriptions.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Zeroable, Pod)]
 pub struct GpuStrip {
     /// See `StripInstance::xy` documentation in `render.wesl`.
     pub x: u16,

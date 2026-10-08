@@ -679,6 +679,7 @@ impl WebGlRenderer {
             required_texture_size,
             current_allocations,
             self.layers_config.max_textures,
+            None,
         )?;
         self.programs
             .prepare_intermediate_textures(&self.gl, &schedule, required_texture_size)?;

@@ -3,15 +3,19 @@
 
 use super::test_support::{SceneCase, ScheduledCase};
 use super::{IntermediateTextureAllocations, IntermediateTextureRequirements, ScheduleStorage};
+use crate::draw::RECT_STRIP_FLAG;
 use crate::filter::FILTER_ATLAS_PADDING;
 use crate::target::{RootTarget, TextureParity};
-use crate::{IntermediateTextureError, RenderError};
+use crate::{GpuStrip, IntermediateTextureError, RenderError};
+use alloc::vec::Vec;
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
-use vello_common::geometry::SizeU16;
-use vello_common::kurbo::Rect;
+use vello_common::geometry::{RectU16, SizeU16};
+use vello_common::kurbo::{Circle, Rect, Shape};
+use vello_common::peniko::color::palette::css::BLUE;
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
+use vello_common::tile::Tile;
 #[cfg(all(feature = "probe", feature = "webgl"))]
-use vello_common::{TextureId, geometry::RectU16, paint::ImageSource, probe};
+use vello_common::{TextureId, paint::ImageSource, probe};
 
 #[cfg(all(feature = "probe", feature = "webgl"))]
 #[test]
@@ -938,4 +942,85 @@ fn blend_is_constrained_to_parent_clip_bbox() {
     assert_eq!(blend.blend_bbox, blend.parent_region.layer_bbox);
     // This must not panic.
     let _ = crate::blend::GpuBlendInstance::new(blend, None, SizeU16::new(64));
+}
+
+/// Bounds of a scheduled root strip.
+fn strip_bounds(strip: &GpuStrip) -> RectU16 {
+    let height = if strip.paint_and_rect_flag & RECT_STRIP_FLAG != 0 {
+        strip.dense_width_or_rect_height
+    } else {
+        Tile::HEIGHT
+    };
+
+    RectU16::new(strip.x, strip.y, strip.x + strip.width, strip.y + height)
+}
+
+/// Assert that confining the root to `region` drops exactly the root strips outside of it, and
+/// leaves every other strip untouched.
+fn assert_region_culls_whole_root_strips(
+    case: &SceneCase,
+    region: &[RectU16],
+    use_depth_buffer: bool,
+) {
+    let full = case.schedule_root(use_depth_buffer);
+    let confined = case.schedule_root_region(region, use_depth_buffer);
+
+    let expected = full
+        .root_strips()
+        .into_iter()
+        .filter(|strip| {
+            region
+                .iter()
+                .any(|rect| !strip_bounds(strip).intersect(*rect).is_empty())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(confined.root_strips(), expected);
+    assert_eq!(confined.layer_strips(), full.layer_strips());
+}
+
+fn region_scene() -> SceneCase {
+    let mut case = SceneCase::new(64, 64);
+    case.scene.set_paint(BLUE);
+    case.scene
+        .fill_path(&Circle::new((32.0, 32.0), 27.5).to_path(0.1));
+    // Culled by every region below, but still takes its depth slot.
+    case.draw(Rect::new(24.0, 16.0, 36.0, 28.0), 1.0);
+    case.scene.set_paint(BLUE.with_alpha(0.5));
+    case.scene.fill_rect(&Rect::new(2.5, 6.25, 61.75, 58.5));
+    case.draw(Rect::new(10.0, 40.5, 50.0, 41.0), 0.5);
+    case.layer(|case| case.draw(Rect::new(40.25, 36.0, 60.0, 62.0), 0.5));
+    case
+}
+
+#[test]
+fn root_region_culls_whole_root_strips() {
+    let case = region_scene();
+    let region = [RectU16::new(3, 5, 21, 13), RectU16::new(41, 43, 60, 60)];
+
+    let full = case.schedule_root(true);
+    let confined = case.schedule_root_region(&region, true);
+    assert!(!confined.root_strips().is_empty());
+    assert!(confined.root_strips().len() < full.root_strips().len());
+    assert!(!confined.opaque_x().is_empty());
+    assert!(confined.opaque_x().len() < full.opaque_x().len());
+
+    assert_region_culls_whole_root_strips(&case, &region, true);
+    assert_region_culls_whole_root_strips(&case, &region, false);
+}
+
+#[test]
+fn root_region_never_culls_layers() {
+    // The root is rendered into a layer and only the final blit is culled.
+    for region in [RectU16::new(12, 4, 16, 8), RectU16::new(20, 0, 30, 8)] {
+        assert_region_culls_whole_root_strips(&root_blend_case(), &[region], true);
+    }
+}
+
+#[test]
+fn empty_root_region_culls_all_root_strips() {
+    let case = region_scene();
+    let confined = case.schedule_root_region(&[], true);
+
+    assert!(confined.root_strips().is_empty());
+    assert_region_culls_whole_root_strips(&case, &[], true);
 }
