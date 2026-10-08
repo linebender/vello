@@ -19,12 +19,7 @@ console_log = { workspace = true }
 js-sys = { workspace = true }
 log = { workspace = true }
 vello_common = { workspace = true }
-vello_gpu = { workspace = true, features = [
-    "text",
-    "wgpu",
-    "wgpu_default",
-    "all_shader_features",
-] }
+vello_gpu = { workspace = true, features = ["text", "wgpu", "wgpu_default", "all_shader_features"] }
 vello_example_scenes = { workspace = true, features = ["webgl_gpu_timing"] }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }

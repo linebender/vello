@@ -555,10 +555,9 @@ impl Scene {
         std_dev: f32,
         invert: bool,
     ) {
-        assert!(
-            cfg!(feature = "blurred_rounded_rect"),
-            "blurred rounded rectangles require the `blurred_rounded_rect` feature"
-        );
+        if !cfg!(feature = "blurred_rounded_rect") {
+            panic!("blurred rounded rectangles require the `blurred_rounded_rect` feature");
+        }
 
         if !self.paint_transform_has_area() {
             return;

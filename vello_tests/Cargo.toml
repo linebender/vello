@@ -23,12 +23,7 @@ required-features = ["force_support_fallback"]
 glifo = { workspace = true }
 vello_common = { workspace = true, features = ["std", "probe"] }
 vello_cpu = { workspace = true, features = ["multithreading", "std", "f32_pipeline"] }
-vello_gpu = { workspace = true, features = [
-    "text",
-    "wgpu",
-    "wgpu_default",
-    "all_shader_features",
-] }
+vello_gpu = { workspace = true, features = ["text", "wgpu", "wgpu_default", "all_shader_features"] }
 fearless_simd = { workspace = true }
 wgpu = { workspace = true, default-features = true }
 pollster = { workspace = true }
