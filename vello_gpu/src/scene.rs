@@ -1009,11 +1009,11 @@ fn assert_paint_supported(paint: &PaintType, tint: Option<Tint>) {
 #[cfg(test)]
 mod tests {
     use super::{RecordedDraw, Scene};
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", feature = "extended_images"))]
     use crate::resources::Resources;
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", feature = "extended_images"))]
     use alloc::sync::Arc;
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", feature = "extended_images"))]
     use glifo::Glyph;
     use vello_common::TextureId;
     use vello_common::geometry::RectU16;
@@ -1021,7 +1021,7 @@ mod tests {
     use vello_common::paint::{Image, ImageSource, Paint, PremulColor, TextureRegion};
     use vello_common::peniko::ImageSampler;
     use vello_common::peniko::color::palette::css::BLUE;
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", feature = "extended_images"))]
     use vello_common::peniko::{Blob, FontData};
     use vello_common::record::Drawable;
 
@@ -1113,7 +1113,7 @@ mod tests {
         assert!(scene.recorder.nodes.is_empty());
     }
 
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", feature = "extended_images"))]
     #[test]
     fn glyph_atlas_resources_are_lazy() {
         const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");

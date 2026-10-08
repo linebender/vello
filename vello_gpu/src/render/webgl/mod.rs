@@ -757,19 +757,20 @@ impl WebGlRenderer {
         resources: &mut Resources,
         writer: &T,
     ) -> Result<ImageId, WebGlError> {
-        if !cfg!(feature = "extended_images") {
-            panic!("uploaded images require the `extended_images` feature");
-        }
-
         self.upload_image_with(&mut resources.image_cache, writer, IMAGE_PADDING)
     }
 
+    #[track_caller]
     pub(crate) fn upload_image_with<T: WebGlAtlasWriter>(
         &mut self,
         image_cache: &mut ImageCache,
         writer: &T,
         padding: u16,
     ) -> Result<ImageId, WebGlError> {
+        if !cfg!(feature = "extended_images") {
+            panic!("uploaded images require the `extended_images` feature");
+        }
+
         let width = writer.width();
         let height = writer.height();
         let image_id = image_cache
