@@ -503,7 +503,8 @@ impl WebGlRenderer {
                 )
             },
             |renderer, image_cache, upload, dst_x, dst_y| {
-                renderer.write_to_atlas(
+                renderer.programs.resources.write_to_atlas(
+                    &renderer.gl,
                     image_cache,
                     upload.image_id,
                     &upload.pixmap,
@@ -558,6 +559,7 @@ impl WebGlRenderer {
         texture_bindings: &WebGlTextureBindings,
     ) -> Result<(), WebGlError> {
         self.programs
+            .resources
             .maybe_create_atlas_textures(&self.gl, atlas_count)?;
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
@@ -757,62 +759,12 @@ impl WebGlRenderer {
         resources: &mut Resources,
         writer: &T,
     ) -> Result<ImageId, WebGlError> {
-        self.upload_image_with(&mut resources.image_cache, writer, IMAGE_PADDING)
-    }
-
-    pub(crate) fn upload_image_with<T: WebGlAtlasWriter>(
-        &mut self,
-        image_cache: &mut ImageCache,
-        writer: &T,
-        padding: u16,
-    ) -> Result<ImageId, WebGlError> {
-        let width = writer.width();
-        let height = writer.height();
-        let image_id = image_cache
-            .allocate(width, height, padding)
-            .map_err(RenderError::AtlasError)?;
-
-        if let Err(err) = self.write_to_atlas(image_cache, image_id, writer, None) {
-            image_cache.deallocate(image_id);
-
-            return Err(err);
-        }
-
-        Ok(image_id)
-    }
-
-    /// Write pixel data to an existing atlas allocation.
-    ///
-    /// Unlike [`upload_image`](Self::upload_image), this does not allocate space in the image
-    /// cache. The `image_id` must have been previously allocated (e.g. via
-    /// `ImageCache::allocate`). This is useful for uploading CPU-side pixel data (such as
-    /// bitmap font glyphs) to a pre-allocated atlas region.
-    ///
-    /// If `offset_override` is `Some`, the provided offset is used instead of the
-    /// allocator-assigned position. Pass `None` to use the default atlas offset.
-    pub(crate) fn write_to_atlas<T: WebGlAtlasWriter>(
-        &mut self,
-        image_cache: &ImageCache,
-        image_id: ImageId,
-        writer: &T,
-        offset_override: Option<[u16; 2]>,
-    ) -> Result<(), WebGlError> {
-        let image_resource = image_cache
-            .get(image_id)
-            .ok_or(RenderError::MissingImage(image_id))?;
-
-        self.programs
-            .maybe_create_atlas_textures(&self.gl, image_cache.atlas_count() as u32)?;
-        let offset = offset_override.unwrap_or(image_resource.offset);
-        writer.write_to_atlas(
+        self.programs.resources.upload_image_with(
             &self.gl,
-            &self.programs.resources.atlas_textures[image_resource.atlas_id.as_u32() as usize],
-            offset,
-            writer.width(),
-            writer.height(),
-        )?;
-
-        Ok(())
+            &mut resources.image_cache,
+            writer,
+            IMAGE_PADDING,
+        )
     }
 
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
@@ -821,22 +773,9 @@ impl WebGlRenderer {
         resources: &mut Resources,
         image_id: ImageId,
     ) -> Result<(), WebGlError> {
-        if let Some(image_resource) = resources.image_cache.get(image_id) {
-            let padding = image_resource.padding;
-            self.clear_atlas_region(
-                image_resource.atlas_id,
-                [
-                    image_resource.offset[0] - padding,
-                    image_resource.offset[1] - padding,
-                ],
-                image_resource.width + padding * 2,
-                image_resource.height + padding * 2,
-            )?;
-
-            let _ = resources.image_cache.deallocate(image_id);
-        }
-
-        Ok(())
+        self.programs
+            .resources
+            .destroy_image(&self.gl, &mut resources.image_cache, image_id)
     }
 
     /// Returns an individual image atlas texture.
@@ -867,39 +806,9 @@ impl WebGlRenderer {
         width: u16,
         height: u16,
     ) -> Result<(), WebGlError> {
-        let temp_framebuffer = Framebuffer::new(&self.gl)?;
-
-        // Bind our temporary framebuffer
-        self.gl
-            .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&temp_framebuffer));
-
-        self.gl.framebuffer_texture_2d(
-            WebGl2RenderingContext::FRAMEBUFFER,
-            WebGl2RenderingContext::COLOR_ATTACHMENT0,
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.atlas_textures[atlas_id.as_u32() as usize]),
-            0,
-        );
-
-        // Set viewport to match the atlas texture dimensions
-        let (atlas_width, atlas_height) = self.programs.resources.atlas_size;
-        self.gl
-            .viewport(0, 0, i32::from(atlas_width), i32::from(atlas_height));
-
-        // Enable scissor test and set scissor rectangle to our region
-        self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-        self.gl.scissor(
-            offset[0] as i32,
-            offset[1] as i32,
-            width as i32,
-            height as i32,
-        );
-
-        // Clear the region to transparent (0, 0, 0, 0)
-        self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
-        self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-
-        Ok(())
+        self.programs
+            .resources
+            .clear_atlas_region(&self.gl, atlas_id, offset, width, height)
     }
 
     fn prepare_gpu_encoded_paints(
@@ -1096,6 +1005,38 @@ impl WebGlRenderer {
 }
 
 impl WebGlRendererInit {
+    /// Get the WebGL context.
+    ///
+    /// This can be used to upload externally owned textures while the programs are compiling.
+    pub fn gl_context(&self) -> &WebGl2RenderingContext {
+        &self.gl
+    }
+
+    /// Allocate and upload an image to the atlas.
+    pub fn upload_image<T: WebGlAtlasWriter>(
+        &mut self,
+        resources: &mut Resources,
+        writer: &T,
+    ) -> Result<ImageId, WebGlError> {
+        self.programs.resources.upload_image_with(
+            &self.gl,
+            &mut resources.image_cache,
+            writer,
+            IMAGE_PADDING,
+        )
+    }
+
+    /// Destroy an uploaded image and clear its atlas allocation.
+    pub fn destroy_image(
+        &mut self,
+        resources: &mut Resources,
+        image_id: ImageId,
+    ) -> Result<(), WebGlError> {
+        self.programs
+            .resources
+            .destroy_image(&self.gl, &mut resources.image_cache, image_id)
+    }
+
     /// Polls shader compilation and program linking without blocking when
     /// `KHR_parallel_shader_compile` is available.
     ///
@@ -1353,6 +1294,144 @@ pub(crate) struct WebGlResources {
 }
 
 impl WebGlResources {
+    fn upload_image_with<T: WebGlAtlasWriter>(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        image_cache: &mut ImageCache,
+        writer: &T,
+        padding: u16,
+    ) -> Result<ImageId, WebGlError> {
+        let width = writer.width();
+        let height = writer.height();
+        let image_id = image_cache
+            .allocate(width, height, padding)
+            .map_err(RenderError::AtlasError)?;
+
+        if let Err(err) = self.write_to_atlas(gl, image_cache, image_id, writer, None) {
+            image_cache.deallocate(image_id);
+
+            return Err(err);
+        }
+
+        Ok(image_id)
+    }
+
+    /// Write pixel data to an existing atlas allocation.
+    ///
+    /// Unlike [`upload_image`](Self::upload_image), this does not allocate space in the image
+    /// cache. The `image_id` must have been previously allocated (e.g. via
+    /// `ImageCache::allocate`). This is useful for uploading CPU-side pixel data (such as
+    /// bitmap font glyphs) to a pre-allocated atlas region.
+    ///
+    /// If `offset_override` is `Some`, the provided offset is used instead of the
+    /// allocator-assigned position. Pass `None` to use the default atlas offset.
+    fn write_to_atlas<T: WebGlAtlasWriter>(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        image_cache: &ImageCache,
+        image_id: ImageId,
+        writer: &T,
+        offset_override: Option<[u16; 2]>,
+    ) -> Result<(), WebGlError> {
+        let image_resource = image_cache
+            .get(image_id)
+            .ok_or(RenderError::MissingImage(image_id))?;
+
+        self.maybe_create_atlas_textures(gl, image_cache.atlas_count() as u32)?;
+        let offset = offset_override.unwrap_or(image_resource.offset);
+        writer.write_to_atlas(
+            gl,
+            &self.atlas_textures[image_resource.atlas_id.as_u32() as usize],
+            offset,
+            writer.width(),
+            writer.height(),
+        )?;
+
+        Ok(())
+    }
+
+    /// Destroy an uploaded image and clear its atlas allocation.
+    fn destroy_image(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        image_cache: &mut ImageCache,
+        image_id: ImageId,
+    ) -> Result<(), WebGlError> {
+        if let Some(image_resource) = image_cache.get(image_id) {
+            let padding = image_resource.padding;
+            self.clear_atlas_region(
+                gl,
+                image_resource.atlas_id,
+                [
+                    image_resource.offset[0] - padding,
+                    image_resource.offset[1] - padding,
+                ],
+                image_resource.width + padding * 2,
+                image_resource.height + padding * 2,
+            )?;
+
+            let _ = image_cache.deallocate(image_id);
+        }
+
+        Ok(())
+    }
+
+    fn clear_atlas_region(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        atlas_id: AtlasId,
+        offset: [u16; 2],
+        width: u16,
+        height: u16,
+    ) -> Result<(), WebGlError> {
+        let temp_framebuffer = Framebuffer::new(gl)?;
+
+        // Bind our temporary framebuffer
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&temp_framebuffer));
+
+        gl.framebuffer_texture_2d(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            WebGl2RenderingContext::COLOR_ATTACHMENT0,
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.atlas_textures[atlas_id.as_u32() as usize]),
+            0,
+        );
+
+        // Set viewport to match the atlas texture dimensions
+        let (atlas_width, atlas_height) = self.atlas_size;
+        gl.viewport(0, 0, i32::from(atlas_width), i32::from(atlas_height));
+
+        // Enable scissor test and set scissor rectangle to our region
+        gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+        gl.scissor(
+            offset[0] as i32,
+            offset[1] as i32,
+            width as i32,
+            height as i32,
+        );
+
+        // Clear the region to transparent (0, 0, 0, 0)
+        gl.clear_color(0.0, 0.0, 0.0, 0.0);
+        gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+
+        Ok(())
+    }
+
+    /// Create any newly allocated atlas textures.
+    fn maybe_create_atlas_textures(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        required_atlas_count: u32,
+    ) -> Result<(), WebGlError> {
+        let (width, height) = self.atlas_size;
+        while self.atlas_textures.len() < required_atlas_count as usize {
+            self.atlas_textures
+                .push(create_atlas_texture(gl, width, height)?);
+        }
+
+        Ok(())
+    }
+
     fn layer_texture(&self, id: LayerTextureId) -> &Texture {
         self.layer_textures[id.texture_parity.get_parity()][usize::from(id.page_index)]
             .binding_texture()
@@ -1718,22 +1797,6 @@ impl WebGlPrograms {
         }
 
         self.resources.texture_size = texture_size;
-
-        Ok(())
-    }
-
-    /// Create any newly allocated atlas textures.
-    fn maybe_create_atlas_textures(
-        &mut self,
-        gl: &WebGl2RenderingContext,
-        required_atlas_count: u32,
-    ) -> Result<(), WebGlError> {
-        let (width, height) = self.resources.atlas_size;
-        while self.resources.atlas_textures.len() < required_atlas_count as usize {
-            self.resources
-                .atlas_textures
-                .push(create_atlas_texture(gl, width, height)?);
-        }
 
         Ok(())
     }
