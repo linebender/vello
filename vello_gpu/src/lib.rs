@@ -31,8 +31,11 @@
 //!   features.
 //! - `blurred_rounded_rect` (enabled by default): Enables rendering of blurred
 //!   rounded rectangles.
-//! - `image_bicubic` (enabled by default): Enables rendering of images with
-//!   `ImageQuality::High`
+//! - `extended_images` (enabled by default): If this feature is disabled, only
+//!   external textures using `TextureRegion::Full` with nearest or bilinear
+//!   sampling and opacity are supported. Enabling this feature also adds support
+//!   for uploaded images, glyph atlas caching, bicubic sampling, cropped external
+//!   textures, and colored or alpha-mask tints.
 //! - `gradient_sweep` (enabled by default): Enables rendering of sweep gradients
 //! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL
 //!   shaders for compatibility.

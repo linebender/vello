@@ -50,7 +50,7 @@ case $backend in
     *) usage; exit 2 ;;
 esac
 
-features=(blurred_rounded_rect image_bicubic gradient_sweep)
+features=(blurred_rounded_rect extended_images gradient_sweep)
 all_features=$(IFS=,; echo "${features[*]}")
 for combination in "" "${features[@]}" "$all_features"; do
     echo "Testing $backend: ${combination:-no shader features}"

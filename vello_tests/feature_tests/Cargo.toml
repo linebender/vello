@@ -42,7 +42,7 @@ default = []
 wgpu = ["dep:wgpu", "dep:pollster", "vello_gpu/wgpu_default"]
 webgl = ["vello_gpu/webgl"]
 blurred_rounded_rect = ["vello_gpu/blurred_rounded_rect"]
-image_bicubic = ["vello_gpu/image_bicubic"]
+extended_images = ["vello_gpu/extended_images"]
 gradient_sweep = ["vello_gpu/gradient_sweep"]
 
 [lints]
