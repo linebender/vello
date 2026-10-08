@@ -258,30 +258,40 @@ fn vs_main(
         // Unpack view coordinates for image sampling and gradient calculations
         let scene_strip = unpack_u16_pair(instance.payload);
 
-        if paint_type == PAINT_TYPE_IMAGE {
-            let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let image_texel0 = load_encoded_paint_texel(
-                encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 0u,
-            );
-            let image_texel1 = load_encoded_paint_texel(
-                encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 1u,
-            );
-            let image_texel2 = load_encoded_paint_texel(
-                encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 2u,
-            );
-            // Use view coordinates for image sampling (always in global view space)
-            let pos = vec2<f32>(
-                f32(scene_strip.x) + x * f32(width),
-                f32(scene_strip.y) + y * f32(height),
-            );
-            out.sample_xy = get_image_translate(image_texel1, image_texel2)
-                + get_image_transform(image_texel0, image_texel1) * pos;
-        } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
-            // Use view coordinates for gradient transform (always in global view space)
-            out.sample_xy = get_gradient_sample_xy(scene_strip, corner, width, height);
-        } else if paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
+        switch paint_type {
+            case PAINT_TYPE_IMAGE: {
+                let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+                let image_texel0 = load_encoded_paint_texel(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 0u,
+                );
+                let image_texel1 = load_encoded_paint_texel(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 1u,
+                );
+                let image_texel2 = load_encoded_paint_texel(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 2u,
+                );
+                // Use view coordinates for image sampling (always in global view space)
+                let pos = vec2<f32>(
+                    f32(scene_strip.x) + x * f32(width),
+                    f32(scene_strip.y) + y * f32(height),
+                );
+                out.sample_xy = get_image_translate(image_texel1, image_texel2)
+                    + get_image_transform(image_texel0, image_texel1) * pos;
+            }
+            case PAINT_TYPE_LINEAR_GRADIENT, PAINT_TYPE_RADIAL_GRADIENT: {
+                // Use view coordinates for gradient transform (always in global view space)
+                out.sample_xy = get_gradient_sample_xy(scene_strip, corner, width, height);
+            }
+            @if(gradient_sweep)
+            case PAINT_TYPE_SWEEP_GRADIENT: {
+                // Use view coordinates for gradient transform (always in global view space)
+                out.sample_xy = get_gradient_sample_xy(scene_strip, corner, width, height);
+            }
             @if(blurred_rounded_rect)
-            out.sample_xy = get_blurred_rounded_rect_sample_xy(scene_strip, corner, width, height);
+            case PAINT_TYPE_BLURRED_ROUNDED_RECT: {
+                out.sample_xy = get_blurred_rounded_rect_sample_xy(scene_strip, corner, width, height);
+            }
+            default: {}
         }
     } else if color_source == COLOR_SOURCE_LAYER {
         let source = unpack_u16_pair(instance.payload);
@@ -336,35 +346,43 @@ fn fs_main(
         let paint_type = (paint_and_rect_flag >> 26u) & 0x7u;
 
         // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
-        if paint_type == PAINT_TYPE_SOLID {
-            final_color = unpack4x8unorm(payload);
-        } else if paint_type == PAINT_TYPE_IMAGE {
-            final_color = sample_image_paint(
-                encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                external_texture_0, paint_and_rect_flag, sample_xy,
-            );
-        } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT {
-            final_color = sample_linear_gradient(
-                encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                gradient_texture, paint_and_rect_flag, sample_xy,
-            );
-        } else if paint_type == PAINT_TYPE_RADIAL_GRADIENT {
-            final_color = sample_radial_gradient(
-                encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                gradient_texture, paint_and_rect_flag, sample_xy,
-            );
-        } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
+        switch paint_type {
+            case PAINT_TYPE_SOLID: {
+                final_color = unpack4x8unorm(payload);
+            }
+            case PAINT_TYPE_IMAGE: {
+                final_color = sample_image_paint(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                    external_texture_0, paint_and_rect_flag, sample_xy,
+                );
+            }
+            case PAINT_TYPE_LINEAR_GRADIENT: {
+                final_color = sample_linear_gradient(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                    gradient_texture, paint_and_rect_flag, sample_xy,
+                );
+            }
+            case PAINT_TYPE_RADIAL_GRADIENT: {
+                final_color = sample_radial_gradient(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                    gradient_texture, paint_and_rect_flag, sample_xy,
+                );
+            }
             @if(gradient_sweep)
-            final_color = sample_sweep_gradient(
-                encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                gradient_texture, paint_and_rect_flag, sample_xy,
-            );
-        } else if paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
+            case PAINT_TYPE_SWEEP_GRADIENT: {
+                final_color = sample_sweep_gradient(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                    gradient_texture, paint_and_rect_flag, sample_xy,
+                );
+            }
             @if(blurred_rounded_rect)
-            final_color = sample_blurred_rounded_rect(
-                encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                paint_and_rect_flag, sample_xy,
-            );
+            case PAINT_TYPE_BLURRED_ROUNDED_RECT: {
+                final_color = sample_blurred_rounded_rect(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                    paint_and_rect_flag, sample_xy,
+                );
+            }
+            default: {}
         }
     } else if color_source == COLOR_SOURCE_LAYER {
         let layer_opacity = f32(paint_and_rect_flag & 0xffu) * (1.0 / 255.0);

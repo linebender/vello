@@ -31,7 +31,6 @@ pub(crate) struct MinifiedWgsl {
 pub(crate) fn minify_wgsl(source: &str) -> MinifiedWgsl {
     let mut module =
         wgsl_front::parse_str(source).expect("linked WGSL should parse before minifying");
-    // TODO: Remove empty if branches (that can occur if certain paints are compiled out)
     let original_global_names = rename_module(&mut module);
     let info = validate(&module);
     let source = wgsl::write_string(&module, &info, wgsl::WriterFlags::empty())
