@@ -751,11 +751,16 @@ impl WebGlRenderer {
     ///
     /// This is the WebGL analogue of the wgpu Renderer's `upload_image` method.
     /// It allocates space in the image cache and uploads the image data to the atlas texture.
+    #[track_caller]
     pub fn upload_image<T: WebGlAtlasWriter>(
         &mut self,
         resources: &mut Resources,
         writer: &T,
     ) -> Result<ImageId, WebGlError> {
+        if !cfg!(feature = "extended_images") {
+            panic!("uploaded images require the `extended_images` feature");
+        }
+
         self.upload_image_with(&mut resources.image_cache, writer, IMAGE_PADDING)
     }
 

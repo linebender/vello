@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::{Pixmap, ProbeFeature, probe};
-use vello_common::{color::palette::css, paint::ImageSource, pixmap::PixelMetadata};
+use vello_common::{
+    TextureId,
+    color::palette::css,
+    paint::{ImageSource, TextureRegion},
+    pixmap::PixelMetadata,
+};
 use vello_gpu::{
     ClearSettings, RenderSize, RenderTargetConfig, Renderer, Scene, TargetInit, TextureBindings,
 };
@@ -24,12 +29,48 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
     let image = probe::probe_image_pixmap();
-    let image_id = renderer.upload_image(&mut resources, &device, &queue, &mut encoder, &image);
+    let image_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Feature test image"),
+        size: wgpu::Extent3d {
+            width: image.width().into(),
+            height: image.height().into(),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        image_texture.as_image_copy(),
+        image.data_as_u8_slice(),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(u32::from(image.width()) * 4),
+            rows_per_image: None,
+        },
+        image_texture.size(),
+    );
+    let texture_id = TextureId(0);
+    let mut texture_bindings = TextureBindings::new();
+    texture_bindings.insert(
+        texture_id,
+        image_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+    );
     let mut scene = Scene::new(width, height);
 
     probe::draw_scene(
         &mut scene,
-        ImageSource::opaque_id_with_transparency_hint(image_id, image.may_have_transparency()),
+        ImageSource::external_texture(
+            texture_id,
+            TextureRegion::Full {
+                width: image.width(),
+                height: image.height(),
+            },
+            image.may_have_transparency(),
+        ),
         elements,
     );
 
@@ -62,7 +103,7 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
             &size,
             &texture.create_view(&wgpu::TextureViewDescriptor::default()),
             Some(&depth),
-            &TextureBindings::new(),
+            &texture_bindings,
             TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
         )
         .unwrap();

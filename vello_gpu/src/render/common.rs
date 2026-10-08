@@ -20,7 +20,6 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::encode::EncodedImage;
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::paint::{ImageSource, TextureRegion, TintMode};
-use vello_common::peniko::ImageQuality;
 use vello_common::record::CommandRecorder;
 
 // TODO: If we want to use native bilinear sampling for uploaded images,
@@ -596,10 +595,7 @@ pub(crate) fn encode_native_image_paint(image: &EncodedImage) -> Option<GpuEncod
         return None;
     };
 
-    if image.tint.is_some_and(|tint| {
-        tint.mode != TintMode::Multiply || tint.color.components[..3] != [1.0; 3]
-    }) || matches!(image.sampler.quality, ImageQuality::High)
-    {
+    if !crate::paint::supports_native_image(&image.source, image.sampler.quality, image.tint) {
         return None;
     }
 

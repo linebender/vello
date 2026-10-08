@@ -25,7 +25,7 @@ use vello_common::paint::{Paint, PaintType, PremulColor, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Fill, GradientKind, ImageQuality};
+use vello_common::peniko::{BlendMode, Fill, GradientKind};
 use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps, PoppedLayer};
 use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
@@ -815,12 +815,16 @@ impl Scene {
     #[track_caller]
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         let paint = paint.into();
-        assert_paint_supported(&paint);
+        assert_paint_supported(&paint, self.render_state.tint);
+
         self.render_state.paint = paint;
     }
 
     /// Set the tint for subsequent image paint operations.
+    #[track_caller]
     pub fn set_tint(&mut self, tint: Option<Tint>) {
+        assert_paint_supported(&self.render_state.paint, tint);
+
         self.render_state.tint = tint;
     }
 
@@ -937,7 +941,7 @@ impl Scene {
     /// Restore rendering state.
     #[track_caller]
     pub fn restore_state(&mut self, state: RenderState) {
-        assert_paint_supported(&state.paint);
+        assert_paint_supported(&state.paint, state.tint);
 
         self.render_state = state;
     }
@@ -987,7 +991,7 @@ impl vello_common::probe::ProbeRenderer for Scene {
 }
 
 #[track_caller]
-fn assert_paint_supported(paint: &PaintType) {
+fn assert_paint_supported(paint: &PaintType, tint: Option<Tint>) {
     match paint {
         PaintType::Solid(_) => {}
         PaintType::Gradient(gradient) => assert!(
@@ -995,8 +999,9 @@ fn assert_paint_supported(paint: &PaintType) {
             "sweep gradients require the `gradient_sweep` feature"
         ),
         PaintType::Image(image) => assert!(
-            cfg!(feature = "image_bicubic") || image.sampler.quality != ImageQuality::High,
-            "bicubic image sampling requires the `image_bicubic` feature"
+            cfg!(feature = "extended_images")
+                || crate::paint::supports_native_image(&image.image, image.sampler.quality, tint),
+            "extended image sampling requires the `extended_images` feature"
         ),
     }
 }

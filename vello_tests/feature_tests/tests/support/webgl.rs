@@ -3,7 +3,11 @@
 
 use super::{Pixmap, ProbeFeature, probe};
 use vello_common::{
-    color::palette::css, paint::ImageSource, peniko::ImageAlphaType, pixmap::PixelMetadata,
+    TextureId,
+    color::palette::css,
+    paint::{ImageSource, TextureRegion},
+    peniko::ImageAlphaType,
+    pixmap::PixelMetadata,
 };
 use vello_gpu::{RenderSettings, RenderSize, Scene, WebGlRenderer, WebGlTextureBindings};
 use wasm_bindgen::JsCast;
@@ -27,12 +31,44 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
         WebGlRenderer::new_with(&canvas, RenderSettings::default(), true).unwrap();
 
     let image = probe::probe_image_pixmap();
-    let image_id = renderer.upload_image(&mut resources, &image).unwrap();
+    let gl = renderer.gl_context();
+    let image_texture = gl.create_texture().unwrap();
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&image_texture));
+    gl.tex_storage_2d(
+        WebGl2RenderingContext::TEXTURE_2D,
+        1,
+        WebGl2RenderingContext::RGBA8,
+        image.width().into(),
+        image.height().into(),
+    );
+    gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        0,
+        0,
+        image.width().into(),
+        image.height().into(),
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(image.data_as_u8_slice()),
+    )
+    .unwrap();
+    let texture_id = TextureId(0);
+    let mut texture_bindings = WebGlTextureBindings::new();
+    texture_bindings.insert(texture_id, image_texture.clone());
     let mut scene = Scene::new(width, height);
 
     probe::draw_scene(
         &mut scene,
-        ImageSource::opaque_id_with_transparency_hint(image_id, image.may_have_transparency()),
+        ImageSource::external_texture(
+            texture_id,
+            TextureRegion::Full {
+                width: image.width(),
+                height: image.height(),
+            },
+            image.may_have_transparency(),
+        ),
         elements,
     );
 
@@ -41,7 +77,7 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
             &scene,
             &mut resources,
             &RenderSize { width, height },
-            &WebGlTextureBindings::new(),
+            &texture_bindings,
             css::WHITE,
         )
         .unwrap();
@@ -66,6 +102,8 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
         let (top, bottom) = pixels.split_at_mut((usize::from(height) - 1 - y) * row_bytes);
         top[y * row_bytes..(y + 1) * row_bytes].swap_with_slice(&mut bottom[..row_bytes]);
     }
+
+    gl.delete_texture(Some(&image_texture));
 
     Pixmap::from_parts(
         pixels,
