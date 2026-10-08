@@ -25,7 +25,7 @@ use vello_common::paint::{Paint, PaintType, PremulColor, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Fill};
+use vello_common::peniko::{BlendMode, Fill, GradientKind, ImageQuality};
 use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps, PoppedLayer};
 use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
@@ -547,6 +547,7 @@ impl Scene {
     ///
     /// This operation uses the current transform and paint transform. Like Vello CPU, it only
     /// uses solid paints; non-solid paints fall back to black.
+    #[track_caller]
     pub fn fill_blurred_rounded_rect(
         &mut self,
         rect: &Rect,
@@ -554,6 +555,11 @@ impl Scene {
         std_dev: f32,
         invert: bool,
     ) {
+        assert!(
+            cfg!(feature = "blurred_rounded_rect"),
+            "blurred rounded rectangles require the `blurred_rounded_rect` feature"
+        );
+
         if !self.paint_transform_has_area() {
             return;
         }
@@ -770,8 +776,11 @@ impl Scene {
     // TODO: This API is not final. Supporting images from a pixmap is explicitly out of scope.
     //       Instead images should be passed via a backend-agnostic opaque id, and be hydrated at
     //       render time into a texture usable by the renderer backend.
+    #[track_caller]
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        self.render_state.paint = paint.into();
+        let paint = paint.into();
+        assert_paint_supported(&paint);
+        self.render_state.paint = paint;
     }
 
     /// Set the tint for subsequent image paint operations.
@@ -890,7 +899,10 @@ impl Scene {
     }
 
     /// Restore rendering state.
+    #[track_caller]
     pub fn restore_state(&mut self, state: RenderState) {
+        assert_paint_supported(&state.paint);
+
         self.render_state = state;
     }
 }
@@ -935,6 +947,21 @@ impl vello_common::probe::ProbeRenderer for Scene {
 
     fn reset_paint_transform(&mut self) {
         Self::reset_paint_transform(self);
+    }
+}
+
+#[track_caller]
+fn assert_paint_supported(paint: &PaintType) {
+    match paint {
+        PaintType::Solid(_) => {}
+        PaintType::Gradient(gradient) => assert!(
+            cfg!(feature = "gradient_sweep") || !matches!(gradient.kind, GradientKind::Sweep(_)),
+            "sweep gradients require the `gradient_sweep` feature"
+        ),
+        PaintType::Image(image) => assert!(
+            cfg!(feature = "image_bicubic") || image.sampler.quality != ImageQuality::High,
+            "bicubic image sampling requires the `image_bicubic` feature"
+        ),
     }
 }
 

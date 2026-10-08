@@ -24,28 +24,6 @@ use vello_common::record::CommandRecorder;
 // we can pass 1 instead of 0 here.
 pub(crate) const IMAGE_PADDING: u16 = 0;
 
-#[cfg(any(feature = "wgpu", feature = "webgl"))]
-pub(crate) fn assert_paint_supported(paint: &vello_common::encode::EncodedPaint) {
-    use vello_common::encode::{EncodedKind, EncodedPaint};
-    use vello_common::peniko::ImageQuality;
-
-    match paint {
-        EncodedPaint::Gradient(gradient) => assert!(
-            cfg!(feature = "gradient_sweep") || !matches!(gradient.kind, EncodedKind::Sweep(_)),
-            "sweep gradients require the `gradient_sweep` feature"
-        ),
-        EncodedPaint::Image(image) => assert!(
-            cfg!(feature = "image_bicubic") || image.sampler.quality != ImageQuality::High,
-            "bicubic image sampling requires the `image_bicubic` feature"
-        ),
-        EncodedPaint::BlurredRoundedRect(_) => {
-            if !cfg!(feature = "blurred_rounded_rect") {
-                panic!("blurred rounded rectangles require the `blurred_rounded_rect` feature");
-            }
-        }
-    }
-}
-
 /// Controls how the output target is cleared before drawing.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ClearSettings<'a> {
