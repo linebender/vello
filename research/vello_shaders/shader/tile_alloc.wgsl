@@ -96,13 +96,13 @@ fn main(
             offset = 0u;
             atomicOr(&bump.failed, STAGE_TILE_ALLOC);
         }
-        paths[drawobj_ix].tiles = offset;
-    }    
-    // Using storage barriers is a workaround for what appears to be a miscompilation
-    // when a normal workgroup-shared variable is used to broadcast the value.
-    storageBarrier();
-    let tile_offset = paths[drawobj_ix | (WG_SIZE - 1u)].tiles;
-    storageBarrier();
+        sh_tile_offset = offset;
+    }
+    // Broadcast the workgroup's tile offset through workgroup memory. Broadcasting it through
+    // `paths` with storage barriers hung the GPU under DX12 with FXC (linebender/vello#1991).
+    workgroupBarrier();
+    let tile_offset = sh_tile_offset;
+    workgroupBarrier();
     if drawobj_ix < config.n_drawobj {
         let tile_subix = select(0u, sh_tile_count[local_id.x - 1u], local_id.x > 0u);
         let bbox = vec4(ux0, uy0, ux1, uy1);
