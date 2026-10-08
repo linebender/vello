@@ -106,15 +106,22 @@ impl Resources {
         }
     }
 
-    pub(crate) fn maintain_glyph_cache(&mut self) {
-        self.glyph_prep_cache.maintain();
-
-        if let Some(glyph_resources) = self.glyph_resources.as_mut() {
-            glyph_resources.maintain();
+    /// Unregister the atlas pages so that they are uniquely owned again.
+    pub(crate) fn unregister_atlas_pages(&mut self) {
+        if let Some(glyph_resources) = &self.glyph_resources {
             let page_count = glyph_resources.pixmaps.len();
             for page_index in 0..page_count {
                 self.image_registry.destroy_atlas_page(page_index as u32);
             }
+        }
+    }
+
+    /// Run one glyph cache maintenance pass. See [`GlyphMaintenance`](crate::GlyphMaintenance).
+    pub fn maintain_glyphs(&mut self) {
+        self.glyph_prep_cache.maintain();
+
+        if let Some(glyph_resources) = self.glyph_resources.as_mut() {
+            glyph_resources.maintain();
             self.clear_evicted_glyph_atlas_regions();
         }
     }
