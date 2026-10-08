@@ -7,13 +7,9 @@ use fearless_simd_macros::simd;
 use vello_common::fearless_simd::*;
 use vello_common::util::{Div255Ext, f32_to_u8, normalized_mul_u8, saturating_narrow, widen};
 
+#[inline(never)]
 #[simd]
 pub(crate) fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32<S> {
-    mix_inner(src_c, bg_c, blend_mode)
-}
-
-#[inline(always)]
-fn mix_inner<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32<S> {
     if let Some(res) = try_u8_mix(blend_mode, src_c, bg_c) {
         return res;
     }

@@ -24,13 +24,9 @@ impl<S: Simd> Channels<S> {
     }
 }
 
+#[inline(never)]
 #[simd]
 pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) -> f32x16<S> {
-    mix_inner(src_c, bg, blend_mode)
-}
-
-#[inline(always)]
-fn mix_inner<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) -> f32x16<S> {
     if matches!(blend_mode.mix, Mix::Normal) {
         return src_c;
     }
