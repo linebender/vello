@@ -10,7 +10,9 @@ const EXTEND_REFLECT: u32 = 2u;
 fn extend_mode(t: f32, mode: u32, max: f32) -> f32 {
     switch mode {
         case EXTEND_PAD: {
-            return clamp(t, 0.0, max - 1.0);
+            // Clamping happens per tap in the image samplers. Clamping here would
+            // shift the sample position and blend the last two texels.
+            return t;
         }
         case EXTEND_REPEAT: {
             return extend_mode_normalized(t / max, mode) * max;
