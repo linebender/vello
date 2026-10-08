@@ -4592,6 +4592,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vello_gpu_feature_tests"
+version = "0.0.0"
+dependencies = [
+ "pollster",
+ "vello_common",
+ "vello_cpu",
+ "vello_gpu",
+ "vello_test_support",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+ "wgpu",
+]
+
+[[package]]
 name = "vello_gpu_shaders"
 version = "0.3.0"
 dependencies = [
@@ -4641,23 +4656,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "vello_test_support"
+version = "0.0.0"
+dependencies = [
+ "image",
+ "oxipng",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "vello_tests"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
  "fearless_simd",
  "glifo",
- "image",
  "oxipng",
  "pollster",
- "serde",
- "serde_json",
  "skrifa 0.44.0",
  "smallvec",
  "vello_common",
  "vello_cpu",
  "vello_dev_macros",
  "vello_gpu",
+ "vello_test_support",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

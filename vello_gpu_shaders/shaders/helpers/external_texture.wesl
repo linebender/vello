@@ -3,11 +3,64 @@
 
 //! Sampling helpers for externally bound image textures.
 
+import package::helpers::extend::extend_mode;
 import package::helpers::image::{
     IMAGE_QUALITY_HIGH,
     IMAGE_QUALITY_MEDIUM,
-    cubic_weights
+    TINT_MODE_MULTIPLY,
+    get_image_extend_modes,
+    get_image_offset,
+    get_image_quality,
+    get_image_size,
 };
+@if(image_bicubic)
+import package::helpers::image::cubic_weights;
+import package::helpers::paint::{PAINT_TEXTURE_INDEX_MASK, load_encoded_paint_texel};
+
+fn sample_image_paint(
+    encoded_paints_texture: texture_2d<u32>,
+    tex_width_bits: u32,
+    external_texture: texture_2d<f32>,
+    paint_and_rect_flag: u32,
+    sample_xy: vec2<f32>,
+) -> vec4<f32> {
+    let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+    let image_texel0 = load_encoded_paint_texel(
+        encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
+    );
+    let image_texel2 = load_encoded_paint_texel(
+        encoded_paints_texture, tex_width_bits, paint_tex_idx, 2u,
+    );
+    let image_offset = get_image_offset(image_texel0);
+    let image_size = get_image_size(image_texel0);
+    let image_extend_modes = get_image_extend_modes(image_texel0);
+    let image_quality = get_image_quality(image_texel0);
+    let packed_tint = image_texel2.y;
+    let image_tint = unpack4x8unorm(packed_tint);
+    let is_multiply = image_texel2.z == TINT_MODE_MULTIPLY;
+    let extended_xy = vec2<f32>(
+        extend_mode(sample_xy.x, image_extend_modes.x, image_size.x),
+        extend_mode(sample_xy.y, image_extend_modes.y, image_size.y)
+    );
+
+    // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
+    // using GPU-native bilinear sampling
+
+    let final_xy = image_offset + extended_xy;
+    let sample_color = sample_external_image(
+        external_texture,
+        image_quality,
+        final_xy,
+        image_offset,
+        image_size,
+    );
+
+    return select(
+        image_tint * sample_color.a,
+        sample_color * image_tint,
+        is_multiply
+    );
+}
 
 // This is the same as `helpers::image::bilinear_sample`, but for a 2D texture
 // instead of an atlas texture array.
@@ -30,6 +83,7 @@ fn external_bilinear_sample(
 
 // This is the same as `helpers::image::bicubic_sample`, but for a 2D texture
 // instead of an atlas texture array.
+@if(image_bicubic)
 fn external_bicubic_sample(
     external_texture: texture_2d<f32>,
     coords: vec2<f32>,
@@ -79,6 +133,7 @@ fn sample_external_image(
     image_offset: vec2<f32>,
     image_size: vec2<f32>,
 ) -> vec4<f32> {
+    @if(image_bicubic)
     if quality == IMAGE_QUALITY_HIGH {
         return external_bicubic_sample(external_texture, coords, image_offset, image_size);
     }
