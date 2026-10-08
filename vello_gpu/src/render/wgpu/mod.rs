@@ -529,10 +529,6 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        if !cfg!(feature = "extended_images") {
-            panic!("uploaded images require the `extended_images` feature");
-        }
-
         self.upload_image_with(
             &mut resources.image_cache,
             device,
@@ -543,6 +539,7 @@ impl Renderer {
         )
     }
 
+    #[track_caller]
     pub(crate) fn upload_image_with<T: AtlasWriter>(
         &mut self,
         image_cache: &mut ImageCache,
@@ -552,6 +549,10 @@ impl Renderer {
         writer: &T,
         padding: u16,
     ) -> vello_common::paint::ImageId {
+        if !cfg!(feature = "extended_images") {
+            panic!("uploaded images require the `extended_images` feature");
+        }
+
         let width = writer.width();
         let height = writer.height();
         let image_id = image_cache.allocate(width, height, padding).unwrap();
