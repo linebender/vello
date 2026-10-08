@@ -1,8 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::peniko;
+use crate::fine::common::gradient::apply_extend;
 use core::slice::ChunksExact;
+use fearless_simd_macros::simd;
 use vello_common::encode::EncodedGradient;
 use vello_common::fearless_simd::*;
 
@@ -19,22 +20,18 @@ pub(crate) struct GradientPainter<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> GradientPainter<'a, S> {
+    #[simd]
     pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let lut = gradient.u8_lut(simd);
-                let scale_factor = f32x16::splat(simd, lut.scale_factor());
+        let lut = gradient.u8_lut(simd);
+        let scale_factor = f32x16::splat(simd, lut.scale_factor());
 
-                Self {
-                    gradient,
-                    scale_factor,
-                    lut: lut.lut(),
-                    t_vals: t_vals.chunks_exact(16),
-                    simd,
-                }
-            },
-        )
+        Self {
+            gradient,
+            scale_factor,
+            lut: lut.lut(),
+            t_vals: t_vals.chunks_exact(16),
+            simd,
+        }
     }
 }
 
@@ -71,19 +68,5 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
 
     fn paint_f32(self, _: &mut [f32]) {
         unimplemented!()
-    }
-}
-
-// TODO: Maybe delete this method and use `apply_extend` from highp by splitting into two f32x8.
-#[inline(always)]
-pub(crate) fn apply_extend<S: Simd>(val: f32x16<S>, extend: peniko::Extend) -> f32x16<S> {
-    match extend {
-        peniko::Extend::Pad => val.max(0.0).min(1.0),
-        peniko::Extend::Repeat => (val - val.floor()).fract(),
-        // See <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L6472-L6475>
-        peniko::Extend::Reflect => ((val - 1.0) - 2.0 * ((val - 1.0) * 0.5).floor() - 1.0)
-            .abs()
-            .max(0.0)
-            .min(1.0),
     }
 }

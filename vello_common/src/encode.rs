@@ -20,6 +20,7 @@ use bytemuck::Pod;
 use core::cell::OnceCell;
 use core::hash::{Hash, Hasher};
 use fearless_simd::{Simd, SimdBase, SimdFloat, SimdFrom, f32x4, f32x16, mask32x16};
+use fearless_simd_macros::simd;
 use peniko::color::cache_key::{BitEq, BitHash, CacheKey};
 use peniko::color::gradient_unpremultiplied;
 use peniko::{
@@ -1029,11 +1030,9 @@ pub struct GradientLut<T: GradientLutExt> {
 
 impl<T: GradientLutExt> GradientLut<T> {
     /// Create a new lookup table.
+    #[simd]
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || Self::new_inner(simd, ranges),
-        )
+        Self::new_inner(simd, ranges)
     }
 
     #[inline(always)]
