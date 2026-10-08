@@ -26,9 +26,7 @@ glifo = { workspace = true }
 skrifa = { workspace = true }
 vello_gpu = { workspace = true, default-features = false, features = [
     "text",
-    "blurred_rounded_rect",
-    "image_bicubic",
-    "gradient_sweep",
+    "all_shader_features",
 ] }
 vello_common = { workspace = true, features = ["pico_svg", "png"] }
 image = { workspace = true, features = ["jpeg"] }

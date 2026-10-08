@@ -22,9 +22,7 @@ vello_gpu = { workspace = true, features = [
     "text",
     "wgpu",
     "wgpu_default",
-    "blurred_rounded_rect",
-    "image_bicubic",
-    "gradient_sweep",
+    "all_shader_features",
 ] }
 vello_example_scenes = { workspace = true }
 wasm-bindgen = { workspace = true }

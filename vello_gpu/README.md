@@ -46,6 +46,8 @@ preprocessing and GPU rendering:
 - `wgpu_default` (enabled by default): Enables wgpu with its default hardware
   backends (such as Vulkan, Metal, and DX12).
 - `text` (enabled by default): Enables glyph rendering ([`Scene::glyph_run`]).
+- `all_shader_features` (enabled by default): Enables all optional shader
+  features.
 - `blurred_rounded_rect` (enabled by default): Enables rendering of blurred
   rounded rectangles.
 - `image_bicubic` (enabled by default): Enables rendering of images with
