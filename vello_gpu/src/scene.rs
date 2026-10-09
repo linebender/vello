@@ -112,15 +112,47 @@ impl Drawable for RecordedDraw {
 #[derive(Clone, Debug)]
 pub struct RenderSettings {
     /// The SIMD level that should be used for rendering operations.
-    pub level: Level,
+    pub(crate) level: Level,
     /// Configuration for GPU memory used while rendering.
-    pub memory_settings: MemorySettings,
-    /// Optional cache used when creating the wgpu render pipelines - can substantially
-    /// reduce startup times (especially on low tier devices).
-    ///
-    /// Requires [`wgpu::Features::PIPELINE_CACHE`] on the device.
+    pub(crate) memory_settings: MemorySettings,
+    /// Optional cache used when creating the wgpu render pipelines.
     #[cfg(feature = "wgpu")]
-    pub pipeline_cache: Option<wgpu::PipelineCache>,
+    pub(crate) pipeline_cache: Option<wgpu::PipelineCache>,
+}
+
+impl RenderSettings {
+    /// Sets the SIMD level used for rendering operations.
+    ///
+    /// By default, the level is detected at runtime, falling back to [`Level::baseline`].
+    #[must_use]
+    pub fn with_level(mut self, level: Level) -> Self {
+        self.level = level;
+        self
+    }
+
+    /// Returns the SIMD level used for rendering operations.
+    pub fn level(&self) -> Level {
+        self.level
+    }
+
+    /// Sets the configuration for GPU memory used while rendering.
+    #[must_use]
+    pub fn with_memory_settings(mut self, memory_settings: MemorySettings) -> Self {
+        self.memory_settings = memory_settings;
+        self
+    }
+
+    /// Sets the cache used when creating the wgpu render pipelines.
+    ///
+    /// A cache can substantially reduce startup times, especially on low-tier devices.
+    /// Requires [`wgpu::Features::PIPELINE_CACHE`] on the device.
+    /// By default, no cache is used.
+    #[cfg(feature = "wgpu")]
+    #[must_use]
+    pub fn with_pipeline_cache(mut self, pipeline_cache: wgpu::PipelineCache) -> Self {
+        self.pipeline_cache = Some(pipeline_cache);
+        self
+    }
 }
 
 /// Settings controlling usage of GPU memory.
