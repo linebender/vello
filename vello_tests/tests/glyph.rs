@@ -948,8 +948,6 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
         .unwrap();
 }
 
-// Note that there are still four cases (which can be reduced to 2 underlying issues)
-// that don't yet render the same as in CoreText.
 #[vello_test(width = 288, height = 240, skip_gpu, glyph)]
 fn glyphs_bitmap_sbix_glyf(ctx: &mut impl Renderer, enable_caching: bool) {
     draw_sbix_grid(
@@ -959,8 +957,6 @@ fn glyphs_bitmap_sbix_glyf(ctx: &mut impl Renderer, enable_caching: bool) {
     );
 }
 
-// Couple of glyphs are misplaced, due to the same bug affecting two glyphs
-// in the `glyf` test.
 #[vello_test(width = 288, height = 240, skip_gpu, glyph)]
 fn glyphs_bitmap_sbix_cff(ctx: &mut impl Renderer, enable_caching: bool) {
     draw_sbix_grid(
