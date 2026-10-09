@@ -30,4 +30,6 @@ pub use webgl::{
     probe::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus},
 };
 #[cfg(feature = "wgpu")]
-pub use wgpu::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
+pub use wgpu::{AtlasWriter, ExternalTextureView, RenderTargetConfig, Renderer, TextureBindings};
+#[cfg(all(feature = "wgpu", feature = "external_texture_ycbcr"))]
+pub use wgpu::{YCbCrInfo, YCbCrMatrix, YCbCrRange};

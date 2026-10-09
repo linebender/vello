@@ -9,8 +9,16 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+#[cfg(feature = "external_texture_ycbcr")]
+mod ycbcr;
+
+#[cfg(feature = "external_texture_ycbcr")]
+pub use ycbcr::{YCbCrInfo, YCbCrMatrix, YCbCrRange};
+
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
+#[cfg(feature = "external_texture_ycbcr")]
+use crate::render::common::SOURCE_KIND_EXTERNAL_YCBCR_NV12;
 use crate::util::RangedSlice;
 use crate::{
     ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
@@ -25,8 +33,9 @@ use crate::{
         common::{
             DeviceLimits, GpuBlurredRoundedRect, GpuClearInstance, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            ScratchBuffers, ScratchTexture, pack_image_offset, pack_image_params, pack_image_size,
-            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
+            SOURCE_KIND_ATLAS, SOURCE_KIND_EXTERNAL_RGBA, ScratchBuffers, ScratchTexture,
+            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
+            pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -84,10 +93,43 @@ pub struct RenderTargetConfig {
     pub height: u16,
 }
 
+/// A single runtime binding for a [`TextureId`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum ExternalTextureView {
+    /// Premultiplied RGBA in the destination color space.
+    Rgba(TextureView),
+    /// A two-plane NV12 YCbCr texture; see [`TextureBindings::insert_ycbcr_nv12`].
+    #[cfg(feature = "external_texture_ycbcr")]
+    YCbCrNv12 {
+        /// Full-resolution luma plane.
+        y: TextureView,
+        /// Half-resolution interleaved chroma plane.
+        uv: TextureView,
+        /// Color-space metadata for the YCbCr → RGB conversion.
+        color_space: YCbCrInfo,
+    },
+}
+
+impl ExternalTextureView {
+    fn has_feedback_loop(&self, render_target: &Texture) -> bool {
+        match self {
+            Self::Rgba(view) => view.texture() == render_target,
+            #[cfg(feature = "external_texture_ycbcr")]
+            Self::YCbCrNv12 { y, uv, .. } => {
+                y.texture() == render_target || uv.texture() == render_target
+            }
+        }
+    }
+}
+
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
+///
+/// The binding determines how an image paint samples its texture, so the same
+/// [`ImageSource::ExternalTexture`] paint can be backed by any kind of binding.
 #[derive(Debug, Default, Clone)]
 pub struct TextureBindings {
-    views: HashMap<TextureId, TextureView>,
+    views: HashMap<TextureId, ExternalTextureView>,
 }
 
 impl TextureBindings {
@@ -97,7 +139,7 @@ impl TextureBindings {
         Self::default()
     }
 
-    /// Insert or replace a texture binding.
+    /// Insert or replace a single-plane RGBA texture binding.
     ///
     /// The [`TextureView`] must fit the following binding type.
     ///
@@ -119,20 +161,43 @@ impl TextureBindings {
     /// [`wgpu::TextureUsages::TEXTURE_BINDING`], and only mip level 0 is read.
     #[inline]
     pub fn insert(&mut self, texture_id: TextureId, view: TextureView) {
-        self.views.insert(texture_id, view);
+        self.views
+            .insert(texture_id, ExternalTextureView::Rgba(view));
+    }
+
+    /// Insert or replace a two-plane NV12 YCbCr texture binding: a full-resolution `R8` luma
+    /// plane and a half-resolution `Rg8` interleaved chroma plane.
+    ///
+    /// Source regions of image paints sampling this texture are in luma-plane texels. Each plane
+    /// view has the same binding requirements as the view passed to [`Self::insert`].
+    #[cfg(feature = "external_texture_ycbcr")]
+    #[inline]
+    pub fn insert_ycbcr_nv12(
+        &mut self,
+        texture_id: TextureId,
+        y_plane: TextureView,
+        uv_plane: TextureView,
+        color_space: YCbCrInfo,
+    ) {
+        self.views.insert(
+            texture_id,
+            ExternalTextureView::YCbCrNv12 {
+                y: y_plane,
+                uv: uv_plane,
+                color_space,
+            },
+        );
     }
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&TextureView> {
+    fn get(&self, texture_id: TextureId) -> Option<&ExternalTextureView> {
         self.views.get(&texture_id)
     }
 
     /// Remove a texture binding.
-    ///
-    /// This returns the removed [`TextureView`] binding if it existed.
     #[inline]
-    pub fn remove(&mut self, texture_id: TextureId) -> Option<TextureView> {
+    pub fn remove(&mut self, texture_id: TextureId) -> Option<ExternalTextureView> {
         self.views.remove(&texture_id)
     }
 }
@@ -692,11 +757,10 @@ impl Renderer {
                         let texture_view = texture_bindings
                             .get(*id)
                             .ok_or(RenderError::MissingTextureBinding(*id))?;
-
-                        if texture_view.texture() == render_target_texture {
+                        if texture_view.has_feedback_loop(render_target_texture) {
                             return Err(RenderError::TextureFeedbackLoop(*id));
                         }
-                        self.encode_external_texture_paint(img, *source_region)
+                        Self::encode_external_texture_paint(img, *source_region, texture_view)
                     }
                     ImageSource::Pixmap(_) => {
                         panic!("pixmap image sources are not supported by Vello GPU")
@@ -731,6 +795,9 @@ impl Renderer {
             image.sampler.quality as u32,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
+            SOURCE_KIND_ATLAS,
+            0,
+            0,
         );
         let (tint, tint_mode) = pack_tint(image.tint);
 
@@ -746,17 +813,29 @@ impl Renderer {
     }
 
     fn encode_external_texture_paint(
-        &self,
         image: &vello_common::encode::EncodedImage,
         region: RectU16,
+        texture_view: &ExternalTextureView,
     ) -> GpuEncodedPaint {
         let transform = image.transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(region.width(), region.height());
         let image_offset = pack_image_offset(region.x0, region.y0);
+        let (source_kind, ycbcr_matrix, ycbcr_range) = match texture_view {
+            ExternalTextureView::Rgba(_) => (SOURCE_KIND_EXTERNAL_RGBA, 0, 0),
+            #[cfg(feature = "external_texture_ycbcr")]
+            ExternalTextureView::YCbCrNv12 { color_space, .. } => (
+                SOURCE_KIND_EXTERNAL_YCBCR_NV12,
+                color_space.matrix as u32,
+                color_space.range as u32,
+            ),
+        };
         let image_params = pack_image_params(
             image.sampler.quality as u32,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
+            source_kind,
+            ycbcr_matrix,
+            ycbcr_range,
         );
         let (tint, tint_mode) = pack_tint(image.tint);
 
@@ -1007,8 +1086,10 @@ struct GpuResources {
     atlas_texture_views: Vec<TextureView>,
     /// Configured atlas dimensions.
     atlas_size: (u16, u16),
-    /// Transparent 1x1 placeholder used for unoccupied external texture slots.
+    /// Transparent 1x1 placeholder used for unoccupied primary texture slots.
     placeholder_external_texture_view: TextureView,
+    /// 1x1 placeholder used for unoccupied NV12 Cb/Cr plane slots.
+    placeholder_external_uv_texture_view: TextureView,
     /// Bind group used when a draw does not sample an external texture.
     empty_external_texture_bind_group: BindGroup,
     /// Texture for encoded paints
@@ -1140,7 +1221,10 @@ impl Programs {
             },
             count: None,
         };
-        let external_texture_layout_entries = [external_texture_layout_entry(0)];
+        let external_texture_layout_entries = [
+            external_texture_layout_entry(0),
+            external_texture_layout_entry(1),
+        ];
         let external_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("External Texture Bind Group Layout"),
@@ -1619,6 +1703,8 @@ impl Programs {
         let layer_textures: [Vec<TextureView>; 2] = core::array::from_fn(|_| Vec::new());
         let scratch_texture = None;
         let placeholder_external_texture_view = Self::create_placeholder_external_texture(device);
+        let placeholder_external_uv_texture_view =
+            Self::create_placeholder_external_uv_texture(device);
         let filter_original_bind_group = create_filter_original_texture_bind_group(
             device,
             &filter_input_bind_group_layouts[1],
@@ -1661,6 +1747,7 @@ impl Programs {
             device,
             &external_texture_bind_group_layout,
             [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
+            [&placeholder_external_uv_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
         );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
@@ -1727,6 +1814,7 @@ impl Programs {
             atlas_texture_views,
             atlas_size,
             placeholder_external_texture_view,
+            placeholder_external_uv_texture_view,
             empty_external_texture_bind_group,
             encoded_paints_texture,
             encoded_paints_bind_group,
@@ -2007,6 +2095,9 @@ impl Programs {
         })
     }
 
+    /// 1×1 placeholder bound to the primary external-texture slot when no real
+    /// external texture is in use. `Rgba8Unorm` so it is float-sampleable, which
+    /// the bind-group layout requires.
     fn create_placeholder_external_texture(device: &Device) -> TextureView {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Placeholder External Texture"),
@@ -2025,15 +2116,41 @@ impl Programs {
         texture.create_view(&TextureViewDescriptor::default())
     }
 
+    /// 1×1 placeholder bound to NV12 Cb/Cr slots for non-NV12 images.
+    fn create_placeholder_external_uv_texture(device: &Device) -> TextureView {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Placeholder External UV Texture"),
+            size: Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        texture.create_view(&TextureViewDescriptor::default())
+    }
+
     fn create_external_texture_bind_group(
         device: &Device,
         external_texture_bind_group_layout: &BindGroupLayout,
         texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        uv_texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
-        let entries = [wgpu::BindGroupEntry {
-            binding: 0,
-            resource: wgpu::BindingResource::TextureView(texture_views[0]),
-        }];
+        let entries = [
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(texture_views[0]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(uv_texture_views[0]),
+            },
+        ];
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("External Texture Bind Group"),
             layout: external_texture_bind_group_layout,
@@ -2364,11 +2481,13 @@ impl Programs {
         &self,
         device: &Device,
         texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        uv_texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
         Self::create_external_texture_bind_group(
             device,
             &self.external_texture_bind_group_layout,
             texture_views,
+            uv_texture_views,
         )
     }
 
@@ -2643,24 +2762,36 @@ impl RendererContext<'_> {
     ) -> &BindGroup {
         let atlas_texture_views = &self.programs.resources.atlas_texture_views;
         let placeholder = &self.programs.resources.placeholder_external_texture_view;
+        let uv_placeholder = &self.programs.resources.placeholder_external_uv_texture_view;
         let texture_bindings = self.texture_bindings;
         match self.external_texture_bind_groups.entry(bindings) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 let texture_sources = bindings.as_array();
-                let texture_views = core::array::from_fn(|slot| match texture_sources[slot] {
-                    Some(TextureSourceId::Atlas(atlas_id)) => {
-                        atlas_texture_views[atlas_id.as_u32() as usize].clone()
-                    }
-                    Some(TextureSourceId::External(texture_id)) => texture_bindings
-                        .get(texture_id)
-                        .expect("external texture binding was validated during paint preparation")
-                        .clone(),
-                    None => placeholder.clone(),
-                });
-                let bind_group = self
-                    .programs
-                    .create_run_external_texture_bind_group(self.device, texture_views.each_ref());
+                let slot_views: [(&TextureView, &TextureView); EXTERNAL_TEXTURE_SLOT_COUNT] =
+                    core::array::from_fn(|slot| match texture_sources[slot] {
+                        Some(TextureSourceId::Atlas(atlas_id)) => (
+                            &atlas_texture_views[atlas_id.as_u32() as usize],
+                            uv_placeholder,
+                        ),
+                        Some(TextureSourceId::External(texture_id)) => {
+                            match texture_bindings.get(texture_id).expect(
+                                "external texture binding was validated during paint preparation",
+                            ) {
+                                ExternalTextureView::Rgba(view) => (view, uv_placeholder),
+                                #[cfg(feature = "external_texture_ycbcr")]
+                                ExternalTextureView::YCbCrNv12 { y, uv, .. } => (y, uv),
+                            }
+                        }
+                        None => (placeholder, uv_placeholder),
+                    });
+                let texture_views = slot_views.map(|(view, _)| view);
+                let uv_texture_views = slot_views.map(|(_, uv_view)| uv_view);
+                let bind_group = self.programs.create_run_external_texture_bind_group(
+                    self.device,
+                    texture_views,
+                    uv_texture_views,
+                );
                 entry.insert(bind_group)
             }
         }

@@ -13,11 +13,15 @@
 //! reflection metadata. Global names are recorded before default-mode renaming so that this
 //! metadata continues to expose the resource names authored in WESL.
 //!
+//! GLSL is produced from a separate link in which `WGSL_ONLY_FEATURES` are disabled, so shader
+//! paths that WebGL cannot support never reach it, regardless of which crate features are enabled.
+//!
 //! ```text
 //!                                      |-> [default] renamed/minified WGSL -|
 //! shaders/*.wesl -> linked WGSL -------|                                    |-> WGSL constants
 //!                                      |-> [unminified] linked WGSL --------|
-//!                                                                           |-> [glsl] GLSL
+//!                                                                           |
+//! shaders/*.wesl -> linked WGSL without WGSL-only features -> (same steps) -|-> [glsl] GLSL
 //!                                                                           |   + reflection
 //!                                                                           |
 //!                                  OUT_DIR/compiled_shaders.rs <------------|
@@ -27,7 +31,28 @@ use std::env;
 use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
-use wesl::Wesl;
+use wesl::{StandardResolver, Wesl};
+
+/// WESL features and whether the corresponding crate feature is enabled.
+const SHADER_FEATURES: &[(&str, bool)] = &[
+    (
+        "blurred_rounded_rect",
+        cfg!(feature = "blurred_rounded_rect"),
+    ),
+    ("image_bicubic", cfg!(feature = "image_bicubic")),
+    ("gradient_sweep", cfg!(feature = "gradient_sweep")),
+    (
+        "external_texture_ycbcr",
+        cfg!(feature = "external_texture_ycbcr"),
+    ),
+];
+
+/// Features with no WebGL implementation, always disabled when generating GLSL.
+///
+/// `external_texture_ycbcr` needs a second plane sampler that the WebGL backend never binds; an
+/// unbound sampler defaults to texture unit 0 and conflicts with the integer alphas sampler.
+#[cfg(feature = "glsl")]
+const WGSL_ONLY_FEATURES: &[&str] = &["external_texture_ycbcr"];
 
 #[allow(warnings)]
 #[cfg(feature = "glsl")]
@@ -46,7 +71,14 @@ mod types;
 
 struct ShaderInfo {
     name: String,
-    wgsl_source: String,
+    wgsl: LinkedWgsl,
+    /// Linked without `WGSL_ONLY_FEATURES`; the input for GLSL generation.
+    #[cfg(feature = "glsl")]
+    webgl_wgsl: LinkedWgsl,
+}
+
+struct LinkedWgsl {
+    source: String,
     #[cfg(feature = "glsl")]
     original_global_names: std::collections::BTreeMap<String, String>,
 }
@@ -69,20 +101,28 @@ fn main() {
 
 fn load_shader_infos(shader_dir: &Path) -> Vec<ShaderInfo> {
     let shader_names = load_shader_names(shader_dir);
-    let mut compiler = Wesl::new(shader_dir);
-
-    compiler.use_stripping(true);
-    compiler.set_feature(
-        "blurred_rounded_rect",
-        cfg!(feature = "blurred_rounded_rect"),
-    );
-    compiler.set_feature("image_bicubic", cfg!(feature = "image_bicubic"));
-    compiler.set_feature("gradient_sweep", cfg!(feature = "gradient_sweep"));
+    let wgsl_compiler = shader_compiler(shader_dir, &[]);
+    #[cfg(feature = "glsl")]
+    let webgl_compiler = shader_compiler(shader_dir, WGSL_ONLY_FEATURES);
 
     shader_names
         .into_iter()
-        .map(|name| compile_shader(&compiler, name))
+        .map(|name| ShaderInfo {
+            wgsl: link_shader(&wgsl_compiler, &name),
+            #[cfg(feature = "glsl")]
+            webgl_wgsl: link_shader(&webgl_compiler, &name),
+            name,
+        })
         .collect()
+}
+
+fn shader_compiler(shader_dir: &Path, disabled_features: &[&str]) -> Wesl<StandardResolver> {
+    let mut compiler = Wesl::new(shader_dir);
+    compiler.use_stripping(true);
+    for &(feature, enabled) in SHADER_FEATURES {
+        compiler.set_feature(feature, enabled && !disabled_features.contains(&feature));
+    }
+    compiler
 }
 
 fn load_shader_names(shader_dir: &Path) -> Vec<String> {
@@ -101,7 +141,7 @@ fn load_shader_names(shader_dir: &Path) -> Vec<String> {
     shader_names
 }
 
-fn compile_shader<R: wesl::Resolver>(compiler: &Wesl<R>, name: String) -> ShaderInfo {
+fn link_shader<R: wesl::Resolver>(compiler: &Wesl<R>, name: &str) -> LinkedWgsl {
     let module_path = format!("package::{name}")
         .parse()
         .expect("generated WESL module path should be valid");
@@ -111,20 +151,19 @@ fn compile_shader<R: wesl::Resolver>(compiler: &Wesl<R>, name: String) -> Shader
         .to_string();
 
     #[cfg(feature = "unminified")]
-    let wgsl_source = linked_wgsl;
+    let source = linked_wgsl;
     #[cfg(all(feature = "unminified", feature = "glsl"))]
     let original_global_names = std::collections::BTreeMap::new();
 
     #[cfg(not(feature = "unminified"))]
     let minified = minify::minify_wgsl(&linked_wgsl);
     #[cfg(not(feature = "unminified"))]
-    let wgsl_source = minified.source;
+    let source = minified.source;
     #[cfg(all(not(feature = "unminified"), feature = "glsl"))]
     let original_global_names = minified.original_global_names;
 
-    ShaderInfo {
-        name,
-        wgsl_source,
+    LinkedWgsl {
+        source,
         #[cfg(feature = "glsl")]
         original_global_names,
     }
@@ -169,15 +208,34 @@ fn generate_compiled_shaders_module(shader_infos: &[ShaderInfo]) -> String {
 
         for shader_info in shader_infos {
             let shader = compile::compile_wgsl_shader(
-                &shader_info.wgsl_source,
+                &shader_info.webgl_wgsl.source,
                 &shader_info.name,
                 "vs_main",
                 "fs_main",
-                &shader_info.original_global_names,
+                &shader_info.webgl_wgsl.original_global_names,
             );
             let generated_code = shader.to_generated_code(&shader_info.name);
             writeln!(buf, "{generated_code}").unwrap();
         }
+
+        writeln!(buf, "/// Generated GLSL shader sources.").unwrap();
+        writeln!(buf, "pub mod glsl {{").unwrap();
+        writeln!(
+            buf,
+            "    /// All GLSL shader sources as `(name, vertex, fragment)`, keyed by WESL root module name."
+        )
+        .unwrap();
+        writeln!(buf, "    pub const ALL: &[(&str, &str, &str)] = &[").unwrap();
+        for shader_info in shader_infos {
+            let name = &shader_info.name;
+            writeln!(
+                buf,
+                "        (\"{name}\", super::{name}::VERTEX_SOURCE, super::{name}::FRAGMENT_SOURCE),"
+            )
+            .unwrap();
+        }
+        writeln!(buf, "    ];").unwrap();
+        writeln!(buf, "}}").unwrap();
     }
 
     buf
@@ -193,7 +251,7 @@ fn generate_wgsl_shader_module(buf: &mut String, shader_info: &ShaderInfo) -> st
     writeln!(
         buf,
         "    pub const {const_name}: &str = r###\"{}\"###;",
-        shader_info.wgsl_source
+        shader_info.wgsl.source
     )?;
 
     Ok(())

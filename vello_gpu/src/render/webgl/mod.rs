@@ -49,8 +49,9 @@ use crate::{
         Config,
         common::{
             DeviceLimits, GpuBlurredRoundedRect, GpuEncodedImage, GpuEncodedPaint,
-            GpuLinearGradient, GpuRadialGradient, GpuSweepGradient, ScratchBuffers, ScratchTexture,
-            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
+            GpuLinearGradient, GpuRadialGradient, GpuSweepGradient, SOURCE_KIND_ATLAS,
+            SOURCE_KIND_EXTERNAL_RGBA, ScratchBuffers, ScratchTexture, pack_image_offset,
+            pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
             pack_texture_width_and_extend_mode, pack_tint,
         },
     },
@@ -967,6 +968,9 @@ impl WebGlRenderer {
             image.sampler.quality as u32,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
+            SOURCE_KIND_ATLAS,
+            0,
+            0,
         );
         let (tint, tint_mode) = pack_tint(image.tint);
 
@@ -992,6 +996,9 @@ impl WebGlRenderer {
             image.sampler.quality as u32,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
+            SOURCE_KIND_EXTERNAL_RGBA,
+            0,
+            0,
         );
         let (tint, tint_mode) = pack_tint(image.tint);
 
