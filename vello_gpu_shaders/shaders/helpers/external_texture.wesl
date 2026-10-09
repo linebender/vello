@@ -11,11 +11,23 @@ import package::helpers::image::{
     get_image_extend_modes,
     get_image_offset,
     get_image_quality,
-    get_image_size,
+    get_image_size
+};
+@if(external_texture_ycbcr)
+import package::helpers::image::{
+    get_image_source_kind,
+    get_image_ycbcr_matrix,
+    get_image_ycbcr_range
 };
 @if(image_bicubic)
 import package::helpers::image::cubic_weights;
 import package::helpers::paint::{PAINT_TEXTURE_INDEX_MASK, load_encoded_paint_texel};
+@if(external_texture_ycbcr)
+import package::helpers::ycbcr::sample_external_ycbcr_nv12;
+
+// Encoded image source kinds. Must match `vello_gpu/src/render/common.rs`.
+@if(external_texture_ycbcr)
+const IMAGE_SOURCE_EXTERNAL_YCBCR_NV12: u32 = 2u;
 
 fn sample_image_paint(
     encoded_paints_texture: texture_2d<u32>,
@@ -25,41 +37,92 @@ fn sample_image_paint(
     sample_xy: vec2<f32>,
 ) -> vec4<f32> {
     let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-    let image_texel0 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
-    );
-    let image_texel2 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 2u,
-    );
-    let image_offset = get_image_offset(image_texel0);
-    let image_size = get_image_size(image_texel0);
-    let image_extend_modes = get_image_extend_modes(image_texel0);
-    let image_quality = get_image_quality(image_texel0);
-    let packed_tint = image_texel2.y;
-    let image_tint = unpack4x8unorm(packed_tint);
-    let is_multiply = image_texel2.z == TINT_MODE_MULTIPLY;
-    let extended_xy = vec2<f32>(
-        extend_mode(sample_xy.x, image_extend_modes.x, image_size.x),
-        extend_mode(sample_xy.y, image_extend_modes.y, image_size.y)
-    );
+    let texel0 = load_encoded_paint_texel(
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            0u,
+        );
+    let texel2 = load_encoded_paint_texel(
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            2u,
+        );
+    let color = sample_external_image(
+            external_texture,
+            get_image_quality(texel0),
+            get_image_sample_coords(texel0, sample_xy),
+            get_image_offset(texel0),
+            get_image_size(texel0),
+        );
+    return apply_image_tint(color, texel2);
+}
+
+// Like `sample_image_paint`, but also handles NV12 sources, whose Cb/Cr plane is bound to
+// `external_texture_uv`.
+@if(external_texture_ycbcr)
+fn sample_image_paint_with_ycbcr(
+    encoded_paints_texture: texture_2d<u32>,
+    tex_width_bits: u32,
+    external_texture: texture_2d<f32>,
+    external_texture_uv: texture_2d<f32>,
+    paint_and_rect_flag: u32,
+    sample_xy: vec2<f32>,
+) -> vec4<f32> {
+    let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+    let texel0 = load_encoded_paint_texel(
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            0u,
+        );
+    let texel2 = load_encoded_paint_texel(
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            2u,
+        );
+    let quality = get_image_quality(texel0);
+    let coords = get_image_sample_coords(texel0, sample_xy);
+    let offset = get_image_offset(texel0);
+    let size = get_image_size(texel0);
+    var color: vec4<f32>;
+    if get_image_source_kind(texel0) == IMAGE_SOURCE_EXTERNAL_YCBCR_NV12 {
+        color = sample_external_ycbcr_nv12(
+                external_texture,
+                external_texture_uv,
+                quality,
+                get_image_ycbcr_matrix(texel0),
+                get_image_ycbcr_range(texel0),
+                coords,
+                offset,
+                size,
+            );
+    } else {
+        color = sample_external_image(external_texture, quality, coords, offset, size);
+    }
+    return apply_image_tint(color, texel2);
+}
+
+// Sample position in texture space, after applying the image's extend modes.
+fn get_image_sample_coords(texel0: vec4<u32>, sample_xy: vec2<f32>) -> vec2<f32> {
+    let offset = get_image_offset(texel0);
+    let size = get_image_size(texel0);
+    let extend_modes = get_image_extend_modes(texel0);
 
     // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
     // using GPU-native bilinear sampling
 
-    let final_xy = image_offset + extended_xy;
-    let sample_color = sample_external_image(
-        external_texture,
-        image_quality,
-        final_xy,
-        image_offset,
-        image_size,
-    );
+    return offset + vec2<f32>(
+            extend_mode(sample_xy.x, extend_modes.x, size.x),
+            extend_mode(sample_xy.y, extend_modes.y, size.y),
+        );
+}
 
-    return select(
-        image_tint * sample_color.a,
-        sample_color * image_tint,
-        is_multiply
-    );
+fn apply_image_tint(color: vec4<f32>, texel2: vec4<u32>) -> vec4<f32> {
+    let tint = unpack4x8unorm(texel2.y);
+    return select(tint * color.a, color * tint, texel2.z == TINT_MODE_MULTIPLY);
 }
 
 // This is the same as `helpers::image::bilinear_sample`, but for a 2D texture
@@ -95,25 +158,89 @@ fn external_bicubic_sample(
     let cx = cubic_weights(frac_coords.x);
     let cy = cubic_weights(frac_coords.y);
 
-    let s00 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, -1.5), image_offset, image_max)), 0);
-    let s10 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, -1.5), image_offset, image_max)), 0);
-    let s20 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, -1.5), image_offset, image_max)), 0);
-    let s30 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, -1.5), image_offset, image_max)), 0);
+    let s00 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(-1.5, -1.5), image_offset, image_max)),
+            0,
+        );
+    let s10 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(-0.5, -1.5), image_offset, image_max)),
+            0,
+        );
+    let s20 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(0.5, -1.5), image_offset, image_max)),
+            0,
+        );
+    let s30 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(1.5, -1.5), image_offset, image_max)),
+            0,
+        );
 
-    let s01 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, -0.5), image_offset, image_max)), 0);
-    let s11 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, -0.5), image_offset, image_max)), 0);
-    let s21 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, -0.5), image_offset, image_max)), 0);
-    let s31 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, -0.5), image_offset, image_max)), 0);
+    let s01 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(-1.5, -0.5), image_offset, image_max)),
+            0,
+        );
+    let s11 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(-0.5, -0.5), image_offset, image_max)),
+            0,
+        );
+    let s21 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(0.5, -0.5), image_offset, image_max)),
+            0,
+        );
+    let s31 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(1.5, -0.5), image_offset, image_max)),
+            0,
+        );
 
-    let s02 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, 0.5), image_offset, image_max)), 0);
-    let s12 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, 0.5), image_offset, image_max)), 0);
-    let s22 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, 0.5), image_offset, image_max)), 0);
-    let s32 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, 0.5), image_offset, image_max)), 0);
+    let s02 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(-1.5, 0.5), image_offset, image_max)),
+            0,
+        );
+    let s12 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(-0.5, 0.5), image_offset, image_max)),
+            0,
+        );
+    let s22 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(0.5, 0.5), image_offset, image_max)),
+            0,
+        );
+    let s32 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(1.5, 0.5), image_offset, image_max)),
+            0,
+        );
 
-    let s03 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, 1.5), image_offset, image_max)), 0);
-    let s13 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, 1.5), image_offset, image_max)), 0);
-    let s23 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, 1.5), image_offset, image_max)), 0);
-    let s33 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, 1.5), image_offset, image_max)), 0);
+    let s03 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(-1.5, 1.5), image_offset, image_max)),
+            0,
+        );
+    let s13 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(-0.5, 1.5), image_offset, image_max)),
+            0,
+        );
+    let s23 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(0.5, 1.5), image_offset, image_max)),
+            0,
+        );
+    let s33 = textureLoad(
+            external_texture,
+            vec2<i32>(clamp(coords + vec2(1.5, 1.5), image_offset, image_max)),
+            0,
+        );
 
     let row0 = cx.x * s00 + cx.y * s10 + cx.z * s20 + cx.w * s30;
     let row1 = cx.x * s01 + cx.y * s11 + cx.z * s21 + cx.w * s31;
@@ -139,11 +266,11 @@ fn sample_external_image(
     }
     if quality == IMAGE_QUALITY_MEDIUM {
         return external_bilinear_sample(
-            external_texture,
-            coords - vec2(0.5),
-            image_offset,
-            image_size,
-        );
+                external_texture,
+                coords - vec2(0.5),
+                image_offset,
+                image_size,
+            );
     }
     return textureLoad(external_texture, vec2<u32>(coords), 0);
 }

@@ -53,6 +53,9 @@ preprocessing and GPU rendering:
 - `image_bicubic` (enabled by default): Enables rendering of images with
   `ImageQuality::High`
 - `gradient_sweep` (enabled by default): Enables rendering of sweep gradients
+- `external_texture_ycbcr` (enabled by default): Enables rendering of NV12
+  YCbCr external textures bound with `TextureBindings::insert_ycbcr_nv12`.
+  Only the wgpu backend supports YCbCr textures.
 - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL
   shaders for compatibility.
 

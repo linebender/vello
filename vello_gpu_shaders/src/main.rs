@@ -4,15 +4,6 @@
 //! Generate local WebGL GLSL outputs and the embedded shader module.
 
 #[cfg(feature = "glsl")]
-mod compile;
-#[cfg(feature = "glsl")]
-mod lint;
-#[cfg(feature = "glsl")]
-mod minify;
-#[cfg(feature = "glsl")]
-mod types;
-
-#[cfg(feature = "glsl")]
 fn main() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let output_dir = manifest_dir.join("generated_glsl");
@@ -23,22 +14,11 @@ fn main() {
     )
     .unwrap();
 
-    for &(name, wgsl_source) in vello_gpu_shaders::wgsl::ALL {
-        let shader = compile::compile_wgsl_shader(
-            wgsl_source,
-            name,
-            "vs_main",
-            "fs_main",
-            &std::collections::BTreeMap::default(),
-        );
-        std::fs::write(
-            output_dir.join(format!("{name}.vert.glsl")),
-            shader.vertex.source,
-        )
-        .unwrap();
+    for &(name, vertex_source, fragment_source) in vello_gpu_shaders::glsl::ALL {
+        std::fs::write(output_dir.join(format!("{name}.vert.glsl")), vertex_source).unwrap();
         std::fs::write(
             output_dir.join(format!("{name}.frag.glsl")),
-            shader.fragment.source,
+            fragment_source,
         )
         .unwrap();
     }

@@ -50,10 +50,16 @@ roxmltree = "0.20.0"
 [features]
 default = ["wgpu", "wgpu_default", "text", "all_shader_features"]
 # Enable all optional shader features.
-all_shader_features = ["blurred_rounded_rect", "image_bicubic", "gradient_sweep"]
+all_shader_features = [
+    "blurred_rounded_rect",
+    "image_bicubic",
+    "gradient_sweep",
+    "external_texture_ycbcr",
+]
 blurred_rounded_rect = ["vello_gpu_shaders?/blurred_rounded_rect"]
 image_bicubic = ["vello_gpu_shaders?/image_bicubic"]
 gradient_sweep = ["vello_gpu_shaders?/gradient_sweep"]
+external_texture_ycbcr = ["vello_gpu_shaders?/external_texture_ycbcr"]
 std = ["vello_common/std", "glifo?/std"]
 libm = ["vello_common/libm", "glifo?/libm"]
 wgpu = ["dep:wgpu", "dep:vello_gpu_shaders"]

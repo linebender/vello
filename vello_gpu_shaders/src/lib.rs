@@ -22,8 +22,13 @@ mod feature_tests {
 
     #[test]
     fn shader_feature_combinations_compile() {
-        let features = ["blurred_rounded_rect", "image_bicubic", "gradient_sweep"];
-        for mask in [0b000, 0b001, 0b010, 0b100, 0b111] {
+        let features = [
+            "blurred_rounded_rect",
+            "image_bicubic",
+            "gradient_sweep",
+            "external_texture_ycbcr",
+        ];
+        for mask in [0b0000, 0b0001, 0b0010, 0b0100, 0b1000, 0b1111] {
             let mut compiler = Wesl::new("shaders");
             compiler.use_stripping(true);
             for (bit, feature) in features.iter().enumerate() {
@@ -51,6 +56,8 @@ mod feature_tests {
 
 #[cfg(all(test, feature = "glsl"))]
 mod tests {
+    use std::collections::BTreeSet;
+
     use naga::front::wgsl;
 
     use crate::lint::lint;
@@ -65,5 +72,38 @@ mod tests {
             let module = wgsl::parse_str(source).expect("linked WGSL parses");
             lint(name, &module);
         }
+    }
+
+    // The WebGL backend assigns a texture unit to each of these samplers and no others. Any extra
+    // sampler would default to unit 0 and clash with the integer alphas sampler bound there.
+    #[test]
+    fn render_glsl_declares_only_samplers_bound_by_webgl() {
+        use crate::render::{FRAGMENT_SOURCE, VERTEX_SOURCE, fragment, vertex};
+
+        assert_eq!(
+            sampler_uniforms(VERTEX_SOURCE),
+            BTreeSet::from([vertex::ENCODED_PAINTS_TEXTURE])
+        );
+        assert_eq!(
+            sampler_uniforms(FRAGMENT_SOURCE),
+            BTreeSet::from([
+                fragment::ALPHAS_TEXTURE,
+                fragment::LAYER_INPUT_TEXTURE,
+                fragment::ENCODED_PAINTS_TEXTURE,
+                fragment::GRADIENT_TEXTURE,
+                fragment::EXTERNAL_TEXTURE_0,
+            ])
+        );
+    }
+
+    fn sampler_uniforms(glsl: &str) -> BTreeSet<&str> {
+        glsl.split(';')
+            .filter_map(|statement| {
+                let tokens = statement.split_whitespace().collect::<Vec<_>>();
+                let is_sampler = tokens.first() == Some(&"uniform")
+                    && tokens.iter().any(|token| token.contains("sampler"));
+                is_sampler.then(|| *tokens.last().unwrap())
+            })
+            .collect()
     }
 }

@@ -677,16 +677,55 @@ pub(crate) fn pack_image_offset(x: u16, y: u16) -> u32 {
     ((x as u32) << 16) | (y as u32)
 }
 
-/// Pack image `quality` and extend modes into a single u32.
+// Constants for packing source_kind / ycbcr metadata into the upper bits of
+// `image_params`. Kept in sync with the equivalent constants in
+// `vello_gpu_shaders/shaders/helpers/{image,external_texture}.wesl`.
+
+/// `source_kind` field: bits 14-15 of `image_params`. 2 bits, 3 values used today.
+pub(crate) const SOURCE_KIND_SHIFT: u32 = 14;
+/// `ycbcr_matrix` field: bits 16-17 of `image_params`. Only meaningful when the
+/// `source_kind` is `ExternalYCbCrNv12`.
+pub(crate) const YCBCR_MATRIX_SHIFT: u32 = 16;
+/// `ycbcr_range` field: bit 18 of `image_params`. Only meaningful when the
+/// `source_kind` is `ExternalYCbCrNv12`.
+pub(crate) const YCBCR_RANGE_SHIFT: u32 = 18;
+
+/// Source-kind = stored / atlased image.
+pub(crate) const SOURCE_KIND_ATLAS: u32 = 0;
+/// Source-kind = single-plane RGBA external texture.
+pub(crate) const SOURCE_KIND_EXTERNAL_RGBA: u32 = 1;
+/// Source-kind = two-plane NV12 YCbCr external texture.
+#[cfg(all(feature = "wgpu", feature = "external_texture_ycbcr"))]
+pub(crate) const SOURCE_KIND_EXTERNAL_YCBCR_NV12: u32 = 2;
+
+/// Pack image sampling and source metadata into a single u32.
+/// `ycbcr_range`: stored in bit 18 (1 bit)
+/// `ycbcr_matrix`: stored in bits 16-17 (2 bits)
+/// `source_kind`: stored in bits 14-15 (2 bits)
 /// `extend_y`: stored in bits 4-5 (2 bits)
 /// `extend_x`: stored in bits 2-3 (2 bits)
 /// `quality`: stored in bits 0-1 (2 bits)
 #[inline(always)]
-pub(crate) fn pack_image_params(quality: u32, extend_x: u32, extend_y: u32) -> u32 {
+pub(crate) fn pack_image_params(
+    quality: u32,
+    extend_x: u32,
+    extend_y: u32,
+    source_kind: u32,
+    ycbcr_matrix: u32,
+    ycbcr_range: u32,
+) -> u32 {
     debug_assert!(extend_x <= 3, "extend_x must be 0-3 (2 bits)");
     debug_assert!(extend_y <= 3, "extend_y must be 0-3 (2 bits)");
     debug_assert!(quality <= 3, "quality must be 0-3 (2 bits)");
-    (extend_y << 4) | (extend_x << 2) | quality
+    debug_assert!(source_kind <= 3, "source_kind must be 0-3 (2 bits)");
+    debug_assert!(ycbcr_matrix <= 3, "ycbcr_matrix must be 0-3 (2 bits)");
+    debug_assert!(ycbcr_range <= 1, "ycbcr_range must be 0 or 1 (1 bit)");
+    (ycbcr_range << YCBCR_RANGE_SHIFT)
+        | (ycbcr_matrix << YCBCR_MATRIX_SHIFT)
+        | (source_kind << SOURCE_KIND_SHIFT)
+        | (extend_y << 4)
+        | (extend_x << 2)
+        | quality
 }
 
 /// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.

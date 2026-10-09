@@ -34,6 +34,9 @@
 //! - `image_bicubic` (enabled by default): Enables rendering of images with
 //!   `ImageQuality::High`
 //! - `gradient_sweep` (enabled by default): Enables rendering of sweep gradients
+//! - `external_texture_ycbcr` (enabled by default): Enables rendering of NV12
+//!   YCbCr external textures bound with `TextureBindings::insert_ycbcr_nv12`.
+//!   Only the wgpu backend supports YCbCr textures.
 //! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL
 //!   shaders for compatibility.
 //!
@@ -125,10 +128,12 @@ pub use render::{
     WebGlTextureWithDimensions,
 };
 #[cfg(feature = "wgpu")]
-pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
+pub use render::{AtlasWriter, ExternalTextureView, RenderTargetConfig, Renderer, TextureBindings};
 pub use render::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeOperation, WebGlProbeStatus};
+#[cfg(all(feature = "wgpu", feature = "external_texture_ycbcr"))]
+pub use render::{YCbCrInfo, YCbCrMatrix, YCbCrRange};
 pub use resources::Resources;
 pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
 #[cfg(feature = "text")]
