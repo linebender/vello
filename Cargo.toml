@@ -32,6 +32,7 @@ members = [
     "vello_tests/test_support",
     "vello_tests/vello_dev_macros",
     "vello_tests/vello_example_scenes",
+    "vello_gpu/examples/wgpu_video",
     "glifo",
 ]
 
