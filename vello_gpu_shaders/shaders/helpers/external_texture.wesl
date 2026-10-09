@@ -3,7 +3,7 @@
 
 //! Sampling helpers for externally bound image textures.
 
-import package::helpers::extend::extend_mode;
+import package::helpers::extend::{EXTEND_PAD, extend_mode};
 import package::helpers::image::{
     IMAGE_QUALITY_HIGH,
     IMAGE_QUALITY_MEDIUM,
@@ -72,14 +72,28 @@ fn external_bilinear_sample(
     let shifted_coords = coords + vec2(0.5);
     let base_coords = floor(shifted_coords);
     let coord_frac = shifted_coords - base_coords;
-    let x = vec2<i32>(
-        external_axis_index(base_coords.x - 1.0, image_extend_modes.x, image_size.x),
-        external_axis_index(base_coords.x, image_extend_modes.x, image_size.x),
-    );
-    let y = vec2<i32>(
-        external_axis_index(base_coords.y - 1.0, image_extend_modes.y, image_size.y),
-        external_axis_index(base_coords.y, image_extend_modes.y, image_size.y),
-    );
+    var x: vec2<i32>;
+    var y: vec2<i32>;
+
+    if all(image_extend_modes == vec2<u32>(EXTEND_PAD)) {
+        x = vec2<i32>(clamp(
+            base_coords.xx + vec2<f32>(-1.0, 0.0),
+            vec2<f32>(0.0), vec2<f32>(image_size.x - 1.0),
+        ));
+        y = vec2<i32>(clamp(
+            base_coords.yy + vec2<f32>(-1.0, 0.0),
+            vec2<f32>(0.0), vec2<f32>(image_size.y - 1.0),
+        ));
+    } else {
+        x = vec2<i32>(
+            external_axis_index(base_coords.x - 1.0, image_extend_modes.x, image_size.x),
+            external_axis_index(base_coords.x, image_extend_modes.x, image_size.x),
+        );
+        y = vec2<i32>(
+            external_axis_index(base_coords.y - 1.0, image_extend_modes.y, image_size.y),
+            external_axis_index(base_coords.y, image_extend_modes.y, image_size.y),
+        );
+    }
     let offset = vec2<i32>(image_offset);
     let a = textureLoad(external_texture, offset + vec2<i32>(x.x, y.x), 0);
     let b = textureLoad(external_texture, offset + vec2<i32>(x.x, y.y), 0);
@@ -103,18 +117,32 @@ fn external_bicubic_sample(
     let cx = cubic_weights(frac_coords.x);
     let cy = cubic_weights(frac_coords.y);
 
-    let x = vec4<i32>(
-        external_axis_index(base_coords.x - 2.0, image_extend_modes.x, image_size.x),
-        external_axis_index(base_coords.x - 1.0, image_extend_modes.x, image_size.x),
-        external_axis_index(base_coords.x, image_extend_modes.x, image_size.x),
-        external_axis_index(base_coords.x + 1.0, image_extend_modes.x, image_size.x),
-    );
-    let y = vec4<i32>(
-        external_axis_index(base_coords.y - 2.0, image_extend_modes.y, image_size.y),
-        external_axis_index(base_coords.y - 1.0, image_extend_modes.y, image_size.y),
-        external_axis_index(base_coords.y, image_extend_modes.y, image_size.y),
-        external_axis_index(base_coords.y + 1.0, image_extend_modes.y, image_size.y),
-    );
+    var x: vec4<i32>;
+    var y: vec4<i32>;
+
+    if all(image_extend_modes == vec2<u32>(EXTEND_PAD)) {
+        x = vec4<i32>(clamp(
+            base_coords.xxxx + vec4<f32>(-2.0, -1.0, 0.0, 1.0),
+            vec4<f32>(0.0), vec4<f32>(image_size.x - 1.0),
+        ));
+        y = vec4<i32>(clamp(
+            base_coords.yyyy + vec4<f32>(-2.0, -1.0, 0.0, 1.0),
+            vec4<f32>(0.0), vec4<f32>(image_size.y - 1.0),
+        ));
+    } else {
+        x = vec4<i32>(
+            external_axis_index(base_coords.x - 2.0, image_extend_modes.x, image_size.x),
+            external_axis_index(base_coords.x - 1.0, image_extend_modes.x, image_size.x),
+            external_axis_index(base_coords.x, image_extend_modes.x, image_size.x),
+            external_axis_index(base_coords.x + 1.0, image_extend_modes.x, image_size.x),
+        );
+        y = vec4<i32>(
+            external_axis_index(base_coords.y - 2.0, image_extend_modes.y, image_size.y),
+            external_axis_index(base_coords.y - 1.0, image_extend_modes.y, image_size.y),
+            external_axis_index(base_coords.y, image_extend_modes.y, image_size.y),
+            external_axis_index(base_coords.y + 1.0, image_extend_modes.y, image_size.y),
+        );
+    }
     let offset = vec2<i32>(image_offset);
 
     let s00 = textureLoad(external_texture, offset + vec2<i32>(x.x, y.x), 0);
