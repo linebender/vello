@@ -346,7 +346,7 @@ impl GpuRenderer {
         settings: GpuRenderSettings,
         use_depth_buffer: bool,
     ) -> Self {
-        let scene = Scene::new_with(width, height, settings.level);
+        let scene = Scene::new_with(width, height, settings.level());
         #[cfg(not(target_arch = "wasm32"))]
         let (device, queue) = &*WGPU_DEVICE_QUEUE;
         #[cfg(not(target_arch = "wasm32"))]
@@ -456,12 +456,18 @@ impl Renderer for GpuRenderer {
         if num_threads != 0 {
             panic!("GPU renderer doesn't support multi-threading");
         }
-        let mut settings = GpuRenderSettings::default();
         // Most of the tests are 100x100 by default, and we want to make sure that some visual
         // tests have the chance to cover more complex parts of the Vello GPU scheduler
         // (for example situations where we need to spill to a new page, etc.). Therefore,
         // we make the minimum size smaller than the default.
-        settings.memory_settings.layers_config.min_texture_size = vello_gpu::SizeU16::new(100);
+        let settings =
+            GpuRenderSettings::default().with_memory_settings(vello_gpu::MemorySettings {
+                layers_config: vello_gpu::LayersConfig {
+                    min_texture_size: vello_gpu::SizeU16::new(100),
+                    ..vello_gpu::LayersConfig::default()
+                },
+                ..vello_gpu::MemorySettings::default()
+            });
         Self::new_with_settings(width, height, settings, use_depth_buffer)
     }
 
@@ -821,10 +827,16 @@ impl Renderer for GpuRenderer {
             panic!("GPU renderer doesn't support multi-threading");
         }
 
-        let mut settings = GpuRenderSettings::default();
         // See the comment above for why we change the `min_texture_size`.
-        settings.memory_settings.layers_config.min_texture_size = vello_gpu::SizeU16::new(100);
-        let scene = Scene::new_with(width, height, settings.level);
+        let settings =
+            GpuRenderSettings::default().with_memory_settings(vello_gpu::MemorySettings {
+                layers_config: vello_gpu::LayersConfig {
+                    min_texture_size: vello_gpu::SizeU16::new(100),
+                    ..vello_gpu::LayersConfig::default()
+                },
+                ..vello_gpu::MemorySettings::default()
+            });
+        let scene = Scene::new_with(width, height, settings.level());
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
         let document = web_sys::window().unwrap().document().unwrap();

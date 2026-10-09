@@ -95,10 +95,8 @@ impl RendererWrapper {
         };
         surface.configure(&device, &surface_config);
 
-        let settings = RenderSettings {
-            level: Level::try_detect().unwrap_or(Level::baseline()),
-            ..Default::default()
-        };
+        let settings =
+            RenderSettings::default().with_level(Level::try_detect().unwrap_or(Level::baseline()));
         let (renderer, resources) = Renderer::new_with(
             &device,
             &RenderTargetConfig {
