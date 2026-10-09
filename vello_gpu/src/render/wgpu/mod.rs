@@ -520,6 +520,7 @@ impl Renderer {
     /// 1. Reserves space in the image cache
     /// 2. Writes the image data directly to the atlas
     /// 3. Returns the `ImageId` for use in rendering
+    #[track_caller]
     pub fn upload_image<T: AtlasWriter>(
         &mut self,
         resources: &mut Resources,
@@ -538,6 +539,7 @@ impl Renderer {
         )
     }
 
+    #[track_caller]
     pub(crate) fn upload_image_with<T: AtlasWriter>(
         &mut self,
         image_cache: &mut ImageCache,
@@ -547,6 +549,10 @@ impl Renderer {
         writer: &T,
         padding: u16,
     ) -> vello_common::paint::ImageId {
+        if !cfg!(feature = "extended_images") {
+            panic!("uploaded images require the `extended_images` feature");
+        }
+
         let width = writer.width();
         let height = writer.height();
         let image_id = image_cache.allocate(width, height, padding).unwrap();

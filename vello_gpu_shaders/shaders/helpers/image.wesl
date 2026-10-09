@@ -4,12 +4,17 @@
 //! Shared encoded image accessors and cubic filter weights.
 
 /// Image rendering quality.
+@if(extended_images)
 const IMAGE_QUALITY_LOW: u32 = 0u;
+@if(extended_images)
 const IMAGE_QUALITY_MEDIUM: u32 = 1u;
+@if(extended_images)
 const IMAGE_QUALITY_HIGH: u32 = 2u;
 
 /// Tint mode constants.
+@if(extended_images)
 const TINT_MODE_ALPHA_MASK: u32 = 0u;
+@if(extended_images)
 const TINT_MODE_MULTIPLY: u32 = 1u;
 
 // Encoded image layout. Must match `GpuEncodedImage` in `vello_gpu/src/render/common.rs`.
@@ -33,24 +38,29 @@ const TINT_MODE_MULTIPLY: u32 = 1u;
 // texel1.w: padding
 
 /// The rendering quality of the image.
+@if(extended_images)
 fn get_image_quality(texel0: vec4<u32>) -> u32 { return texel0.x & 0x3u; }
 
 /// The extend modes in the horizontal and vertical direction.
+@if(extended_images)
 fn get_image_extend_modes(texel0: vec4<u32>) -> vec2<u32> {
     return vec2<u32>((texel0.x >> 2u) & 0x3u, (texel0.x >> 4u) & 0x3u);
 }
 
 /// The size of the image in pixels.
+@if(extended_images)
 fn get_image_size(texel0: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(f32(texel0.y >> 16u), f32(texel0.y & 0xFFFFu));
 }
 
 /// The offset of the image in pixels.
+@if(extended_images)
 fn get_image_offset(texel0: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(f32(texel0.z >> 16u), f32(texel0.z & 0xFFFFu));
 }
 
 /// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
+@if(extended_images)
 fn get_image_transform(texel0: vec4<u32>, texel1: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
         vec2<f32>(bitcast<f32>(texel0.w), bitcast<f32>(texel1.x)),
@@ -59,6 +69,7 @@ fn get_image_transform(texel0: vec4<u32>, texel1: vec4<u32>) -> mat2x2<f32> {
 }
 
 /// Translation part of the affine transform [tx, ty].
+@if(extended_images)
 fn get_image_translate(texel1: vec4<u32>, texel2: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(bitcast<f32>(texel1.w), bitcast<f32>(texel2.x));
 }
@@ -83,7 +94,7 @@ fn get_native_image_opacity(texel1: vec4<u32>) -> u32 {
 
 // Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)
 // Mitchell-Netravali cubic filter coefficients with parameters B=1/3 and C=1/3
-@if(image_bicubic)
+@if(extended_images)
 const MF: array<vec4<f32>, 4> = array<vec4<f32>, 4>(
     vec4<f32>(
         (1.0 / 6.0) / 3.0,
@@ -112,7 +123,7 @@ const MF: array<vec4<f32>, 4> = array<vec4<f32>, 4>(
 );
 
 // Calculate the weights for a single fractional value (same as CPU weights function)
-@if(image_bicubic)
+@if(extended_images)
 fn cubic_weights(fract: f32) -> vec4<f32> {
     return vec4<f32>(
         single_weight(fract, MF[0][0], MF[0][1], MF[0][2], MF[0][3]),
@@ -124,7 +135,7 @@ fn cubic_weights(fract: f32) -> vec4<f32> {
 
 // Calculate a weight based on the fractional value t and the cubic coefficients
 // This matches the CPU implementation exactly
-@if(image_bicubic)
+@if(extended_images)
 fn single_weight(t: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
     return t * (t * (t * d + c) + b) + a;
 }

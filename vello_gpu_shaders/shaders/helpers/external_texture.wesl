@@ -3,7 +3,9 @@
 
 //! Sampling helpers for externally bound image textures.
 
+@if(extended_images)
 import package::helpers::extend::{EXTEND_PAD, extend_mode};
+@if(extended_images)
 import package::helpers::image::{
     IMAGE_QUALITY_HIGH,
     IMAGE_QUALITY_MEDIUM,
@@ -13,8 +15,9 @@ import package::helpers::image::{
     get_image_quality,
     get_image_size,
 };
-@if(image_bicubic)
+@if(extended_images)
 import package::helpers::image::cubic_weights;
+@if(extended_images)
 import package::helpers::paint::{PAINT_TEXTURE_INDEX_MASK, load_encoded_paint_texel};
 
 fn sample_native_image_paint(
@@ -27,6 +30,7 @@ fn sample_native_image_paint(
     return image_opacity * textureSampleLevel(external_texture, external_sampler, sample_xy, 0.0);
 }
 
+@if(extended_images)
 fn sample_image_paint(
     encoded_paints_texture: texture_2d<u32>,
     tex_width_bits: u32,
@@ -64,11 +68,13 @@ fn sample_image_paint(
     );
 }
 
+@if(extended_images)
 fn external_axis_index(coord: f32, extend_mode_id: u32, size: f32) -> i32 {
     return i32(min(extend_mode(coord, extend_mode_id, size), size - 1.0));
 }
 
 // Bilinear sampling with each tap extended within the source region.
+@if(extended_images)
 fn external_bilinear_sample(
     external_texture: texture_2d<f32>,
     coords: vec2<f32>,
@@ -110,7 +116,7 @@ fn external_bilinear_sample(
 }
 
 // Bicubic sampling with each tap extended within the source region.
-@if(image_bicubic)
+@if(extended_images)
 fn external_bicubic_sample(
     external_texture: texture_2d<f32>,
     coords: vec2<f32>,
@@ -183,6 +189,7 @@ fn external_bicubic_sample(
     return vec4<f32>(clamp(result.rgb, vec3(0.0), vec3(a)), a);
 }
 
+@if(extended_images)
 fn sample_external_image(
     external_texture: texture_2d<f32>,
     quality: u32,
@@ -191,7 +198,6 @@ fn sample_external_image(
     image_size: vec2<f32>,
     image_extend_modes: vec2<u32>,
 ) -> vec4<f32> {
-    @if(image_bicubic)
     if quality == IMAGE_QUALITY_HIGH {
         return external_bicubic_sample(
             external_texture,

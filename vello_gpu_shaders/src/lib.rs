@@ -22,7 +22,7 @@ mod feature_tests {
 
     #[test]
     fn shader_feature_combinations_compile() {
-        let features = ["blurred_rounded_rect", "image_bicubic", "gradient_sweep"];
+        let features = ["blurred_rounded_rect", "extended_images", "gradient_sweep"];
         for mask in [0b000, 0b001, 0b010, 0b100, 0b111] {
             let mut compiler = Wesl::new("shaders");
             compiler.use_stripping(true);

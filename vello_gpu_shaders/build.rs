@@ -76,7 +76,7 @@ fn load_shader_infos(shader_dir: &Path) -> Vec<ShaderInfo> {
         "blurred_rounded_rect",
         cfg!(feature = "blurred_rounded_rect"),
     );
-    compiler.set_feature("image_bicubic", cfg!(feature = "image_bicubic"));
+    compiler.set_feature("extended_images", cfg!(feature = "extended_images"));
     compiler.set_feature("gradient_sweep", cfg!(feature = "gradient_sweep"));
 
     shader_names

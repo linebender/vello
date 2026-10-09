@@ -9,7 +9,7 @@ use vello_common::TextureId;
 use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasId;
-use vello_common::paint::{ImageSource, Paint};
+use vello_common::paint::{ImageSource, Paint, TextureRegion, Tint, TintMode};
 use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
@@ -28,6 +28,24 @@ pub(crate) const COLOR_SOURCE_SHIFT: u32 = 29;
 const PAINT_TYPE_SHIFT: u32 = 26;
 pub(crate) const EXTERNAL_TEXTURE_SLOT_SHIFT: u32 = 24;
 const PAINT_TEXTURE_INDEX_MASK: u32 = (1 << EXTERNAL_TEXTURE_SLOT_SHIFT) - 1;
+
+/// Whether an image can use hardware sampling without the manual image shader.
+pub(crate) fn supports_native_image(
+    source: &ImageSource,
+    quality: ImageQuality,
+    tint: Option<Tint>,
+) -> bool {
+    matches!(
+        source,
+        ImageSource::ExternalTexture {
+            source_region: TextureRegion::Full { .. },
+            ..
+        }
+    ) && quality != ImageQuality::High
+        && tint.is_none_or(|tint| {
+            tint.mode == TintMode::Multiply && tint.color.components[..3] == [1.0; 3]
+        })
+}
 
 /// Texture sampled by an image paint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
