@@ -9,7 +9,7 @@ mod tests {
     use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{Affine, Circle, Rect, Shape};
-    use vello_common::paint::{Image, ImageSource, Tint, TintMode};
+    use vello_common::paint::{Image, ImageSource, TextureRegion, Tint, TintMode};
     use vello_common::peniko::{Color, Extend, ImageAlphaType, ImageQuality, ImageSampler};
     use vello_common::pixmap::{PixelMetadata, Pixmap};
     use vello_dev_macros::vello_test;
@@ -47,6 +47,28 @@ mod tests {
         }
     }
 
+    fn fill_transformed_external_texture(ctx: &mut impl Renderer, transform: Affine) {
+        let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
+        ctx.set_paint_transform(
+            Affine::translate((50., 50.))
+                * transform
+                * Affine::scale(3.5)
+                * Affine::translate((-8., -8.)),
+        );
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Full {
+                    width: 16,
+                    height: 16,
+                },
+                false,
+            ),
+            sampler: pad_sampler(ImageQuality::Medium),
+        });
+        ctx.fill_rect(&Rect::new(10., 10., 90., 90.));
+    }
+
     fn fill_texture_rect(
         ctx: &mut impl Renderer,
         texture_id: TextureId,
@@ -59,7 +81,10 @@ mod tests {
         ctx.set_paint(Image {
             image: ImageSource::external_texture(
                 texture_id,
-                RectU16::new(0, 0, 1, 1),
+                TextureRegion::Full {
+                    width: 1,
+                    height: 1,
+                },
                 may_have_transparency,
             ),
             sampler: pad_sampler(ImageQuality::Low),
@@ -76,7 +101,11 @@ mod tests {
         quality: ImageQuality,
     ) {
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(texture_id, source_region, true),
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Rect(source_region),
+                true,
+            ),
             sampler: pad_sampler(quality),
         });
         ctx.fill_rect(&Rect::new(
@@ -107,7 +136,14 @@ mod tests {
 
         ctx.push_clip_path(&clip);
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 1, 1), true),
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Full {
+                    width: 1,
+                    height: 1,
+                },
+                true,
+            ),
             sampler: pad_sampler(ImageQuality::Medium),
         });
         ctx.fill_rect(&rect);
@@ -136,7 +172,14 @@ mod tests {
 
         ctx.set_paint_transform(Affine::translate((10., 10.)) * Affine::scale(5.));
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 16, 16), false),
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Full {
+                    width: 16,
+                    height: 16,
+                },
+                false,
+            ),
             sampler: pad_sampler(ImageQuality::Medium),
         });
         ctx.fill_path(&Circle::new((50., 50.), 40.).to_path(0.1));
@@ -147,7 +190,14 @@ mod tests {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 16, 16), false),
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Full {
+                    width: 16,
+                    height: 16,
+                },
+                false,
+            ),
             sampler: ImageSampler {
                 x_extend: Extend::Repeat,
                 y_extend: Extend::Repeat,
@@ -156,6 +206,82 @@ mod tests {
             },
         });
         ctx.fill_rect(&Rect::new(5., 5., 95., 95.));
+    }
+
+    #[vello_test]
+    fn external_texture_mixed_native_samplers(ctx: &mut impl Renderer) {
+        let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
+        let image_top = 50. - 16. * 1.5 / 2.;
+
+        for (x0, x1, quality, x_extend, y_extend) in [
+            (10., 36., ImageQuality::Low, Extend::Pad, Extend::Reflect),
+            (36., 63., ImageQuality::Medium, Extend::Repeat, Extend::Pad),
+            (63., 90., ImageQuality::Medium, Extend::Reflect, Extend::Pad),
+        ] {
+            ctx.set_paint_transform(Affine::translate((x0, image_top)) * Affine::scale(1.5));
+            ctx.set_paint(Image {
+                image: ImageSource::external_texture(
+                    texture_id,
+                    TextureRegion::Full {
+                        width: 16,
+                        height: 16,
+                    },
+                    false,
+                ),
+                sampler: ImageSampler {
+                    x_extend,
+                    y_extend,
+                    quality,
+                    alpha: 1.0,
+                },
+            });
+            ctx.fill_rect(&Rect::new(x0, 10., x1, 90.));
+        }
+    }
+
+    #[vello_test(gpu_tolerance = 1)]
+    fn external_texture_native_opacity(ctx: &mut impl Renderer) {
+        let pixmap = Arc::new(Pixmap::from_parts(
+            vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 128, 128, 0, 255, 255, 255,
+            ],
+            2,
+            2,
+            PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, true),
+        ));
+        let texture_id = ctx.register_external_texture(pixmap);
+
+        ctx.set_paint_transform(Affine::translate((10., 10.)) * Affine::scale(40.));
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Full {
+                    width: 2,
+                    height: 2,
+                },
+                true,
+            ),
+            sampler: ImageSampler {
+                alpha: 0.5,
+                ..pad_sampler(ImageQuality::Medium)
+            },
+        });
+        ctx.fill_rect(&Rect::new(10., 10., 90., 90.));
+    }
+
+    #[vello_test]
+    fn external_texture_rotation(ctx: &mut impl Renderer) {
+        fill_transformed_external_texture(ctx, Affine::rotate(0.35));
+    }
+
+    #[vello_test]
+    fn external_texture_x_skew(ctx: &mut impl Renderer) {
+        fill_transformed_external_texture(ctx, Affine::skew(0.35, 0.));
+    }
+
+    #[vello_test]
+    fn external_texture_y_skew(ctx: &mut impl Renderer) {
+        fill_transformed_external_texture(ctx, Affine::skew(0., 0.35));
     }
 
     #[vello_test]
@@ -170,7 +296,11 @@ mod tests {
 
         ctx.set_paint_transform(Affine::scale(3.0));
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(texture_id, RectU16::new(1, 0, 3, 1), false),
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Rect(RectU16::new(1, 0, 3, 1)),
+                false,
+            ),
             sampler: ImageSampler {
                 x_extend: Extend::Reflect,
                 y_extend: Extend::Pad,
@@ -182,12 +312,54 @@ mod tests {
     }
 
     #[vello_test]
+    fn external_texture_cropped_bilinear_repeat(ctx: &mut impl Renderer) {
+        // The crop is surrounded by black texels that must never be sampled.
+        let mut pixels = [0, 0, 0, 255].repeat(16);
+        for (x, y, rgba) in [
+            (1, 1, [255, 0, 0, 255]),
+            (2, 1, [0, 255, 0, 255]),
+            (1, 2, [0, 0, 255, 255]),
+            (2, 2, [255, 255, 0, 255]),
+        ] {
+            let offset = 4 * (y * 4 + x);
+            pixels[offset..offset + 4].copy_from_slice(&rgba);
+        }
+        let pixmap = Arc::new(Pixmap::from_parts(
+            pixels,
+            4,
+            4,
+            PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, false),
+        ));
+        let texture_id = ctx.register_external_texture(pixmap);
+
+        ctx.set_paint_transform(Affine::translate((15., 15.)) * Affine::scale(10.));
+        ctx.set_paint(Image {
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Rect(RectU16::new(1, 1, 3, 3)),
+                false,
+            ),
+            sampler: ImageSampler {
+                x_extend: Extend::Repeat,
+                y_extend: Extend::Repeat,
+                quality: ImageQuality::Medium,
+                alpha: 1.0,
+            },
+        });
+        ctx.fill_rect(&Rect::new(10., 10., 90., 90.));
+    }
+
+    #[vello_test]
     fn external_texture_with_paint_transform(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
         ctx.set_paint_transform(Affine::rotate(0.35) * Affine::scale(2.));
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(texture_id, RectU16::new(2, 2, 14, 14), false),
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Rect(RectU16::new(2, 2, 14, 14)),
+                false,
+            ),
             sampler: ImageSampler {
                 x_extend: Extend::Reflect,
                 y_extend: Extend::Reflect,
@@ -204,7 +376,14 @@ mod tests {
 
         ctx.set_transform(Affine::translate((5., 5.)) * Affine::scale(5.625));
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 16, 16), false),
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Full {
+                    width: 16,
+                    height: 16,
+                },
+                false,
+            ),
             sampler: ImageSampler {
                 x_extend: Extend::Repeat,
                 y_extend: Extend::Repeat,
@@ -221,7 +400,11 @@ mod tests {
 
         ctx.set_paint_transform(Affine::translate((14.0, 14.0)) * Affine::scale(6.0));
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(texture_id, RectU16::new(2, 2, 14, 14), false),
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Rect(RectU16::new(2, 2, 14, 14)),
+                false,
+            ),
             sampler: ImageSampler {
                 x_extend: Extend::Reflect,
                 y_extend: Extend::Reflect,
@@ -414,7 +597,11 @@ mod tests {
         ctx.set_transform(Affine::translate((15., 15.)) * Affine::skew(0.2, 0.1));
         ctx.set_paint_transform(Affine::IDENTITY);
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(texture_id, source_region, true),
+            image: ImageSource::external_texture(
+                texture_id,
+                TextureRegion::Rect(source_region),
+                true,
+            ),
             sampler: pad_sampler(ImageQuality::High),
         });
         ctx.fill_rect(&Rect::new(
@@ -495,7 +682,11 @@ mod tests {
             ctx.set_transform(scene_transform * local_transform);
             ctx.set_paint_transform(Affine::IDENTITY);
             ctx.set_paint(Image {
-                image: ImageSource::external_texture(texture_id, source_region, true),
+                image: ImageSource::external_texture(
+                    texture_id,
+                    TextureRegion::Rect(source_region),
+                    true,
+                ),
                 sampler: pad_sampler(ImageQuality::Medium),
             });
             ctx.fill_rect(&Rect::new(

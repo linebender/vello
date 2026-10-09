@@ -4,9 +4,8 @@
 //! Tests for the image/glyph atlas configuration of the WebGL renderer.
 
 use vello_common::{
-    geometry::RectU16,
     kurbo::Rect,
-    paint::{Image, ImageSource},
+    paint::{Image, ImageSource, TextureRegion},
     peniko::ImageSampler,
     pixmap::Pixmap,
 };
@@ -133,7 +132,14 @@ fn image_atlas_rejects_sampling_from_its_render_target() {
 
     let mut scene = Scene::new(1, 1);
     scene.set_paint(Image {
-        image: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 1, 1), false),
+        image: ImageSource::external_texture(
+            texture_id,
+            TextureRegion::Full {
+                width: 1,
+                height: 1,
+            },
+            false,
+        ),
         sampler: ImageSampler::default(),
     });
     scene.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));

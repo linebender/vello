@@ -1013,7 +1013,7 @@ mod tests {
     use vello_common::TextureId;
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{BezPath, Rect};
-    use vello_common::paint::{Image, ImageSource, Paint, PremulColor};
+    use vello_common::paint::{Image, ImageSource, Paint, PremulColor, TextureRegion};
     use vello_common::peniko::ImageSampler;
     use vello_common::peniko::color::palette::css::BLUE;
     #[cfg(feature = "text")]
@@ -1089,7 +1089,14 @@ mod tests {
     fn zero_area_external_texture_rect_is_a_noop() {
         let mut scene = Scene::new(100, 100);
         scene.set_paint(Image {
-            image: ImageSource::external_texture(TextureId(7), RectU16::new(0, 0, 8, 8), false),
+            image: ImageSource::external_texture(
+                TextureId(7),
+                TextureRegion::Full {
+                    width: 8,
+                    height: 8,
+                },
+                false,
+            ),
             sampler: ImageSampler::default(),
         });
 

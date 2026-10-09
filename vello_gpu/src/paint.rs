@@ -3,12 +3,14 @@
 
 //! GPU paint packing for scheduled strip draws.
 
+use crate::render::common::GpuEncodedPaint;
 use crate::util::pack_u16_pair;
 use vello_common::TextureId;
 use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasId;
 use vello_common::paint::{ImageSource, Paint};
+use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
 pub(crate) const COLOR_SOURCE_LAYER: u32 = 1;
@@ -19,6 +21,7 @@ const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2;
 const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
 const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5;
+const PAINT_TYPE_NATIVE_IMAGE: u32 = 6;
 
 // See the layout information in `render.wesl`.
 pub(crate) const COLOR_SOURCE_SHIFT: u32 = 29;
@@ -32,7 +35,60 @@ pub(crate) enum TextureSourceId {
     /// A renderer-owned image atlas.
     Atlas(AtlasId),
     /// A texture supplied through the render-time bindings.
-    External(TextureId),
+    External(TextureId, ExternalSampler),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum SamplerFilter {
+    Nearest,
+    Linear,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum SamplerAddress {
+    Pad,
+    Repeat,
+    Reflect,
+}
+
+impl From<Extend> for SamplerAddress {
+    fn from(extend: Extend) -> Self {
+        match extend {
+            Extend::Pad => Self::Pad,
+            Extend::Repeat => Self::Repeat,
+            Extend::Reflect => Self::Reflect,
+        }
+    }
+}
+
+/// Sampling state bound with one external texture slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ExternalSampler {
+    pub(crate) filter: SamplerFilter,
+    pub(crate) address_x: SamplerAddress,
+    pub(crate) address_y: SamplerAddress,
+}
+
+impl ExternalSampler {
+    pub(crate) const DEFAULT: Self = Self {
+        filter: SamplerFilter::Linear,
+        address_x: SamplerAddress::Pad,
+        address_y: SamplerAddress::Pad,
+    };
+
+    fn from_native_image_sampler(sampler: &ImageSampler) -> Self {
+        let filter = match sampler.quality {
+            ImageQuality::Low => SamplerFilter::Nearest,
+            ImageQuality::Medium => SamplerFilter::Linear,
+            ImageQuality::High => unreachable!("high quality images use manual sampling"),
+        };
+
+        Self {
+            filter,
+            address_x: sampler.x_extend.into(),
+            address_y: sampler.y_extend.into(),
+        }
+    }
 }
 
 /// Shader-ready paint metadata for a strip.
@@ -73,15 +129,28 @@ pub(crate) struct PaintResolver<'a> {
     encoded: &'a [EncodedPaint],
     /// GPU data offset corresponding to each encoded paint.
     gpu_offsets: &'a [u32],
+    /// GPU paint selected for each encoded paint.
+    gpu_paints: &'a [GpuEncodedPaint],
     /// Resolves internal images to their atlas textures.
     image_cache: Option<&'a ImageCache>,
 }
 
 impl<'a> PaintResolver<'a> {
-    pub(crate) fn new(encoded: &'a [EncodedPaint], gpu_offsets: &'a [u32]) -> Self {
+    pub(crate) fn new(
+        encoded: &'a [EncodedPaint],
+        gpu_offsets: &'a [u32],
+        gpu_paints: &'a [GpuEncodedPaint],
+    ) -> Self {
+        debug_assert_eq!(
+            encoded.len(),
+            gpu_paints.len(),
+            "each encoded paint must have a GPU paint"
+        );
+
         Self {
             encoded,
             gpu_offsets,
+            gpu_paints,
             image_cache: None,
         }
     }
@@ -110,7 +179,20 @@ impl<'a> PaintResolver<'a> {
                 let (paint_type, texture_source) = match encoded_paint {
                     EncodedPaint::Image(encoded_image) => match &encoded_image.source {
                         ImageSource::ExternalTexture { id, .. } => {
-                            (PAINT_TYPE_IMAGE, Some(TextureSourceId::External(*id)))
+                            let (paint_type, sampler) = match &self.gpu_paints[paint_id] {
+                                GpuEncodedPaint::NativeImage(_) => (
+                                    PAINT_TYPE_NATIVE_IMAGE,
+                                    ExternalSampler::from_native_image_sampler(
+                                        &encoded_image.sampler,
+                                    ),
+                                ),
+                                GpuEncodedPaint::Image(_) => {
+                                    (PAINT_TYPE_IMAGE, ExternalSampler::DEFAULT)
+                                }
+                                _ => unreachable!("external image has an image GPU paint"),
+                            };
+
+                            (paint_type, Some(TextureSourceId::External(*id, sampler)))
                         }
                         ImageSource::OpaqueId { id, .. } => {
                             let image_resource = self.image_cache.unwrap().get(*id).unwrap();
