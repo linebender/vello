@@ -89,6 +89,10 @@ const K1_THRESH: f32 = 1e-3;
 const DIST_THRESH: f32 = 1e-3;
 // Threshold for tangents to be considered near zero length
 const TANGENT_THRESH: f32 = 1e-6;
+// Threshold on the sine of the angle between a join's tangents below which they are treated as
+// parallel and get no miter. Skipping the miter there moves the outline by about
+// `offset * sin^2 / 4`, far below a pixel for any stroke width.
+const PARALLEL_THRESH: f32 = 1e-3;
 
 /// Compute cubic parameters from endpoints and derivatives.
 fn cubic_from_points_derivs(p0: vec2f, p1: vec2f, q0: vec2f, q1: vec2f, dt: f32) -> CubicParams {
@@ -577,11 +581,13 @@ fn draw_join(
             // `hypot + d` is `2 * |tan_prev| * |tan_next| * cos^2(theta/2)`. After
             // rearranging, the following tests whether `1/|cos(theta/2)| < miter_limit`.
             //
-            // Also avoid the miter computation when `cr` is very small; the intersection
-            // math divides by `cr` and becomes numerically unstable for near-collinear
-            // tangents.
+            // Also skip the miter when the tangents are near parallel: the intersection math
+            // divides by `cr` and amplifies f32 noise without bound there. The test is on the
+            // sine `|cr| / hypot` rather than on `cr` itself, because `cr` scales with both
+            // tangent lengths: long collinear segments (a straight edge meeting a tangent arc)
+            // carry rounding noise in `cr` far above any fixed cutoff.
             if 2. * hypot < (hypot + d) * miter_limit * miter_limit
-                && abs(cr) > TANGENT_THRESH * TANGENT_THRESH
+                && abs(cr) > hypot * PARALLEL_THRESH
             {
                 let is_backside = cr > 0.;
                 let fp_last = select(front0, back1, is_backside);
