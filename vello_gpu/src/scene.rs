@@ -111,11 +111,8 @@ impl Drawable for RecordedDraw {
 /// Settings to apply to the render context.
 #[derive(Clone, Debug)]
 pub struct RenderSettings {
-    /// The SIMD level that should be used for rendering operations.
     pub(crate) level: Level,
-    /// Configuration for GPU memory used while rendering.
     pub(crate) memory_settings: MemorySettings,
-    /// Optional cache used when creating the wgpu render pipelines.
     #[cfg(feature = "wgpu")]
     pub(crate) pipeline_cache: Option<wgpu::PipelineCache>,
 }
