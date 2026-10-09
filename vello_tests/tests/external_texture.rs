@@ -119,7 +119,7 @@ mod tests {
         ctx.fill_path(&circle.to_path(0.1));
     }
 
-    #[vello_test(width = 96, height = 96, gpu_only)]
+    #[vello_test(width = 96, height = 96, gpu_tolerance = 1)]
     fn external_texture_composite(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         ctx.set_paint_transform(Affine::translate((12., 15.)));
@@ -158,7 +158,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(5., 5., 95., 95.));
     }
 
-    #[vello_test(gpu_only)]
+    #[vello_test]
     fn external_texture_reflect_with_offset(ctx: &mut impl Renderer) {
         let pixmap = Arc::new(Pixmap::from_parts(
             vec![0, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255],
@@ -181,7 +181,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
     }
 
-    #[vello_test(gpu_only)]
+    #[vello_test]
     fn external_texture_with_paint_transform(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
@@ -215,7 +215,7 @@ mod tests {
         ctx.fill_rect(&Rect::new(0., 0., 16., 16.));
     }
 
-    #[vello_test(gpu_only)]
+    #[vello_test]
     fn external_texture_with_cropped_source(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
@@ -407,7 +407,7 @@ mod tests {
         );
     }
 
-    #[vello_test(width = 96, height = 96, gpu_only, gpu_tolerance = 1)]
+    #[vello_test(width = 96, height = 96, gpu_tolerance = 1)]
     fn external_texture_skewed(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let source_region = SPRITES[0];
@@ -425,7 +425,7 @@ mod tests {
         ));
     }
 
-    #[vello_test(width = 96, height = 96, gpu_only)]
+    #[vello_test(width = 96, height = 96)]
     fn external_texture_clipped(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let clip = Circle::new((48., 48.), 24.).to_path(0.1);
@@ -438,7 +438,7 @@ mod tests {
         ctx.pop_layer();
     }
 
-    #[vello_test(width = 96, height = 96, gpu_only, gpu_tolerance = 2)]
+    #[vello_test(width = 96, height = 96, skip_multithreaded, gpu_tolerance = 2)]
     fn external_texture_blurred(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
@@ -452,7 +452,7 @@ mod tests {
         ctx.pop_layer();
     }
 
-    #[vello_test(width = 192, height = 132, gpu_only)]
+    #[vello_test(width = 192, height = 132)]
     fn external_texture_many_sprites(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let placements = [
@@ -476,7 +476,7 @@ mod tests {
         }
     }
 
-    #[vello_test(width = 96, height = 96, gpu_only, gpu_tolerance = 2)]
+    #[vello_test(width = 96, height = 96, cpu_u8_tolerance = 2, gpu_tolerance = 2)]
     fn external_texture_with_scene_transform(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
 

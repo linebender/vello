@@ -227,12 +227,24 @@ impl Renderer for CpuRenderer {
                 .external_textures
                 .get(id)
                 .unwrap_or_else(|| panic!("External texture {id:?} not found in test registry"));
-            assert_eq!(
-                *source_region,
-                RectU16::new(0, 0, pixmap.width(), pixmap.height()),
-                "CPU test renderer only supports full external texture regions"
-            );
-            image.image = ImageSource::Pixmap(Arc::clone(pixmap));
+
+            if *source_region == RectU16::new(0, 0, pixmap.width(), pixmap.height()) {
+                image.image = ImageSource::Pixmap(Arc::clone(pixmap));
+            } else {
+                let mut cropped = Pixmap::new(source_region.width(), source_region.height());
+                let width = usize::from(source_region.width());
+                for (row, y) in cropped
+                    .data_mut()
+                    .chunks_exact_mut(width)
+                    .zip(source_region.y0..source_region.y1)
+                {
+                    let start = usize::from(y) * usize::from(pixmap.width())
+                        + usize::from(source_region.x0);
+                    row.copy_from_slice(&pixmap.data()[start..start + width]);
+                }
+                cropped.set_may_have_transparency(pixmap.may_have_transparency());
+                image.image = ImageSource::Pixmap(Arc::new(cropped));
+            }
         }
         self.ctx.set_paint(paint);
     }
