@@ -1,7 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -100,6 +99,8 @@ pub trait Renderer: Sized {
 pub struct CpuRenderer {
     ctx: RenderContext,
     resources: Resources,
+    external_textures: HashMap<TextureId, Arc<Pixmap>>,
+    next_external_texture_id: u64,
     render_mode: RenderMode,
     target: Pixmap,
     target_init: GpuTargetInit<'static>,
@@ -119,6 +120,8 @@ impl Renderer for CpuRenderer {
         Self {
             ctx: RenderContext::new_with(width, height, settings),
             resources: Resources::new(),
+            external_textures: HashMap::new(),
+            next_external_texture_id: 1,
             render_mode,
             target: Pixmap::new(width, height),
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
@@ -214,6 +217,35 @@ impl Renderer for CpuRenderer {
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
+        let mut paint = paint.into();
+        if let PaintType::Image(image) = &mut paint
+            && let ImageSource::ExternalTexture {
+                id, source_region, ..
+            } = &image.image
+        {
+            let pixmap = self
+                .external_textures
+                .get(id)
+                .unwrap_or_else(|| panic!("External texture {id:?} not found in test registry"));
+
+            if *source_region == RectU16::new(0, 0, pixmap.width(), pixmap.height()) {
+                image.image = ImageSource::Pixmap(Arc::clone(pixmap));
+            } else {
+                let mut cropped = Pixmap::new(source_region.width(), source_region.height());
+                let width = usize::from(source_region.width());
+                for (row, y) in cropped
+                    .data_mut()
+                    .chunks_exact_mut(width)
+                    .zip(source_region.y0..source_region.y1)
+                {
+                    let start = usize::from(y) * usize::from(pixmap.width())
+                        + usize::from(source_region.x0);
+                    row.copy_from_slice(&pixmap.data()[start..start + width]);
+                }
+                cropped.set_may_have_transparency(pixmap.may_have_transparency());
+                image.image = ImageSource::Pixmap(Arc::new(cropped));
+            }
+        }
         self.ctx.set_paint(paint);
     }
 
@@ -283,8 +315,11 @@ impl Renderer for CpuRenderer {
         self.target.clone()
     }
 
-    fn register_external_texture(&mut self, _: Arc<Pixmap>) -> TextureId {
-        unimplemented!("external textures are only supported by GPU renderer tests")
+    fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId {
+        let texture_id = TextureId(self.next_external_texture_id);
+        self.next_external_texture_id += 1;
+        self.external_textures.insert(texture_id, pixmap);
+        texture_id
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
