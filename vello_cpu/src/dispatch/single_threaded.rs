@@ -25,6 +25,7 @@ use vello_common::record::{
     CommandRecorder, LayerClip, LayerProps, Node, PoppedLayer, RecordedLayerKind,
 };
 use vello_common::strip_generator::{GenerationMode, StripStorage};
+use vello_common::util::RectExt;
 use vello_common::util::strip_bbox;
 use vello_common::viewport::ViewportState;
 
@@ -112,15 +113,30 @@ impl SingleThreadedDispatcher {
     ) {
         let filters = self.rasterize_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let target_init = settings.target_init.map(PremulColor::from_alpha_color);
-        let params = FineRenderParams {
-            scene_size: (scene_width, scene_height),
-            target_offset: settings.offset,
+        let (viewport, params) = if let Some(vp) = settings.viewport {
+            let snapped = vp
+                .intersect(RectU16::new(0, 0, scene_width, scene_height))
+                .snap_to_tile_coordinates();
+            let params = FineRenderParams {
+                scene_size: (snapped.width(), snapped.height()),
+                target_offset: (
+                    settings.offset.0.saturating_add(snapped.x0),
+                    settings.offset.1.saturating_add(snapped.y0),
+                ),
+            };
+            (snapped, params)
+        } else {
+            let params = FineRenderParams {
+                scene_size: (scene_width, scene_height),
+                target_offset: settings.offset,
+            };
+            (RectU16::new(0, 0, scene_width, scene_height), params)
         };
 
         self.bucket_and_rasterize::<S, F>(
             simd,
             &self.recorder.nodes,
-            RectU16::new(0, 0, scene_width, scene_height),
+            viewport,
             &filters,
             target,
             params,

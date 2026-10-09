@@ -21,6 +21,7 @@ use crate::DrawSink;
 use crate::color::{AlphaColor, Srgb};
 use crate::kurbo::{Affine, BezPath, Rect};
 use crate::peniko::{BlendMode, Gradient};
+use vello_common::geometry::RectU16;
 use vello_common::paint::PaintType;
 
 /// Paint type for atlas commands.
@@ -96,6 +97,8 @@ pub struct AtlasCommandRecorder {
     pub page_index: u32,
     /// The recorded commands.
     pub commands: Vec<AtlasCommand>,
+    /// Bounding box covering all newly recorded commands in this frame.
+    pub dirty_rect: Option<RectU16>,
     /// Width of the glyph renderer / atlas page (pixels).
     pub(crate) width: u16,
     /// Height of the glyph renderer / atlas page (pixels).
@@ -112,6 +115,7 @@ impl AtlasCommandRecorder {
         Self {
             page_index,
             commands: Vec::new(),
+            dirty_rect: None,
             width,
             height,
         }
@@ -193,6 +197,7 @@ impl core::fmt::Debug for AtlasCommandRecorder {
         f.debug_struct("AtlasCommandRecorder")
             .field("page_index", &self.page_index)
             .field("commands", &self.commands.len())
+            .field("dirty_rect", &self.dirty_rect)
             .field("width", &self.width)
             .field("height", &self.height)
             .finish()

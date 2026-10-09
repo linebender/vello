@@ -183,6 +183,7 @@ impl Resources {
                     RasterizerSettings {
                         render_mode,
                         target_init: TargetInit::SrcOver,
+                        viewport: recorder.dirty_rect,
                         ..Default::default()
                     },
                 );
