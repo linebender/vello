@@ -109,6 +109,7 @@ mod render;
 mod resources;
 mod scene;
 mod schedule;
+pub mod sparse_strips;
 mod target;
 #[cfg(feature = "text")]
 mod text;

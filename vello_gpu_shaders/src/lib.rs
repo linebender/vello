@@ -62,6 +62,10 @@ mod tests {
             "expected at least one linked WESL shader"
         );
         for &(name, source) in crate::wgsl::ALL {
+            // The lints are for the WebGL path, which compute-only shaders do not take.
+            if !source.contains("fn vs_main") {
+                continue;
+            }
             let module = wgsl::parse_str(source).expect("linked WGSL parses");
             lint(name, &module);
         }

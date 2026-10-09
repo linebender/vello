@@ -168,6 +168,10 @@ fn generate_compiled_shaders_module(shader_infos: &[ShaderInfo]) -> String {
         .unwrap();
 
         for shader_info in shader_infos {
+            // Compute-only shaders (GPU sparse strips) have no WebGL counterpart.
+            if !shader_info.wgsl_source.contains("fn vs_main") {
+                continue;
+            }
             let shader = compile::compile_wgsl_shader(
                 &shader_info.wgsl_source,
                 &shader_info.name,

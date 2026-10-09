@@ -78,3 +78,7 @@ workspace = true
 [[example]]
 name = "render_to_file"
 required-features = ["wgpu"]
+
+[[example]]
+name = "sparse_strips_compare"
+required-features = ["wgpu"]
