@@ -61,8 +61,7 @@ fn external_axis_index(coord: f32, extend_mode_id: u32, size: f32) -> i32 {
     return i32(min(extend_mode(coord, extend_mode_id, size), size - 1.0));
 }
 
-// This is the same as `helpers::image::bilinear_sample`, but for a 2D texture
-// instead of an atlas texture array.
+// Bilinear sampling with each tap extended within the source region.
 fn external_bilinear_sample(
     external_texture: texture_2d<f32>,
     coords: vec2<f32>,
@@ -89,8 +88,7 @@ fn external_bilinear_sample(
     return mix(mix(a, b, coord_frac.y), mix(c, d, coord_frac.y), coord_frac.x);
 }
 
-// This is the same as `helpers::image::bicubic_sample`, but for a 2D texture
-// instead of an atlas texture array.
+// Bicubic sampling with each tap extended within the source region.
 @if(image_bicubic)
 fn external_bicubic_sample(
     external_texture: texture_2d<f32>,
