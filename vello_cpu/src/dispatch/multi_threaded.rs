@@ -147,7 +147,7 @@ impl MultiThreadedDispatcher {
             task_idx,
             flushed,
             workers,
-            clip_context: ClipContext::new(),
+            clip_context: ClipContext::new_eager(),
             recorder: CommandRecorder::new(width, height),
             task_sender: None,
             recorded_command_receiver: None,
