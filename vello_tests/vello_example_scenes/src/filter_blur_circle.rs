@@ -46,7 +46,8 @@ impl ExampleScene for FilterBlurCircleScene {
 
         ctx.set_transform(root_transform);
         let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-            std_deviation: STD_DEVIATION,
+            std_deviation_x: STD_DEVIATION,
+            std_deviation_y: STD_DEVIATION,
             edge_mode: EdgeMode::None,
         });
         ctx.push_filter_layer(filter);

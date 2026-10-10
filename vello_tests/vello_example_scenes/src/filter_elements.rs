@@ -164,7 +164,8 @@ impl ExampleScene for FilterElementsScene {
                     FilterKind::None => unreachable!(),
                     FilterKind::Blur { std_deviation } => {
                         Filter::from_primitive(FilterPrimitive::GaussianBlur {
-                            std_deviation,
+                            std_deviation_x: std_deviation,
+                            std_deviation_y: std_deviation,
                             edge_mode: EdgeMode::None,
                         })
                     }

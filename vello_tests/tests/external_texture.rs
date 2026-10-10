@@ -442,7 +442,8 @@ mod tests {
     fn external_texture_blurred(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
         let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-            std_deviation: 4.0,
+            std_deviation_x: 4.0,
+            std_deviation_y: 4.0,
             edge_mode: EdgeMode::None,
         });
 

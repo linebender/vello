@@ -485,7 +485,8 @@ fn draw_transformed_rect(ctx: &mut impl ProbeRenderer, rect: Rect) {
 
 fn draw_blurred_rect(ctx: &mut impl ProbeRenderer, rect: Rect) {
     let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 0.5,
+        std_deviation_x: 0.5,
+        std_deviation_y: 0.5,
         edge_mode: EdgeMode::None,
     });
     ctx.push_filter_layer(blur);
