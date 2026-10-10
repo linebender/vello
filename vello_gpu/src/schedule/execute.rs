@@ -5,7 +5,7 @@
 
 use super::round::{BlendOp, Rounds};
 use super::{Schedule, ScheduleBuffers, ScheduleStorage};
-use crate::draw::ExternalTextureRun;
+use crate::draw::{DirectDraw, ExternalTextureRun};
 use crate::filter::FilterPassPlan;
 use crate::target::{
     BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
@@ -32,11 +32,13 @@ pub(crate) trait Backend {
 
     /// Execute a draw pass against the given target.
     ///
-    /// The strips are guaranteed to be non-empty.
+    /// The strips and direct draws are guaranteed not to both be empty. Direct draws are GPU
+    /// built strip instances, each drawn after `strips_start` of the strips.
     fn draw_pass(
         &mut self,
         strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
+        direct_draws: &[DirectDraw],
         bindings: DrawPassBindings,
     ) -> Result<(), Self::Error>;
 
@@ -132,7 +134,12 @@ impl Rounds {
                 // For each layer texture target, first perform the draws of all layers that are
                 // allocated in this texture.
                 if let Some(pass) = layer_passes.draw {
-                    backend.draw_pass(pass.strips, pass.external_texture_runs, pass.bindings)?;
+                    backend.draw_pass(
+                        pass.strips,
+                        pass.external_texture_runs,
+                        pass.direct_draws,
+                        pass.bindings,
+                    )?;
                 }
 
                 // Next, we apply all filters for layers in this texture.
@@ -151,7 +158,12 @@ impl Rounds {
 
             // Once layers are done, we perform draws against the root target.
             if let Some(pass) = round.root_draw_pass(buffers, root_output_target) {
-                backend.draw_pass(pass.strips, pass.external_texture_runs, pass.bindings)?;
+                backend.draw_pass(
+                    pass.strips,
+                    pass.external_texture_runs,
+                    pass.direct_draws,
+                    pass.bindings,
+                )?;
             }
 
             // And in the end, clear all layer regions that are deallocated in this round.
@@ -241,6 +253,7 @@ mod tests {
             &mut self,
             _strips: RangedSlice<'_, GpuStrip>,
             _external_texture_runs: &[ExternalTextureRun],
+            _direct_draws: &[DirectDraw],
             bindings: DrawPassBindings,
         ) -> Result<(), Self::Error> {
             self.calls.push(Call::Draw(bindings.target, bindings.child));

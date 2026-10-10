@@ -28,10 +28,14 @@ async fn run() {
     let svg_filename: String = args.next().expect("svg filename is first arg");
     let output_filename: String = args.next().expect("output filename is second arg");
     let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
-    let render_scale = 5.0;
+    // `VELLO_SCALE` overrides the render scale (default 5), for timing at other sizes.
+    let render_scale = std::env::var("VELLO_SCALE")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(5.0);
     let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
 
-    let constraints = DimensionConstraints::default();
+    let constraints = DimensionConstraints::new(100.0, 100.0, 4096.0, 4096.0);
     let svg_width = parsed.size.width * render_scale;
     let svg_height = parsed.size.height * render_scale;
     let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
@@ -40,6 +44,9 @@ async fn run() {
     let height = DimensionConstraints::convert_dimension(height);
 
     let mut scene = Scene::new(width, height);
+    // Experimental GPU strip generation, for timing comparisons.
+    let gpu_strips = std::env::var_os("VELLO_GPU_STRIPS").is_some();
+    scene.set_gpu_strips(gpu_strips);
     render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
 
     // Initialize wgpu device and queue for GPU rendering
@@ -86,6 +93,66 @@ async fn run() {
     );
     let render_size = vello_gpu::RenderSize { width, height };
     let depth_texture_view = vello_gpu::Renderer::create_depth_texture_view(&device, &render_size);
+
+    // `VELLO_TIME_FRAMES=n`: re-record and render the scene `n` times with CPU strips and `n`
+    // times with GPU strips, alternating so that both see the same GPU power state, and report
+    // the wall-clock time per frame (recording, render encoding, submit and wait) of each.
+    if let Some(frames) = std::env::var("VELLO_TIME_FRAMES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+    {
+        let mut scenes = [Scene::new(width, height), Scene::new(width, height)];
+        scenes[1].set_gpu_strips(true);
+        let mut times = [Vec::with_capacity(frames), Vec::with_capacity(frames)];
+        let mut record_times = [Vec::with_capacity(frames), Vec::with_capacity(frames)];
+        let mut encode_times = [Vec::with_capacity(frames), Vec::with_capacity(frames)];
+        for _ in 0..frames {
+            for (mode, scene) in scenes.iter_mut().enumerate() {
+                let t0 = std::time::Instant::now();
+                scene.reset();
+                render_svg(scene, &parsed.items, Affine::scale(render_scale));
+                let t1 = std::time::Instant::now();
+                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Vello Timed Frame"),
+                });
+                renderer
+                    .render(
+                        scene,
+                        &mut resources,
+                        &device,
+                        &queue,
+                        &mut encoder,
+                        &render_size,
+                        &texture_view,
+                        Some(&depth_texture_view),
+                        &vello_gpu::TextureBindings::new(),
+                        vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
+                    )
+                    .unwrap();
+                let t2 = std::time::Instant::now();
+                queue.submit([encoder.finish()]);
+                device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+                record_times[mode].push(t1.duration_since(t0).as_secs_f64() * 1e3);
+                encode_times[mode].push(t2.duration_since(t1).as_secs_f64() * 1e3);
+                times[mode].push(t0.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+        for (mode, name) in ["CPU strips", "GPU strips"].iter().enumerate() {
+            times[mode].sort_by(f64::total_cmp);
+            record_times[mode].sort_by(f64::total_cmp);
+            encode_times[mode].sort_by(f64::total_cmp);
+            let median = times[mode][frames / 2];
+            let record = record_times[mode][frames / 2];
+            let encode = encode_times[mode][frames / 2];
+            println!(
+                "{width}x{height} {name}: {frames} frames, median {median:.3} ms (record {record:.3}, encode {encode:.3}, submit+wait {:.3}), best {:.3} ms",
+                median - record - encode,
+                times[mode][0]
+            );
+        }
+    }
+
     // Copy texture to buffer
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),

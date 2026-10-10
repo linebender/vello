@@ -37,7 +37,8 @@ struct Config {
     n_wg: u32,
     max_strips: u32,
     max_blocks: u32,
-    _pad: u32,
+    // Added to the strips' alpha block indices.
+    alpha_base_blocks: u32,
 }
 
 struct PathInfo {
@@ -54,6 +55,30 @@ struct PathInfo {
     strip_end: u32,
     block_start: u32,
     block_end: u32,
+}
+
+const DRAW_DIRECT: u32 = 1u;
+
+// Per-path draw information for the instance pass; see `GpuDrawInfo`.
+struct DrawInfo {
+    paint: u32,
+    payload: u32,
+    depth_index: u32,
+    flags: u32,
+    instance_base: u32,
+    _p0: u32,
+    _p1: u32,
+    _p2: u32,
+}
+
+// A strip instance, matching `StripInstance` in `render.wesl` and `GpuStrip`.
+struct Instance {
+    xy: u32,
+    widths: u32,
+    col_idx: u32,
+    payload: u32,
+    paint: u32,
+    depth: u32,
 }
 
 struct StripDesc {

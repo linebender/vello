@@ -107,8 +107,9 @@ pub struct GpuConfig {
     pub max_strips: u32,
     /// Capacity of the accumulation and alpha buffers, in blocks.
     pub max_blocks: u32,
-    /// Padding to 16 bytes.
-    pub _pad: u32,
+    /// Alpha block index of the first GPU alpha block in the renderer's alpha storage; added to
+    /// the strips' alpha indices.
+    pub alpha_base_blocks: u32,
 }
 
 /// Per-path input to the GPU passes. The last four fields are written by the alloc pass.
@@ -165,6 +166,27 @@ impl GpuPathInfo {
             winding != 0
         }
     }
+}
+
+/// Set in [`GpuDrawInfo::flags`] when the path's strip instances are built on the GPU.
+pub const DRAW_DIRECT: u32 = 1;
+
+/// Per-path draw information for the instance pass, written by the scheduler.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, Pod, Zeroable)]
+pub struct GpuDrawInfo {
+    /// `GpuStrip::paint_and_rect_flag`.
+    pub paint: u32,
+    /// `GpuStrip::payload`; only solid paints are built on the GPU, so it is constant.
+    pub payload: u32,
+    /// `GpuStrip::depth_index`.
+    pub depth_index: u32,
+    /// `DRAW_*` flags.
+    pub flags: u32,
+    /// First instance slot of this path in the instance buffer.
+    pub instance_base: u32,
+    /// Padding to 32 bytes.
+    pub _pad: [u32; 3],
 }
 
 /// Row table entry for a culled path, stored in the aux buffer as [`ROW_WORDS`] words.
@@ -229,21 +251,50 @@ impl GpuStripDesc {
     }
 }
 
-/// The bounding box that [`vello_common::util::strip_bbox`] computes for the output of
-/// `strip::render`, derived from the sorted tiles instead of the strips.
+/// What `strip::render` would produce for a path, derived from its sorted tiles: the bounding
+/// box of its strips, and exact counts of its strips, alpha blocks and draw instances.
 ///
-/// This lets a scene record a path's bounding box before the GPU has produced its strips. It
-/// follows the strip emission rules: a row with tiles spans its tiles, extends to the viewport
-/// width when its final winding fills (the row terminator's fill gap), and extends to the left
-/// edge when culled geometry fills the row start (the captive strip); a row without tiles whose
-/// culled winding fills spans the whole viewport width.
-pub fn strip_bbox_from_tiles(
+/// The counts let the renderer place a path's GPU-built strip instances at a CPU-known offset
+/// and draw them with a plain instanced draw. They follow the same emission rules as the GPU
+/// allocation pass (`model::emit`) and `vello_common::strip::visit_strip_fill_segments`, and
+/// are checked against both in tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PathSummary {
+    /// Bounding box of the strips, as `strip_bbox` computes it; empty if there are none.
+    pub bbox: vello_common::geometry::RectU16,
+    /// Number of strips, including terminators and the sentinel.
+    pub strips: u32,
+    /// Number of alpha blocks (16 bytes each).
+    pub blocks: u32,
+    /// Number of strip instances a draw of the whole viewport emits: one per alpha segment and
+    /// one per non-empty fill gap.
+    pub instances: u32,
+}
+
+impl Default for PathSummary {
+    fn default() -> Self {
+        Self {
+            bbox: vello_common::geometry::RectU16::ZERO,
+            strips: 0,
+            blocks: 0,
+            instances: 0,
+        }
+    }
+}
+
+/// Summarize a path from its sorted tiles; see [`PathSummary`].
+///
+/// A row with tiles spans its tiles, extends to the viewport width when its final winding
+/// fills (the row terminator's fill gap), and extends to the left edge when culled geometry
+/// fills the row start (the captive strip); a row without tiles whose culled winding fills
+/// spans the whole viewport width.
+pub fn summarize_path_tiles(
     tiles: &Tiles,
     lines: &[Line],
     fill_rule: Fill,
     width: u16,
     height: u16,
-) -> Option<vello_common::geometry::RectU16> {
+) -> PathSummary {
     use vello_common::geometry::RectU16;
     let should_fill = |w: i32| match fill_rule {
         Fill::NonZero => w != 0,
@@ -262,21 +313,46 @@ pub fn strip_bbox_from_tiles(
             0
         }
     };
-    let mut bbox = RectU16::INVERTED;
+    let mut summary = PathSummary {
+        bbox: RectU16::INVERTED,
+        ..Default::default()
+    };
+    if tiles.is_empty() {
+        summary.bbox = RectU16::ZERO;
+        return summary;
+    }
+    // A full-width solid row: solid strip, its terminator, one block, and one or two instances.
+    let solid_row = |summary: &mut PathSummary, row: u16| {
+        summary.bbox.union(RectU16::new(0, row, vw_tiles, row + 1));
+        summary.strips += 2;
+        summary.blocks += 1;
+        summary.instances += 1 + u32::from(vw_tiles > 1);
+    };
     let mut tile_rows: Vec<u16> = Vec::new();
-    let mut row_state: Option<(u16, u16, u16, i32)> = None; // (y, min_x, max_x, winding)
-    let flush = |bbox: &mut RectU16, state: Option<(u16, u16, u16, i32)>| {
-        let Some((y, min_x, max_x, winding)) = state else {
-            return;
-        };
-        let row_fills = culled && should_fill(coarse(y as usize));
-        let x0 = if row_fills { 0 } else { min_x };
-        let x1 = if winding != 0 && should_fill(winding) {
-            vw_tiles
-        } else {
-            max_x + 1
-        };
-        bbox.union(RectU16::new(x0, y, x1, y + 1));
+    // State of the current row: y, min x, max x, winding before the current tile (including
+    // the row's coarse winding), x of the previous tile, and the tile after the last strip.
+    struct Row {
+        y: u16,
+        min_x: u16,
+        max_x: u16,
+        winding: i32,
+        prev_x: u16,
+        strip_end: u16,
+    }
+    let mut row: Option<Row> = None;
+    let flush = |summary: &mut PathSummary, row: &Row| {
+        let row_fills = culled && should_fill(coarse(row.y as usize));
+        let x0 = if row_fills { 0 } else { row.min_x };
+        let total = row.winding;
+        let mut x1 = row.max_x + 1;
+        if total != 0 {
+            summary.strips += 1;
+            if should_fill(total) {
+                x1 = vw_tiles;
+                summary.instances += u32::from(row.strip_end < vw_tiles);
+            }
+        }
+        summary.bbox.union(RectU16::new(x0, row.y, x1, row.y + 1));
     };
     for tile in tiles.iter() {
         let line = lines[tile.line_idx() as usize];
@@ -287,38 +363,93 @@ pub fn strip_bbox_from_tiles(
         } else {
             -1
         };
-        match &mut row_state {
-            Some((y, min_x, max_x, winding)) if *y == tile.y => {
-                *min_x = (*min_x).min(tile.x);
-                *max_x = (*max_x).max(tile.x);
-                *winding += d;
+        match &mut row {
+            Some(r) if r.y == tile.y => {
+                if tile.x != r.prev_x {
+                    // A new run; a new strip if not adjacent to the previous run.
+                    summary.blocks += 1;
+                    if tile.x != r.prev_x + 1 {
+                        summary.strips += 1;
+                        summary.instances += 1;
+                        if should_fill(r.winding) && r.strip_end < tile.x {
+                            summary.instances += 1;
+                        }
+                    }
+                    r.prev_x = tile.x;
+                    r.strip_end = tile.x + 1;
+                }
+                r.max_x = r.max_x.max(tile.x);
+                r.winding += d;
             }
             state => {
-                flush(&mut bbox, state.take());
+                if let Some(r) = state {
+                    flush(&mut summary, r);
+                }
                 tile_rows.push(tile.y);
-                *state = Some((tile.y, tile.x, tile.x, coarse(tile.y as usize) + d));
+                let c = coarse(tile.y as usize);
+                let captive = culled && should_fill(c) && tile.x != 0;
+                let mut strip_end = 0;
+                if captive {
+                    summary.strips += 1;
+                    summary.blocks += 1;
+                    summary.instances += 1;
+                    strip_end = 1;
+                }
+                // The first strip of the row.
+                summary.strips += 1;
+                summary.blocks += 1;
+                summary.instances += 1;
+                if should_fill(c) && tile.x != 0 && strip_end < tile.x {
+                    summary.instances += 1;
+                }
+                *state = Some(Row {
+                    y: tile.y,
+                    min_x: tile.x,
+                    max_x: tile.x,
+                    winding: c + d,
+                    prev_x: tile.x,
+                    strip_end: tile.x + 1,
+                });
             }
         }
     }
-    flush(&mut bbox, row_state.take());
+    if let Some(r) = &row {
+        flush(&mut summary, r);
+    }
     if culled {
         // Rows without tiles whose culled winding fills get a full-width solid strip.
-        tiles.windings.for_active_rows_in_range(0, rows, |row| {
-            if should_fill(coarse(row)) && tile_rows.binary_search(&(row as u16)).is_err() {
-                bbox.union(RectU16::new(0, row as u16, vw_tiles, row as u16 + 1));
+        tiles.windings.for_active_rows_in_range(0, rows, |r| {
+            if should_fill(coarse(r)) && tile_rows.binary_search(&(r as u16)).is_err() {
+                solid_row(&mut summary, r as u16);
             }
         });
     }
-    if bbox.is_empty() {
-        None
+    // The sentinel.
+    summary.strips += 1;
+    summary.bbox = if summary.bbox.is_empty() {
+        RectU16::ZERO
     } else {
-        Some(RectU16::new(
-            bbox.x0 * Tile::WIDTH,
-            bbox.y0 * Tile::HEIGHT,
-            bbox.x1 * Tile::WIDTH,
-            bbox.y1 * Tile::HEIGHT,
-        ))
-    }
+        RectU16::new(
+            summary.bbox.x0 * Tile::WIDTH,
+            summary.bbox.y0 * Tile::HEIGHT,
+            summary.bbox.x1 * Tile::WIDTH,
+            summary.bbox.y1 * Tile::HEIGHT,
+        )
+    };
+    summary
+}
+
+/// The bounding box that [`vello_common::util::strip_bbox`] computes for the output of
+/// `strip::render`, derived from the sorted tiles. See [`summarize_path_tiles`].
+pub fn strip_bbox_from_tiles(
+    tiles: &Tiles,
+    lines: &[Line],
+    fill_rule: Fill,
+    width: u16,
+    height: u16,
+) -> Option<vello_common::geometry::RectU16> {
+    let bbox = summarize_path_tiles(tiles, lines, fill_rule, width, height).bbox;
+    (!bbox.is_empty()).then_some(bbox)
 }
 
 /// Reports what [`StripInput::add_path`] did with a path.
@@ -510,7 +641,7 @@ impl StripInput {
             n_wg: (self.entries.len() as u32).div_ceil(SCAN_WG),
             max_strips: self.max_strips(),
             max_blocks: self.max_blocks(),
-            _pad: 0,
+            alpha_base_blocks: 0,
         }
     }
 
@@ -546,7 +677,7 @@ impl StripInput {
 
 #[cfg(test)]
 mod bbox_tests {
-    use super::strip_bbox_from_tiles;
+    use super::summarize_path_tiles;
     use super::test_util::{Scene, tiger_scene};
     use alloc::vec::Vec;
     use vello_common::fearless_simd::Level;
@@ -597,12 +728,32 @@ mod bbox_tests {
                 &lines,
             );
             let want = strip_bbox(&strips);
-            let got = strip_bbox_from_tiles(&tiles, &lines, p.fill, width, height);
             if tiles.is_empty() && tiles.has_culled_tiles() {
                 // Not representable without tiles; the caller falls back to the CPU.
                 continue;
             }
-            assert_eq!(got, want, "{what}: path {i}");
+            let summary = summarize_path_tiles(&tiles, &lines, p.fill, width, height);
+            let got = (!summary.bbox.is_empty()).then_some(summary.bbox);
+            assert_eq!(got, want, "{what}: path {i}: bbox");
+            assert_eq!(
+                summary.strips as usize,
+                strips.len(),
+                "{what}: path {i}: strips"
+            );
+            assert_eq!(
+                summary.blocks as usize * 16,
+                alphas.len(),
+                "{what}: path {i}: blocks"
+            );
+            let mut instances = 0;
+            strip::visit_strip_fill_segments(
+                &strips,
+                RectU16::new(0, 0, width.div_ceil(4), height.div_ceil(4)),
+                &mut instances,
+                |n, _| *n += 1,
+                |n, _| *n += 1,
+            );
+            assert_eq!(summary.instances, instances, "{what}: path {i}: instances");
         }
     }
 

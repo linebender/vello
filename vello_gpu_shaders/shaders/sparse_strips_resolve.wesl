@@ -42,7 +42,8 @@ fn resolve_strips(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
     let d = strip_descs[s];
-    strips[s] = vec2(d.xy, (d.block_start * TILE_PIXELS) | ((d.info & STRIP_FILL_GAP) << 29u));
+    let alpha_idx = (d.block_start + config.alpha_base_blocks) * TILE_PIXELS;
+    strips[s] = vec2(d.xy, alpha_idx | ((d.info & STRIP_FILL_GAP) << 29u));
 }
 
 // The strip owning alpha block `b`: the last descriptor whose `block_start <= b`. Terminator

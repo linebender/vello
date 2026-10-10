@@ -25,7 +25,7 @@
 //! conflict and the later operation is placed in a subsequent compatible round.
 
 use super::ScheduleBuffers;
-use crate::draw::{Draw, ExternalTextureRun};
+use crate::draw::{DirectDraw, Draw, ExternalTextureRun};
 use crate::filter::GpuFilterData;
 use crate::target::{
     BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
@@ -160,9 +160,12 @@ impl Round {
                 let target = self.texture_binding.layer_id(texture_parity);
                 let opposite = self.texture_binding.layer_id(texture_parity.opposite());
 
-                let draw = (pass.draw.strip_ranges.len() != 0).then(|| DrawPass {
+                let has_draw =
+                    pass.draw.strip_ranges.len() != 0 || !pass.draw.direct_draws.is_empty();
+                let draw = has_draw.then(|| DrawPass {
                     strips: buffers.draw_buffers.strips.ranged(&pass.draw.strip_ranges),
                     external_texture_runs: &pass.draw.external_texture_runs,
+                    direct_draws: &pass.draw.direct_draws,
                     bindings: DrawPassBindings::new(
                         DrawPassTarget::Layer(target.unwrap()),
                         pass.draw.has_child_layer.then(|| opposite.unwrap()),
@@ -194,7 +197,7 @@ impl Round {
         buffers: &'a ScheduleBuffers,
         target: RootTarget,
     ) -> Option<DrawPass<'a>> {
-        if self.root_draw.strip_ranges.len() == 0 {
+        if self.root_draw.strip_ranges.len() == 0 && self.root_draw.direct_draws.is_empty() {
             return None;
         }
 
@@ -209,6 +212,7 @@ impl Round {
                 .strips
                 .ranged(&self.root_draw.strip_ranges),
             external_texture_runs: &self.root_draw.external_texture_runs,
+            direct_draws: &self.root_draw.direct_draws,
             bindings: DrawPassBindings::new(DrawPassTarget::Root(target), child),
         })
     }
@@ -445,6 +449,7 @@ pub(super) struct LayerTexturePass {
 pub(super) struct DrawPass<'a> {
     pub(super) strips: RangedSlice<'a, GpuStrip>,
     pub(super) external_texture_runs: &'a [ExternalTextureRun],
+    pub(super) direct_draws: &'a [DirectDraw],
     pub(super) bindings: DrawPassBindings,
 }
 

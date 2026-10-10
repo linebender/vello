@@ -9,7 +9,9 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
+use crate::draw::{
+    DirectDraw, EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun,
+};
 use crate::render::common::IMAGE_PADDING;
 use crate::util::RangedSlice;
 use crate::{
@@ -429,7 +431,8 @@ impl Renderer {
             let pipelines = self.sparse_strips.get_or_insert_with(|| {
                 crate::sparse_strips::gpu::SparseStripPipelines::new(device)
             });
-            scene.resolve_gpu_strips(device, queue, pipelines);
+            let alpha_row_bytes = self.programs.resources.resource_texture_dimension_2d << 4;
+            scene.resolve_gpu_strips(device, queue, pipelines, alpha_row_bytes);
         }
         self.programs.depth_cleared_this_frame = false;
         self.prepare_gpu_encoded_paints(
@@ -473,10 +476,61 @@ impl Renderer {
             &mut self.gradient_cache,
             &self.encoded_paints,
             &mut scene.strip_storage.borrow_mut().alphas,
+            scene.gpu_alpha_upload_len(),
             render_size,
             &self.paint_idxs,
             &self.schedule_storage.filter_context,
         );
+        if scene.gpu_strips_enabled() {
+            // The GPU alphas go straight from the sparse strip buffers into the alpha texture,
+            // after the CPU upload above (which wrote zeros over their reserved rows).
+            let alpha_row_bytes = self.programs.resources.resource_texture_dimension_2d << 4;
+            if let Some((gpu, row, rows)) = scene.gpu_alpha_copy(alpha_row_bytes)
+                && rows > 0
+            {
+                let buffers = gpu
+                    .buffers
+                    .as_ref()
+                    .expect("resolved GPU strips have buffers");
+                // Build the strip instances of the paths drawn directly from GPU buffers, now
+                // that the scheduler has assigned their paints and depth indices.
+                let pipelines = self
+                    .sparse_strips
+                    .as_ref()
+                    .expect("pipelines exist once strips are resolved");
+                buffers.write_draw_info(
+                    queue,
+                    &self.schedule_storage.buffers.draw_buffers.gpu_draw_info,
+                );
+                pipelines.encode_instances(encoder, buffers);
+                let texture = &self.programs.resources.alphas_texture;
+                debug_assert!(
+                    row + rows <= texture.height(),
+                    "alpha texture holds GPU rows"
+                );
+                encoder.copy_buffer_to_texture(
+                    wgpu::TexelCopyBufferInfo {
+                        buffer: &buffers.alphas,
+                        layout: wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(alpha_row_bytes),
+                            rows_per_image: Some(rows),
+                        },
+                    },
+                    wgpu::TexelCopyTextureInfo {
+                        texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d { x: 0, y: row, z: 0 },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    Extent3d {
+                        width: texture.width(),
+                        height: rows,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+        }
 
         let strip_count = self
             .schedule_storage
@@ -490,6 +544,11 @@ impl Renderer {
             .strips_arena
             .begin_frame(device, (strip_count * size_of::<GpuStrip>()) as u64);
 
+        let gpu_strips = scene.gpu_strips.as_ref().map(|gpu| gpu.borrow());
+        let gpu_instances = gpu_strips
+            .as_deref()
+            .and_then(|gpu| gpu.buffers.as_ref())
+            .map(|buffers| &buffers.instances);
         let mut ctx = RendererContext {
             programs: &mut self.programs,
             device,
@@ -501,6 +560,7 @@ impl Renderer {
             external_texture_bind_groups: HashMap::new(),
             scratch_buffers: &mut self.scratch_buffers,
             root_load_op: wgpu::LoadOp::Load,
+            gpu_instances,
         };
 
         ctx.init_root_clear(target_init, root_output_target);
@@ -2154,6 +2214,7 @@ impl Programs {
         gradient_cache: &mut GradientRampCache,
         encoded_paints: &[GpuEncodedPaint],
         alphas: &mut Vec<u8>,
+        alpha_upload_len: Option<usize>,
         new_render_size: &RenderSize,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
@@ -2164,7 +2225,7 @@ impl Programs {
         self.maybe_resize_filter_tex(device, resource_texture_dimension_2d, filter_context);
         self.maybe_update_config_buffer(queue, resource_texture_dimension_2d, new_render_size);
 
-        self.upload_alpha_texture(queue, alphas);
+        self.upload_alpha_texture(queue, alphas, alpha_upload_len);
         self.upload_encoded_paints_texture(queue, encoded_paints, paint_idxs);
         self.upload_filter_texture(queue, filter_context);
 
@@ -2384,23 +2445,33 @@ impl Programs {
     }
 
     /// Upload alpha data to the texture.
-    fn upload_alpha_texture(&mut self, queue: &Queue, alphas: &mut Vec<u8>) {
-        if alphas.is_empty() {
+    ///
+    /// `upload_len` limits the upload to a prefix of `alphas` (a region the GPU writes itself
+    /// may follow it); the texture is still sized for all of them.
+    fn upload_alpha_texture(
+        &mut self,
+        queue: &Queue,
+        alphas: &mut Vec<u8>,
+        upload_len: Option<usize>,
+    ) {
+        let upload_len = upload_len.unwrap_or(alphas.len()).min(alphas.len());
+        if upload_len == 0 {
             return;
         }
 
         let texture_width = self.resources.alphas_texture.width();
         let texture_height = self.resources.alphas_texture.height();
         let row_bytes = (texture_width << 4) as usize;
-        let rows = alphas
-            .len()
-            .div_ceil(row_bytes)
-            .min(texture_height as usize);
+        let rows = upload_len.div_ceil(row_bytes).min(texture_height as usize);
 
         let original_len = alphas.len();
 
-        // Temporarily pad the last row with zeros before uploading.
-        alphas.resize(rows * row_bytes, 0);
+        // Temporarily pad the last row with zeros before uploading, if the buffer ends inside
+        // it.
+        if alphas.len() < rows * row_bytes {
+            alphas.resize(rows * row_bytes, 0);
+        }
+        let upload = &alphas[..rows * row_bytes];
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -2409,7 +2480,7 @@ impl Programs {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            alphas,
+            upload,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), which is equivalent to
@@ -2600,6 +2671,8 @@ struct RendererContext<'a> {
     external_texture_bind_groups: HashMap<ExternalTextureBindings, BindGroup>,
     scratch_buffers: &'a mut ScratchBuffers,
     root_load_op: wgpu::LoadOp<wgpu::Color>,
+    /// GPU-built strip instances of the scene's directly drawn paths.
+    gpu_instances: Option<&'a Buffer>,
 }
 
 impl RendererContext<'_> {
@@ -2683,13 +2756,14 @@ impl RendererContext<'_> {
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
+        direct_draws: &[DirectDraw],
         target: DrawPassTarget,
         child_layer_texture: Option<LayerTextureId>,
     ) {
         let opaque_count = opaque_strips.len();
         let alpha_count = alpha_strips.len();
 
-        if opaque_count == 0 && alpha_count == 0 {
+        if opaque_count == 0 && alpha_count == 0 && direct_draws.is_empty() {
             return;
         }
         // Create bind groups for all external textures used by this pass.
@@ -2792,40 +2866,50 @@ impl RendererContext<'_> {
         render_pass.set_bind_group(0, bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
-        render_pass.set_vertex_buffer(
-            0,
-            self.programs
-                .strips_arena
-                .buffer
-                .slice(strips_range.clone()),
-        );
+        let arena_slice = self
+            .programs
+            .strips_arena
+            .buffer
+            .slice(strips_range.clone());
+        if !strips_range.is_empty() {
+            render_pass.set_vertex_buffer(0, arena_slice);
+        }
 
-        let draw_strip_runs = |render_pass: &mut wgpu::RenderPass<'_>, first_instance, count| {
+        // Draw the strips `[start, end)` of a group of `count` strips beginning at
+        // `first_instance` in the arena, split by external texture runs (which go from
+        // `run.strips_start` to the next run's `strips_start`, or to `count`).
+        let draw_segment = |render_pass: &mut wgpu::RenderPass<'_>,
+                            first_instance: u32,
+                            count: u32,
+                            start: u32,
+                            end: u32| {
+            if start >= end {
+                return;
+            }
             if external_texture_runs.is_empty() {
                 render_pass.set_bind_group(
                     1,
                     &self.programs.resources.empty_external_texture_bind_group,
                     &[],
                 );
-                render_pass.draw(0..4, first_instance..first_instance + count);
-
+                render_pass.draw(0..4, first_instance + start..first_instance + end);
                 return;
             }
-
-            // Each run is drawn with different external texture bindings. Runs go from
-            // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
-            // the strips buffer.
             for (i, run) in external_texture_runs.iter().enumerate() {
+                let run_start = u32::try_from(run.strips_start).unwrap();
+                let run_end = external_texture_runs
+                    .get(i + 1)
+                    .map_or(count, |next| u32::try_from(next.strips_start).unwrap());
+                let (s, e) = (run_start.max(start), run_end.min(end));
+                if s >= e {
+                    continue;
+                }
                 let external_texture_bind_group = self
                     .external_texture_bind_groups
                     .get(&run.bindings)
                     .unwrap();
                 render_pass.set_bind_group(1, external_texture_bind_group, &[]);
-                let start = u32::try_from(run.strips_start).unwrap();
-                let end = external_texture_runs
-                    .get(i + 1)
-                    .map_or(count, |next| u32::try_from(next.strips_start).unwrap());
-                render_pass.draw(0..4, first_instance + start..first_instance + end);
+                render_pass.draw(0..4, first_instance + s..first_instance + e);
             }
         };
 
@@ -2836,10 +2920,10 @@ impl RendererContext<'_> {
                 "opaque strips require the final view depth attachment"
             );
             render_pass.set_pipeline(&self.programs.opaque_strip_pipeline);
-            draw_strip_runs(&mut render_pass, 0, opaque_count);
+            draw_segment(&mut render_pass, 0, opaque_count, 0, opaque_count);
         }
 
-        if alpha_count > 0 {
+        if alpha_count > 0 || !direct_draws.is_empty() {
             // Alpha pass
             if matches!(target, DrawPassTarget::Root(RootTarget::UserSurface)) {
                 let pipeline = if enable_opaque {
@@ -2852,7 +2936,37 @@ impl RendererContext<'_> {
                 render_pass.set_pipeline(&self.programs.intermediate_strip_pipeline);
             }
 
-            draw_strip_runs(&mut render_pass, opaque_count, alpha_count);
+            // CPU strips and GPU-built direct draws interleave in painter's order.
+            let mut pos = 0;
+            for direct in direct_draws {
+                let at = u32::try_from(direct.strips_start).unwrap();
+                draw_segment(&mut render_pass, opaque_count, alpha_count, pos, at);
+                pos = at;
+                if direct.instance_count == 0 {
+                    continue;
+                }
+                let instances = self
+                    .gpu_instances
+                    .expect("direct draws require the scene's GPU instance buffer");
+                render_pass.set_bind_group(
+                    1,
+                    &self.programs.resources.empty_external_texture_bind_group,
+                    &[],
+                );
+                let offset = u64::from(direct.instance_base) * size_of::<GpuStrip>() as u64;
+                render_pass.set_vertex_buffer(0, instances.slice(offset..));
+                render_pass.draw(0..4, 0..direct.instance_count);
+                if !strips_range.is_empty() {
+                    render_pass.set_vertex_buffer(0, arena_slice);
+                }
+            }
+            draw_segment(
+                &mut render_pass,
+                opaque_count,
+                alpha_count,
+                pos,
+                alpha_count,
+            );
         }
     }
 
@@ -3117,6 +3231,7 @@ impl Backend for RendererContext<'_> {
             strips,
             RangedSlice::empty(),
             external_texture_runs,
+            &[],
             DrawPassTarget::Root(RootTarget::UserSurface),
             None,
         );
@@ -3128,12 +3243,14 @@ impl Backend for RendererContext<'_> {
         &mut self,
         strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
+        direct_draws: &[DirectDraw],
         bindings: DrawPassBindings,
     ) -> Result<(), Self::Error> {
         self.strip_pass_inner(
             &[],
             strips,
             external_texture_runs,
+            direct_draws,
             bindings.target,
             bindings.child,
         );

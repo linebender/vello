@@ -35,7 +35,7 @@ use vello_common::util::{RectExt, into_fast_path_rect, strip_bbox};
 use vello_common::viewport::ViewportState;
 
 #[cfg(feature = "wgpu")]
-use crate::sparse_strips::{AddPath, StripInput, strip_bbox_from_tiles};
+use crate::sparse_strips::{AddPath, PathSummary, StripInput, summarize_path_tiles};
 #[cfg(feature = "wgpu")]
 use vello_common::clip::PathDataRef;
 
@@ -291,6 +291,9 @@ pub struct Scene {
     /// State of GPU strip generation, when enabled.
     #[cfg(feature = "wgpu")]
     pub(crate) gpu_strips: Option<RefCell<GpuStrips>>,
+    /// Number of currently pushed layers.
+    #[cfg(feature = "wgpu")]
+    layer_depth: usize,
 }
 
 /// Paths whose strips are generated on the GPU, and the result once resolved.
@@ -309,6 +312,22 @@ pub(crate) struct GpuStrips {
     pub(crate) ranges: Vec<Range<usize>>,
     /// Whether the GPU strips of this recording have been produced.
     resolved: bool,
+    /// The GPU buffers of the resolved recording; the renderer copies their alphas into the
+    /// alpha texture.
+    pub(crate) buffers: Option<crate::sparse_strips::gpu::SparseStripBuffers>,
+    /// Byte offset in the scene's alphas at which the GPU alphas start (a multiple of the alpha
+    /// texture row size).
+    pub(crate) alpha_base: usize,
+    /// Per GPU path, what its strips will be (exact counts and bounding box).
+    summaries: Vec<PathSummary>,
+    /// Per GPU path, whether it is drawn directly from GPU-built instances (root level, solid
+    /// paint, no clip) rather than through read-back strips.
+    direct: Vec<bool>,
+    /// Per GPU path, its `(instance base, instance count)` when direct, computed at resolve.
+    pub(crate) instance_spans: Vec<Option<[u32; 2]>>,
+    /// How many bytes of the scene's alphas the renderer must upload: up to the GPU alpha
+    /// region when nothing follows it, since the GPU writes that region itself.
+    pub(crate) alpha_upload_len: Option<usize>,
 }
 
 /// The strips of a clip path at the time a GPU path was recorded under it.
@@ -330,7 +349,18 @@ impl GpuStrips {
             snapshots: Vec::new(),
             ranges: Vec::new(),
             resolved: false,
+            buffers: None,
+            alpha_base: 0,
+            summaries: Vec::new(),
+            direct: Vec::new(),
+            instance_spans: Vec::new(),
+            alpha_upload_len: None,
         }
+    }
+
+    /// Whether any path needs its strips on the CPU (clipped, non-solid paint, or in a layer).
+    fn needs_readback(&self) -> bool {
+        self.direct.iter().any(|direct| !direct)
     }
 
     fn reset(&mut self, width: u16, height: u16) {
@@ -341,6 +371,12 @@ impl GpuStrips {
         self.snapshots.clear();
         self.ranges.clear();
         self.resolved = false;
+        // `buffers` is kept and reused by the next resolve.
+        self.alpha_base = 0;
+        self.alpha_upload_len = None;
+        self.summaries.clear();
+        self.direct.clear();
+        self.instance_spans.clear();
     }
 
     /// Index of the snapshot of the current clip, taking it if this clip has not been seen.
@@ -387,6 +423,8 @@ impl Scene {
             level,
             #[cfg(feature = "wgpu")]
             gpu_strips: None,
+            #[cfg(feature = "wgpu")]
+            layer_depth: 0,
         }
     }
 
@@ -432,6 +470,8 @@ impl Scene {
         let clip_key = self.viewport_state.clip_key();
         let (width, height) = (self.width, self.height);
         let strip_storage = &self.strip_storage;
+        // Only root-level, unclipped, solid-paint paths are drawn straight from GPU buffers.
+        let direct_paint = matches!(paint, Paint::Solid(_)) && self.layer_depth == 0;
         let outcome = self
             .viewport_state
             .with_generator_and_clip(|generator, clip| {
@@ -462,19 +502,21 @@ impl Scene {
                         Outcome::Cpu(start..strip_storage.strips.len())
                     }
                     AddPath::Added => {
-                        let mut bbox = strip_bbox_from_tiles(
+                        let summary = summarize_path_tiles(
                             generator.tiles(),
                             generator.lines(),
                             fill_rule,
                             width,
                             height,
-                        )
-                        .unwrap_or(RectU16::ZERO);
+                        );
+                        let mut bbox = summary.bbox;
                         let snapshot = clip.map(|clip| {
                             // The intersection's bbox is at most the path's within the clip's.
                             bbox = bbox.intersect(clip.path.bbox);
                             gpu.snapshot(clip_key, clip.path)
                         });
+                        gpu.direct.push(direct_paint && snapshot.is_none());
+                        gpu.summaries.push(summary);
                         gpu.clips.push(snapshot);
                         Outcome::Gpu(gpu.clips.len() as u32 - 1, bbox)
                     }
@@ -500,8 +542,12 @@ impl Scene {
 
     /// Produce the strips of all recorded GPU paths and append them to the strip storage.
     ///
-    /// Runs the GPU passes synchronously and reads the result back. Paths recorded under a
-    /// clip are intersected with the clip's strips on the CPU. Idempotent per recording.
+    /// Submits the GPU passes. When some path needs its strips on the CPU (clipped, non-solid
+    /// paint, or in a layer), waits for them and reads the strips back; the alphas stay on the GPU
+    /// and the renderer copies them into the alpha texture, at `alpha_row_bytes`-aligned rows
+    /// after the CPU alphas (the scene's alpha buffer is padded to reserve that region). Paths
+    /// recorded under a clip are intersected with the clip's strips on the CPU, which needs
+    /// their alphas read back too. Idempotent per recording.
     #[cfg(feature = "wgpu")]
     #[expect(
         clippy::cast_possible_truncation,
@@ -512,7 +558,9 @@ impl Scene {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         pipelines: &crate::sparse_strips::gpu::SparseStripPipelines,
+        alpha_row_bytes: u32,
     ) {
+        use crate::sparse_strips::TILE_PIXELS;
         let Some(gpu_cell) = &self.gpu_strips else {
             return;
         };
@@ -521,25 +569,91 @@ impl Scene {
             return;
         }
         gpu.resolved = true;
-        let out = crate::sparse_strips::gpu::render_blocking(device, queue, pipelines, &gpu.input);
-        let mut storage = self.strip_storage.borrow_mut();
-        let alpha_base = storage.alphas.len() as u32;
-        storage.alphas.extend_from_slice(&out.alphas);
-        let unclipped_bbox = RectU16::new(0, 0, u16::MAX, u16::MAX);
         let gpu = &mut *gpu;
         gpu.ranges.clear();
+        if gpu.input.entries.is_empty() {
+            return;
+        }
+        let mut storage = self.strip_storage.borrow_mut();
+        let row_bytes = alpha_row_bytes.max(TILE_PIXELS) as usize;
+
+        // Reserve the GPU alpha region: row-aligned, sized to the block bound.
+        let alpha_base = storage.alphas.len().next_multiple_of(row_bytes);
+        storage.alphas.resize(alpha_base, 0);
+        // Direct paths get contiguous instance slots in path order; the scheduler draws each
+        // span with a plain instanced draw.
+        gpu.instance_spans.clear();
+        let mut n_instances = 0_u32;
+        for (summary, direct) in gpu.summaries.iter().zip(&gpu.direct) {
+            if *direct {
+                gpu.instance_spans
+                    .push(Some([n_instances, summary.instances]));
+                n_instances += summary.instances;
+            } else {
+                gpu.instance_spans.push(None);
+            }
+        }
+        let buffers = pipelines.prepare_buffers(
+            device,
+            queue,
+            gpu.buffers.take(),
+            &gpu.input,
+            (alpha_base / TILE_PIXELS as usize) as u32,
+            alpha_row_bytes,
+            n_instances,
+        );
+        storage
+            .alphas
+            .resize(alpha_base + buffers.alpha_rows as usize * row_bytes, 0);
+        gpu.alpha_base = alpha_base;
+        gpu.alpha_upload_len = Some(alpha_base);
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("sparse strips"),
+        });
+        pipelines.encode(&mut encoder, &buffers);
+        if !gpu.needs_readback() {
+            // Everything is drawn from GPU buffers: submit the passes now so that the GPU
+            // produces the strips while the CPU schedules the frame, and never wait for them.
+            queue.submit([encoder.finish()]);
+            gpu.buffers = Some(buffers);
+            gpu.ranges.resize(gpu.input.paths.len(), 0..0);
+            return;
+        }
+        let needs_alphas = gpu.clips.iter().any(Option::is_some);
+        let out =
+            crate::sparse_strips::gpu::read_back(device, queue, encoder, &buffers, needs_alphas);
+        let buffers_alpha_bytes = buffers.alpha_rows as usize * row_bytes;
+        gpu.buffers = Some(buffers);
+        for (path, summary) in out.paths.iter().zip(&gpu.summaries) {
+            debug_assert_eq!(
+                (
+                    path.strip_end - path.strip_start,
+                    path.block_end - path.block_start
+                ),
+                (summary.strips, summary.blocks),
+                "CPU path summary matches the GPU allocation"
+            );
+        }
+
+        let unclipped_bbox = RectU16::new(0, 0, u16::MAX, u16::MAX);
+        let alpha_base_u32 = alpha_base as u32;
         for (path, clip) in out.paths.iter().zip(&gpu.clips) {
             let range = path.strip_start as usize..path.strip_end as usize;
             let start = storage.strips.len();
             match clip {
-                None => {
-                    storage.strips.extend(out.strips[range].iter().map(|strip| {
-                        let mut strip = *strip;
-                        strip.set_alpha_idx(strip.alpha_idx() + alpha_base);
-                        strip
-                    }));
-                }
+                None => storage.strips.extend_from_slice(&out.strips[range]),
                 Some(snapshot) => {
+                    // The intersection reads alphas relative to the path's own buffer, so
+                    // present the GPU strips with their alpha indices rebased to it.
+                    let rebased: Vec<Strip> = out.strips[range]
+                        .iter()
+                        .map(|strip| {
+                            let mut strip = *strip;
+                            strip.set_alpha_idx(strip.alpha_idx() - alpha_base_u32);
+                            strip
+                        })
+                        .collect();
                     let snapshot = &gpu.snapshots[*snapshot];
                     vello_common::clip::intersect(
                         self.level,
@@ -549,7 +663,7 @@ impl Scene {
                             bbox: snapshot.bbox,
                         },
                         PathDataRef {
-                            strips: &out.strips[range],
+                            strips: &rebased,
                             alphas: &out.alphas,
                             bbox: unclipped_bbox,
                         },
@@ -559,6 +673,37 @@ impl Scene {
             }
             gpu.ranges.push(start..storage.strips.len());
         }
+        if storage.alphas.len() > alpha_base + buffers_alpha_bytes {
+            // Intersections appended alphas after the GPU region; upload everything.
+            gpu.alpha_upload_len = None;
+        }
+    }
+
+    /// How many bytes of the scene's alphas the renderer must upload (the rest is written by
+    /// the GPU), or `None` for all of them.
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn gpu_alpha_upload_len(&self) -> Option<usize> {
+        self.gpu_strips
+            .as_ref()
+            .and_then(|gpu| gpu.borrow().alpha_upload_len)
+    }
+
+    /// The GPU alpha copy the renderer must perform after uploading the CPU alphas: the
+    /// buffer, the first alpha texture row to write, and the number of rows.
+    #[cfg(feature = "wgpu")]
+    #[expect(clippy::cast_possible_truncation, reason = "texture rows are u32")]
+    pub(crate) fn gpu_alpha_copy(
+        &self,
+        alpha_row_bytes: u32,
+    ) -> Option<(core::cell::Ref<'_, GpuStrips>, u32, u32)> {
+        let gpu = self.gpu_strips.as_ref()?.borrow();
+        if !gpu.resolved || gpu.input.entries.is_empty() {
+            return None;
+        }
+        gpu.buffers.as_ref()?;
+        let row = (gpu.alpha_base / alpha_row_bytes.max(1) as usize) as u32;
+        let rows = gpu.buffers.as_ref().map_or(0, |b| b.alpha_rows);
+        Some((gpu, row, rows))
     }
 
     fn active_rect(&self) -> Rect {
@@ -996,6 +1141,10 @@ impl Scene {
         if let Some(filter_plan) = &filter_data {
             self.viewport_state.push_root_viewport(filter_plan);
         }
+        #[cfg(feature = "wgpu")]
+        {
+            self.layer_depth += 1;
+        }
 
         let clip_path = clip_path.map(|path| {
             let mut strip_storage = self.strip_storage.borrow_mut();
@@ -1070,6 +1219,10 @@ impl Scene {
             self.viewport_state.pop_root_viewport();
         }
         self.root_transforms.pop_root();
+        #[cfg(feature = "wgpu")]
+        {
+            self.layer_depth = self.layer_depth.saturating_sub(1);
+        }
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -1208,8 +1361,11 @@ impl Scene {
         self.recorder.reset(self.width, self.height);
         self.filter = None;
         #[cfg(feature = "wgpu")]
-        if let Some(gpu) = &self.gpu_strips {
-            gpu.borrow_mut().reset(self.width, self.height);
+        {
+            if let Some(gpu) = &self.gpu_strips {
+                gpu.borrow_mut().reset(self.width, self.height);
+            }
+            self.layer_depth = 0;
         }
     }
 

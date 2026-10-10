@@ -175,7 +175,7 @@ fn main() {
     let mut best = f64::MAX;
     for _ in 0..iterations {
         let t0 = Instant::now();
-        let buffers = pipelines.create_buffers(&device, &input);
+        let buffers = pipelines.create_buffers(&device, &queue, &input, 0, 0, 0);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         pipelines.encode(&mut encoder, &buffers);
@@ -207,7 +207,7 @@ fn main() {
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let buffers = pipelines.create_buffers(&device, &input);
+        let buffers = pipelines.create_buffers(&device, &queue, &input, 0, 0, 0);
         let period = f64::from(queue.get_timestamp_period());
         let timed_iterations = 50;
         let mut samples: Vec<Vec<f64>> = vec![Vec::new(); PASS_COUNT];
@@ -247,11 +247,11 @@ fn main() {
         println!("GPU: adapter has no timestamp queries; per-pass timing unavailable");
     }
 
-    let buffers = pipelines.create_buffers(&device, &input);
+    let buffers = pipelines.create_buffers(&device, &queue, &input, 0, 0, 0);
     let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     pipelines.encode(&mut encoder, &buffers);
-    let out = read_back(&device, &queue, encoder, &buffers);
+    let out = read_back(&device, &queue, encoder, &buffers, true);
 
     let t0 = Instant::now();
     let (model_strips, model_alphas) = model::render(&input);

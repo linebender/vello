@@ -3,10 +3,9 @@
 
 //! wgpu driver of the GPU sparse strip passes.
 
-use super::{ACC_WORDS, GpuPathInfo, GpuStripDesc, MERGE_WG, StripInput, TILE_PIXELS};
+use super::{ACC_WORDS, GpuDrawInfo, GpuPathInfo, GpuStripDesc, MERGE_WG, StripInput, TILE_PIXELS};
 use alloc::vec::Vec;
 use vello_common::strip::Strip;
-use wgpu::util::DeviceExt;
 
 /// Byte size of one [`super::model::Agg`] in a storage buffer (two `vec2<u32>` plus five
 /// scalars, rounded up to the 8-byte alignment).
@@ -22,12 +21,14 @@ pub struct SparseStripPipelines {
     alloc_layout: wgpu::BindGroupLayout,
     merge_layout: wgpu::BindGroupLayout,
     resolve_layout: wgpu::BindGroupLayout,
+    instances_layout: wgpu::BindGroupLayout,
     reduce: wgpu::ComputePipeline,
     scan: wgpu::ComputePipeline,
     alloc: wgpu::ComputePipeline,
     merge: wgpu::ComputePipeline,
     resolve_strips: wgpu::ComputePipeline,
     resolve_blocks: wgpu::ComputePipeline,
+    instances: wgpu::ComputePipeline,
 }
 
 /// The buffers and bind groups of one input.
@@ -43,8 +44,15 @@ pub struct SparseStripBuffers {
     pub indirect: wgpu::Buffer,
     /// Capacity of `strips`, in strips.
     pub max_strips: u32,
+    /// Strip instances of the paths drawn directly from the GPU (`GpuStrip` layout), built
+    /// by [`SparseStripPipelines::encode_instances`].
+    pub instances: wgpu::Buffer,
+    /// Per-path draw information, written with [`SparseStripBuffers::write_draw_info`].
+    pub draw_info: wgpu::Buffer,
     /// Capacity of `alphas`, in blocks.
     pub max_blocks: u32,
+    /// Number of alpha texture rows `alphas` covers (its size is this many rows).
+    pub alpha_rows: u32,
     n_paths: u32,
     n_entries: u32,
     n_wg: u32,
@@ -53,6 +61,99 @@ pub struct SparseStripBuffers {
     alloc_group: wgpu::BindGroup,
     merge_group: wgpu::BindGroup,
     resolve_group: wgpu::BindGroup,
+    instances_group: wgpu::BindGroup,
+    counters: wgpu::Buffer,
+    caps: Capacities,
+    config: wgpu::Buffer,
+    aux: wgpu::Buffer,
+    entries: wgpu::Buffer,
+    lines: wgpu::Buffer,
+}
+
+/// Element capacities of a [`SparseStripBuffers`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Capacities {
+    paths: u64,
+    aux_words: u64,
+    entries: u64,
+    lines: u64,
+    wg: u64,
+    strips: u64,
+    blocks: u64,
+    alpha_rows: u64,
+    instances: u64,
+}
+
+impl Capacities {
+    fn for_input(
+        config: &super::GpuConfig,
+        input: &StripInput,
+        alpha_row_bytes: u32,
+        n_instances: u32,
+    ) -> Self {
+        Self {
+            paths: input.paths.len() as u64,
+            aux_words: input.aux.len() as u64,
+            entries: u64::from(config.n_entries),
+            lines: input.lines.len() as u64,
+            wg: u64::from(config.n_wg),
+            strips: u64::from(config.max_strips),
+            blocks: u64::from(config.max_blocks),
+            alpha_rows: (u64::from(config.max_blocks) * u64::from(TILE_PIXELS))
+                .div_ceil(u64::from(alpha_row_bytes.max(TILE_PIXELS))),
+            instances: u64::from(n_instances),
+        }
+    }
+
+    fn fits(&self, needed: &Self) -> bool {
+        self.paths >= needed.paths
+            && self.aux_words >= needed.aux_words
+            && self.entries >= needed.entries
+            && self.lines >= needed.lines
+            && self.wg >= needed.wg
+            && self.strips >= needed.strips
+            && self.blocks >= needed.blocks
+            && self.alpha_rows >= needed.alpha_rows
+            && self.instances >= needed.instances
+    }
+}
+
+impl SparseStripBuffers {
+    /// Upload `input` and set the per-frame sizes. The buffers must have capacity for it.
+    fn upload(
+        &mut self,
+        queue: &wgpu::Queue,
+        input: &StripInput,
+        alpha_base_blocks: u32,
+        alpha_row_bytes: u32,
+    ) {
+        let mut config = input.config();
+        config.alpha_base_blocks = alpha_base_blocks;
+        let write = |buffer: &wgpu::Buffer, data: &[u8]| {
+            if !data.is_empty() {
+                queue.write_buffer(buffer, 0, data);
+            }
+        };
+        write(&self.config, bytemuck::bytes_of(&config));
+        write(&self.paths, bytemuck::cast_slice(&input.paths));
+        write(&self.aux, bytemuck::cast_slice(&input.aux));
+        write(&self.entries, bytemuck::cast_slice(&input.entries));
+        write(&self.lines, bytemuck::cast_slice(&input.lines));
+        self.max_strips = config.max_strips;
+        self.max_blocks = config.max_blocks;
+        self.alpha_rows = (u64::from(config.max_blocks) * u64::from(TILE_PIXELS))
+            .div_ceil(u64::from(alpha_row_bytes.max(TILE_PIXELS))) as u32;
+        self.n_paths = config.n_paths;
+        self.n_entries = config.n_entries;
+        self.n_wg = config.n_wg;
+    }
+
+    /// Upload the per-path draw information before [`SparseStripPipelines::encode_instances`].
+    pub fn write_draw_info(&self, queue: &wgpu::Queue, draw_info: &[GpuDrawInfo]) {
+        if !draw_info.is_empty() {
+            queue.write_buffer(&self.draw_info, 0, bytemuck::cast_slice(draw_info));
+        }
+    }
 }
 
 fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
@@ -113,6 +214,16 @@ impl SparseStripPipelines {
             ],
         });
 
+        let instances_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("sparse strips instances"),
+            entries: &[
+                storage_entry(0, true),
+                storage_entry(1, true),
+                storage_entry(2, false),
+                storage_entry(3, false),
+            ],
+        });
+
         let make = |label: &str, source: &str, layout: &wgpu::BindGroupLayout, entry: &str| {
             let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(label),
@@ -154,99 +265,123 @@ impl SparseStripPipelines {
             &resolve_layout,
             "resolve_blocks",
         );
+        let instances = make(
+            "sparse strips instances",
+            vello_gpu_shaders::wgsl::SPARSE_STRIPS_INSTANCES,
+            &instances_layout,
+            "build_instances",
+        );
         Self {
             input_layout,
             alloc_layout,
             merge_layout,
             resolve_layout,
+            instances_layout,
             reduce,
             scan,
             alloc,
             merge,
             resolve_strips,
             resolve_blocks,
+            instances,
         }
     }
 
-    /// Upload an input and allocate the output buffers.
-    pub fn create_buffers(&self, device: &wgpu::Device, input: &StripInput) -> SparseStripBuffers {
+    /// Allocate buffers for an input and upload it.
+    ///
+    /// `alpha_base_blocks` is added to the strips' alpha indices, and the alpha buffer is sized
+    /// to a multiple of `alpha_row_bytes` so that it can be copied into the renderer's alpha
+    /// texture row by row (see [`SparseStripBuffers::alpha_rows`]). `n_instances` is the
+    /// capacity of the instance buffer. Prefer [`Self::prepare_buffers`], which reuses buffers
+    /// across frames.
+    pub fn create_buffers(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        input: &StripInput,
+        alpha_base_blocks: u32,
+        alpha_row_bytes: u32,
+        n_instances: u32,
+    ) -> SparseStripBuffers {
         let config = input.config();
-        let upload = |label: &str, data: &[u8], extra: wgpu::BufferUsages| {
-            // Buffers cannot be empty.
-            let data = if data.is_empty() { &[0_u8; 16] } else { data };
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(label),
-                contents: data,
-                usage: wgpu::BufferUsages::STORAGE | extra,
-            })
-        };
-        let scratch = |label: &str, size: u64, extra: wgpu::BufferUsages| {
+        let caps = Capacities::for_input(&config, input, alpha_row_bytes, n_instances);
+        let make = |label: &str, size: u64, usage: wgpu::BufferUsages| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
                 size: size.max(16),
-                usage: wgpu::BufferUsages::STORAGE | extra,
+                usage,
                 mapped_at_creation: false,
             })
         };
-        let config_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("sparse strips config"),
-            contents: bytemuck::bytes_of(&config),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-        let paths = upload(
+        let storage = wgpu::BufferUsages::STORAGE;
+        let config_buf = make(
+            "sparse strips config",
+            size_of::<super::GpuConfig>() as u64,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+        let paths = make(
             "sparse strips paths",
-            bytemuck::cast_slice(&input.paths),
-            wgpu::BufferUsages::COPY_SRC,
+            caps.paths * size_of::<GpuPathInfo>() as u64,
+            storage | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         );
-        let aux = upload(
+        let aux = make(
             "sparse strips aux",
-            bytemuck::cast_slice(&input.aux),
-            wgpu::BufferUsages::empty(),
+            caps.aux_words * 4,
+            storage | wgpu::BufferUsages::COPY_DST,
         );
-        let entries = upload(
+        let entries = make(
             "sparse strips entries",
-            bytemuck::cast_slice(&input.entries),
-            wgpu::BufferUsages::empty(),
+            caps.entries * 8,
+            storage | wgpu::BufferUsages::COPY_DST,
         );
-        let lines = upload(
+        let lines = make(
             "sparse strips lines",
-            bytemuck::cast_slice(&input.lines),
-            wgpu::BufferUsages::empty(),
+            caps.lines * 16,
+            storage | wgpu::BufferUsages::COPY_DST,
         );
-        let wg_aggs = scratch(
-            "sparse strips wg aggs",
-            u64::from(config.n_wg) * AGG_SIZE,
-            wgpu::BufferUsages::empty(),
-        );
-        let entry_block = scratch(
-            "sparse strips entry block",
-            u64::from(config.n_entries) * 4,
-            wgpu::BufferUsages::empty(),
-        );
-        let strip_descs = scratch(
+        let wg_aggs = make("sparse strips wg aggs", caps.wg * AGG_SIZE, storage);
+        let entry_block = make("sparse strips entry block", caps.entries * 4, storage);
+        let strip_descs = make(
             "sparse strips descs",
-            u64::from(config.max_strips) * size_of::<GpuStripDesc>() as u64,
-            wgpu::BufferUsages::empty(),
+            caps.strips * size_of::<GpuStripDesc>() as u64,
+            storage,
         );
-        let indirect = scratch(
+        let indirect = make(
             "sparse strips indirect",
             INDIRECT_WORDS * 4,
-            wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_SRC,
+            storage | wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_SRC,
         );
-        let acc = scratch(
+        let acc = make(
             "sparse strips acc",
-            u64::from(config.max_blocks) * u64::from(ACC_WORDS) * 4,
-            wgpu::BufferUsages::COPY_DST,
+            caps.blocks * u64::from(ACC_WORDS) * 4,
+            storage | wgpu::BufferUsages::COPY_DST,
         );
-        let strips = scratch(
+        let strips = make(
             "sparse strips strips",
-            u64::from(config.max_strips) * 8,
-            wgpu::BufferUsages::COPY_SRC,
+            caps.strips * 8,
+            storage | wgpu::BufferUsages::COPY_SRC,
         );
-        let alphas = scratch(
+        let alphas = make(
             "sparse strips alphas",
-            u64::from(config.max_blocks) * u64::from(TILE_PIXELS),
-            wgpu::BufferUsages::COPY_SRC,
+            caps.alpha_rows * u64::from(alpha_row_bytes.max(TILE_PIXELS)),
+            storage | wgpu::BufferUsages::COPY_SRC,
+        );
+        // At least one element, so that the shader's array binding is valid when nothing is
+        // drawn directly.
+        let instances = make(
+            "sparse strips instances",
+            caps.instances.max(1) * size_of::<crate::GpuStrip>() as u64,
+            storage | wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_SRC,
+        );
+        let draw_info = make(
+            "sparse strips draw info",
+            caps.paths * size_of::<GpuDrawInfo>() as u64,
+            storage | wgpu::BufferUsages::COPY_DST,
+        );
+        let counters = make(
+            "sparse strips instance counters",
+            caps.paths * 4,
+            storage | wgpu::BufferUsages::COPY_DST,
         );
 
         let group = |label: &str, layout: &wgpu::BindGroupLayout, buffers: &[&wgpu::Buffer]| {
@@ -284,22 +419,88 @@ impl SparseStripPipelines {
             &self.resolve_layout,
             &[&strip_descs, &acc, &strips, &alphas],
         );
-        SparseStripBuffers {
+        let instances_group = group(
+            "sparse strips instances",
+            &self.instances_layout,
+            &[&strip_descs, &draw_info, &instances, &counters],
+        );
+        let mut buffers = SparseStripBuffers {
             paths,
             strips,
             alphas,
             indirect,
-            max_strips: config.max_strips,
-            max_blocks: config.max_blocks,
-            n_paths: config.n_paths,
-            n_entries: config.n_entries,
-            n_wg: config.n_wg,
+            instances,
+            draw_info,
+            max_strips: 0,
+            max_blocks: 0,
+            alpha_rows: 0,
+            n_paths: 0,
+            n_entries: 0,
+            n_wg: 0,
+            caps,
+            config: config_buf,
+            aux,
+            entries,
+            lines,
             acc,
             input_group,
             alloc_group,
             merge_group,
             resolve_group,
+            instances_group,
+            counters,
+        };
+        buffers.upload(queue, input, alpha_base_blocks, alpha_row_bytes);
+        buffers
+    }
+
+    /// Upload an input, reusing `existing` buffers when they are large enough and allocating
+    /// new ones otherwise. See [`Self::create_buffers`] for the parameters.
+    pub fn prepare_buffers(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        existing: Option<SparseStripBuffers>,
+        input: &StripInput,
+        alpha_base_blocks: u32,
+        alpha_row_bytes: u32,
+        n_instances: u32,
+    ) -> SparseStripBuffers {
+        let config = input.config();
+        let needed = Capacities::for_input(&config, input, alpha_row_bytes, n_instances);
+        match existing {
+            Some(mut buffers) if buffers.caps.fits(&needed) => {
+                buffers.upload(queue, input, alpha_base_blocks, alpha_row_bytes);
+                buffers
+            }
+            _ => self.create_buffers(
+                device,
+                queue,
+                input,
+                alpha_base_blocks,
+                alpha_row_bytes,
+                n_instances,
+            ),
         }
+    }
+
+    /// Record the instance pass; the strip passes must have been recorded or completed, and
+    /// the draw information written.
+    pub fn encode_instances(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        buffers: &SparseStripBuffers,
+    ) {
+        encoder.clear_buffer(&buffers.counters, 0, None);
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("sparse strips instances"),
+            timestamp_writes: None,
+        });
+        pass.set_bind_group(0, &buffers.input_group, &[]);
+        pass.set_bind_group(1, &buffers.instances_group, &[]);
+        pass.set_pipeline(&self.instances);
+        // Same dispatch as `resolve_strips`: one thread per strip.
+        pass.dispatch_workgroups_indirect(&buffers.indirect, 0);
     }
 
     /// Record the passes. `buffers` must come from [`Self::create_buffers`] with a non-empty
@@ -397,11 +598,14 @@ pub struct Readback {
 }
 
 /// Copy the outputs into staging buffers, submit, and wait. Native only.
+///
+/// Alphas are read back only when `with_alphas` is set; otherwise `Readback::alphas` is empty.
 pub fn read_back(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     mut encoder: wgpu::CommandEncoder,
     buffers: &SparseStripBuffers,
+    with_alphas: bool,
 ) -> Readback {
     let staging = |label: &str, size: u64| {
         device.create_buffer(&wgpu::BufferDescriptor {
@@ -412,7 +616,11 @@ pub fn read_back(
         })
     };
     let strips_size = u64::from(buffers.max_strips) * 8;
-    let alphas_size = u64::from(buffers.max_blocks) * u64::from(TILE_PIXELS);
+    let alphas_size = if with_alphas {
+        u64::from(buffers.max_blocks) * u64::from(TILE_PIXELS)
+    } else {
+        0
+    };
     let paths_size = u64::from(buffers.n_paths) * size_of::<GpuPathInfo>() as u64;
     let st_strips = staging("readback strips", strips_size);
     let st_alphas = staging("readback alphas", alphas_size);
@@ -454,13 +662,45 @@ pub fn read_back(
             )
         })
         .collect();
-    let alphas = mapped(&st_alphas)[..n_blocks * TILE_PIXELS as usize].to_vec();
+    let alphas = if with_alphas {
+        mapped(&st_alphas)[..n_blocks * TILE_PIXELS as usize].to_vec()
+    } else {
+        Vec::new()
+    };
     let paths = bytemuck::cast_slice(&mapped(&st_paths))[..buffers.n_paths as usize].to_vec();
     Readback {
         strips,
         alphas,
         paths,
     }
+}
+
+/// Read the first `len` bytes of a `COPY_SRC` buffer back to the CPU. For validation only.
+pub fn read_buffer(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    buffer: &wgpu::Buffer,
+    len: u64,
+) -> Vec<u8> {
+    let len = len.min(buffer.size());
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("readback"),
+        size: len.max(16),
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("readback"),
+    });
+    encoder.copy_buffer_to_buffer(buffer, 0, &staging, 0, len.max(16));
+    queue.submit([encoder.finish()]);
+    staging
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, |r| r.unwrap());
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("poll");
+    staging.slice(..).get_mapped_range().expect("mapped")[..len as usize].to_vec()
 }
 
 /// Run the passes on `input` and read the result back. For validation and tools.
@@ -473,12 +713,12 @@ pub fn render_blocking(
     if input.entries.is_empty() {
         return Readback::default();
     }
-    let buffers = pipelines.create_buffers(device, input);
+    let buffers = pipelines.create_buffers(device, queue, input, 0, 0, 0);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("sparse strips"),
     });
     pipelines.encode(&mut encoder, &buffers);
-    read_back(device, queue, encoder, &buffers)
+    read_back(device, queue, encoder, &buffers, true)
 }
 
 #[cfg(test)]
@@ -677,11 +917,24 @@ mod tests {
         let mut gpu = Scene::new(100, 80);
         gpu.set_gpu_strips(true);
         draw(&mut gpu);
-        gpu.resolve_gpu_strips(&device, &queue, &pipelines);
+        let row_bytes = 4096 * 16;
+        gpu.resolve_gpu_strips(&device, &queue, &pipelines, row_bytes);
 
         let cpu_storage = cpu.strip_storage.borrow();
-        let gpu_storage = gpu.strip_storage.borrow();
         let gpu_state = gpu.gpu_strips.as_ref().unwrap().borrow();
+        // The GPU alphas never reach the CPU in the renderer (they are copied into the alpha
+        // texture); splice them into the reserved region of the scene's alphas here.
+        let mut gpu_alphas = gpu.strip_storage.borrow().alphas.clone();
+        let buffers = gpu_state.buffers.as_ref().expect("buffers");
+        let data = read_buffer(&device, &queue, &buffers.alphas, buffers.alphas.size());
+        let base = gpu_state.alpha_base;
+        gpu_alphas[base..base + data.len()].copy_from_slice(&data);
+        let gpu_storage = {
+            let mut s = vello_common::strip_generator::StripStorage::default();
+            s.strips = gpu.strip_storage.borrow().strips.clone();
+            s.alphas = gpu_alphas;
+            s
+        };
         assert_eq!(
             cpu.recorder.draws.len(),
             gpu.recorder.draws.len(),

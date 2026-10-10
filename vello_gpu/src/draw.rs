@@ -10,6 +10,7 @@ use crate::paint::{
 };
 use crate::rect::{RectPart, split_rect};
 use crate::scene::RecordedDraw;
+use crate::sparse_strips::GpuDrawInfo;
 use crate::target::{DrawTarget, LayerTextureRegion};
 use crate::util::{Ranges, VecExt, pack_opacity, pack_u16_pair};
 use alloc::vec::Vec;
@@ -28,6 +29,8 @@ use vello_common::util::Clear;
 pub(crate) struct Draw {
     /// Ranges selecting this draw's strips from [`DrawBuffers::strips`].
     pub(crate) strip_ranges: Ranges,
+    /// Paths drawn from GPU-built instances, in draw order.
+    pub(crate) direct_draws: Vec<DirectDraw>,
     /// Runs that require external texture bindings.
     pub(crate) external_texture_runs: Vec<ExternalTextureRun>,
     /// Whether any strip in this draw samples a child layer.
@@ -54,9 +57,31 @@ impl Draw {
     }
 }
 
+/// A path whose strip instances the GPU built (see `Scene::set_gpu_strips`), drawn at a
+/// position among the CPU strips of its [`Draw`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DirectDraw {
+    /// Number of the draw's CPU strips that precede this path in painter's order.
+    pub(crate) strips_start: usize,
+    /// First instance in the GPU instance buffer.
+    pub(crate) instance_base: u32,
+    /// Number of instances.
+    pub(crate) instance_count: u32,
+}
+
+/// Strip ranges and instance spans of GPU-generated paths, indexed by path.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct GpuPaths<'a> {
+    /// Each path's range in the strip storage, when its strips were read back.
+    pub(crate) ranges: &'a [Range<usize>],
+    /// Each path's `(instance base, instance count)` when drawn directly from GPU buffers.
+    pub(crate) direct: &'a [Option<[u32; 2]>],
+}
+
 impl Clear for Draw {
     fn clear(&mut self) {
         self.strip_ranges.clear();
+        self.direct_draws.clear();
         self.external_texture_runs.clear();
         self.has_child_layer = false;
     }
@@ -127,6 +152,8 @@ pub(crate) struct DrawBuilder<'a, T: DrawTarget> {
     opaque: &'a mut OpaqueDraw,
     /// Target and depth state used to encode strips.
     state: &'a mut DrawState<T>,
+    /// Draw information of GPU-generated paths.
+    gpu_draw_info: &'a mut Vec<GpuDrawInfo>,
 }
 
 impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
@@ -140,20 +167,20 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
             strips: &mut draw_buffers.strips,
             opaque: &mut draw_buffers.opaque,
             state,
+            gpu_draw_info: &mut draw_buffers.gpu_draw_info,
         }
     }
 
-    /// `gpu_strip_ranges` holds the strip range of each GPU-generated path (see
-    /// `Scene::set_gpu_strips`).
+    /// `gpu_paths` describes the GPU-generated paths (see `Scene::set_gpu_strips`).
     pub(crate) fn push_draw(
         &mut self,
         draw: &RecordedDraw,
         strip_storage: &StripStorage,
-        gpu_strip_ranges: &[Range<usize>],
+        gpu_paths: GpuPaths<'_>,
         paint_resolver: PaintResolver<'_>,
     ) {
         #[cfg(not(feature = "wgpu"))]
-        let _ = gpu_strip_ranges;
+        let _ = gpu_paths;
         match draw {
             RecordedDraw::Path(path) => {
                 self.push_path(
@@ -165,8 +192,33 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
             }
             #[cfg(feature = "wgpu")]
             RecordedDraw::GpuPath(path) => {
-                let strips = gpu_strip_ranges
-                    .get(path.path as usize)
+                let ix = path.path as usize;
+                if let Some(Some([instance_base, instance_count])) = gpu_paths.direct.get(ix) {
+                    // Drawn from GPU-built instances: record where it goes in painter's
+                    // order, and what the instance pass needs to know.
+                    let paint = paint_resolver.pack(&path.paint);
+                    let depth_index = self.state.depth_counter.next(paint.opaque);
+                    if self.gpu_draw_info.len() <= ix {
+                        self.gpu_draw_info.resize(ix + 1, GpuDrawInfo::default());
+                    }
+                    self.gpu_draw_info[ix] = GpuDrawInfo {
+                        paint: paint.paint,
+                        payload: paint.payload_at(0, 0),
+                        depth_index,
+                        flags: crate::sparse_strips::DRAW_DIRECT,
+                        instance_base: *instance_base,
+                        _pad: [0; 3],
+                    };
+                    self.draw.direct_draws.push(DirectDraw {
+                        strips_start: self.draw.strip_ranges.len(),
+                        instance_base: *instance_base,
+                        instance_count: *instance_count,
+                    });
+                    return;
+                }
+                let strips = gpu_paths
+                    .ranges
+                    .get(ix)
                     .cloned()
                     .expect("GPU strips are resolved before scheduling");
                 self.push_path(strips, &path.paint, strip_storage, paint_resolver);
@@ -378,12 +430,15 @@ pub(crate) struct DrawBuffers {
     pub(crate) opaque: OpaqueDraw,
     /// Alpha-blended strips selected by each draw's ranges.
     pub(crate) strips: Vec<GpuStrip>,
+    /// Draw information of GPU-generated paths, indexed by path, for the GPU instance pass.
+    pub(crate) gpu_draw_info: Vec<GpuDrawInfo>,
 }
 
 impl DrawBuffers {
     pub(crate) fn clear(&mut self) {
         self.opaque.clear();
         self.strips.clear();
+        self.gpu_draw_info.clear();
     }
 }
 
@@ -597,6 +652,7 @@ impl StripAlphaFillSegmentExt for StripAlphaFillSegment {
 
 #[cfg(test)]
 mod tests {
+    use super::GpuPaths;
     use super::{Draw, DrawBuffers, DrawBuilder, DrawState, ExternalTextureRun, OpaqueDraw};
     use crate::GpuStrip;
     use crate::paint::{EXTERNAL_TEXTURE_SLOT_SHIFT, PaintResolver, TextureSourceId};
@@ -644,7 +700,7 @@ mod tests {
             DrawBuilder::new(draw, &mut self.buffers, &mut self.state).push_draw(
                 &recorded,
                 &self.strip_storage,
-                &[],
+                GpuPaths::default(),
                 paint_resolver,
             );
         }
