@@ -227,11 +227,13 @@ fn gpu_schedule_filter_atlas_page_one(ctx: &mut impl Renderer) {
 #[vello_test(skip_multithreaded, gpu_tolerance = 2)]
 fn gpu_schedule_filter_batch_page_zero(ctx: &mut impl Renderer) {
     let blur_two = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 2.0,
+        std_deviation_x: 2.0,
+        std_deviation_y: 2.0,
         edge_mode: EdgeMode::None,
     });
     let blur_four = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 4.0,
+        std_deviation_x: 4.0,
+        std_deviation_y: 4.0,
         edge_mode: EdgeMode::None,
     });
     let drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
