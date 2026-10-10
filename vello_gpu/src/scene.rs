@@ -34,6 +34,11 @@ use vello_common::transforms::{RootTransforms, Transforms};
 use vello_common::util::{RectExt, into_fast_path_rect, strip_bbox};
 use vello_common::viewport::ViewportState;
 
+#[cfg(feature = "wgpu")]
+use crate::sparse_strips::{AddPath, StripInput, strip_bbox_from_tiles};
+#[cfg(feature = "wgpu")]
+use vello_common::clip::PathDataRef;
+
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 
@@ -42,8 +47,24 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 pub(crate) enum RecordedDraw {
     /// Path represented by generated strips.
     Path(RecordedPath),
+    /// Path whose strips the GPU produces at render time (see [`Scene::set_gpu_strips`]).
+    #[cfg(feature = "wgpu")]
+    GpuPath(RecordedGpuPath),
     /// Rectangle retained for the direct GPU rectangle path.
     Rect(RecordedRect),
+}
+
+/// A path recorded for GPU strip generation.
+#[cfg(feature = "wgpu")]
+#[derive(Debug)]
+pub(crate) struct RecordedGpuPath {
+    /// Index of the path in the scene's [`GpuStrips`] input; its strip range is known once
+    /// the GPU strips are resolved.
+    pub(crate) path: u32,
+    /// Bounding box of the path's strips, derived from its tiles.
+    pub(crate) bbox: RectU16,
+    /// Paint applied to the path.
+    pub(crate) paint: Paint,
 }
 
 /// Recorded path strips and their paint.
@@ -87,6 +108,8 @@ impl Drawable for RecordedDraw {
             // TODO: We also should just compute the bbox during strip generation instead of
             // recomputing it here.
             Self::Path(_) => strip_bbox(strips),
+            #[cfg(feature = "wgpu")]
+            Self::GpuPath(path) => (!path.bbox.is_empty()).then_some(path.bbox),
             Self::Rect(rect) => {
                 let rect = rect.rect;
 
@@ -262,6 +285,79 @@ pub struct Scene {
     filter: Option<Filter>,
     /// The command recorder.
     pub(crate) recorder: CommandRecorder<RecordedDraw>,
+    /// SIMD level.
+    #[cfg(feature = "wgpu")]
+    level: Level,
+    /// State of GPU strip generation, when enabled.
+    #[cfg(feature = "wgpu")]
+    pub(crate) gpu_strips: Option<RefCell<GpuStrips>>,
+}
+
+/// Paths whose strips are generated on the GPU, and the result once resolved.
+///
+/// Experimental: see [`Scene::set_gpu_strips`].
+#[cfg(feature = "wgpu")]
+#[derive(Debug)]
+pub(crate) struct GpuStrips {
+    /// The sorted tiles and lines of every recorded GPU path.
+    input: StripInput,
+    /// Per GPU path, the clip snapshot to intersect with, if the path was drawn under a clip.
+    clips: Vec<Option<usize>>,
+    /// Copies of the clip paths active while GPU paths were recorded.
+    snapshots: Vec<ClipSnapshot>,
+    /// Per GPU path, its range in the scene's strip storage, once resolved.
+    pub(crate) ranges: Vec<Range<usize>>,
+    /// Whether the GPU strips of this recording have been produced.
+    resolved: bool,
+}
+
+/// The strips of a clip path at the time a GPU path was recorded under it.
+#[cfg(feature = "wgpu")]
+#[derive(Debug)]
+struct ClipSnapshot {
+    key: (u64, usize),
+    strips: Vec<Strip>,
+    alphas: Vec<u8>,
+    bbox: RectU16,
+}
+
+#[cfg(feature = "wgpu")]
+impl GpuStrips {
+    fn new(width: u16, height: u16) -> Self {
+        Self {
+            input: StripInput::new(width, height),
+            clips: Vec::new(),
+            snapshots: Vec::new(),
+            ranges: Vec::new(),
+            resolved: false,
+        }
+    }
+
+    fn reset(&mut self, width: u16, height: u16) {
+        self.input.clear();
+        self.input.width = width;
+        self.input.height = height;
+        self.clips.clear();
+        self.snapshots.clear();
+        self.ranges.clear();
+        self.resolved = false;
+    }
+
+    /// Index of the snapshot of the current clip, taking it if this clip has not been seen.
+    fn snapshot(&mut self, key: (u64, usize), clip: PathDataRef<'_>) -> usize {
+        if let Some(last) = self.snapshots.last()
+            && last.key == key
+        {
+            return self.snapshots.len() - 1;
+        }
+        self.snapshots.push(ClipSnapshot {
+            key,
+            strips: clip.strips.to_vec(),
+            alphas: clip.alphas.to_vec(),
+            bbox: clip.bbox,
+        });
+        self.snapshots.len() - 1
+    }
 }
 
 impl Scene {
@@ -287,6 +383,181 @@ impl Scene {
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
             recorder: CommandRecorder::new(width, height),
+            #[cfg(feature = "wgpu")]
+            level,
+            #[cfg(feature = "wgpu")]
+            gpu_strips: None,
+        }
+    }
+
+    /// Generate the strips of filled and stroked paths on the GPU instead of the CPU.
+    ///
+    /// Experimental. Flattening, tiling and sorting stay on the CPU; the GPU produces the strips
+    /// and alphas, which are currently read back before scheduling so that the rest of the
+    /// renderer is unchanged. Must be set before recording; [`Self::reset`] keeps the setting.
+    /// Only the wgpu backend produces GPU strips.
+    #[cfg(feature = "wgpu")]
+    pub fn set_gpu_strips(&mut self, enabled: bool) {
+        self.gpu_strips = enabled.then(|| RefCell::new(GpuStrips::new(self.width, self.height)));
+    }
+
+    /// Whether GPU strip generation is enabled.
+    #[cfg(feature = "wgpu")]
+    pub fn gpu_strips_enabled(&self) -> bool {
+        self.gpu_strips.is_some()
+    }
+
+    /// Record a path for GPU strip generation, or on the CPU when the GPU cannot represent it.
+    ///
+    /// `prepare` flattens, tiles and sorts the path with the given cull bounding box.
+    #[cfg(feature = "wgpu")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the GPU input indexes paths with u32"
+    )]
+    fn record_gpu_path(
+        &mut self,
+        paint: Paint,
+        fill_rule: Fill,
+        aliasing_threshold: Option<u8>,
+        prepare: impl FnOnce(&mut StripGenerator, Option<RectU16>),
+    ) {
+        enum Outcome {
+            None,
+            Cpu(Range<usize>),
+            Gpu(u32, RectU16),
+        }
+        let gpu_cell = self.gpu_strips.as_ref().expect("GPU strips are enabled");
+        let mut gpu = gpu_cell.borrow_mut();
+        let clip_key = self.viewport_state.clip_key();
+        let (width, height) = (self.width, self.height);
+        let strip_storage = &self.strip_storage;
+        let outcome = self
+            .viewport_state
+            .with_generator_and_clip(|generator, clip| {
+                prepare(generator, clip.map(|clip| clip.path.bbox));
+                // Paths inside filter root viewports are tiled against a padded viewport that
+                // the GPU batch does not know about; render those on the CPU.
+                let added = if generator.width() == width && generator.height() == height {
+                    gpu.input.add_path(
+                        generator.tiles(),
+                        generator.lines(),
+                        fill_rule,
+                        aliasing_threshold,
+                    )
+                } else {
+                    AddPath::CpuFallback
+                };
+                match added {
+                    AddPath::Empty => Outcome::None,
+                    AddPath::CpuFallback => {
+                        let mut strip_storage = strip_storage.borrow_mut();
+                        let start = strip_storage.strips.len();
+                        generator.render_prepared(
+                            fill_rule,
+                            aliasing_threshold,
+                            &mut strip_storage,
+                            clip.map(|clip| clip.path),
+                        );
+                        Outcome::Cpu(start..strip_storage.strips.len())
+                    }
+                    AddPath::Added => {
+                        let mut bbox = strip_bbox_from_tiles(
+                            generator.tiles(),
+                            generator.lines(),
+                            fill_rule,
+                            width,
+                            height,
+                        )
+                        .unwrap_or(RectU16::ZERO);
+                        let snapshot = clip.map(|clip| {
+                            // The intersection's bbox is at most the path's within the clip's.
+                            bbox = bbox.intersect(clip.path.bbox);
+                            gpu.snapshot(clip_key, clip.path)
+                        });
+                        gpu.clips.push(snapshot);
+                        Outcome::Gpu(gpu.clips.len() as u32 - 1, bbox)
+                    }
+                }
+            });
+        drop(gpu);
+        match outcome {
+            Outcome::None => {}
+            Outcome::Cpu(strips) => {
+                if strips.is_empty() {
+                    return;
+                }
+                let draw = RecordedDraw::new_path(strips.clone(), paint);
+                let strip_storage = self.strip_storage.borrow();
+                self.recorder.push_draw(draw, &strip_storage.strips[strips]);
+            }
+            Outcome::Gpu(path, bbox) => {
+                let draw = RecordedDraw::GpuPath(RecordedGpuPath { path, bbox, paint });
+                self.recorder.push_draw(draw, &[]);
+            }
+        }
+    }
+
+    /// Produce the strips of all recorded GPU paths and append them to the strip storage.
+    ///
+    /// Runs the GPU passes synchronously and reads the result back. Paths recorded under a
+    /// clip are intersected with the clip's strips on the CPU. Idempotent per recording.
+    #[cfg(feature = "wgpu")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "alpha indices are u32 in strips"
+    )]
+    pub(crate) fn resolve_gpu_strips(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        pipelines: &crate::sparse_strips::gpu::SparseStripPipelines,
+    ) {
+        let Some(gpu_cell) = &self.gpu_strips else {
+            return;
+        };
+        let mut gpu = gpu_cell.borrow_mut();
+        if gpu.resolved {
+            return;
+        }
+        gpu.resolved = true;
+        let out = crate::sparse_strips::gpu::render_blocking(device, queue, pipelines, &gpu.input);
+        let mut storage = self.strip_storage.borrow_mut();
+        let alpha_base = storage.alphas.len() as u32;
+        storage.alphas.extend_from_slice(&out.alphas);
+        let unclipped_bbox = RectU16::new(0, 0, u16::MAX, u16::MAX);
+        let gpu = &mut *gpu;
+        gpu.ranges.clear();
+        for (path, clip) in out.paths.iter().zip(&gpu.clips) {
+            let range = path.strip_start as usize..path.strip_end as usize;
+            let start = storage.strips.len();
+            match clip {
+                None => {
+                    storage.strips.extend(out.strips[range].iter().map(|strip| {
+                        let mut strip = *strip;
+                        strip.set_alpha_idx(strip.alpha_idx() + alpha_base);
+                        strip
+                    }));
+                }
+                Some(snapshot) => {
+                    let snapshot = &gpu.snapshots[*snapshot];
+                    vello_common::clip::intersect(
+                        self.level,
+                        PathDataRef {
+                            strips: &snapshot.strips,
+                            alphas: &snapshot.alphas,
+                            bbox: snapshot.bbox,
+                        },
+                        PathDataRef {
+                            strips: &out.strips[range],
+                            alphas: &out.alphas,
+                            bbox: unclipped_bbox,
+                        },
+                        &mut storage,
+                    );
+                }
+            }
+            gpu.ranges.push(start..storage.strips.len());
         }
     }
 
@@ -383,6 +654,18 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
+        #[cfg(feature = "wgpu")]
+        if self.gpu_strips.is_some() {
+            self.record_gpu_path(
+                paint,
+                fill_rule,
+                aliasing_threshold,
+                |generator, cull_bbox| {
+                    generator.prepare_filled_path(path, transform, cull_bbox);
+                },
+            );
+            return;
+        }
         self.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
             strip_generator.generate_filled_path(
                 path,
@@ -456,6 +739,18 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let stroke = self.render_state.stroke.clone();
+        #[cfg(feature = "wgpu")]
+        if self.gpu_strips.is_some() {
+            self.record_gpu_path(
+                paint,
+                Fill::NonZero,
+                aliasing_threshold,
+                |generator, cull_bbox| {
+                    generator.prepare_stroked_path(path, &stroke, transform, cull_bbox);
+                },
+            );
+            return;
+        }
         self.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
             strip_generator.generate_stroked_path(
                 path,
@@ -912,6 +1207,10 @@ impl Scene {
         self.aliasing_threshold = None;
         self.recorder.reset(self.width, self.height);
         self.filter = None;
+        #[cfg(feature = "wgpu")]
+        if let Some(gpu) = &self.gpu_strips {
+            gpu.borrow_mut().reset(self.width, self.height);
+        }
     }
 
     /// Get the width of the render context.

@@ -47,6 +47,11 @@ impl ViewportState {
         self.clip_state.get()
     }
 
+    /// A key identifying the current clip's strips; see `ClipState::clip_key`.
+    pub fn clip_key(&self) -> (u64, usize) {
+        self.clip_state.clip_key()
+    }
+
     /// Whether any root viewports are currently pushed.
     pub fn has_root_viewports(&self) -> bool {
         !self.strip_generator_stack.is_empty()

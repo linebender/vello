@@ -230,6 +230,13 @@ impl ClipState {
         self.context.get()
     }
 
+    /// A key identifying the strips of the current clip: equal keys mean [`Self::get`]
+    /// returns identical data. It changes whenever a clip is pushed or popped, or the root
+    /// viewport changes.
+    pub fn clip_key(&self) -> (u64, usize) {
+        (self.revision, self.frames.len())
+    }
+
     /// Push a new root viewport.
     pub fn push_root_viewport(
         &mut self,

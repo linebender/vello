@@ -228,6 +228,98 @@ impl GpuStripDesc {
     }
 }
 
+/// The bounding box that [`vello_common::util::strip_bbox`] computes for the output of
+/// `strip::render`, derived from the sorted tiles instead of the strips.
+///
+/// This lets a scene record a path's bounding box before the GPU has produced its strips. It
+/// follows the strip emission rules: a row with tiles spans its tiles, extends to the viewport
+/// width when its final winding fills (the row terminator's fill gap), and extends to the left
+/// edge when culled geometry fills the row start (the captive strip); a row without tiles whose
+/// culled winding fills spans the whole viewport width.
+pub fn strip_bbox_from_tiles(
+    tiles: &Tiles,
+    lines: &[Line],
+    fill_rule: Fill,
+    width: u16,
+    height: u16,
+) -> Option<vello_common::geometry::RectU16> {
+    use vello_common::geometry::RectU16;
+    let should_fill = |w: i32| match fill_rule {
+        Fill::NonZero => w != 0,
+        Fill::EvenOdd => w % 2 != 0,
+    };
+    let culled = tiles.has_culled_tiles();
+    let rows = u32::from(height).div_ceil(u32::from(Tile::HEIGHT)) as usize;
+    let vw_tiles = width
+        .checked_next_multiple_of(Tile::WIDTH)
+        .unwrap_or(u16::MAX)
+        / Tile::WIDTH;
+    let coarse = |row: usize| {
+        if culled {
+            i32::from(tiles.windings.coarse[row])
+        } else {
+            0
+        }
+    };
+    let mut bbox = RectU16::INVERTED;
+    let mut tile_rows: Vec<u16> = Vec::new();
+    let mut row_state: Option<(u16, u16, u16, i32)> = None; // (y, min_x, max_x, winding)
+    let flush = |bbox: &mut RectU16, state: Option<(u16, u16, u16, i32)>| {
+        let Some((y, min_x, max_x, winding)) = state else {
+            return;
+        };
+        let row_fills = culled && should_fill(coarse(y as usize));
+        let x0 = if row_fills { 0 } else { min_x };
+        let x1 = if winding != 0 && should_fill(winding) {
+            vw_tiles
+        } else {
+            max_x + 1
+        };
+        bbox.union(RectU16::new(x0, y, x1, y + 1));
+    };
+    for tile in tiles.iter() {
+        let line = lines[tile.line_idx() as usize];
+        let d = if line.p0.y == line.p1.y || !tile.winding() {
+            0
+        } else if line.p0.y > line.p1.y {
+            1
+        } else {
+            -1
+        };
+        match &mut row_state {
+            Some((y, min_x, max_x, winding)) if *y == tile.y => {
+                *min_x = (*min_x).min(tile.x);
+                *max_x = (*max_x).max(tile.x);
+                *winding += d;
+            }
+            state => {
+                flush(&mut bbox, state.take());
+                tile_rows.push(tile.y);
+                *state = Some((tile.y, tile.x, tile.x, coarse(tile.y as usize) + d));
+            }
+        }
+    }
+    flush(&mut bbox, row_state.take());
+    if culled {
+        // Rows without tiles whose culled winding fills get a full-width solid strip.
+        tiles.windings.for_active_rows_in_range(0, rows, |row| {
+            if should_fill(coarse(row)) && tile_rows.binary_search(&(row as u16)).is_err() {
+                bbox.union(RectU16::new(0, row as u16, vw_tiles, row as u16 + 1));
+            }
+        });
+    }
+    if bbox.is_empty() {
+        None
+    } else {
+        Some(RectU16::new(
+            bbox.x0 * Tile::WIDTH,
+            bbox.y0 * Tile::HEIGHT,
+            bbox.x1 * Tile::WIDTH,
+            bbox.y1 * Tile::HEIGHT,
+        ))
+    }
+}
+
 /// Reports what [`StripInput::add_path`] did with a path.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AddPath {
@@ -448,6 +540,145 @@ impl StripInput {
             }
         }
         lo
+    }
+}
+
+#[cfg(test)]
+mod bbox_tests {
+    use super::strip_bbox_from_tiles;
+    use super::test_util::{Scene, tiger_scene};
+    use alloc::vec::Vec;
+    use vello_common::fearless_simd::Level;
+    use vello_common::flatten::{self, FlattenCtx};
+    use vello_common::geometry::RectU16;
+    use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape, StrokeCtx};
+    use vello_common::peniko::Fill;
+    use vello_common::strip;
+    use vello_common::tile::Tiles;
+    use vello_common::util::strip_bbox;
+
+    fn check(scene: &Scene, what: &str) {
+        let level = Level::baseline();
+        let (width, height) = (scene.width, scene.height);
+        let mut lines = Vec::new();
+        let mut ctx = FlattenCtx::default();
+        let mut stroke_ctx = StrokeCtx::default();
+        let mut tiles = Tiles::new(level, width, height);
+        let bbox = RectU16::new(0, 0, width, height);
+        for (i, p) in scene.paths.iter().enumerate() {
+            let els = p.path.elements().iter().copied();
+            if let Some(stroke) = &p.stroke {
+                flatten::stroke(
+                    level,
+                    els,
+                    stroke,
+                    p.transform,
+                    &mut lines,
+                    &mut ctx,
+                    &mut stroke_ctx,
+                    bbox,
+                );
+            } else {
+                flatten::fill(level, els, p.transform, &mut lines, &mut ctx, bbox);
+            }
+            tiles.reset(width, height);
+            tiles.make_tiles_analytic_aa(level, &lines, width, height);
+            tiles.sort_tiles();
+            let mut strips = Vec::new();
+            let mut alphas = Vec::new();
+            strip::render(
+                level,
+                &tiles,
+                &mut strips,
+                &mut alphas,
+                p.fill,
+                p.aliasing_threshold,
+                &lines,
+            );
+            let want = strip_bbox(&strips);
+            let got = strip_bbox_from_tiles(&tiles, &lines, p.fill, width, height);
+            if tiles.is_empty() && tiles.has_culled_tiles() {
+                // Not representable without tiles; the caller falls back to the CPU.
+                continue;
+            }
+            assert_eq!(got, want, "{what}: path {i}");
+        }
+    }
+
+    #[test]
+    fn bbox_matches_strip_bbox() {
+        let mut scene = Scene::new(100, 80);
+        scene.fill(
+            Circle::new((50.0, 40.0), 30.0).to_path(0.1),
+            Affine::IDENTITY,
+            Fill::NonZero,
+            None,
+        );
+        scene.fill(
+            Scene::star(Point::new(50.0, 40.0), 5, 15.0, 38.0),
+            Affine::IDENTITY,
+            Fill::EvenOdd,
+            None,
+        );
+        scene.fill(
+            Circle::new((10.0, 40.0), 35.0).to_path(0.1),
+            Affine::IDENTITY,
+            Fill::NonZero,
+            None,
+        );
+        scene.fill(
+            Rect::new(-20.0, 20.5, 130.0, 60.5).to_path(0.1),
+            Affine::IDENTITY,
+            Fill::NonZero,
+            None,
+        );
+        scene.fill(
+            Rect::new(-20.0, 20.5, 130.0, 60.5).to_path(0.1),
+            Affine::IDENTITY,
+            Fill::EvenOdd,
+            None,
+        );
+        scene.fill(
+            Circle::new((-30.0, 40.0), 20.0).to_path(0.1),
+            Affine::IDENTITY,
+            Fill::NonZero,
+            None,
+        );
+        scene.fill(
+            Circle::new((90.0, 40.0), 30.0).to_path(0.1),
+            Affine::IDENTITY,
+            Fill::NonZero,
+            None,
+        );
+        scene.fill(
+            Circle::new((50.0, 5.0), 30.0).to_path(0.1),
+            Affine::IDENTITY,
+            Fill::NonZero,
+            None,
+        );
+        for seed in 0..40_u64 {
+            let fill = if seed % 2 == 0 {
+                Fill::NonZero
+            } else {
+                Fill::EvenOdd
+            };
+            scene.fill(
+                Scene::polygon(seed, 3 + (seed % 9) as usize, 140.0, 110.0),
+                Affine::translate((-20.0, -15.0)),
+                fill,
+                None,
+            );
+        }
+        check(&scene, "shapes");
+        check(&tiger_scene(400, 300, Affine::scale(0.75)), "tiger");
+        check(
+            &tiger_scene(
+                400,
+                300,
+                Affine::translate((-150.0, -100.0)) * Affine::scale(1.5),
+            ),
+            "tiger culled",
+        );
     }
 }
 

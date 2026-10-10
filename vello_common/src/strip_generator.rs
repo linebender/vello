@@ -126,19 +126,8 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        let cull_bbox = clip_path
-            .map(|clip_path| clip_path.bbox)
-            .unwrap_or(RectU16::new(0, 0, self.width, self.height));
-        flatten::fill(
-            self.level,
-            path,
-            transform,
-            &mut self.line_buf,
-            &mut self.flatten_ctx,
-            cull_bbox,
-        );
-
-        self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path);
+        self.prepare_filled_path(path, transform, clip_path.map(|clip_path| clip_path.bbox));
+        self.render_prepared(fill_rule, aliasing_threshold, strip_storage, clip_path);
     }
 
     /// Generate the strips for a stroked path.
@@ -151,9 +140,49 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        let cull_bbox = clip_path
-            .map(|clip_path| clip_path.bbox)
-            .unwrap_or(RectU16::new(0, 0, self.width, self.height));
+        self.prepare_stroked_path(
+            path,
+            stroke,
+            transform,
+            clip_path.map(|clip_path| clip_path.bbox),
+        );
+        self.render_prepared(Fill::NonZero, aliasing_threshold, strip_storage, clip_path);
+    }
+
+    /// Flatten, tile and sort a filled path without rendering strips.
+    ///
+    /// Afterwards [`Self::tiles`] and [`Self::lines`] hold the sorted tiles and the lines they
+    /// refer to, until the next `prepare_*` or `generate_*` call. `cull_bbox` is the clip's
+    /// bounding box when a clip is active; geometry outside it is culled.
+    pub fn prepare_filled_path(
+        &mut self,
+        path: impl IntoIterator<Item = PathEl>,
+        transform: Affine,
+        cull_bbox: Option<RectU16>,
+    ) {
+        let cull_bbox = cull_bbox.unwrap_or(RectU16::new(0, 0, self.width, self.height));
+        flatten::fill(
+            self.level,
+            path,
+            transform,
+            &mut self.line_buf,
+            &mut self.flatten_ctx,
+            cull_bbox,
+        );
+        self.tile_prepared_lines();
+    }
+
+    /// Flatten, tile and sort a stroked path without rendering strips.
+    ///
+    /// See [`Self::prepare_filled_path`].
+    pub fn prepare_stroked_path(
+        &mut self,
+        path: impl IntoIterator<Item = PathEl>,
+        stroke: &Stroke,
+        transform: Affine,
+        cull_bbox: Option<RectU16>,
+    ) {
+        let cull_bbox = cull_bbox.unwrap_or(RectU16::new(0, 0, self.width, self.height));
         flatten::stroke(
             self.level,
             path,
@@ -164,21 +193,33 @@ impl StripGenerator {
             &mut self.stroke_ctx,
             cull_bbox,
         );
-        self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path);
+        self.tile_prepared_lines();
     }
 
-    fn generate_with_clip(
-        &mut self,
-        aliasing_threshold: Option<u8>,
-        strip_storage: &mut StripStorage,
-        fill_rule: Fill,
-        clip_path: Option<PathDataRef<'_>>,
-    ) {
+    fn tile_prepared_lines(&mut self) {
         self.tiles
             .make_tiles_analytic_aa(self.level, &self.line_buf, self.width, self.height);
-
         self.tiles.sort_tiles();
+    }
 
+    /// The sorted tiles of the last prepared path.
+    pub fn tiles(&self) -> &Tiles {
+        &self.tiles
+    }
+
+    /// The lines of the last prepared path.
+    pub fn lines(&self) -> &[Line] {
+        &self.line_buf
+    }
+
+    /// Render the strips of the last prepared path, intersecting with `clip_path` if given.
+    pub fn render_prepared(
+        &mut self,
+        fill_rule: Fill,
+        aliasing_threshold: Option<u8>,
+        strip_storage: &mut StripStorage,
+        clip_path: Option<PathDataRef<'_>>,
+    ) {
         let level = self.level;
         let tiles = &self.tiles;
         let line_buf = &self.line_buf;

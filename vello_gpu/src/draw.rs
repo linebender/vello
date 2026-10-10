@@ -9,10 +9,11 @@ use crate::paint::{
     TextureSourceId,
 };
 use crate::rect::{RectPart, split_rect};
-use crate::scene::{RecordedDraw, RecordedPath};
+use crate::scene::RecordedDraw;
 use crate::target::{DrawTarget, LayerTextureRegion};
 use crate::util::{Ranges, VecExt, pack_opacity, pack_u16_pair};
 use alloc::vec::Vec;
+use core::ops::Range;
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
 use vello_common::paint::Paint;
@@ -142,14 +143,34 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         }
     }
 
+    /// `gpu_strip_ranges` holds the strip range of each GPU-generated path (see
+    /// `Scene::set_gpu_strips`).
     pub(crate) fn push_draw(
         &mut self,
         draw: &RecordedDraw,
         strip_storage: &StripStorage,
+        gpu_strip_ranges: &[Range<usize>],
         paint_resolver: PaintResolver<'_>,
     ) {
+        #[cfg(not(feature = "wgpu"))]
+        let _ = gpu_strip_ranges;
         match draw {
-            RecordedDraw::Path(path) => self.push_path(path, strip_storage, paint_resolver),
+            RecordedDraw::Path(path) => {
+                self.push_path(
+                    path.strips.clone(),
+                    &path.paint,
+                    strip_storage,
+                    paint_resolver,
+                );
+            }
+            #[cfg(feature = "wgpu")]
+            RecordedDraw::GpuPath(path) => {
+                let strips = gpu_strip_ranges
+                    .get(path.path as usize)
+                    .cloned()
+                    .expect("GPU strips are resolved before scheduling");
+                self.push_path(strips, &path.paint, strip_storage, paint_resolver);
+            }
             RecordedDraw::Rect(rect) => {
                 self.push_rect(&rect.rect, &rect.paint, paint_resolver);
             }
@@ -167,13 +188,14 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
 
     fn push_path(
         &mut self,
-        path: &RecordedPath,
+        strip_range: Range<usize>,
+        paint: &Paint,
         strip_storage: &StripStorage,
         paint_resolver: PaintResolver<'_>,
     ) {
-        let strips = &strip_storage.strips[path.strips.clone()];
+        let strips = &strip_storage.strips[strip_range];
 
-        let paint = paint_resolver.pack(&path.paint);
+        let paint = paint_resolver.pack(paint);
         // Note: This will also advance the depth index for layer root draws even though
         // those _currently_ never use the depth buffer, but it's better to keep the
         // condition simple, and it's not incorrect to do so.
@@ -622,6 +644,7 @@ mod tests {
             DrawBuilder::new(draw, &mut self.buffers, &mut self.state).push_draw(
                 &recorded,
                 &self.strip_storage,
+                &[],
                 paint_resolver,
             );
         }

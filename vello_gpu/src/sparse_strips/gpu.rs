@@ -552,6 +552,144 @@ mod tests {
         check_gpu(&device, &queue, &pipelines, &scene, "polygons");
     }
 
+    /// Record the same drawing twice, once with GPU strips, and compare the scenes draw by
+    /// draw after the GPU strips are resolved: strip geometry identical, alphas within one.
+    #[test]
+    fn scene_matches_cpu_scene() {
+        use crate::Scene;
+        use crate::scene::RecordedDraw;
+        use crate::sparse_strips::test_util::Scene as TestScene;
+        use vello_common::kurbo::{Rect, Stroke};
+        use vello_common::peniko::color::palette::css;
+        use vello_common::record::Drawable;
+        use vello_common::strip::Strip;
+
+        let Some((device, queue)) = device() else {
+            std::eprintln!("no GPU adapter, skipping");
+            return;
+        };
+        let pipelines = SparseStripPipelines::new(&device);
+
+        fn draw(scene: &mut Scene) {
+            scene.set_paint(css::REBECCA_PURPLE);
+            scene.fill_path(&Circle::new((50.0, 40.0), 30.0).to_path(0.1));
+            scene.set_fill_rule(Fill::EvenOdd);
+            scene.fill_path(&TestScene::star(Point::new(50.0, 40.0), 5, 15.0, 38.0));
+            scene.set_fill_rule(Fill::NonZero);
+            // Culled on the left, and entirely off to the left (CPU fallback).
+            scene.fill_path(&Circle::new((10.0, 40.0), 35.0).to_path(0.1));
+            scene.fill_path(&Circle::new((-30.0, 40.0), 20.0).to_path(0.1));
+            // Stroke.
+            scene.set_stroke(Stroke::new(3.0));
+            scene.stroke_path(&TestScene::polygon(7, 6, 90.0, 70.0));
+            // Aliased.
+            scene.set_aliasing_threshold(Some(128));
+            scene.fill_path(&Circle::new((70.0, 60.0), 15.0).to_path(0.1));
+            scene.set_aliasing_threshold(None);
+            // Fast rectangle (CPU) and a rotated rectangle (path).
+            scene.fill_rect(&Rect::new(10.0, 10.0, 30.0, 25.0));
+            scene.set_transform(Affine::rotate(0.3));
+            scene.fill_rect(&Rect::new(40.0, 10.0, 70.0, 25.0));
+            scene.reset_transform();
+            // Under a clip path: intersected after readback.
+            scene.push_clip_path(&Circle::new((40.0, 40.0), 25.0).to_path(0.1));
+            scene.fill_path(&TestScene::polygon(3, 5, 100.0, 80.0));
+            scene.fill_path(&Circle::new((90.0, 40.0), 30.0).to_path(0.1));
+            scene.push_clip_rect(&Rect::new(20.0, 20.0, 60.0, 70.0));
+            scene.fill_path(&TestScene::polygon(4, 7, 100.0, 80.0));
+            scene.pop_clip();
+            scene.pop_clip();
+            // Clip layer (CPU-generated clip strips) with GPU draws inside.
+            scene.push_clip_layer(&TestScene::star(Point::new(60.0, 50.0), 7, 10.0, 35.0));
+            scene.fill_path(&Circle::new((60.0, 50.0), 30.0).to_path(0.1));
+            scene.pop_layer();
+        }
+
+        let mut cpu = Scene::new(100, 80);
+        draw(&mut cpu);
+        let mut gpu = Scene::new(100, 80);
+        gpu.set_gpu_strips(true);
+        draw(&mut gpu);
+        gpu.resolve_gpu_strips(&device, &queue, &pipelines);
+
+        let cpu_storage = cpu.strip_storage.borrow();
+        let gpu_storage = gpu.strip_storage.borrow();
+        let gpu_state = gpu.gpu_strips.as_ref().unwrap().borrow();
+        assert_eq!(
+            cpu.recorder.draws.len(),
+            gpu.recorder.draws.len(),
+            "draw count"
+        );
+        let mut gpu_draws = 0;
+        for (i, (c, g)) in cpu
+            .recorder
+            .draws
+            .iter()
+            .zip(&gpu.recorder.draws)
+            .enumerate()
+        {
+            let (c_strips, c_bbox): (&[Strip], _) = match c {
+                RecordedDraw::Path(p) => (
+                    &cpu_storage.strips[p.strips.clone()],
+                    c.bbox(&cpu_storage.strips[p.strips.clone()]),
+                ),
+                RecordedDraw::Rect(_) => (&[], None),
+                RecordedDraw::GpuPath(_) => unreachable!(),
+            };
+            let (g_strips, g_bbox): (&[Strip], _) = match g {
+                RecordedDraw::Path(p) => (
+                    &gpu_storage.strips[p.strips.clone()],
+                    g.bbox(&gpu_storage.strips[p.strips.clone()]),
+                ),
+                RecordedDraw::Rect(_) => (&[], None),
+                RecordedDraw::GpuPath(p) => {
+                    gpu_draws += 1;
+                    (
+                        &gpu_storage.strips[gpu_state.ranges[p.path as usize].clone()],
+                        Some(p.bbox),
+                    )
+                }
+            };
+            assert_eq!(c_strips.len(), g_strips.len(), "draw {i}: strip count");
+            if let (Some(cb), Some(gb)) = (c_bbox, g_bbox) {
+                // Exact except for clipped paths, where the recorded bbox is conservative.
+                assert_eq!(
+                    gb.intersect(cb),
+                    cb,
+                    "draw {i}: bbox {gb:?} does not contain {cb:?}"
+                );
+            }
+            let (Some(c0), Some(g0)) = (c_strips.first(), g_strips.first()) else {
+                continue;
+            };
+            for (k, (cs, gs)) in c_strips.iter().zip(g_strips).enumerate() {
+                assert_eq!(
+                    (cs.x, cs.y, cs.fill_gap()),
+                    (gs.x, gs.y, gs.fill_gap()),
+                    "draw {i} strip {k}"
+                );
+                assert_eq!(
+                    cs.alpha_idx() - c0.alpha_idx(),
+                    gs.alpha_idx() - g0.alpha_idx(),
+                    "draw {i} strip {k}: alpha offset"
+                );
+            }
+            let n_alphas = (c_strips.last().unwrap().alpha_idx() - c0.alpha_idx()) as usize;
+            let ca = &cpu_storage.alphas[c0.alpha_idx() as usize..][..n_alphas];
+            let ga = &gpu_storage.alphas[g0.alpha_idx() as usize..][..n_alphas];
+            for (k, (a, b)) in ca.iter().zip(ga).enumerate() {
+                assert!(
+                    (i32::from(*a) - i32::from(*b)).abs() <= 1,
+                    "draw {i} alpha {k}: cpu {a} gpu {b}"
+                );
+            }
+        }
+        assert!(
+            gpu_draws >= 8,
+            "expected most draws on the GPU, got {gpu_draws}"
+        );
+    }
+
     #[test]
     fn gpu_tiger() {
         let Some((device, queue)) = device() else {

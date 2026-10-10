@@ -154,6 +154,8 @@ pub struct Renderer {
     layers_config: LayersConfig,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
+    /// Compute pipelines for GPU strip generation, created on first use.
+    sparse_strips: Option<crate::sparse_strips::gpu::SparseStripPipelines>,
 }
 
 impl Renderer {
@@ -204,6 +206,7 @@ impl Renderer {
             layers_config: layer_config,
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
+            sparse_strips: None,
         };
 
         (renderer, resources)
@@ -420,6 +423,14 @@ impl Renderer {
         root_output_target: RootTarget,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
+        if scene.gpu_strips_enabled() {
+            // Experimental GPU strip generation: produce the strips now so that the scheduler
+            // below sees them in the strip storage.
+            let pipelines = self.sparse_strips.get_or_insert_with(|| {
+                crate::sparse_strips::gpu::SparseStripPipelines::new(device)
+            });
+            scene.resolve_gpu_strips(device, queue, pipelines);
+        }
         self.programs.depth_cleared_this_frame = false;
         self.prepare_gpu_encoded_paints(
             encoded_paints,

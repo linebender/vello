@@ -176,6 +176,13 @@ impl Schedule {
         storage.clear();
 
         let strip_storage = scene.strip_storage.borrow();
+        #[cfg(feature = "wgpu")]
+        let gpu_strips = scene.gpu_strips.as_ref().map(|gpu| gpu.borrow());
+        #[cfg(feature = "wgpu")]
+        let gpu_strip_ranges: &[core::ops::Range<usize>] =
+            gpu_strips.as_deref().map_or(&[], |gpu| &gpu.ranges);
+        #[cfg(not(feature = "wgpu"))]
+        let gpu_strip_ranges: &[core::ops::Range<usize>] = &[];
         let scene_bbox = RectU16::new(
             0,
             0,
@@ -188,6 +195,7 @@ impl Schedule {
             &scene.recorder,
             scene_bbox,
             &strip_storage,
+            gpu_strip_ranges,
             root_output_target,
             use_depth_buffer,
             paint_resolver,
@@ -277,6 +285,8 @@ struct Scheduler<'a, 'p> {
     scene_bbox: RectU16,
     /// Strip data referenced by recorded path draws and clips.
     strip_storage: &'a StripStorage,
+    /// Strip ranges of GPU-generated paths.
+    gpu_strip_ranges: &'a [core::ops::Range<usize>],
     /// Destination used for root-level draws.
     root_render_target: RootTarget,
     /// Whether root-level opaque strips may use depth-buffer occlusion.
@@ -297,6 +307,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         recorder: &'a CommandRecorder<RecordedDraw>,
         scene_bbox: RectU16,
         strip_storage: &'a StripStorage,
+        gpu_strip_ranges: &'a [core::ops::Range<usize>],
         root_render_target: RootTarget,
         use_depth_buffer: bool,
         paint_resolver: PaintResolver<'a>,
@@ -307,6 +318,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             recorder,
             scene_bbox,
             strip_storage,
+            gpu_strip_ranges,
             root_render_target,
             use_depth_buffer,
             paint_resolver,
@@ -584,7 +596,12 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             None,
             |builder| {
                 for draw in &self.recorder.draws[draws.start as usize..draws.end as usize] {
-                    builder.push_draw(draw, self.strip_storage, self.paint_resolver);
+                    builder.push_draw(
+                        draw,
+                        self.strip_storage,
+                        self.gpu_strip_ranges,
+                        self.paint_resolver,
+                    );
                 }
             },
         );

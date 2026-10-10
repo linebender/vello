@@ -381,7 +381,12 @@ impl GpuRenderer {
         settings: GpuRenderSettings,
         use_depth_buffer: bool,
     ) -> Self {
-        let scene = Scene::new_with(width, height, settings.level());
+        #[allow(unused_mut, reason = "mutated when GPU strips are enabled")]
+        let mut scene = Scene::new_with(width, height, settings.level());
+        #[cfg(not(target_arch = "wasm32"))]
+        if std::env::var_os("VELLO_GPU_STRIPS").is_some() {
+            scene.set_gpu_strips(true);
+        }
         #[cfg(not(target_arch = "wasm32"))]
         let (device, queue) = &*WGPU_DEVICE_QUEUE;
         #[cfg(not(target_arch = "wasm32"))]
@@ -871,7 +876,12 @@ impl Renderer for GpuRenderer {
                 },
                 ..vello_gpu::MemorySettings::default()
             });
-        let scene = Scene::new_with(width, height, settings.level());
+        #[allow(unused_mut, reason = "mutated when GPU strips are enabled")]
+        let mut scene = Scene::new_with(width, height, settings.level());
+        #[cfg(not(target_arch = "wasm32"))]
+        if std::env::var_os("VELLO_GPU_STRIPS").is_some() {
+            scene.set_gpu_strips(true);
+        }
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
         let document = web_sys::window().unwrap().document().unwrap();
