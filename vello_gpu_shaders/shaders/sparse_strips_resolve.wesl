@@ -1,14 +1,14 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The resolve pass of GPU sparse strips: one thread per strip descriptor writes the strip
-//! and, for real strips, walks the strip's tiles left to right carrying the per-scanline
-//! winding across tiles, applying the fill rule to produce alphas. See
+//! The resolve passes of GPU sparse strips: `resolve_strips` writes one strip record per
+//! descriptor; `resolve_blocks` turns one alpha block per thread into alphas, carrying the
+//! per-scanline winding from the blocks before it in the strip and applying the fill rule. See
 //! `vello_gpu::sparse_strips::model::resolve`.
 
 import package::helpers::sparse_strips::{
-    StripDesc, config, paths, aux, row_partial, TILE_H, TILE_PIXELS, ACC_WORDS, FIXED_ONE,
-    PATH_EVEN_ODD, PATH_CULLED, PATH_THRESHOLD, STRIP_REAL, STRIP_SOLID, STRIP_FILL_GAP,
+    StripDesc, config, paths, row_partial, TILE_H, TILE_PIXELS, ACC_WORDS, FIXED_ONE,
+    PATH_EVEN_ODD, PATH_CULLED, PATH_THRESHOLD, STRIP_SOLID, STRIP_FILL_GAP,
 };
 
 const WG: u32 = 64u;
@@ -33,8 +33,9 @@ fn resolve_alpha(flags: u32, w: f32) -> u32 {
     return alpha;
 }
 
+// One thread per strip: write the strip record.
 @compute @workgroup_size(WG)
-fn resolve(@builtin(global_invocation_id) global_id: vec3<u32>) {
+fn resolve_strips(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let s = global_id.x;
     let n_strips = paths[config.n_paths - 1u].strip_end;
     if s >= n_strips {
@@ -42,35 +43,64 @@ fn resolve(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
     let d = strip_descs[s];
     strips[s] = vec2(d.xy, (d.block_start * TILE_PIXELS) | ((d.info & STRIP_FILL_GAP) << 29u));
+}
+
+// The strip owning alpha block `b`: the last descriptor whose `block_start <= b`. Terminator
+// and sentinel descriptors start at the block after the strip they follow, so they never win.
+fn strip_of_block(b: u32, n_strips: u32) -> u32 {
+    var lo = 0u;
+    var hi = n_strips;
+    while hi - lo > 1u {
+        let mid = (lo + hi) / 2u;
+        if strip_descs[mid].block_start <= b {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
+}
+
+// One thread per alpha block: resolve its 16 alphas. The per-scanline winding carried into
+// the block is the strip's left-edge winding plus the right-edge carries of the blocks before
+// it in the strip.
+@compute @workgroup_size(WG)
+fn resolve_blocks(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let b = global_id.x;
+    let n_strips = paths[config.n_paths - 1u].strip_end;
+    let n_blocks = paths[config.n_paths - 1u].block_end;
+    if b >= n_blocks {
+        return;
+    }
+    let d = strip_descs[strip_of_block(b, n_strips)];
     let kind = d.info & 3u;
     if kind == STRIP_SOLID {
-        let base = d.block_start * 4u;
         for (var k = 0u; k < 4u; k++) {
-            alphas[base + k] = 0xffffffffu;
+            alphas[b * 4u + k] = 0xffffffffu;
         }
-    } else if kind == STRIP_REAL {
-        let path = paths[d.path];
-        let n_blocks = strip_descs[s + 1u].block_start - d.block_start;
-        var carry = vec4(f32(d.winding));
-        if (d.xy & 0xffffu) == 0u && (path.flags & PATH_CULLED) != 0u {
-            carry += row_partial(path.row_base, (d.xy >> 16u) / TILE_H);
+        return;
+    }
+    let path = paths[d.path];
+    var carry = vec4(f32(d.winding));
+    if (d.xy & 0xffffu) == 0u && (path.flags & PATH_CULLED) != 0u {
+        carry += row_partial(path.row_base, (d.xy >> 16u) / TILE_H);
+    }
+    for (var j = d.block_start; j < b; j++) {
+        let base = j * ACC_WORDS + TILE_PIXELS;
+        carry += vec4(
+            f32(acc[base]),
+            f32(acc[base + 1u]),
+            f32(acc[base + 2u]),
+            f32(acc[base + 3u]),
+        ) / FIXED_ONE;
+    }
+    let acc_base = b * ACC_WORDS;
+    for (var col = 0u; col < 4u; col++) {
+        var word = 0u;
+        for (var row = 0u; row < 4u; row++) {
+            let w = carry[row] + f32(acc[acc_base + col * 4u + row]) / FIXED_ONE;
+            word |= resolve_alpha(path.flags, w) << (8u * row);
         }
-        for (var b = d.block_start; b < d.block_start + n_blocks; b++) {
-            let acc_base = b * ACC_WORDS;
-            for (var col = 0u; col < 4u; col++) {
-                var word = 0u;
-                for (var row = 0u; row < 4u; row++) {
-                    let w = carry[row] + f32(acc[acc_base + col * 4u + row]) / FIXED_ONE;
-                    word |= resolve_alpha(path.flags, w) << (8u * row);
-                }
-                alphas[b * 4u + col] = word;
-            }
-            carry += vec4(
-                f32(acc[acc_base + TILE_PIXELS]),
-                f32(acc[acc_base + TILE_PIXELS + 1u]),
-                f32(acc[acc_base + TILE_PIXELS + 2u]),
-                f32(acc[acc_base + TILE_PIXELS + 3u]),
-            ) / FIXED_ONE;
-        }
+        alphas[b * 4u + col] = word;
     }
 }

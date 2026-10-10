@@ -11,8 +11,9 @@ use wgpu::util::DeviceExt;
 /// Byte size of one [`super::model::Agg`] in a storage buffer (two `vec2<u32>` plus five
 /// scalars, rounded up to the 8-byte alignment).
 const AGG_SIZE: u64 = 40;
-/// Words in the indirect buffer: resolve dispatch arguments, strip total, block total.
-const INDIRECT_WORDS: u64 = 5;
+/// Words in the indirect buffer: strip dispatch arguments, strip total, block total, block
+/// dispatch arguments.
+const INDIRECT_WORDS: u64 = 8;
 
 /// The compute pipelines of the sparse strip passes.
 #[derive(Debug)]
@@ -25,7 +26,8 @@ pub struct SparseStripPipelines {
     scan: wgpu::ComputePipeline,
     alloc: wgpu::ComputePipeline,
     merge: wgpu::ComputePipeline,
-    resolve: wgpu::ComputePipeline,
+    resolve_strips: wgpu::ComputePipeline,
+    resolve_blocks: wgpu::ComputePipeline,
 }
 
 /// The buffers and bind groups of one input.
@@ -140,11 +142,17 @@ impl SparseStripPipelines {
             &merge_layout,
             "merge",
         );
-        let resolve = make(
-            "sparse strips resolve",
+        let resolve_strips = make(
+            "sparse strips resolve strips",
             vello_gpu_shaders::wgsl::SPARSE_STRIPS_RESOLVE,
             &resolve_layout,
-            "resolve",
+            "resolve_strips",
+        );
+        let resolve_blocks = make(
+            "sparse strips resolve blocks",
+            vello_gpu_shaders::wgsl::SPARSE_STRIPS_RESOLVE,
+            &resolve_layout,
+            "resolve_blocks",
         );
         Self {
             input_layout,
@@ -155,7 +163,8 @@ impl SparseStripPipelines {
             scan,
             alloc,
             merge,
-            resolve,
+            resolve_strips,
+            resolve_blocks,
         }
     }
 
@@ -296,27 +305,85 @@ impl SparseStripPipelines {
     /// Record the passes. `buffers` must come from [`Self::create_buffers`] with a non-empty
     /// input.
     pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, buffers: &SparseStripBuffers) {
+        self.encode_timed(encoder, buffers, None);
+    }
+
+    /// Record the passes, each in its own compute pass, writing a start and end timestamp per
+    /// pass into `timestamps` (query `2 * i` and `2 * i + 1` for pass `i` in [`PASS_NAMES`]
+    /// order) when given.
+    pub fn encode_timed(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        buffers: &SparseStripBuffers,
+        timestamps: Option<&wgpu::QuerySet>,
+    ) {
         encoder.clear_buffer(&buffers.acc, 0, None);
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("sparse strips"),
-            timestamp_writes: None,
-        });
-        pass.set_bind_group(0, &buffers.input_group, &[]);
-        pass.set_bind_group(1, &buffers.alloc_group, &[]);
-        pass.set_pipeline(&self.reduce);
-        pass.dispatch_workgroups(buffers.n_wg, 1, 1);
-        pass.set_pipeline(&self.scan);
-        pass.dispatch_workgroups(1, 1, 1);
-        pass.set_pipeline(&self.alloc);
-        pass.dispatch_workgroups(buffers.n_wg, 1, 1);
-        pass.set_bind_group(1, &buffers.merge_group, &[]);
-        pass.set_pipeline(&self.merge);
-        pass.dispatch_workgroups(buffers.n_entries.div_ceil(MERGE_WG), 1, 1);
-        pass.set_bind_group(1, &buffers.resolve_group, &[]);
-        pass.set_pipeline(&self.resolve);
-        pass.dispatch_workgroups_indirect(&buffers.indirect, 0);
+        // Direct workgroup counts, or the byte offset of indirect arguments.
+        let passes: [(
+            &str,
+            &wgpu::ComputePipeline,
+            &wgpu::BindGroup,
+            Result<u32, u64>,
+        ); PASS_COUNT] = [
+            (
+                "reduce",
+                &self.reduce,
+                &buffers.alloc_group,
+                Ok(buffers.n_wg),
+            ),
+            ("scan", &self.scan, &buffers.alloc_group, Ok(1)),
+            ("alloc", &self.alloc, &buffers.alloc_group, Ok(buffers.n_wg)),
+            (
+                "merge",
+                &self.merge,
+                &buffers.merge_group,
+                Ok(buffers.n_entries.div_ceil(MERGE_WG)),
+            ),
+            (
+                "resolve_strips",
+                &self.resolve_strips,
+                &buffers.resolve_group,
+                Err(0),
+            ),
+            (
+                "resolve_blocks",
+                &self.resolve_blocks,
+                &buffers.resolve_group,
+                Err(20),
+            ),
+        ];
+        for (i, (label, pipeline, group, workgroups)) in passes.into_iter().enumerate() {
+            let timestamp_writes = timestamps.map(|query_set| wgpu::ComputePassTimestampWrites {
+                query_set,
+                beginning_of_pass_write_index: Some(2 * i as u32),
+                end_of_pass_write_index: Some(2 * i as u32 + 1),
+            });
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some(label),
+                timestamp_writes,
+            });
+            pass.set_bind_group(0, &buffers.input_group, &[]);
+            pass.set_bind_group(1, group, &[]);
+            pass.set_pipeline(pipeline);
+            match workgroups {
+                Ok(n) => pass.dispatch_workgroups(n, 1, 1),
+                Err(offset) => pass.dispatch_workgroups_indirect(&buffers.indirect, offset),
+            }
+        }
     }
 }
+
+/// Number of compute passes recorded by [`SparseStripPipelines::encode_timed`].
+pub const PASS_COUNT: usize = 6;
+/// Names of the passes, in dispatch order.
+pub const PASS_NAMES: [&str; PASS_COUNT] = [
+    "reduce",
+    "scan",
+    "alloc",
+    "merge",
+    "resolve_strips",
+    "resolve_blocks",
+];
 
 /// GPU output read back to the CPU. For validation only.
 #[derive(Debug, Default)]

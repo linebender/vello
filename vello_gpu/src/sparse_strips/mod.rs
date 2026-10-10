@@ -18,8 +18,9 @@
 //! 4. **merge**: every entry rasterizes its line into fixed-point per-pixel winding deltas and
 //!    these are summed per run (tile location), first in workgroup memory and then with global
 //!    atomics for runs that span workgroups.
-//! 5. **resolve**: one thread per strip walks the strip's runs left to right, carrying the
-//!    per-scanline winding across tiles, applies the fill rule and writes alphas and strips.
+//! 5. **resolve**: one thread per strip writes the strip record; one thread per alpha block
+//!    sums the per-scanline carries of the blocks before it in its strip, applies the fill
+//!    rule and writes the block's alphas.
 //!
 //! The strip geometry (positions, fill gaps, alpha indices, terminator and sentinel strips) is
 //! integer and matches the CPU exactly. Alpha values are accumulated in a different order and in

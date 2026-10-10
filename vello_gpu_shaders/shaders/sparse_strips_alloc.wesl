@@ -26,10 +26,28 @@ const L_CAPTIVE: u32 = 64u;
 @group(1) @binding(0) var<storage, read_write> wg_aggs: array<Agg>;
 @group(1) @binding(1) var<storage, read_write> entry_block: array<u32>;
 @group(1) @binding(2) var<storage, read_write> strip_descs: array<StripDesc>;
-// Dispatch arguments of the resolve pass `(x, 1, 1)`, then the strip and block totals.
+// Dispatch arguments of `resolve_strips` `(x, 1, 1)`, the strip and block totals, then the
+// dispatch arguments of `resolve_blocks`.
 @group(1) @binding(3) var<storage, read_write> indirect: array<u32>;
 
-var<workgroup> sh_agg: array<Agg, WG>;
+// The scan's shared memory. The aggregate is stored as plain vectors rather than as an
+// `array<Agg>`: a struct array in workgroup memory compiled to code an order of magnitude
+// slower on Metal (0.2 ms versus 0.02 ms per pass on the tiger).
+var<workgroup> sh_a: array<vec4<u32>, WG>;
+var<workgroup> sh_b: array<vec4<u32>, WG>;
+var<workgroup> sh_c: array<u32, WG>;
+
+fn sh_store(t: u32, a: Agg) {
+    sh_a[t] = vec4(a.first_row, a.last_row);
+    sh_b[t] = vec4(bitcast<u32>(a.w_first), bitcast<u32>(a.w_last), a.strips, a.blocks);
+    sh_c[t] = a.flags;
+}
+
+fn sh_load(t: u32) -> Agg {
+    let a = sh_a[t];
+    let b = sh_b[t];
+    return Agg(a.xy, a.zw, bitcast<i32>(b.x), bitcast<i32>(b.y), b.z, b.w, sh_c[t]);
+}
 
 // Per-entry facts that do not depend on the prefix; see `model::Local`.
 struct Leaf {
@@ -115,19 +133,19 @@ fn leaf(i: u32) -> Leaf {
     return l;
 }
 
-// Inclusive workgroup scan of `v`; afterwards `sh_agg[t]` holds thread `t`'s inclusive prefix.
+// Inclusive workgroup scan of `v`; afterwards `sh_load(t)` is thread `t`'s inclusive prefix.
 fn workgroup_scan(t: u32, v: Agg) -> Agg {
     var acc = v;
-    sh_agg[t] = acc;
+    sh_store(t, acc);
     for (var d = 1u; d < WG; d <<= 1u) {
         workgroupBarrier();
         var other = agg_empty();
         if t >= d {
-            other = sh_agg[t - d];
+            other = sh_load(t - d);
         }
         workgroupBarrier();
         acc = combine(other, acc);
-        sh_agg[t] = acc;
+        sh_store(t, acc);
     }
     workgroupBarrier();
     return acc;
@@ -164,7 +182,7 @@ fn scan(@builtin(local_invocation_id) local_id: vec3<u32>) {
     workgroup_scan(t, v);
     var prefix = agg_empty();
     if t > 0u {
-        prefix = sh_agg[t - 1u];
+        prefix = sh_load(t - 1u);
     }
     for (var j = lo; j < hi; j++) {
         let a = wg_aggs[j];
@@ -259,6 +277,9 @@ fn emit(i: u32, p: Agg, l: Leaf) {
             indirect[2] = 1u;
             indirect[3] = s;
             indirect[4] = blk;
+            indirect[5] = (blk + RESOLVE_WG - 1u) / RESOLVE_WG;
+            indirect[6] = 1u;
+            indirect[7] = 1u;
         }
     }
 }
@@ -279,7 +300,7 @@ fn alloc(
     workgroup_scan(t, v);
     var excl = wg_aggs[wg_id.x];
     if t > 0u {
-        excl = combine(excl, sh_agg[t - 1u]);
+        excl = combine(excl, sh_load(t - 1u));
     }
     if i < config.n_entries {
         emit(i, excl, l);

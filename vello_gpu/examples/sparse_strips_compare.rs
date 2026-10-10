@@ -24,7 +24,7 @@ use vello_common::peniko::Fill;
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::strip::{self, Strip};
 use vello_common::tile::Tiles;
-use vello_gpu::sparse_strips::gpu::{SparseStripPipelines, read_back};
+use vello_gpu::sparse_strips::gpu::{PASS_COUNT, PASS_NAMES, SparseStripPipelines, read_back};
 use vello_gpu::sparse_strips::{AddPath, StripInput, model};
 
 struct PathItem {
@@ -157,15 +157,20 @@ fn main() {
         ..Default::default()
     }))
     .expect("Failed to find an appropriate adapter");
+    let has_timestamps = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("Device"),
-        required_features: wgpu::Features::empty(),
+        required_features: if has_timestamps {
+            wgpu::Features::TIMESTAMP_QUERY
+        } else {
+            wgpu::Features::empty()
+        },
         ..Default::default()
     }))
     .expect("Failed to create device");
     let pipelines = SparseStripPipelines::new(&device);
 
-    // Warm up, then time a few iterations without readback.
+    // Wall-clock timing of upload, passes and wait, best of a few iterations.
     let iterations = 10;
     let mut best = f64::MAX;
     for _ in 0..iterations {
@@ -181,6 +186,66 @@ fn main() {
         best = best.min(t0.elapsed().as_secs_f64() * 1e3);
     }
     println!("GPU: upload+passes+wait best of {iterations}: {best:.3} ms");
+
+    // GPU timestamps per pass, median over iterations, on one uploaded input.
+    if has_timestamps {
+        let n_queries = 2 * PASS_COUNT as u32;
+        let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
+            label: Some("timestamps"),
+            ty: wgpu::QueryType::Timestamp,
+            count: n_queries,
+        });
+        let query_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("timestamp resolve"),
+            size: u64::from(n_queries) * 8,
+            usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let query_read = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("timestamp readback"),
+            size: u64::from(n_queries) * 8,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let buffers = pipelines.create_buffers(&device, &input);
+        let period = f64::from(queue.get_timestamp_period());
+        let timed_iterations = 50;
+        let mut samples: Vec<Vec<f64>> = vec![Vec::new(); PASS_COUNT];
+        for _ in 0..timed_iterations {
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            pipelines.encode_timed(&mut encoder, &buffers, Some(&query_set));
+            encoder.resolve_query_set(&query_set, 0..n_queries, &query_buf, 0);
+            encoder.copy_buffer_to_buffer(&query_buf, 0, &query_read, 0, u64::from(n_queries) * 8);
+            queue.submit([encoder.finish()]);
+            query_read
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, |r| r.unwrap());
+            device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .expect("poll");
+            let stamps: Vec<u64> = {
+                let view = query_read.slice(..).get_mapped_range().expect("mapped");
+                bytemuck::cast_slice(&view).to_vec()
+            };
+            query_read.unmap();
+            for (i, s) in samples.iter_mut().enumerate() {
+                let ns = stamps[2 * i + 1].saturating_sub(stamps[2 * i]) as f64 * period;
+                s.push(ns * 1e-6);
+            }
+        }
+        let mut total = 0.0;
+        println!("GPU pass timings, median of {timed_iterations} (timestamp queries):");
+        for (name, s) in PASS_NAMES.iter().zip(&mut samples) {
+            s.sort_by(f64::total_cmp);
+            let median = s[s.len() / 2];
+            total += median;
+            println!("  {name:8} {median:7.3} ms");
+        }
+        println!("  {:8} {total:7.3} ms", "total");
+    } else {
+        println!("GPU: adapter has no timestamp queries; per-pass timing unavailable");
+    }
 
     let buffers = pipelines.create_buffers(&device, &input);
     let mut encoder =
