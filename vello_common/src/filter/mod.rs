@@ -50,11 +50,13 @@ impl PreparedFilter {
                 Self::Flood(flood)
             }
             FilterPrimitive::GaussianBlur {
-                std_deviation,
+                std_deviation_x,
+                std_deviation_y,
                 edge_mode,
             } => {
-                let scaled_std_dev = transform_blur_params(*std_deviation, transform);
-                let blur = GaussianBlur::new(scaled_std_dev, *edge_mode);
+                let (scaled_std_dev_x, scaled_std_dev_y) =
+                    transform_blur_params(*std_deviation_x, *std_deviation_y, transform);
+                let blur = GaussianBlur::new(scaled_std_dev_x, scaled_std_dev_y, *edge_mode);
                 Self::GaussianBlur(blur)
             }
             FilterPrimitive::DropShadow {

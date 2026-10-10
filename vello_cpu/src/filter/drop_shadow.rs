@@ -19,6 +19,7 @@ use super::shift::offset_pixels;
 use crate::filter::context::ScratchBuffer;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter::drop_shadow::DropShadow;
+use vello_common::filter::gaussian_blur::decimation_levels;
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::color::PremulRgba8;
 #[cfg(not(feature = "std"))]
@@ -79,7 +80,8 @@ fn apply_drop_shadow(
         apply_blur(
             &mut shadow_pixmap,
             scratch,
-            n_decimations,
+            decimation_levels(n_decimations, n_decimations),
+            kernel,
             kernel,
             edge_mode,
         );

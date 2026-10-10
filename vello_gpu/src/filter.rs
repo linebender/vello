@@ -10,7 +10,9 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
-use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KERNEL_SIZE};
+use vello_common::filter::gaussian_blur::{
+    DecimationAxes, DecimationSizer, GaussianBlur, MAX_KERNEL_SIZE, decimation_levels,
+};
 use vello_common::filter::offset::Offset;
 use vello_common::filter::{FilterData, PreparedFilter};
 use vello_common::filter_effects::EdgeMode;
@@ -31,7 +33,7 @@ pub(crate) const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 
 // Since we store in RGBA32 texture.
 const BYTES_PER_TEXEL: usize = 16;
-const FILTER_SIZE_BYTES: usize = 48;
+const FILTER_SIZE_BYTES: usize = 64;
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
 const COMPOSITE_ORIGINAL_SHIFT: u32 = 13;
 const COMPOSITE_ORIGINAL_MASK: u32 = 1 << COMPOSITE_ORIGINAL_SHIFT;
@@ -81,6 +83,10 @@ pub(crate) mod pass_kind {
     pub(crate) const UPSCALE: u32 = 6;
     pub(crate) const COMPOSITE_DROP_SHADOW: u32 = 7;
     pub(crate) const COLORIZE: u32 = 8;
+    pub(crate) const DOWNSCALE_X: u32 = 9;
+    pub(crate) const DOWNSCALE_Y: u32 = 10;
+    pub(crate) const UPSCALE_X: u32 = 11;
+    pub(crate) const UPSCALE_Y: u32 = 12;
 }
 
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
@@ -98,22 +104,33 @@ fn pack_header(filter_type: u32) -> u32 {
     filter_type
 }
 
+/// Packs the header of a filter that blurs, with the decimation count and the number
+/// of linear taps of each axis.
 const fn pack_header_with_gaussian_params(
     filter_type: u32,
     edge_mode: u32,
-    n_decimations: u32,
-    n_linear_taps: u32,
+    n_decimations_x: u32,
+    n_linear_taps_x: u32,
+    n_decimations_y: u32,
+    n_linear_taps_y: u32,
 ) -> u32 {
     debug_assert!(filter_type <= 31, "filter_type must fit in 5 bits");
     debug_assert!(edge_mode <= 3, "edge_mode must fit in 2 bits");
-    debug_assert!(n_decimations <= 15, "n_decimations must fit in 4 bits");
-    debug_assert!(n_linear_taps <= 3, "n_linear_taps must fit in 2 bits");
+    debug_assert!(n_decimations_x <= 15, "n_decimations_x must fit in 4 bits");
+    debug_assert!(n_linear_taps_x <= 3, "n_linear_taps_x must fit in 2 bits");
+    debug_assert!(n_decimations_y <= 15, "n_decimations_y must fit in 4 bits");
+    debug_assert!(n_linear_taps_y <= 3, "n_linear_taps_y must fit in 2 bits");
 
-    filter_type | (edge_mode << 5) | (n_decimations << 7) | (n_linear_taps << 11)
+    filter_type
+        | (edge_mode << 5)
+        | (n_decimations_x << 7)
+        | (n_linear_taps_x << 11)
+        | (n_decimations_y << 14)
+        | (n_linear_taps_y << 18)
 }
 
 const _: () = assert!(
-    pack_header_with_gaussian_params(31, 3, 15, 3) & COMPOSITE_ORIGINAL_MASK == 0,
+    pack_header_with_gaussian_params(31, 3, 15, 3, 15, 3) & COMPOSITE_ORIGINAL_MASK == 0,
     "Gaussian filter parameters overlap the composite_original bit"
 );
 
@@ -197,7 +214,7 @@ pub(crate) struct GpuOffset {
     pub header: u32,
     pub dx: f32,
     pub dy: f32,
-    pub _padding: [u32; 9],
+    pub _padding: [u32; 13],
 }
 
 impl From<&Offset> for GpuOffset {
@@ -206,7 +223,7 @@ impl From<&Offset> for GpuOffset {
             header: pack_header(filter_type::OFFSET),
             dx: offset.dx,
             dy: offset.dy,
-            _padding: [0; 9],
+            _padding: [0; 13],
         }
     }
 }
@@ -216,7 +233,7 @@ impl From<&Offset> for GpuOffset {
 pub(crate) struct GpuFlood {
     pub header: u32,
     pub color: u32,
-    pub _padding: [u32; 10],
+    pub _padding: [u32; 14],
 }
 
 impl From<&Flood> for GpuFlood {
@@ -224,7 +241,7 @@ impl From<&Flood> for GpuFlood {
         Self {
             header: pack_header(filter_type::FLOOD),
             color: flood.color.premultiply().to_rgba8().to_u32(),
-            _padding: [0; 10],
+            _padding: [0; 14],
         }
     }
 }
@@ -233,11 +250,13 @@ impl From<&Flood> for GpuFlood {
 #[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
 pub(crate) struct GpuGaussianBlur {
     pub header: u32,
-    pub center_weight: f32,
-    pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
-    pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
-    // Needed since drop shadow has a bigger footprint.
-    pub _padding: [u32; 4],
+    pub center_weight_x: f32,
+    pub linear_weights_x: [f32; MAX_TAPS_PER_SIDE],
+    pub linear_offsets_x: [f32; MAX_TAPS_PER_SIDE],
+    pub center_weight_y: f32,
+    pub linear_weights_y: [f32; MAX_TAPS_PER_SIDE],
+    pub linear_offsets_y: [f32; MAX_TAPS_PER_SIDE],
+    pub _padding: [u32; 1],
 }
 
 impl From<&GaussianBlur> for GpuGaussianBlur {
@@ -246,7 +265,8 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
         reason = "n_decimations fits in 4 bits"
     )]
     fn from(blur: &GaussianBlur) -> Self {
-        let lk = LinearKernel::new(&blur.kernel, blur.kernel_size);
+        let lk_x = LinearKernel::new(&blur.kernel_x, blur.kernel_size_x);
+        let lk_y = LinearKernel::new(&blur.kernel_y, blur.kernel_size_y);
 
         Self {
             header: pack_header_with_gaussian_params(
@@ -255,13 +275,18 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
                 // Note that this could be exceeded in theory, but it would have to be a huge
                 // standard deviation! If it turns out to be a problem we can reserve additional
                 // bits for it in the future.
-                blur.n_decimations as u32,
-                lk.n_taps as u32,
+                blur.n_decimations_x as u32,
+                lk_x.n_taps as u32,
+                blur.n_decimations_y as u32,
+                lk_y.n_taps as u32,
             ),
-            center_weight: lk.center_weight,
-            linear_weights: lk.weights,
-            linear_offsets: lk.offsets,
-            _padding: [0; 4],
+            center_weight_x: lk_x.center_weight,
+            linear_weights_x: lk_x.weights,
+            linear_offsets_x: lk_x.offsets,
+            center_weight_y: lk_y.center_weight,
+            linear_weights_y: lk_y.weights,
+            linear_offsets_y: lk_y.offsets,
+            _padding: [0; 1],
         }
     }
 }
@@ -276,7 +301,7 @@ pub(crate) struct GpuDropShadow {
     pub dx: f32,
     pub dy: f32,
     pub color: u32,
-    pub _padding: [u32; 1],
+    pub _padding: [u32; 5],
 }
 
 impl From<&DropShadow> for GpuDropShadow {
@@ -293,9 +318,12 @@ impl From<&DropShadow> for GpuDropShadow {
         };
 
         Self {
+            // The shadow's blur is uniform, so both axes carry the same parameters.
             header: pack_header_with_gaussian_params(
                 filter_type::DROP_SHADOW,
                 edge_mode_to_gpu(shadow.edge_mode),
+                shadow.n_decimations as u32,
+                lk.n_taps as u32,
                 shadow.n_decimations as u32,
                 lk.n_taps as u32,
             ) | composite_original,
@@ -305,7 +333,7 @@ impl From<&DropShadow> for GpuDropShadow {
             dx: shadow.dx,
             dy: shadow.dy,
             color: shadow.color.premultiply().to_rgba8().to_u32(),
-            _padding: [0; 1],
+            _padding: [0; 5],
         }
     }
 }
@@ -327,9 +355,24 @@ impl GpuFilterData {
         self.data[0] & 0x1F
     }
 
-    /// Returns the number of decimation levels encoded in the header.
-    pub(crate) fn n_decimations(&self) -> usize {
+    /// Returns the number of decimation levels along the x-axis encoded in the header.
+    pub(crate) fn n_decimations_x(&self) -> usize {
         ((self.data[0] >> 7) & 0xF) as usize
+    }
+
+    /// Returns the number of decimation levels along the y-axis encoded in the header.
+    pub(crate) fn n_decimations_y(&self) -> usize {
+        ((self.data[0] >> 14) & 0xF) as usize
+    }
+
+    /// Whether the x-axis kernel has taps besides its center, i.e. blurs at all.
+    fn blurs_x(&self) -> bool {
+        (self.data[0] >> 11) & 0x3 != 0
+    }
+
+    /// Whether the y-axis kernel has taps besides its center, i.e. blurs at all.
+    fn blurs_y(&self) -> bool {
+        (self.data[0] >> 18) & 0x3 != 0
     }
 
     pub(crate) fn composite_original(&self) -> bool {
@@ -441,17 +484,8 @@ impl FilterPassPlan {
                 filter_type::FLOOD => {
                     builder.emit(pass_kind::FLOOD);
                 }
-                filter_type::GAUSSIAN_BLUR => {
-                    builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
-                }
-                filter_type::DROP_SHADOW => {
-                    builder.emit(pass_kind::OFFSET);
-                    builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
-                    if filter.gpu_filter.composite_original() {
-                        builder.emit(pass_kind::COMPOSITE_DROP_SHADOW);
-                    } else {
-                        builder.emit(pass_kind::COLORIZE);
-                    }
+                filter_type::GAUSSIAN_BLUR | filter_type::DROP_SHADOW => {
+                    builder.emit_blur_sequence(&filter.gpu_filter);
                 }
                 _ => unreachable!("unsupported filter type was encoded"),
             }
@@ -518,23 +552,17 @@ impl<'a> FilterPassBuilder<'a> {
 
     /// Compute and update source and destination sizes based on the pass kind.
     fn apply_pass_dimensions(&mut self, kind: u32) -> (SizeU16, SizeU16) {
-        match kind {
-            pass_kind::DOWNSCALE => {
-                let (sw, sh) = self.sizer.current();
-                let (dw, dh) = self.sizer.downscale();
-                (SizeU16::from_wh(sw, sh), SizeU16::from_wh(dw, dh))
-            }
-            pass_kind::UPSCALE => {
-                let (sw, sh) = self.sizer.current();
-                let (dw, dh) = self.sizer.upscale();
-                (SizeU16::from_wh(sw, sh), SizeU16::from_wh(dw, dh))
-            }
-            _ => {
-                let (w, h) = self.sizer.current();
-                let size = SizeU16::from_wh(w, h);
-                (size, size)
-            }
-        }
+        let (sw, sh) = self.sizer.current();
+        let (dw, dh) = match kind {
+            pass_kind::DOWNSCALE => self.sizer.downscale_axes(DecimationAxes::Both),
+            pass_kind::DOWNSCALE_X => self.sizer.downscale_axes(DecimationAxes::X),
+            pass_kind::DOWNSCALE_Y => self.sizer.downscale_axes(DecimationAxes::Y),
+            pass_kind::UPSCALE => self.sizer.upscale_axes(DecimationAxes::Both),
+            pass_kind::UPSCALE_X => self.sizer.upscale_axes(DecimationAxes::X),
+            pass_kind::UPSCALE_Y => self.sizer.upscale_axes(DecimationAxes::Y),
+            _ => (sw, sh),
+        };
+        (SizeU16::from_wh(sw, sh), SizeU16::from_wh(dw, dh))
     }
 
     /// Emit one pass, reading from the current region and writing to the other texture parity.
@@ -567,9 +595,10 @@ impl<'a> FilterPassBuilder<'a> {
         self.current_is_original = !self.current_is_original;
     }
 
-    /// Apply the sequences of passes that is needed to create a full Gaussian blur with
-    /// the given number of decimations.
-    fn emit_blur_sequence(&mut self, n_decimations: usize) {
+    /// Apply the sequence of passes needed for a filter that blurs: the offset of a
+    /// drop shadow, the per-axis decimation levels, one convolution per axis that
+    /// blurs, the matching upscales, and the shadow's final colorization.
+    fn emit_blur_sequence(&mut self, filter: &GpuFilterData) {
         // TODO: From my experiments, it would very much be worth it to add a
         // UPSCALE_4x and DOWNSCALE_4x pass, since unlike the CPU we can use bilinear
         // filtering for sampling and therefore don't need as many samples, and can reduce
@@ -578,23 +607,42 @@ impl<'a> FilterPassBuilder<'a> {
         // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
         // this more straight-forward approach.
 
-        for _ in 0..n_decimations {
-            self.emit(pass_kind::DOWNSCALE);
+        let is_shadow = filter.filter_type() == filter_type::DROP_SHADOW;
+        if is_shadow {
+            self.emit(pass_kind::OFFSET);
         }
-        self.emit(pass_kind::BLUR_H);
 
-        let mut final_pass = pass_kind::BLUR_V;
+        let levels = decimation_levels(filter.n_decimations_x(), filter.n_decimations_y());
+        for axes in levels.clone() {
+            self.emit(match axes {
+                DecimationAxes::Both => pass_kind::DOWNSCALE,
+                DecimationAxes::X => pass_kind::DOWNSCALE_X,
+                DecimationAxes::Y => pass_kind::DOWNSCALE_Y,
+            });
+        }
 
-        if n_decimations > 0 {
+        if filter.blurs_x() {
+            self.emit(pass_kind::BLUR_H);
+        }
+        if filter.blurs_y() {
             self.emit(pass_kind::BLUR_V);
-            for _ in 0..n_decimations - 1 {
-                self.emit(pass_kind::UPSCALE);
-            }
-
-            final_pass = pass_kind::UPSCALE;
         }
 
-        self.emit(final_pass);
+        for axes in levels.rev() {
+            self.emit(match axes {
+                DecimationAxes::Both => pass_kind::UPSCALE,
+                DecimationAxes::X => pass_kind::UPSCALE_X,
+                DecimationAxes::Y => pass_kind::UPSCALE_Y,
+            });
+        }
+
+        if is_shadow {
+            if filter.composite_original() {
+                self.emit(pass_kind::COMPOSITE_DROP_SHADOW);
+            } else {
+                self.emit(pass_kind::COLORIZE);
+            }
+        }
     }
 
     fn ensure_result_in_original(&mut self) {
@@ -711,7 +759,16 @@ mod tests {
     }
 
     fn gpu_blur(std_deviation: f32) -> GpuFilterData {
-        GpuGaussianBlur::from(&GaussianBlur::new(std_deviation, EdgeMode::None)).into()
+        gpu_anisotropic_blur(std_deviation, std_deviation)
+    }
+
+    fn gpu_anisotropic_blur(std_deviation_x: f32, std_deviation_y: f32) -> GpuFilterData {
+        GpuGaussianBlur::from(&GaussianBlur::new(
+            std_deviation_x,
+            std_deviation_y,
+            EdgeMode::None,
+        ))
+        .into()
     }
 
     fn gpu_shadow() -> GpuFilterData {
@@ -776,6 +833,51 @@ mod tests {
                 alloc::vec![(1, pass_kind::UPSCALE), (2, pass_kind::UPSCALE)],
                 alloc::vec![(2, pass_kind::UPSCALE)],
                 alloc::vec![(2, pass_kind::COMPOSITE_DROP_SHADOW)],
+            ]
+        );
+    }
+
+    /// An x-only blur decimates and convolves x alone; the odd pass count ends in the
+    /// temporary region, so a copy brings the result back.
+    #[test]
+    fn single_axis_blur_passes() {
+        let mut plan = FilterPassPlan::default();
+        plan.init(
+            [filter_op(gpu_anisotropic_blur(8.0, 0.0), 0)],
+            SizeU16::new(64),
+        );
+
+        assert_eq!(
+            step_layout(&plan),
+            [
+                alloc::vec![(0, pass_kind::DOWNSCALE_X)],
+                alloc::vec![(0, pass_kind::DOWNSCALE_X)],
+                alloc::vec![(0, pass_kind::BLUR_H)],
+                alloc::vec![(0, pass_kind::UPSCALE_X)],
+                alloc::vec![(0, pass_kind::UPSCALE_X)],
+                alloc::vec![(0, pass_kind::COPY)],
+            ]
+        );
+    }
+
+    /// Mixed deviations share the finest levels and then decimate the larger axis alone.
+    #[test]
+    fn mixed_axis_blur_passes() {
+        let mut plan = FilterPassPlan::default();
+        plan.init(
+            [filter_op(gpu_anisotropic_blur(3.0, 8.0), 0)],
+            SizeU16::new(64),
+        );
+
+        assert_eq!(
+            step_layout(&plan),
+            [
+                alloc::vec![(0, pass_kind::DOWNSCALE)],
+                alloc::vec![(0, pass_kind::DOWNSCALE_Y)],
+                alloc::vec![(0, pass_kind::BLUR_H)],
+                alloc::vec![(0, pass_kind::BLUR_V)],
+                alloc::vec![(0, pass_kind::UPSCALE_Y)],
+                alloc::vec![(0, pass_kind::UPSCALE)],
             ]
         );
     }
@@ -855,7 +957,7 @@ mod tests {
     #[test]
     fn test_gaussian_blur_round_trip() {
         check_round_trip(
-            GpuGaussianBlur::from(&GaussianBlur::new(2.0, EdgeMode::None)),
+            GpuGaussianBlur::from(&GaussianBlur::new(2.0, 2.0, EdgeMode::None)),
             filter_type::GAUSSIAN_BLUR,
         );
     }
