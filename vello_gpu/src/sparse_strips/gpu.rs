@@ -53,6 +53,8 @@ pub struct SparseStripBuffers {
     pub max_blocks: u32,
     /// Number of alpha texture rows `alphas` covers (its size is this many rows).
     pub alpha_rows: u32,
+    /// Instance slots in use this frame.
+    pub n_instances: u32,
     n_paths: u32,
     n_entries: u32,
     n_wg: u32,
@@ -126,7 +128,9 @@ impl SparseStripBuffers {
         input: &StripInput,
         alpha_base_blocks: u32,
         alpha_row_bytes: u32,
+        n_instances: u32,
     ) {
+        self.n_instances = n_instances;
         let mut config = input.config();
         config.alpha_base_blocks = alpha_base_blocks;
         let write = |buffer: &wgpu::Buffer, data: &[u8]| {
@@ -371,7 +375,10 @@ impl SparseStripPipelines {
         let instances = make(
             "sparse strips instances",
             caps.instances.max(1) * size_of::<crate::GpuStrip>() as u64,
-            storage | wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_SRC,
+            storage
+                | wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
         let draw_info = make(
             "sparse strips draw info",
@@ -434,6 +441,7 @@ impl SparseStripPipelines {
             max_strips: 0,
             max_blocks: 0,
             alpha_rows: 0,
+            n_instances: 0,
             n_paths: 0,
             n_entries: 0,
             n_wg: 0,
@@ -450,7 +458,13 @@ impl SparseStripPipelines {
             instances_group,
             counters,
         };
-        buffers.upload(queue, input, alpha_base_blocks, alpha_row_bytes);
+        buffers.upload(
+            queue,
+            input,
+            alpha_base_blocks,
+            alpha_row_bytes,
+            n_instances,
+        );
         buffers
     }
 
@@ -470,7 +484,13 @@ impl SparseStripPipelines {
         let needed = Capacities::for_input(&config, input, alpha_row_bytes, n_instances);
         match existing {
             Some(mut buffers) if buffers.caps.fits(&needed) => {
-                buffers.upload(queue, input, alpha_base_blocks, alpha_row_bytes);
+                buffers.upload(
+                    queue,
+                    input,
+                    alpha_base_blocks,
+                    alpha_row_bytes,
+                    n_instances,
+                );
                 buffers
             }
             _ => self.create_buffers(
@@ -491,7 +511,17 @@ impl SparseStripPipelines {
         encoder: &mut wgpu::CommandEncoder,
         buffers: &SparseStripBuffers,
     ) {
-        encoder.clear_buffer(&buffers.counters, 0, None);
+        encoder.clear_buffer(
+            &buffers.counters,
+            0,
+            Some(u64::from(buffers.n_paths.max(1)) * 4),
+        );
+        // Unused slots must draw nothing.
+        encoder.clear_buffer(
+            &buffers.instances,
+            0,
+            Some(u64::from(buffers.n_instances.max(1)) * size_of::<crate::GpuStrip>() as u64),
+        );
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("sparse strips instances"),
             timestamp_writes: None,
@@ -506,19 +536,25 @@ impl SparseStripPipelines {
     /// Record the passes. `buffers` must come from [`Self::create_buffers`] with a non-empty
     /// input.
     pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, buffers: &SparseStripBuffers) {
-        self.encode_timed(encoder, buffers, None);
+        self.encode_timed(encoder, buffers, None, true);
     }
 
     /// Record the passes, each in its own compute pass, writing a start and end timestamp per
     /// pass into `timestamps` (query `2 * i` and `2 * i + 1` for pass `i` in [`PASS_NAMES`]
-    /// order) when given.
+    /// order) when given. `strip_records` may be false when the strip records are not needed
+    /// (nothing is read back), which skips that pass.
     pub fn encode_timed(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         buffers: &SparseStripBuffers,
         timestamps: Option<&wgpu::QuerySet>,
+        strip_records: bool,
     ) {
-        encoder.clear_buffer(&buffers.acc, 0, None);
+        encoder.clear_buffer(
+            &buffers.acc,
+            0,
+            Some(u64::from(buffers.max_blocks.max(1)) * u64::from(ACC_WORDS) * 4),
+        );
         // Direct workgroup counts, or the byte offset of indirect arguments.
         let passes: [(
             &str,
@@ -554,6 +590,9 @@ impl SparseStripPipelines {
             ),
         ];
         for (i, (label, pipeline, group, workgroups)) in passes.into_iter().enumerate() {
+            if label == "resolve_strips" && !strip_records {
+                continue;
+            }
             let timestamp_writes = timestamps.map(|query_set| wgpu::ComputePassTimestampWrites {
                 query_set,
                 beginning_of_pass_write_index: Some(2 * i as u32),

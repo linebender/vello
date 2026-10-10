@@ -66,6 +66,12 @@ struct DrawInfo {
     depth_index: u32,
     flags: u32,
     instance_base: u32,
+    // Visible tile bounds of the target, `x0 | x1 << 16` and `y0 | y1 << 16`.
+    bounds_x: u32,
+    bounds_y: u32,
+    // Pixel shift applied to geometry for the target.
+    shift_x: i32,
+    shift_y: i32,
     _p0: u32,
     _p1: u32,
     _p2: u32,

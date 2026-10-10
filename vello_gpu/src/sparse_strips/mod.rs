@@ -185,7 +185,15 @@ pub struct GpuDrawInfo {
     pub flags: u32,
     /// First instance slot of this path in the instance buffer.
     pub instance_base: u32,
-    /// Padding to 32 bytes.
+    /// Visible tile bounds of the draw's target: `x0 | x1 << 16`.
+    pub bounds_x: u32,
+    /// Visible tile bounds of the draw's target: `y0 | y1 << 16`.
+    pub bounds_y: u32,
+    /// Pixel shift applied to the geometry for the target (layers render at their region).
+    pub shift_x: i32,
+    /// See `shift_x`.
+    pub shift_y: i32,
+    /// Padding to 48 bytes.
     pub _pad: [u32; 3],
 }
 
@@ -479,6 +487,10 @@ pub struct StripInput {
     pub paths: Vec<GpuPathInfo>,
     /// Row tables and filled-row lists of culled paths.
     pub aux: Vec<u32>,
+    /// Exact totals of strips and alpha blocks, when the caller knows them (see
+    /// [`PathSummary`]); otherwise the bounds [`Self::max_strips`] and [`Self::max_blocks`]
+    /// size the buffers.
+    pub exact_counts: Option<(u32, u32)>,
 }
 
 impl StripInput {
@@ -511,6 +523,7 @@ impl StripInput {
         self.entries.clear();
         self.paths.clear();
         self.aux.clear();
+        self.exact_counts = None;
     }
 
     /// Add a path from its sorted tiles and lines.
@@ -639,8 +652,8 @@ impl StripInput {
             rows: self.rows(),
             viewport_width: self.viewport_width(),
             n_wg: (self.entries.len() as u32).div_ceil(SCAN_WG),
-            max_strips: self.max_strips(),
-            max_blocks: self.max_blocks(),
+            max_strips: self.exact_counts.map_or_else(|| self.max_strips(), |c| c.0),
+            max_blocks: self.exact_counts.map_or_else(|| self.max_blocks(), |c| c.1),
             alpha_base_blocks: 0,
         }
     }

@@ -214,7 +214,7 @@ fn main() {
         for _ in 0..timed_iterations {
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-            pipelines.encode_timed(&mut encoder, &buffers, Some(&query_set));
+            pipelines.encode_timed(&mut encoder, &buffers, Some(&query_set), true);
             encoder.resolve_query_set(&query_set, 0..n_queries, &query_buf, 0);
             encoder.copy_buffer_to_buffer(&query_buf, 0, &query_read, 0, u64::from(n_queries) * 8);
             queue.submit([encoder.finish()]);

@@ -201,12 +201,20 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                     if self.gpu_draw_info.len() <= ix {
                         self.gpu_draw_info.resize(ix + 1, GpuDrawInfo::default());
                     }
+                    let bounds = self.state.target_bbox.to_tile_bounds();
+                    let shift = self.state.target.geometry_shift();
                     self.gpu_draw_info[ix] = GpuDrawInfo {
                         paint: paint.paint,
+                        // Only solid paints are direct, so the payload does not depend on
+                        // the strip position.
                         payload: paint.payload_at(0, 0),
                         depth_index,
                         flags: crate::sparse_strips::DRAW_DIRECT,
                         instance_base: *instance_base,
+                        bounds_x: u32::from(bounds.x0) | (u32::from(bounds.x1) << 16),
+                        bounds_y: u32::from(bounds.y0) | (u32::from(bounds.y1) << 16),
+                        shift_x: shift.0,
+                        shift_y: shift.1,
                         _pad: [0; 3],
                     };
                     self.draw.direct_draws.push(DirectDraw {

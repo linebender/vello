@@ -291,9 +291,6 @@ pub struct Scene {
     /// State of GPU strip generation, when enabled.
     #[cfg(feature = "wgpu")]
     pub(crate) gpu_strips: Option<RefCell<GpuStrips>>,
-    /// Number of currently pushed layers.
-    #[cfg(feature = "wgpu")]
-    layer_depth: usize,
 }
 
 /// Paths whose strips are generated on the GPU, and the result once resolved.
@@ -423,8 +420,6 @@ impl Scene {
             level,
             #[cfg(feature = "wgpu")]
             gpu_strips: None,
-            #[cfg(feature = "wgpu")]
-            layer_depth: 0,
         }
     }
 
@@ -470,8 +465,8 @@ impl Scene {
         let clip_key = self.viewport_state.clip_key();
         let (width, height) = (self.width, self.height);
         let strip_storage = &self.strip_storage;
-        // Only root-level, unclipped, solid-paint paths are drawn straight from GPU buffers.
-        let direct_paint = matches!(paint, Paint::Solid(_)) && self.layer_depth == 0;
+        // Only unclipped, solid-paint paths are drawn straight from GPU buffers.
+        let direct_paint = matches!(paint, Paint::Solid(_));
         let outcome = self
             .viewport_state
             .with_generator_and_clip(|generator, clip| {
@@ -593,6 +588,11 @@ impl Scene {
                 gpu.instance_spans.push(None);
             }
         }
+        // The summaries give exact totals, so the buffers are sized to them.
+        let (total_strips, total_blocks) = gpu.summaries.iter().fold((0, 0), |(s, b), summary| {
+            (s + summary.strips, b + summary.blocks)
+        });
+        gpu.input.exact_counts = Some((total_strips, total_blocks));
         let buffers = pipelines.prepare_buffers(
             device,
             queue,
@@ -611,7 +611,7 @@ impl Scene {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("sparse strips"),
         });
-        pipelines.encode(&mut encoder, &buffers);
+        pipelines.encode_timed(&mut encoder, &buffers, None, gpu.needs_readback());
         if !gpu.needs_readback() {
             // Everything is drawn from GPU buffers: submit the passes now so that the GPU
             // produces the strips while the CPU schedules the frame, and never wait for them.
@@ -1141,10 +1141,6 @@ impl Scene {
         if let Some(filter_plan) = &filter_data {
             self.viewport_state.push_root_viewport(filter_plan);
         }
-        #[cfg(feature = "wgpu")]
-        {
-            self.layer_depth += 1;
-        }
 
         let clip_path = clip_path.map(|path| {
             let mut strip_storage = self.strip_storage.borrow_mut();
@@ -1219,10 +1215,6 @@ impl Scene {
             self.viewport_state.pop_root_viewport();
         }
         self.root_transforms.pop_root();
-        #[cfg(feature = "wgpu")]
-        {
-            self.layer_depth = self.layer_depth.saturating_sub(1);
-        }
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -1361,11 +1353,8 @@ impl Scene {
         self.recorder.reset(self.width, self.height);
         self.filter = None;
         #[cfg(feature = "wgpu")]
-        {
-            if let Some(gpu) = &self.gpu_strips {
-                gpu.borrow_mut().reset(self.width, self.height);
-            }
-            self.layer_depth = 0;
+        if let Some(gpu) = &self.gpu_strips {
+            gpu.borrow_mut().reset(self.width, self.height);
         }
     }
 
