@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Fixed
+
+- A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
+
 ## [0.3.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.
@@ -271,6 +275,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@xStrom]: https://github.com/xStrom
+[@zlstringham]: https://github.com/zlstringham
 
 [#1203]: https://github.com/linebender/vello/pull/1203
 [#1349]: https://github.com/linebender/vello/pull/1349
@@ -408,6 +413,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1962]: https://github.com/linebender/vello/pull/1962
 [#1966]: https://github.com/linebender/vello/pull/1966
 [#1970]: https://github.com/linebender/vello/pull/1970
+[#2000]: https://github.com/linebender/vello/pull/2000
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0

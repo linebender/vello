@@ -85,10 +85,12 @@ fn clip_color(c_in: vec3<f32>) -> vec3<f32> {
     let l = lum(c);
     let n = min(c.x, min(c.y, c.z));
     let x = max(c.x, max(c.y, c.z));
-    if n < 0.0 {
+    // A neutral color has `l == n == x`; clip only where the denominator is
+    // positive rather than divide 0 by 0.
+    if n < 0.0 && l - n > 0.0 {
         c = l + (((c - l) * l) / (l - n));
     }
-    if x > 1.0 {
+    if x > 1.0 && x - l > 0.0 {
         c = l + (((c - l) * (1.0 - l)) / (x - l));
     }
     return c;
