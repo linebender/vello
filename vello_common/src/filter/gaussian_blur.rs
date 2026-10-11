@@ -205,13 +205,13 @@ impl DecimationSizer {
         (self.width, self.height)
     }
 
-    /// Apply a new upscale operation.
+    /// Apply a new upscale operation, returning to the dimensions before the matching
+    /// downscale.
+    ///
+    /// This undoes the rounding up of odd dimensions when halving (e.g., 5→3→5, not 6).
     #[inline]
     pub fn upscale(&mut self) -> (u16, u16) {
-        let (target_w, target_h) = self.dim_stack.pop().unwrap();
-        // Clamp because upscale can exceed target on odd dimensions (e.g., 5→3→6 > 5)
-        self.width = (self.width * 2).min(target_w);
-        self.height = (self.height * 2).min(target_h);
+        (self.width, self.height) = self.dim_stack.pop().unwrap();
         (self.width, self.height)
     }
 }
@@ -323,7 +323,7 @@ mod tests {
         assert_eq!(sizer.downscale(), (3, 4));
         assert_eq!(sizer.downscale(), (2, 2));
 
-        // Upscale clamps to the pre-downscale target
+        // Upscale returns to the pre-downscale size
         assert_eq!(sizer.upscale(), (3, 4));
         assert_eq!(sizer.upscale(), (5, 7));
     }
