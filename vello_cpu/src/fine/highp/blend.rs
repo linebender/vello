@@ -270,23 +270,23 @@ fn sat<S: Simd>(r: f32x4<S>, g: f32x4<S>, b: f32x4<S>) -> f32x4<S> {
 #[inline(always)]
 fn clip_color<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>) {
     let simd = r.simd;
+    let zero = f32x4::splat(simd, 0.0);
 
     let l = lum(*r, *g, *b);
     let n = r.min(g.min(*b));
     let x = r.max(g.max(*b));
+    let below = l - n;
+    let above = x - l;
+    // A neutral color has `l == n == x`, which would make the divisions below
+    // 0/0. The clipped color's limit there is the color itself, so only clip
+    // where the denominator is positive.
+    let clip_low = simd.simd_lt_f32x4(n, zero) & simd.simd_gt_f32x4(below, zero);
+    let clip_high =
+        simd.simd_gt_f32x4(x, f32x4::splat(simd, 1.0)) & simd.simd_gt_f32x4(above, zero);
 
     for c in [r, g, b] {
-        *c = simd.select_f32x4(
-            simd.simd_lt_f32x4(n, f32x4::splat(simd, 0.0)),
-            l + (((*c - l) * l) / (l - n)),
-            *c,
-        );
-
-        *c = simd.select_f32x4(
-            simd.simd_gt_f32x4(x, f32x4::splat(simd, 1.0)),
-            l + (((*c - l) * (1.0 - l)) / (x - l)),
-            *c,
-        );
+        *c = simd.select_f32x4(clip_low, l + (((*c - l) * l) / below), *c);
+        *c = simd.select_f32x4(clip_high, l + (((*c - l) * (1.0 - l)) / above), *c);
     }
 }
 
@@ -321,4 +321,37 @@ fn scale_sat_channel<S: Simd>(c: f32x4<S>, mn: f32x4<S>, sat: f32x4<S>, s: f32x4
         f32x4::splat(simd, 0.0),
         (c - mn) * s / sat,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::peniko::Compose;
+    use vello_common::fearless_simd::Fallback;
+
+    // After SetLum, a neutral color has `lum == min == max`, so ClipColor's
+    // divisions are 0/0. That NaN survives `apply_alpha` even over a
+    // transparent backdrop and packs to black.
+    #[test]
+    fn non_separable_mix_of_neutral_colors_is_finite() {
+        let simd = Fallback::new();
+        let gray = |v: u8, a: u8| {
+            let (v, a) = (f32::from(v) / 255.0, f32::from(a) / 255.0);
+            f32x16::from_slice(simd, &[v * a, v * a, v * a, a].repeat(4))
+        };
+        for mix in [Mix::Hue, Mix::Saturation, Mix::Color, Mix::Luminosity] {
+            let blend_mode = BlendMode::new(mix, Compose::SrcOver);
+            for s in 0..=255 {
+                // Over a transparent backdrop and over every opaque gray.
+                for (b, ba) in core::iter::once((0, 0)).chain((0..=255).map(|b| (b, 255))) {
+                    let mut out = [0.0_f32; 16];
+                    super::mix(gray(s, 128), gray(b, ba), blend_mode).store_slice(&mut out);
+                    assert!(
+                        out.iter().all(|c| c.is_finite()),
+                        "{mix:?}: gray {s} at alpha 128 over gray {b} at alpha {ba} gave {out:?}"
+                    );
+                }
+            }
+        }
+    }
 }

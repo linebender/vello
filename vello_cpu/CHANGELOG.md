@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Fixed
+
+- `Color` and `Luminosity` blending rendering some gray colors as black, caused by a division by zero in `clip_color`. ([#2000][] by [@zlstringham][])
+
 ## [0.3.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.
@@ -260,6 +264,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@yezhizhen]: https://github.com/yezhizhen
+[@zlstringham]: https://github.com/zlstringham
 
 [#1159]: https://github.com/linebender/vello/pull/1159
 [#1203]: https://github.com/linebender/vello/pull/1203
@@ -337,6 +342,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1950]: https://github.com/linebender/vello/pull/1950
 [#1962]: https://github.com/linebender/vello/pull/1962
 [#1970]: https://github.com/linebender/vello/pull/1970
+[#2000]: https://github.com/linebender/vello/pull/2000
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0
