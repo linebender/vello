@@ -128,18 +128,16 @@ fn image_atlas_rejects_sampling_from_its_render_target() {
     let (mut renderer, _) = WebGlRenderer::new_with(&canvas, settings, false).unwrap();
     let texture_id = TextureId(0);
     let mut bindings = WebGlTextureBindings::new();
-    bindings.insert(texture_id, renderer.atlas_texture(AtlasId::new(0)).clone());
+    bindings.insert(
+        texture_id,
+        renderer.atlas_texture(AtlasId::new(0)).clone(),
+        1,
+        1,
+    );
 
     let mut scene = Scene::new(1, 1);
     scene.set_paint(Image {
-        image: ImageSource::external_texture(
-            texture_id,
-            TextureRegion::Full {
-                width: 1,
-                height: 1,
-            },
-            false,
-        ),
+        image: ImageSource::external_texture(texture_id, TextureRegion::Full, false),
         sampler: ImageSampler::default(),
     });
     scene.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));

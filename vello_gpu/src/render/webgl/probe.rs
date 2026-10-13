@@ -145,16 +145,18 @@ impl WebGlRenderer {
 
         let probe_texture_id = TextureId(0);
         let mut texture_bindings = WebGlTextureBindings::new();
-        texture_bindings.insert(probe_texture_id, probe_image_texture.deref().clone());
+        texture_bindings.insert(
+            probe_texture_id,
+            probe_image_texture.deref().clone(),
+            probe_image.width(),
+            probe_image.height(),
+        );
         let mut scene = Scene::new(width, height);
         vello_common::probe::draw_scene(
             &mut scene,
             ImageSource::external_texture(
                 probe_texture_id,
-                TextureRegion::Full {
-                    width: probe_image.width(),
-                    height: probe_image.height(),
-                },
+                TextureRegion::Full,
                 probe_image.may_have_transparency(),
             ),
             elements,

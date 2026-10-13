@@ -56,14 +56,7 @@ mod tests {
                 * Affine::translate((-8., -8.)),
         );
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(
-                texture_id,
-                TextureRegion::Full {
-                    width: 16,
-                    height: 16,
-                },
-                false,
-            ),
+            image: ImageSource::external_texture(texture_id, TextureRegion::Full, false),
             sampler: pad_sampler(ImageQuality::Medium),
         });
         ctx.fill_rect(&Rect::new(10., 10., 90., 90.));
@@ -81,10 +74,7 @@ mod tests {
         ctx.set_paint(Image {
             image: ImageSource::external_texture(
                 texture_id,
-                TextureRegion::Full {
-                    width: 1,
-                    height: 1,
-                },
+                TextureRegion::Full,
                 may_have_transparency,
             ),
             sampler: pad_sampler(ImageQuality::Low),
@@ -136,14 +126,7 @@ mod tests {
 
         ctx.push_clip_path(&clip);
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(
-                texture_id,
-                TextureRegion::Full {
-                    width: 1,
-                    height: 1,
-                },
-                true,
-            ),
+            image: ImageSource::external_texture(texture_id, TextureRegion::Full, true),
             sampler: pad_sampler(ImageQuality::Medium),
         });
         ctx.fill_rect(&rect);
@@ -172,14 +155,7 @@ mod tests {
 
         ctx.set_paint_transform(Affine::translate((10., 10.)) * Affine::scale(5.));
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(
-                texture_id,
-                TextureRegion::Full {
-                    width: 16,
-                    height: 16,
-                },
-                false,
-            ),
+            image: ImageSource::external_texture(texture_id, TextureRegion::Full, false),
             sampler: pad_sampler(ImageQuality::Medium),
         });
         ctx.fill_path(&Circle::new((50., 50.), 40.).to_path(0.1));
@@ -190,14 +166,7 @@ mod tests {
         let texture_id = ctx.register_external_texture(load_image!("color_grid_16x16"));
 
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(
-                texture_id,
-                TextureRegion::Full {
-                    width: 16,
-                    height: 16,
-                },
-                false,
-            ),
+            image: ImageSource::external_texture(texture_id, TextureRegion::Full, false),
             sampler: ImageSampler {
                 x_extend: Extend::Repeat,
                 y_extend: Extend::Repeat,
@@ -220,14 +189,7 @@ mod tests {
         ] {
             ctx.set_paint_transform(Affine::translate((x0, image_top)) * Affine::scale(1.5));
             ctx.set_paint(Image {
-                image: ImageSource::external_texture(
-                    texture_id,
-                    TextureRegion::Full {
-                        width: 16,
-                        height: 16,
-                    },
-                    false,
-                ),
+                image: ImageSource::external_texture(texture_id, TextureRegion::Full, false),
                 sampler: ImageSampler {
                     x_extend,
                     y_extend,
@@ -253,14 +215,7 @@ mod tests {
 
         ctx.set_paint_transform(Affine::translate((10., 10.)) * Affine::scale(40.));
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(
-                texture_id,
-                TextureRegion::Full {
-                    width: 2,
-                    height: 2,
-                },
-                true,
-            ),
+            image: ImageSource::external_texture(texture_id, TextureRegion::Full, true),
             sampler: ImageSampler {
                 alpha: 0.5,
                 ..pad_sampler(ImageQuality::Medium)
@@ -376,14 +331,7 @@ mod tests {
 
         ctx.set_transform(Affine::translate((5., 5.)) * Affine::scale(5.625));
         ctx.set_paint(Image {
-            image: ImageSource::external_texture(
-                texture_id,
-                TextureRegion::Full {
-                    width: 16,
-                    height: 16,
-                },
-                false,
-            ),
+            image: ImageSource::external_texture(texture_id, TextureRegion::Full, false),
             sampler: ImageSampler {
                 x_extend: Extend::Repeat,
                 y_extend: Extend::Repeat,

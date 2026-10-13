@@ -28,10 +28,7 @@ fn probe_scene_uses_depth_buffer_when_enabled() {
         &mut case.scene,
         ImageSource::external_texture(
             TextureId(0),
-            TextureRegion::Full {
-                width: image.width(),
-                height: image.height(),
-            },
+            TextureRegion::Full,
             image.may_have_transparency(),
         ),
         &elements,

@@ -181,7 +181,7 @@ pub struct WebGlRendererInit {
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct WebGlTextureBindings {
-    textures: HashMap<TextureId, WebGlTexture>,
+    textures: HashMap<TextureId, WebGlTextureWithDimensions>,
 }
 
 impl WebGlTextureBindings {
@@ -200,14 +200,34 @@ impl WebGlTextureBindings {
     /// - Its contents are treated as premultiplied alpha, and are sampled in texel space with
     ///   the origin at the first uploaded texel. A texture uploaded with `UNPACK_FLIP_Y_WEBGL`
     ///   enabled therefore samples vertically flipped.
+    /// - `width` and `height` must match the dimensions of its mip level 0, otherwise rendering
+    ///   might be corrupted.
     #[inline]
-    pub fn insert(&mut self, texture_id: TextureId, texture: WebGlTexture) {
-        self.textures.insert(texture_id, texture);
+    pub fn insert(
+        &mut self,
+        texture_id: TextureId,
+        texture: WebGlTexture,
+        width: u16,
+        height: u16,
+    ) {
+        assert!(
+            width > 0 && height > 0,
+            "external texture dimensions must not be zero"
+        );
+
+        self.textures.insert(
+            texture_id,
+            WebGlTextureWithDimensions {
+                texture,
+                width,
+                height,
+            },
+        );
     }
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&WebGlTexture> {
+    fn get(&self, texture_id: TextureId) -> Option<&WebGlTextureWithDimensions> {
         self.textures.get(&texture_id)
     }
 
@@ -216,7 +236,9 @@ impl WebGlTextureBindings {
     /// This returns the removed texture binding if it existed.
     #[inline]
     pub fn remove(&mut self, texture_id: TextureId) -> Option<WebGlTexture> {
-        self.textures.remove(&texture_id)
+        self.textures
+            .remove(&texture_id)
+            .map(|binding| binding.texture)
     }
 }
 
@@ -925,13 +947,18 @@ impl WebGlRenderer {
                     ImageSource::ExternalTexture {
                         id, source_region, ..
                     } => {
-                        let texture = texture_bindings
+                        let binding = texture_bindings
                             .get(*id)
                             .ok_or(RenderError::MissingTextureBinding(*id))?;
-                        if render_target_texture.is_some_and(|target| target == texture) {
+                        if render_target_texture.is_some_and(|target| *target == binding.texture) {
                             return Err(WebGlError::Render(RenderError::TextureFeedbackLoop(*id)));
                         }
-                        Self::encode_external_texture_paint(img, *source_region)
+                        Self::encode_external_texture_paint(
+                            img,
+                            *source_region,
+                            binding.width,
+                            binding.height,
+                        )
                     }
                     ImageSource::Pixmap(_) => {
                         panic!("pixmap image sources are not supported by Vello GPU")
@@ -983,12 +1010,18 @@ impl WebGlRenderer {
     fn encode_external_texture_paint(
         image: &vello_common::encode::EncodedImage,
         source_region: TextureRegion,
+        texture_width: u16,
+        texture_height: u16,
     ) -> GpuEncodedPaint {
-        if let Some(native_paint) = encode_native_image_paint(image) {
+        if let Some(native_paint) = encode_native_image_paint(image, texture_width, texture_height)
+        {
             return native_paint;
         }
 
-        let region = source_region.rect();
+        let region = match source_region {
+            TextureRegion::Full => RectU16::new(0, 0, texture_width, texture_height),
+            TextureRegion::Rect(rect) => rect,
+        };
         let transform = image.transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(region.width(), region.height());
         let image_offset = pack_image_offset(region.x0, region.y0);
@@ -2820,9 +2853,11 @@ impl WebGlRendererContext<'_> {
                     ExternalSampler::DEFAULT,
                 ),
                 Some(TextureSourceId::External(texture_id, sampler)) => (
-                    self.texture_bindings
+                    &self
+                        .texture_bindings
                         .get(texture_id)
-                        .ok_or(RenderError::MissingTextureBinding(texture_id))?,
+                        .ok_or(RenderError::MissingTextureBinding(texture_id))?
+                        .texture,
                     sampler,
                 ),
                 None => (
@@ -3543,7 +3578,7 @@ impl WebGlAtlasWriter for WebGlTexture {
 }
 
 /// Wrapper for `WebGlTexture` with known dimensions.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WebGlTextureWithDimensions {
     /// The WebGL texture.
     pub texture: WebGlTexture,

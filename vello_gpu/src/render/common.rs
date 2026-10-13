@@ -390,14 +390,7 @@ mod tests {
     #[test]
     fn native_image_encoding_accepts_opacity_but_not_color_tint_or_bicubic() {
         let mut image = EncodedImage {
-            source: ImageSource::external_texture(
-                TextureId(1),
-                TextureRegion::Full {
-                    width: 2,
-                    height: 2,
-                },
-                true,
-            ),
+            source: ImageSource::external_texture(TextureId(1), TextureRegion::Full, true),
             sampler: ImageSampler::default(),
             may_have_transparency: true,
             transform: Affine::IDENTITY,
@@ -408,23 +401,23 @@ mod tests {
                 mode: TintMode::Multiply,
             }),
         };
-        assert!(encode_native_image_paint(&image).is_some());
+        assert!(encode_native_image_paint(&image, 2, 2).is_some());
 
         image.tint = Some(Tint {
             color: Color::new([0.5, 1.0, 1.0, 0.5]),
             mode: TintMode::Multiply,
         });
-        assert!(encode_native_image_paint(&image).is_none());
+        assert!(encode_native_image_paint(&image, 2, 2).is_none());
 
         image.tint = Some(Tint {
             color: Color::new([1.0, 1.0, 1.0, 0.5]),
             mode: TintMode::AlphaMask,
         });
-        assert!(encode_native_image_paint(&image).is_none());
+        assert!(encode_native_image_paint(&image, 2, 2).is_none());
 
         image.tint = None;
         image.sampler.quality = ImageQuality::High;
-        assert!(encode_native_image_paint(&image).is_none());
+        assert!(encode_native_image_paint(&image, 2, 2).is_none());
     }
 }
 
@@ -587,14 +580,20 @@ pub(crate) struct GpuNativeImage {
     pub _padding: u32,
 }
 
-pub(crate) fn encode_native_image_paint(image: &EncodedImage) -> Option<GpuEncodedPaint> {
-    let ImageSource::ExternalTexture {
-        source_region: TextureRegion::Full { width, height },
-        ..
-    } = &image.source
-    else {
+pub(crate) fn encode_native_image_paint(
+    image: &EncodedImage,
+    texture_width: u16,
+    texture_height: u16,
+) -> Option<GpuEncodedPaint> {
+    if !matches!(
+        image.source,
+        ImageSource::ExternalTexture {
+            source_region: TextureRegion::Full,
+            ..
+        }
+    ) {
         return None;
-    };
+    }
 
     if image.tint.is_some_and(|tint| {
         tint.mode != TintMode::Multiply || tint.color.components[..3] != [1.0; 3]
@@ -606,11 +605,11 @@ pub(crate) fn encode_native_image_paint(image: &EncodedImage) -> Option<GpuEncod
     let mut transform = image.transform.as_coeffs();
 
     for index in [0, 2, 4] {
-        transform[index] /= f64::from(*width);
+        transform[index] /= f64::from(texture_width);
     }
 
     for index in [1, 3, 5] {
-        transform[index] /= f64::from(*height);
+        transform[index] /= f64::from(texture_height);
     }
 
     Some(GpuEncodedPaint::NativeImage(GpuNativeImage {

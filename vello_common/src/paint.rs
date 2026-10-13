@@ -79,27 +79,9 @@ impl ImageId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextureRegion {
     /// The entire texture view.
-    ///
-    /// **It is important that the provided width and height match the actual dimensions of the
-    /// texture, otherwise, rendering might be corrupted!**
-    Full {
-        /// Width of the bound texture view.
-        width: u16,
-        /// Height of the bound texture view.
-        height: u16,
-    },
+    Full,
     /// A subrectangle in texel coordinates.
     Rect(RectU16),
-}
-
-impl TextureRegion {
-    /// Return the source region in texel coordinates.
-    pub const fn rect(self) -> RectU16 {
-        match self {
-            Self::Full { width, height } => RectU16::new(0, 0, width, height),
-            Self::Rect(rect) => rect,
-        }
-    }
 }
 
 /// Bitmap source used by `Image`.
@@ -151,14 +133,14 @@ impl ImageSource {
     ///
     /// # Panics
     ///
-    /// Panics if `source_region` is empty.
+    /// Panics if `source_region` is an empty [`TextureRegion::Rect`].
     pub fn external_texture(
         texture_id: TextureId,
         source_region: TextureRegion,
         may_have_transparency: bool,
     ) -> Self {
         assert!(
-            !source_region.rect().is_empty(),
+            !matches!(source_region, TextureRegion::Rect(rect) if rect.is_empty()),
             "external texture source regions must not be empty"
         );
 

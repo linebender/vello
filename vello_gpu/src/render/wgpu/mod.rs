@@ -118,7 +118,7 @@ impl TextureBindings {
     /// This means the view must be a non-array 2D view of a filterable float texture (e.g.
     /// `Rgba8Unorm`; integer and unfilterable float formats are rejected by wgpu at bind time).
     /// The underlying texture must include [`wgpu::TextureUsages::TEXTURE_BINDING`], and only
-    /// mip level 0 is read.
+    /// mip level 0 is read. The view must start at mip level 0 of its texture.
     #[inline]
     pub fn insert(&mut self, texture_id: TextureId, view: TextureView) {
         self.views.insert(texture_id, view);
@@ -696,10 +696,18 @@ impl Renderer {
                             .get(*id)
                             .ok_or(RenderError::MissingTextureBinding(*id))?;
 
-                        if texture_view.texture() == render_target_texture {
+                        let texture = texture_view.texture();
+                        if texture == render_target_texture {
                             return Err(RenderError::TextureFeedbackLoop(*id));
                         }
-                        self.encode_external_texture_paint(img, *source_region)
+                        let texture_width = u16::try_from(texture.width()).unwrap();
+                        let texture_height = u16::try_from(texture.height()).unwrap();
+                        self.encode_external_texture_paint(
+                            img,
+                            *source_region,
+                            texture_width,
+                            texture_height,
+                        )
                     }
                     ImageSource::Pixmap(_) => {
                         panic!("pixmap image sources are not supported by Vello GPU")
@@ -752,12 +760,18 @@ impl Renderer {
         &self,
         image: &vello_common::encode::EncodedImage,
         source_region: TextureRegion,
+        texture_width: u16,
+        texture_height: u16,
     ) -> GpuEncodedPaint {
-        if let Some(native_paint) = encode_native_image_paint(image) {
+        if let Some(native_paint) = encode_native_image_paint(image, texture_width, texture_height)
+        {
             return native_paint;
         }
 
-        let region = source_region.rect();
+        let region = match source_region {
+            TextureRegion::Full => RectU16::new(0, 0, texture_width, texture_height),
+            TextureRegion::Rect(rect) => rect,
+        };
         let transform = image.transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(region.width(), region.height());
         let image_offset = pack_image_offset(region.x0, region.y0);

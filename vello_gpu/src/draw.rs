@@ -663,7 +663,7 @@ mod tests {
         encoded
             .iter()
             .map(|paint| match paint {
-                EncodedPaint::Image(image) => encode_native_image_paint(image)
+                EncodedPaint::Image(image) => encode_native_image_paint(image, 8, 8)
                     .unwrap_or_else(|| GpuEncodedPaint::Image(GpuEncodedImage::zeroed())),
                 _ => unreachable!("draw tests only use image paints"),
             })
@@ -735,14 +735,7 @@ mod tests {
         y_extend: Extend,
     ) -> EncodedPaint {
         EncodedPaint::Image(EncodedImage {
-            source: ImageSource::external_texture(
-                texture_id,
-                ImageTextureRegion::Full {
-                    width: 8,
-                    height: 8,
-                },
-                true,
-            ),
+            source: ImageSource::external_texture(texture_id, ImageTextureRegion::Full, true),
             sampler: ImageSampler {
                 x_extend,
                 y_extend,
