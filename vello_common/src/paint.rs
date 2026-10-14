@@ -71,6 +71,19 @@ impl ImageId {
     }
 }
 
+/// Region of an externally owned texture used by an image paint.
+///
+/// Whenever sampling the whole texture instead of a subregion from an atlas, you should **always**
+/// prefer using [`TextureRegion::Full`] over [`TextureRegion::Rect`], as it will
+/// have better performance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextureRegion {
+    /// The entire texture view.
+    Full,
+    /// A subrectangle in texel coordinates.
+    Rect(RectU16),
+}
+
 /// Bitmap source used by `Image`.
 #[derive(Debug, Clone)]
 pub enum ImageSource {
@@ -88,8 +101,8 @@ pub enum ImageSource {
     ExternalTexture {
         /// Opaque external texture handle.
         id: TextureId,
-        /// Source region to sample from in texel coordinates.
-        source_region: RectU16,
+        /// Source region to sample from.
+        source_region: TextureRegion,
         /// Whether the source region may contain non-opaque pixels.
         may_have_transparency: bool,
     },
@@ -120,14 +133,14 @@ impl ImageSource {
     ///
     /// # Panics
     ///
-    /// Panics if `source_region` is empty.
+    /// Panics if `source_region` is an empty [`TextureRegion::Rect`].
     pub fn external_texture(
         texture_id: TextureId,
-        source_region: RectU16,
+        source_region: TextureRegion,
         may_have_transparency: bool,
     ) -> Self {
         assert!(
-            !source_region.is_empty(),
+            !matches!(source_region, TextureRegion::Rect(rect) if rect.is_empty()),
             "external texture source regions must not be empty"
         );
 

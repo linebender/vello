@@ -26,6 +26,12 @@ const TINT_MODE_MULTIPLY: u32 = 1u;
 // texel2.z: GPU tint mode
 // texel2.w: transparent padding pixels around the image in the atlas
 
+// Native image layout. Must match `GpuNativeImage` in `vello_gpu/src/render/common.rs`.
+// texel0.xyzw: normalized transform matrix [a, b, c, d]
+// texel1.xy: normalized translation [tx, ty]
+// texel1.z: opacity (0-255)
+// texel1.w: padding
+
 /// The rendering quality of the image.
 fn get_image_quality(texel0: vec4<u32>) -> u32 { return texel0.x & 0x3u; }
 
@@ -55,6 +61,24 @@ fn get_image_transform(texel0: vec4<u32>, texel1: vec4<u32>) -> mat2x2<f32> {
 /// Translation part of the affine transform [tx, ty].
 fn get_image_translate(texel1: vec4<u32>, texel2: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(bitcast<f32>(texel1.w), bitcast<f32>(texel2.x));
+}
+
+/// Linear part of the native image transform, in normalized UV coordinates.
+fn get_native_image_transform(texel0: vec4<u32>) -> mat2x2<f32> {
+    return mat2x2<f32>(
+        vec2<f32>(bitcast<f32>(texel0.x), bitcast<f32>(texel0.y)),
+        vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w))
+    );
+}
+
+/// Translation part of the native image transform, in normalized UV coordinates.
+fn get_native_image_translate(texel1: vec4<u32>) -> vec2<f32> {
+    return vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y));
+}
+
+/// Opacity for native image sampling, stored as an 8-bit unorm value.
+fn get_native_image_opacity(texel1: vec4<u32>) -> u32 {
+    return texel1.z;
 }
 
 // Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)

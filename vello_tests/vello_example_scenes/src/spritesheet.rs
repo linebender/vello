@@ -7,7 +7,7 @@ use std::io::Cursor;
 
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, Rect};
-use vello_common::paint::{Image, ImageSource};
+use vello_common::paint::{Image, ImageSource, TextureRegion};
 use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 use vello_common::pixmap::Pixmap;
 use vello_gpu::TextureId;
@@ -102,7 +102,11 @@ impl ExampleScene for SpritesheetScene {
                 ctx.set_transform(root_transform * transform);
                 ctx.set_paint_transform(Affine::IDENTITY);
                 ctx.set_paint(Image {
-                    image: ImageSource::external_texture(SPRITESHEET_TEXTURE_ID, sprite, true),
+                    image: ImageSource::external_texture(
+                        SPRITESHEET_TEXTURE_ID,
+                        TextureRegion::Rect(sprite),
+                        true,
+                    ),
                     sampler: ImageSampler {
                         x_extend: Extend::Pad,
                         y_extend: Extend::Pad,

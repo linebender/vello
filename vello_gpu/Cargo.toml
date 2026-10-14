@@ -38,6 +38,7 @@ web-sys = { workspace = true, features = [
     "WebGlTexture",
     "WebGlFramebuffer",
     "WebGlRenderbuffer",
+    "WebGlSampler",
     "WebGlVertexArrayObject",
 ], optional = true }
 

@@ -29,7 +29,7 @@ import package::helpers::blurred_rounded_rect::{
     get_blurred_rounded_rect_sample_xy,
     sample_blurred_rounded_rect,
 };
-import package::helpers::external_texture::sample_image_paint;
+import package::helpers::external_texture::{sample_image_paint, sample_native_image_paint};
 import package::helpers::gradient::get_gradient_sample_xy;
 import package::helpers::gradient::sample_linear_gradient;
 import package::helpers::gradient::sample_radial_gradient;
@@ -38,7 +38,10 @@ import package::helpers::gradient::sample_sweep_gradient;
 import package::helpers::geometry::{pixel_to_ndc, quad_corner, rect_coverage};
 import package::helpers::image::{
     get_image_transform,
-    get_image_translate
+    get_image_translate,
+    get_native_image_opacity,
+    get_native_image_transform,
+    get_native_image_translate
 };
 import package::helpers::paint::{PAINT_TEXTURE_INDEX_MASK, load_encoded_paint_texel};
 import package::helpers::util::unpack_u16_pair;
@@ -56,6 +59,7 @@ const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2u;
 const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3u;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4u;
 const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5u;
+const PAINT_TYPE_NATIVE_IMAGE: u32 = 6u;
 
 const EXTERNAL_TEXTURE_SLOT_SHIFT: u32 = 24u;
 
@@ -109,7 +113,8 @@ struct Config {
 //   - Bits 0-28:  Usage depends on color_source:
 //
 //     When color_source = 0 (COLOR_SOURCE_PAYLOAD):
-//       - Bits 26-28: `paint_type` (0 = solid, 1 = image, 2 = linear_gradient, 3 = radial_gradient, 4 = sweep_gradient)
+//       - Bits 26-28: `paint_type` (0 = solid, 1 = image, 2 = linear_gradient, 3 = radial_gradient,
+//         4 = sweep_gradient, 5 = blurred rounded rectangle, 6 = native image fast path)
 //       - Bits 0-25:
 //         - If paint_type = 0: unused
 //         - Bits 0-23: `paint_texture_idx` for every non-solid paint
@@ -125,8 +130,11 @@ struct Config {
 // ├── paint_type = 0 (PAINT_TYPE_SOLID) - Solid color rendering
 // │   └── payload = [r, g, b, a] RGBA (packed as u8s)
 // │
-// ├── paint_type = 1 (PAINT_TYPE_IMAGE) - Image rendering
-// │   └── payload = packed image parameters
+// ├── paint_type = 1 (PAINT_TYPE_IMAGE) - Manual image sampling
+// │   └── payload = [x, y] scene coordinates
+// │
+// ├── paint_type = 6 (PAINT_TYPE_NATIVE_IMAGE) - Native image sampling
+// │   ├── payload = [x, y] scene coordinates in vertex shader; image opacity in fragment shader
 // │
 // ├── paint_type = 2 (PAINT_TYPE_LINEAR_GRADIENT) - Linear gradient rendering
 // ├── paint_type = 3 (PAINT_TYPE_RADIAL_GRADIENT) - Radial gradient (with kind discriminator)
@@ -206,6 +214,8 @@ var<uniform> config: Config;
 @group(1) @binding(0)
 var external_texture_0: texture_2d<f32>;
 
+@group(1) @binding(1)
+var external_sampler_0: sampler;
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
 
@@ -219,6 +229,7 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.sample_xy = vec2(0.0);
+    out.payload = instance.payload;
     // Map vertex_index (0-3) to quad corners:
     // 0 → (0,0), 1 → (1,0), 2 → (0,1), 3 → (1,1)
     let corner = quad_corner(in_vertex_index);
@@ -259,6 +270,22 @@ fn vs_main(
         let scene_strip = unpack_u16_pair(instance.payload);
 
         switch paint_type {
+            case PAINT_TYPE_NATIVE_IMAGE: {
+                let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+                let image_texel0 = load_encoded_paint_texel(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 0u,
+                );
+                let image_texel1 = load_encoded_paint_texel(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 1u,
+                );
+                let pos = vec2<f32>(
+                    f32(scene_strip.x) + x * f32(width),
+                    f32(scene_strip.y) + y * f32(height),
+                );
+                out.sample_xy = get_native_image_translate(image_texel1)
+                    + get_native_image_transform(image_texel0) * pos;
+                out.payload = get_native_image_opacity(image_texel1);
+            }
             case PAINT_TYPE_IMAGE: {
                 let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
                 let image_texel0 = load_encoded_paint_texel(
@@ -310,7 +337,6 @@ fn vs_main(
     // Flip it based on the flag.
     let final_ndc_y = select(ndc.y, -ndc.y, config.ndc_y_negate != 0u);
     out.position = vec4<f32>(ndc.x, final_ndc_y, z, 1.0);
-    out.payload = instance.payload;
     out.paint_and_rect_flag = instance.paint_and_rect_flag;
 
     return out;
@@ -345,10 +371,15 @@ fn fs_main(
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (paint_and_rect_flag >> 26u) & 0x7u;
 
-        // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
+        // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE or opacity for PAINT_TYPE_NATIVE_IMAGE
         switch paint_type {
             case PAINT_TYPE_SOLID: {
                 final_color = unpack4x8unorm(payload);
+            }
+            case PAINT_TYPE_NATIVE_IMAGE: {
+                final_color = sample_native_image_paint(
+                    external_texture_0, external_sampler_0, payload, sample_xy,
+                );
             }
             case PAINT_TYPE_IMAGE: {
                 final_color = sample_image_paint(

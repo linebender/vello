@@ -17,7 +17,10 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::mem::size_of;
 use vello_common::color::{AlphaColor, Srgb};
+use vello_common::encode::EncodedImage;
 use vello_common::geometry::{RectU16, SizeU16};
+use vello_common::paint::{ImageSource, TextureRegion, TintMode};
+use vello_common::peniko::ImageQuality;
 use vello_common::record::CommandRecorder;
 
 // TODO: If we want to use native bilinear sampling for uploaded images,
@@ -223,163 +226,6 @@ impl LayersConfig {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::DeviceLimits;
-    use crate::scene::RecordedDraw;
-    use crate::{IntermediateTextureError, LayersConfig, MemorySettings, SizeU16};
-    use vello_common::multi_atlas::AtlasConfig;
-    use vello_common::record::CommandRecorder;
-
-    fn device_limits(max_texture_dimension_2d: u16) -> DeviceLimits {
-        DeviceLimits {
-            max_texture_dimension_2d,
-        }
-    }
-
-    #[test]
-    fn normalize_memory_settings_clamps_atlas_dimensions_to_backend_limits() {
-        let mut settings = MemorySettings {
-            image_atlas_config: AtlasConfig {
-                initial_atlas_count: 8,
-                max_atlases: 16,
-                atlas_size: (8192, 2048),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        settings.normalize(&device_limits(4096));
-
-        let config = settings.image_atlas_config;
-        assert_eq!(config.initial_atlas_count, 8);
-        assert_eq!(config.max_atlases, 16);
-        assert_eq!(config.atlas_size, (4096, 2048));
-    }
-
-    #[test]
-    fn resource_texture_dimension_is_capped_at_4k() {
-        assert_eq!(device_limits(16384).resource_texture_dimension_2d(), 4096);
-        assert_eq!(device_limits(2048).resource_texture_dimension_2d(), 2048);
-    }
-
-    #[test]
-    fn normalize_memory_settings_allows_lazy_initial_atlas_allocation() {
-        let mut settings = MemorySettings {
-            image_atlas_config: AtlasConfig {
-                initial_atlas_count: 0,
-                atlas_size: (0, 0),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        settings.normalize(&device_limits(4096));
-
-        let config = settings.image_atlas_config;
-        assert_eq!(config.initial_atlas_count, 0);
-        assert_eq!(config.max_atlases, 8);
-        assert_eq!(config.atlas_size, (1, 1));
-    }
-
-    #[test]
-    fn normalize_memory_settings_clamps_minimum_to_maximum() {
-        let mut settings = MemorySettings {
-            layers_config: LayersConfig {
-                min_texture_size: SizeU16::from_wh(1024, 512),
-                max_texture_size: SizeU16::from_wh(512, 4096),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        settings.normalize(&device_limits(8192));
-
-        assert_eq!(
-            settings.layers_config.min_texture_size,
-            SizeU16::from_wh(512, 512)
-        );
-        assert_eq!(
-            settings.layers_config.max_texture_size,
-            SizeU16::from_wh(512, 4096)
-        );
-    }
-
-    #[test]
-    fn normalize_memory_settings_clamps_layer_sizes_to_backend_limit() {
-        let mut settings = MemorySettings {
-            layers_config: LayersConfig {
-                min_texture_size: SizeU16::from_wh(1024, 512),
-                max_texture_size: SizeU16::from_wh(2048, 4096),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        settings.normalize(&device_limits(768));
-
-        assert_eq!(
-            settings.layers_config.min_texture_size,
-            SizeU16::from_wh(768, 512)
-        );
-        assert_eq!(settings.layers_config.max_texture_size, SizeU16::new(768));
-    }
-
-    #[test]
-    fn required_intermediate_texture_size_rejects_oversized_layers() {
-        let mut recorder = CommandRecorder::<RecordedDraw>::new(10, 10);
-        recorder.largest_layer_size = Some(SizeU16::from_wh(513, 10));
-
-        let config = LayersConfig {
-            min_texture_size: SizeU16::new(1),
-            max_texture_size: SizeU16::new(512),
-            ..Default::default()
-        };
-
-        assert!(matches!(
-            config.required_intermediate_texture_size(&recorder),
-            Err(IntermediateTextureError::TooLarge {
-                width: 513,
-                height: 10,
-                max_width: 512,
-                max_height: 512,
-            })
-        ));
-    }
-
-    #[test]
-    fn required_intermediate_texture_size_rejects_filter_padding_overflow() {
-        let mut recorder = CommandRecorder::<RecordedDraw>::new(10, 10);
-        recorder.largest_filter_layer_size = Some(SizeU16::from_wh(u16::MAX, 10));
-
-        let config = LayersConfig {
-            min_texture_size: SizeU16::new(1),
-            max_texture_size: SizeU16::new(u16::MAX),
-            ..Default::default()
-        };
-
-        let padding = u32::from(crate::filter::FILTER_ATLAS_PADDING) * 2;
-        let error = config
-            .required_intermediate_texture_size(&recorder)
-            .unwrap_err();
-
-        match error {
-            IntermediateTextureError::TooLarge {
-                width,
-                height,
-                max_width,
-                max_height,
-            } => {
-                assert_eq!(width, u32::from(u16::MAX) + padding);
-                assert_eq!(height, 10 + padding);
-                assert_eq!(max_width, u16::MAX);
-                assert_eq!(max_height, u16::MAX);
-            }
-            _ => panic!("expected TooLarge"),
-        }
-    }
-}
-
 /// Dimensions of the rendering target.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RenderSize {
@@ -462,6 +308,8 @@ pub struct GpuStrip {
 pub(crate) enum GpuEncodedPaint {
     /// An encoded image.
     Image(GpuEncodedImage),
+    /// A full external image sampled by the GPU sampler.
+    NativeImage(GpuNativeImage),
     /// An encoded linear gradient.
     LinearGradient(GpuLinearGradient),
     /// An encoded radial gradient.
@@ -483,6 +331,7 @@ const fn texels<T>() -> u32 {
 
 impl GpuEncodedPaint {
     const IMAGE_TEXELS: u32 = texels::<GpuEncodedImage>();
+    const NATIVE_IMAGE_TEXELS: u32 = texels::<GpuNativeImage>();
     const LINEAR_TEXELS: u32 = texels::<GpuLinearGradient>();
     const RADIAL_TEXELS: u32 = texels::<GpuRadialGradient>();
     const SWEEP_TEXELS: u32 = texels::<GpuSweepGradient>();
@@ -493,6 +342,7 @@ impl GpuEncodedPaint {
     pub(crate) fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Image(paint) => bytemuck::bytes_of(paint),
+            Self::NativeImage(paint) => bytemuck::bytes_of(paint),
             Self::LinearGradient(paint) => bytemuck::bytes_of(paint),
             Self::RadialGradient(paint) => bytemuck::bytes_of(paint),
             Self::SweepGradient(paint) => bytemuck::bytes_of(paint),
@@ -504,6 +354,7 @@ impl GpuEncodedPaint {
     pub(crate) fn size_texels(&self) -> u32 {
         match self {
             Self::Image(_) => Self::IMAGE_TEXELS,
+            Self::NativeImage(_) => Self::NATIVE_IMAGE_TEXELS,
             Self::LinearGradient(_) => Self::LINEAR_TEXELS,
             Self::RadialGradient(_) => Self::RADIAL_TEXELS,
             Self::SweepGradient(_) => Self::SWEEP_TEXELS,
@@ -521,6 +372,56 @@ impl GpuEncodedPaint {
             offset = end_offset;
         }
     }
+}
+
+/// GPU data for a full external image using native texture sampling.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub(crate) struct GpuNativeImage {
+    /// Affine transform [a, b, c, d, tx, ty] from view pixels to normalized UVs.
+    pub transform: [f32; 6],
+    /// Opacity as an 8-bit unorm value in the low byte.
+    pub opacity: u32,
+    pub _padding: u32,
+}
+
+pub(crate) fn encode_native_image_paint(
+    image: &EncodedImage,
+    texture_width: u16,
+    texture_height: u16,
+) -> Option<GpuEncodedPaint> {
+    if !matches!(
+        image.source,
+        ImageSource::ExternalTexture {
+            source_region: TextureRegion::Full,
+            ..
+        }
+    ) {
+        return None;
+    }
+
+    if image.tint.is_some_and(|tint| {
+        tint.mode != TintMode::Multiply || tint.color.components[..3] != [1.0; 3]
+    }) || matches!(image.sampler.quality, ImageQuality::High)
+    {
+        return None;
+    }
+
+    let mut transform = image.transform.as_coeffs();
+
+    for index in [0, 2, 4] {
+        transform[index] /= f64::from(texture_width);
+    }
+
+    for index in [1, 3, 5] {
+        transform[index] /= f64::from(texture_height);
+    }
+
+    Some(GpuEncodedPaint::NativeImage(GpuNativeImage {
+        transform: transform.map(|x| x as f32),
+        opacity: pack_tint(image.tint).0 >> 24,
+        _padding: 0,
+    }))
 }
 
 /// GPU encoded image data.
@@ -703,7 +604,7 @@ pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
         // With no tint, use `u32::MAX` (which corresponds to 1.0 on all lanes).
         // Since we use `Multiply` this will essentially just yield the original image
         // sample, having the same effect as no tinting at all.
-        None => (u32::MAX, vello_common::paint::TintMode::Multiply.as_u32()),
+        None => (u32::MAX, TintMode::Multiply.as_u32()),
     }
 }
 
@@ -727,3 +628,198 @@ For optimal performance and binary size on web targets, use only the dedicated W
     not(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))
 ))]
 pub(crate) fn maybe_warn_about_webgl_feature_conflict() {}
+
+#[cfg(test)]
+mod tests {
+    use super::{DeviceLimits, encode_native_image_paint};
+    use crate::scene::RecordedDraw;
+    use crate::{IntermediateTextureError, LayersConfig, MemorySettings, SizeU16};
+    use vello_common::TextureId;
+    use vello_common::encode::EncodedImage;
+    use vello_common::kurbo::{Affine, Vec2};
+    use vello_common::multi_atlas::AtlasConfig;
+    use vello_common::paint::{ImageSource, TextureRegion, Tint, TintMode};
+    use vello_common::peniko::{Color, ImageQuality, ImageSampler};
+    use vello_common::record::CommandRecorder;
+
+    fn device_limits(max_texture_dimension_2d: u16) -> DeviceLimits {
+        DeviceLimits {
+            max_texture_dimension_2d,
+        }
+    }
+
+    #[test]
+    fn normalize_memory_settings_clamps_atlas_dimensions_to_backend_limits() {
+        let mut settings = MemorySettings {
+            image_atlas_config: AtlasConfig {
+                initial_atlas_count: 8,
+                max_atlases: 16,
+                atlas_size: (8192, 2048),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(4096));
+
+        let config = settings.image_atlas_config;
+        assert_eq!(config.initial_atlas_count, 8);
+        assert_eq!(config.max_atlases, 16);
+        assert_eq!(config.atlas_size, (4096, 2048));
+    }
+
+    #[test]
+    fn resource_texture_dimension_is_capped_at_4k() {
+        assert_eq!(device_limits(16384).resource_texture_dimension_2d(), 4096);
+        assert_eq!(device_limits(2048).resource_texture_dimension_2d(), 2048);
+    }
+
+    #[test]
+    fn normalize_memory_settings_allows_lazy_initial_atlas_allocation() {
+        let mut settings = MemorySettings {
+            image_atlas_config: AtlasConfig {
+                initial_atlas_count: 0,
+                atlas_size: (0, 0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(4096));
+
+        let config = settings.image_atlas_config;
+        assert_eq!(config.initial_atlas_count, 0);
+        assert_eq!(config.max_atlases, 8);
+        assert_eq!(config.atlas_size, (1, 1));
+    }
+
+    #[test]
+    fn normalize_memory_settings_clamps_minimum_to_maximum() {
+        let mut settings = MemorySettings {
+            layers_config: LayersConfig {
+                min_texture_size: SizeU16::from_wh(1024, 512),
+                max_texture_size: SizeU16::from_wh(512, 4096),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(8192));
+
+        assert_eq!(
+            settings.layers_config.min_texture_size,
+            SizeU16::from_wh(512, 512)
+        );
+        assert_eq!(
+            settings.layers_config.max_texture_size,
+            SizeU16::from_wh(512, 4096)
+        );
+    }
+
+    #[test]
+    fn normalize_memory_settings_clamps_layer_sizes_to_backend_limit() {
+        let mut settings = MemorySettings {
+            layers_config: LayersConfig {
+                min_texture_size: SizeU16::from_wh(1024, 512),
+                max_texture_size: SizeU16::from_wh(2048, 4096),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(768));
+
+        assert_eq!(
+            settings.layers_config.min_texture_size,
+            SizeU16::from_wh(768, 512)
+        );
+        assert_eq!(settings.layers_config.max_texture_size, SizeU16::new(768));
+    }
+
+    #[test]
+    fn required_intermediate_texture_size_rejects_oversized_layers() {
+        let mut recorder = CommandRecorder::<RecordedDraw>::new(10, 10);
+        recorder.largest_layer_size = Some(SizeU16::from_wh(513, 10));
+
+        let config = LayersConfig {
+            min_texture_size: SizeU16::new(1),
+            max_texture_size: SizeU16::new(512),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            config.required_intermediate_texture_size(&recorder),
+            Err(IntermediateTextureError::TooLarge {
+                width: 513,
+                height: 10,
+                max_width: 512,
+                max_height: 512,
+            })
+        ));
+    }
+
+    #[test]
+    fn required_intermediate_texture_size_rejects_filter_padding_overflow() {
+        let mut recorder = CommandRecorder::<RecordedDraw>::new(10, 10);
+        recorder.largest_filter_layer_size = Some(SizeU16::from_wh(u16::MAX, 10));
+
+        let config = LayersConfig {
+            min_texture_size: SizeU16::new(1),
+            max_texture_size: SizeU16::new(u16::MAX),
+            ..Default::default()
+        };
+
+        let padding = u32::from(crate::filter::FILTER_ATLAS_PADDING) * 2;
+        let error = config
+            .required_intermediate_texture_size(&recorder)
+            .unwrap_err();
+
+        match error {
+            IntermediateTextureError::TooLarge {
+                width,
+                height,
+                max_width,
+                max_height,
+            } => {
+                assert_eq!(width, u32::from(u16::MAX) + padding);
+                assert_eq!(height, 10 + padding);
+                assert_eq!(max_width, u16::MAX);
+                assert_eq!(max_height, u16::MAX);
+            }
+            _ => panic!("expected TooLarge"),
+        }
+    }
+
+    #[test]
+    fn native_image_encoding_accepts_opacity_but_not_color_tint_or_bicubic() {
+        let mut image = EncodedImage {
+            source: ImageSource::external_texture(TextureId(1), TextureRegion::Full, true),
+            sampler: ImageSampler::default(),
+            may_have_transparency: true,
+            transform: Affine::IDENTITY,
+            x_advance: Vec2::new(1.0, 0.0),
+            y_advance: Vec2::new(0.0, 1.0),
+            tint: Some(Tint {
+                color: Color::new([1.0, 1.0, 1.0, 0.5]),
+                mode: TintMode::Multiply,
+            }),
+        };
+        assert!(encode_native_image_paint(&image, 2, 2).is_some());
+
+        image.tint = Some(Tint {
+            color: Color::new([0.5, 1.0, 1.0, 0.5]),
+            mode: TintMode::Multiply,
+        });
+        assert!(encode_native_image_paint(&image, 2, 2).is_none());
+
+        image.tint = Some(Tint {
+            color: Color::new([1.0, 1.0, 1.0, 0.5]),
+            mode: TintMode::AlphaMask,
+        });
+        assert!(encode_native_image_paint(&image, 2, 2).is_none());
+
+        image.tint = None;
+        image.sampler.quality = ImageQuality::High;
+        assert!(encode_native_image_paint(&image, 2, 2).is_none());
+    }
+}

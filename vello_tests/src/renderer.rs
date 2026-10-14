@@ -9,7 +9,7 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
+use vello_common::paint::{ImageId, ImageSource, PaintType, TextureRegion, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{
@@ -227,8 +227,12 @@ impl Renderer for CpuRenderer {
                 .external_textures
                 .get(id)
                 .unwrap_or_else(|| panic!("External texture {id:?} not found in test registry"));
+            let source_region = match *source_region {
+                TextureRegion::Full => RectU16::new(0, 0, pixmap.width(), pixmap.height()),
+                TextureRegion::Rect(rect) => rect,
+            };
 
-            if *source_region == RectU16::new(0, 0, pixmap.width(), pixmap.height()) {
+            if source_region == RectU16::new(0, 0, pixmap.width(), pixmap.height()) {
                 image.image = ImageSource::Pixmap(Arc::clone(pixmap));
             } else {
                 let mut cropped = Pixmap::new(source_region.width(), source_region.height());
@@ -1134,7 +1138,8 @@ impl Renderer for GpuRenderer {
         self.gl
             .bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
 
-        self.external_textures.insert(texture_id, texture);
+        self.external_textures
+            .insert(texture_id, texture, pixmap.width(), pixmap.height());
         texture_id
     }
 
