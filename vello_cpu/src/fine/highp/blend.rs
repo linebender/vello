@@ -277,9 +277,6 @@ fn clip_color<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>) {
     let x = r.max(g.max(*b));
     let below = l - n;
     let above = x - l;
-    // A neutral color has `l == n == x`, which would make the divisions below
-    // 0/0. The clipped color's limit there is the color itself, so only clip
-    // where the denominator is positive.
     let clip_low = simd.simd_lt_f32x4(n, zero) & simd.simd_gt_f32x4(below, zero);
     let clip_high =
         simd.simd_gt_f32x4(x, f32x4::splat(simd, 1.0)) & simd.simd_gt_f32x4(above, zero);
