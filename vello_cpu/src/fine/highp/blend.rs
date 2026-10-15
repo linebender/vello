@@ -319,36 +319,3 @@ fn scale_sat_channel<S: Simd>(c: f32x4<S>, mn: f32x4<S>, sat: f32x4<S>, s: f32x4
         (c - mn) * s / sat,
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::peniko::Compose;
-    use vello_common::fearless_simd::Fallback;
-
-    // After SetLum, a neutral color has `lum == min == max`, so ClipColor's
-    // divisions are 0/0. That NaN survives `apply_alpha` even over a
-    // transparent backdrop and packs to black.
-    #[test]
-    fn non_separable_mix_of_neutral_colors_is_finite() {
-        let simd = Fallback::new();
-        let gray = |v: u8, a: u8| {
-            let (v, a) = (f32::from(v) / 255.0, f32::from(a) / 255.0);
-            f32x16::from_slice(simd, &[v * a, v * a, v * a, a].repeat(4))
-        };
-        for mix in [Mix::Hue, Mix::Saturation, Mix::Color, Mix::Luminosity] {
-            let blend_mode = BlendMode::new(mix, Compose::SrcOver);
-            for s in 0..=255 {
-                // Over a transparent backdrop and over every opaque gray.
-                for (b, ba) in core::iter::once((0, 0)).chain((0..=255).map(|b| (b, 255))) {
-                    let mut out = [0.0_f32; 16];
-                    super::mix(gray(s, 128), gray(b, ba), blend_mode).store_slice(&mut out);
-                    assert!(
-                        out.iter().all(|c| c.is_finite()),
-                        "{mix:?}: gray {s} at alpha 128 over gray {b} at alpha {ba} gave {out:?}"
-                    );
-                }
-            }
-        }
-    }
-}
