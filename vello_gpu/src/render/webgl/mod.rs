@@ -773,6 +773,10 @@ impl WebGlRenderer {
     ///
     /// This is the WebGL analogue of the wgpu Renderer's `upload_image` method.
     /// It allocates space in the image cache and uploads the image data to the atlas texture.
+    ///
+    /// # Errors
+    /// Returns [`WebGlError::FullImageSupportDisabled`] if the `full_image_support` feature
+    /// is disabled, or an error if allocating or uploading the image fails.
     #[track_caller]
     pub fn upload_image<T: WebGlAtlasWriter>(
         &mut self,
@@ -790,7 +794,7 @@ impl WebGlRenderer {
         padding: u16,
     ) -> Result<ImageId, WebGlError> {
         if !cfg!(feature = "full_image_support") {
-            panic!("uploaded images require the `full_image_support` feature");
+            return Err(WebGlError::FullImageSupportDisabled);
         }
 
         let width = writer.width();
