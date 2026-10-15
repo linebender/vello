@@ -31,7 +31,7 @@
 //!   features.
 //! - `blurred_rounded_rect` (enabled by default): Enables rendering of blurred
 //!   rounded rectangles.
-//! - `extended_images` (enabled by default): If this feature is disabled, only
+//! - `full_image_support` (enabled by default): If this feature is disabled, only
 //!   external textures using `TextureRegion::Full` with nearest or bilinear
 //!   sampling and opacity are supported. Enabling this feature also adds support
 //!   for uploaded images, glyph atlas caching, bicubic sampling, cropped external

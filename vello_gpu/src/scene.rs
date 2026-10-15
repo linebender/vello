@@ -999,9 +999,9 @@ fn assert_paint_supported(paint: &PaintType, tint: Option<Tint>) {
             "sweep gradients require the `gradient_sweep` feature"
         ),
         PaintType::Image(image) => assert!(
-            cfg!(feature = "extended_images")
+            cfg!(feature = "full_image_support")
                 || crate::paint::supports_native_image(&image.image, image.sampler.quality, tint),
-            "extended image sampling requires the `extended_images` feature"
+            "extended image sampling requires the `full_image_support` feature"
         ),
     }
 }
@@ -1009,11 +1009,11 @@ fn assert_paint_supported(paint: &PaintType, tint: Option<Tint>) {
 #[cfg(test)]
 mod tests {
     use super::{RecordedDraw, Scene};
-    #[cfg(all(feature = "text", feature = "extended_images"))]
+    #[cfg(all(feature = "text", feature = "full_image_support"))]
     use crate::resources::Resources;
-    #[cfg(all(feature = "text", feature = "extended_images"))]
+    #[cfg(all(feature = "text", feature = "full_image_support"))]
     use alloc::sync::Arc;
-    #[cfg(all(feature = "text", feature = "extended_images"))]
+    #[cfg(all(feature = "text", feature = "full_image_support"))]
     use glifo::Glyph;
     use vello_common::TextureId;
     use vello_common::geometry::RectU16;
@@ -1021,7 +1021,7 @@ mod tests {
     use vello_common::paint::{Image, ImageSource, Paint, PremulColor, TextureRegion};
     use vello_common::peniko::ImageSampler;
     use vello_common::peniko::color::palette::css::BLUE;
-    #[cfg(all(feature = "text", feature = "extended_images"))]
+    #[cfg(all(feature = "text", feature = "full_image_support"))]
     use vello_common::peniko::{Blob, FontData};
     use vello_common::record::Drawable;
 
@@ -1106,7 +1106,7 @@ mod tests {
         assert!(scene.recorder.nodes.is_empty());
     }
 
-    #[cfg(all(feature = "text", feature = "extended_images"))]
+    #[cfg(all(feature = "text", feature = "full_image_support"))]
     #[test]
     fn glyph_atlas_resources_are_lazy() {
         const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");

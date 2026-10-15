@@ -29,7 +29,7 @@ import package::helpers::blurred_rounded_rect::{
     get_blurred_rounded_rect_sample_xy,
     sample_blurred_rounded_rect,
 };
-@if(extended_images)
+@if(full_image_support)
 import package::helpers::external_texture::sample_image_paint;
 import package::helpers::external_texture::sample_native_image_paint;
 import package::helpers::gradient::get_gradient_sample_xy;
@@ -38,7 +38,7 @@ import package::helpers::gradient::sample_radial_gradient;
 @if(gradient_sweep)
 import package::helpers::gradient::sample_sweep_gradient;
 import package::helpers::geometry::{pixel_to_ndc, quad_corner, rect_coverage};
-@if(extended_images)
+@if(full_image_support)
 import package::helpers::image::{get_image_transform, get_image_translate};
 import package::helpers::image::{
     get_native_image_opacity,
@@ -288,7 +288,7 @@ fn vs_main(
                     + get_native_image_transform(image_texel0) * pos;
                 out.payload = get_native_image_opacity(image_texel1);
             }
-            @if(extended_images)
+            @if(full_image_support)
             case PAINT_TYPE_IMAGE: {
                 let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
                 let image_texel0 = load_encoded_paint_texel(
@@ -384,7 +384,7 @@ fn fs_main(
                     external_texture_0, external_sampler_0, payload, sample_xy,
                 );
             }
-            @if(extended_images)
+            @if(full_image_support)
             case PAINT_TYPE_IMAGE: {
                 final_color = sample_image_paint(
                     encoded_paints_texture, config.encoded_paints_tex_width_bits,

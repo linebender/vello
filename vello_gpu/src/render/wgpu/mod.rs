@@ -549,8 +549,8 @@ impl Renderer {
         writer: &T,
         padding: u16,
     ) -> vello_common::paint::ImageId {
-        if !cfg!(feature = "extended_images") {
-            panic!("uploaded images require the `extended_images` feature");
+        if !cfg!(feature = "full_image_support") {
+            panic!("uploaded images require the `full_image_support` feature");
         }
 
         let width = writer.width();

@@ -4,7 +4,11 @@
 //! Select the reference image for the enabled shader features.
 
 fn main() {
-    let features = ["blurred_rounded_rect", "extended_images", "gradient_sweep"];
+    let features = [
+        "blurred_rounded_rect",
+        "full_image_support",
+        "gradient_sweep",
+    ];
     let enabled = features
         .iter()
         .filter(|feature| {

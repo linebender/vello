@@ -259,8 +259,8 @@ impl<'a> GpuGlyphRunBackend<'a> {
 impl<'a> GlyphRunBackend<'a> for GpuGlyphRunBackend<'a> {
     fn atlas_cache(mut self, enabled: bool) -> Self {
         assert!(
-            !enabled || cfg!(feature = "extended_images"),
-            "glyph atlas caching requires the `extended_images` feature"
+            !enabled || cfg!(feature = "full_image_support"),
+            "glyph atlas caching requires the `full_image_support` feature"
         );
 
         self.atlas_cache_enabled = enabled;
