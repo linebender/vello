@@ -50,8 +50,8 @@ use crate::{
         common::{
             DeviceLimits, GpuBlurredRoundedRect, GpuEncodedImage, GpuEncodedPaint,
             GpuLinearGradient, GpuSweepGradient, ScratchBuffers, ScratchTexture,
-            encode_native_image_paint, encode_radial_gradient, pack_image_offset,
-            pack_image_params, pack_image_size, pack_texture_width_and_extend_mode, pack_tint,
+            encode_native_image_paint, encode_radial_gradient, pack_gradient_start_and_extend_mode,
+            pack_image_offset, pack_image_params, pack_image_size, pack_tint,
         },
     },
     scene::Scene,
@@ -103,8 +103,8 @@ extern "C" {
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
-    texture_width_and_extend_mode: 0,
-    gradient_start: 0,
+    ramp_scale: 0.0,
+    gradient_start_and_extend_mode: 0,
     transform: [0.0; 6],
 });
 
@@ -1065,24 +1065,25 @@ impl WebGlRenderer {
             peniko::Extend::Repeat => 1,
             peniko::Extend::Reflect => 2,
         };
-        let texture_width_and_extend_mode =
-            pack_texture_width_and_extend_mode(gradient_width, extend_mode);
+        let ramp_scale = (gradient_width - 1) as f32;
+        let gradient_start_and_extend_mode =
+            pack_gradient_start_and_extend_mode(gradient_start, extend_mode);
 
         match &gradient.kind {
             EncodedKind::Linear(_) => GpuEncodedPaint::LinearGradient(GpuLinearGradient {
-                texture_width_and_extend_mode,
-                gradient_start,
+                ramp_scale,
+                gradient_start_and_extend_mode,
                 transform,
             }),
             EncodedKind::Radial(radial) => GpuEncodedPaint::RadialGradient(encode_radial_gradient(
-                texture_width_and_extend_mode,
-                gradient_start,
+                ramp_scale,
+                gradient_start_and_extend_mode,
                 transform,
                 radial,
             )),
             EncodedKind::Sweep(sweep) => GpuEncodedPaint::SweepGradient(GpuSweepGradient {
-                texture_width_and_extend_mode,
-                gradient_start,
+                ramp_scale,
+                gradient_start_and_extend_mode,
                 transform,
                 start_angle: sweep.start_angle,
                 inv_angle_delta: sweep.inv_angle_delta,

@@ -5,8 +5,11 @@
 
 import package::helpers::extend::extend_mode_normalized;
 import package::helpers::math::{NEARLY_ZERO_TOLERANCE, TWO_PI};
-import package::helpers::paint::{PAINT_TEXTURE_INDEX_MASK, load_encoded_paint_texel};
-import package::helpers::texture::flat_index_to_texture_coord;
+import package::helpers::paint::{
+    PAINT_TEXTURE_INDEX_MASK,
+    encoded_paint_coord,
+    load_encoded_paint_texel,
+};
 
 fn get_gradient_sample_xy(
     encoded_paints_texture: texture_2d<u32>,
@@ -50,7 +53,8 @@ fn sample_linear_gradient(
         t_value,
         get_gradient_extend_mode(gradient_texel0),
         get_gradient_start(gradient_texel0),
-        get_gradient_texture_width(gradient_texel0)
+        get_gradient_ramp_scale(gradient_texel0),
+        tex_width_bits,
     );
     return gradient_color;
 }
@@ -77,7 +81,8 @@ fn sample_radial_gradient(
         gradient_result.x,
         get_gradient_extend_mode(gradient_texel0),
         get_gradient_start(gradient_texel0),
-        get_gradient_texture_width(gradient_texel0)
+        get_gradient_ramp_scale(gradient_texel0),
+        tex_width_bits,
     );
     return select(
         vec4<f32>(0.0, 0.0, 0.0, 0.0),
@@ -123,7 +128,8 @@ fn sample_sweep_gradient(
         t_value,
         get_gradient_extend_mode(gradient_texel0),
         get_gradient_start(gradient_texel0),
-        get_gradient_texture_width(gradient_texel0)
+        get_gradient_ramp_scale(gradient_texel0),
+        tex_width_bits,
     );
     return gradient_color;
 }
@@ -139,30 +145,30 @@ fn sample_gradient_lut(
     t_value: f32,
     extend_mode: u32,
     gradient_start: u32,
-    texture_width: u32,
+    ramp_scale: f32,
+    tex_width_bits: u32,
 ) -> vec4<f32> {
     // Apply extend mode to t_value
     let clamped_t = extend_mode_normalized(t_value, extend_mode);
     // Convert t_value to texture coordinate
-    let t_offset = u32(clamped_t * f32(texture_width - 1u));
+    let t_offset = u32(clamped_t * ramp_scale);
     // Calculate absolute position in flat gradient texture
     let flat_coord = gradient_start + t_offset;
-    // Convert flat coordinate to 2D texture coordinate
-    let gradient_tex_width = textureDimensions(gradient_texture).x;
-    let texture_coord = flat_index_to_texture_coord(flat_coord, gradient_tex_width);
     // Sample from the gradient texture at calculated position
-    let gradient_color = textureLoad(gradient_texture, texture_coord, 0);
+    let gradient_color = textureLoad(
+        gradient_texture, encoded_paint_coord(flat_coord, tex_width_bits), 0,
+    );
     return gradient_color;
 }
 
-/// Width of the gradient texture.
-fn get_gradient_texture_width(texel0: vec4<u32>) -> u32 { return texel0.x & 0x0FFFFFFFu; }
+/// Scale mapping a normalized gradient position to an index in its ramp.
+fn get_gradient_ramp_scale(texel0: vec4<u32>) -> f32 { return bitcast<f32>(texel0.x); }
 
 /// The extend mode for the gradient.
-fn get_gradient_extend_mode(texel0: vec4<u32>) -> u32 { return (texel0.x >> 30u) & 3u; }
+fn get_gradient_extend_mode(texel0: vec4<u32>) -> u32 { return texel0.y >> 30u; }
 
 /// Start coordinate in the flat gradient texture.
-fn get_gradient_start(texel0: vec4<u32>) -> u32 { return texel0.y; }
+fn get_gradient_start(texel0: vec4<u32>) -> u32 { return texel0.y & 0x3FFFFFFFu; }
 
 /// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
 fn get_gradient_transform(texel0: vec4<u32>, texel1: vec4<u32>) -> mat2x2<f32> {

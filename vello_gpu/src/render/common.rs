@@ -463,10 +463,10 @@ pub(crate) struct GpuBlurredRoundedRect {
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuLinearGradient {
-    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
-    pub texture_width_and_extend_mode: u32,
-    /// Start coordinate in the flat gradient texture.
-    pub gradient_start: u32,
+    /// Scale mapping a normalized gradient position to an index in its ramp.
+    pub ramp_scale: f32,
+    /// Start coordinate in the flat gradient texture (bits 0-29) and extend mode (bits 30-31).
+    pub gradient_start_and_extend_mode: u32,
     /// Transform matrix [a, b, c, d, tx, ty].
     pub transform: [f32; 6],
 }
@@ -477,10 +477,10 @@ pub(crate) struct GpuLinearGradient {
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuRadialGradient {
-    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
-    pub texture_width_and_extend_mode: u32,
-    /// Start coordinate in the flat gradient texture for dense packing.
-    pub gradient_start: u32,
+    /// Scale mapping a normalized gradient position to an index in its ramp.
+    pub ramp_scale: f32,
+    /// Start coordinate in the flat gradient texture (bits 0-29) and extend mode (bits 30-31).
+    pub gradient_start_and_extend_mode: u32,
     /// Transform matrix [a, b, c, d, tx, ty].
     pub transform: [f32; 6],
     /// Packed kind (bits 0-1, see `RADIAL_KIND_*`) and whether to negate the
@@ -500,10 +500,10 @@ pub(crate) struct GpuRadialGradient {
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuSweepGradient {
-    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
-    pub texture_width_and_extend_mode: u32,
-    /// Start coordinate in the flat gradient texture for dense packing.
-    pub gradient_start: u32,
+    /// Scale mapping a normalized gradient position to an index in its ramp.
+    pub ramp_scale: f32,
+    /// Start coordinate in the flat gradient texture (bits 0-29) and extend mode (bits 30-31).
+    pub gradient_start_and_extend_mode: u32,
     /// Transform matrix [a, b, c, d, tx, ty].
     pub transform: [f32; 6],
     /// Starting angle for sweep gradient.
@@ -514,21 +514,19 @@ pub(crate) struct GpuSweepGradient {
     pub _padding: [u32; 2],
 }
 
-// Constants for packing extend_mode and texture_width.
-const EXTEND_MODE_MASK: u32 = 1 << 30;
-const TEXTURE_WIDTH_MASK: u32 = !EXTEND_MODE_MASK;
+const GRADIENT_START_MASK: u32 = (1 << 30) - 1;
 
-/// Pack `extend_mode` and `texture_width` into a single u32.
+/// Pack `gradient_start` and `extend_mode` into a single u32.
 /// `extend_mode`: 0=Pad, 1=Repeat, 2=Reflect (stored in bits 30 & 31)
-/// `texture_width`: stored in bits 0-29 (max value: 2^30-1)
+/// `gradient_start`: stored in bits 0-29
 #[inline(always)]
-pub(crate) fn pack_texture_width_and_extend_mode(texture_width: u32, extend_mode: u32) -> u32 {
+pub(crate) fn pack_gradient_start_and_extend_mode(gradient_start: u32, extend_mode: u32) -> u32 {
     debug_assert!(extend_mode <= 2, "extend_mode must be less or equal to 2");
     debug_assert!(
-        texture_width <= TEXTURE_WIDTH_MASK,
-        "texture_width {texture_width} exceeds maximum value {TEXTURE_WIDTH_MASK}"
+        gradient_start <= GRADIENT_START_MASK,
+        "gradient_start {gradient_start} exceeds maximum value {GRADIENT_START_MASK}"
     );
-    (extend_mode << 30) | (texture_width & TEXTURE_WIDTH_MASK)
+    (extend_mode << 30) | gradient_start
 }
 
 const RADIAL_KIND_WELL_BEHAVED: u32 = 0;
@@ -539,8 +537,8 @@ const RADIAL_NEGATE_ROOT_FLAG: u32 = 1 << 2;
 
 /// Encode a radial gradient.
 pub(crate) fn encode_radial_gradient(
-    texture_width_and_extend_mode: u32,
-    gradient_start: u32,
+    ramp_scale: f32,
+    gradient_start_and_extend_mode: u32,
     transform: [f32; 6],
     radial: &RadialKind,
 ) -> GpuRadialGradient {
@@ -568,8 +566,8 @@ pub(crate) fn encode_radial_gradient(
     };
 
     GpuRadialGradient {
-        texture_width_and_extend_mode,
-        gradient_start,
+        ramp_scale,
+        gradient_start_and_extend_mode,
         transform,
         kind_and_flags,
         param,
