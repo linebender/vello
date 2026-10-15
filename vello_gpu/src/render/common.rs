@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::mem::size_of;
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::encode::EncodedImage;
+use vello_common::encode::{EncodedImage, FocalKind, RadialKind};
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::paint::TintMode;
 use vello_common::record::CommandRecorder;
@@ -483,22 +483,15 @@ pub(crate) struct GpuRadialGradient {
     pub gradient_start: u32,
     /// Transform matrix [a, b, c, d, tx, ty].
     pub transform: [f32; 6],
-    /// Packed kind (bits 0-1) and `f_is_swapped` (bit 2): 0=Radial, 1=Strip, 2=Focal; bit 2: swapped flag.
-    pub kind_and_f_is_swapped: u32,
-    /// Bias value for radial gradient calculation.
-    pub bias: f32,
-    /// Scale factor for radial gradient calculation.
+    /// Packed kind (bits 0-1, see `RADIAL_KIND_*`) and whether to negate the
+    /// square root of `RADIAL_KIND_FOCAL` (bit 2).
+    pub kind_and_flags: u32,
+    /// `fp0` for focal gradients, `scaled_r0_squared` for strip gradients and 0 otherwise.
+    pub param: f32,
+    /// Scale applied to the computed gradient position.
     pub scale: f32,
-    /// Focal point 0 parameter for radial gradient.
-    pub fp0: f32,
-    /// Focal point 1 parameter for radial gradient.
-    pub fp1: f32,
-    /// Focal radius 1 parameter for radial gradient.
-    pub fr1: f32,
-    /// Focal X coordinate for radial gradient.
-    pub f_focal_x: f32,
-    /// Scaled radius 0 squared parameter for radial gradient strip.
-    pub scaled_r0_squared: f32,
+    /// Bias added to the scaled gradient position.
+    pub bias: f32,
 }
 
 /// GPU encoded sweep gradient data.
@@ -538,14 +531,51 @@ pub(crate) fn pack_texture_width_and_extend_mode(texture_width: u32, extend_mode
     (extend_mode << 30) | (texture_width & TEXTURE_WIDTH_MASK)
 }
 
-/// Pack radial gradient `kind` and `f_is_swapped` into a single u32.
-/// `kind`: 0=Radial, 1=Strip, 2=Focal (stored in bits 0-1)
-/// `f_is_swapped`: 0=false, 1=true (stored in bit 2)
-#[inline(always)]
-pub(crate) fn pack_radial_kind_and_swapped(kind: u32, f_is_swapped: u32) -> u32 {
-    debug_assert!(kind <= 2, "kind must be 0, 1, or 2");
-    debug_assert!(f_is_swapped <= 1, "f_is_swapped must be 0 or 1");
-    (f_is_swapped << 2) | (kind & 0x3)
+const RADIAL_KIND_WELL_BEHAVED: u32 = 0;
+const RADIAL_KIND_STRIP: u32 = 1;
+const RADIAL_KIND_FOCAL_ON_CIRCLE: u32 = 2;
+const RADIAL_KIND_FOCAL: u32 = 3;
+const RADIAL_NEGATE_ROOT_FLAG: u32 = 1 << 2;
+
+/// Encode a radial gradient.
+pub(crate) fn encode_radial_gradient(
+    texture_width_and_extend_mode: u32,
+    gradient_start: u32,
+    transform: [f32; 6],
+    radial: &RadialKind,
+) -> GpuRadialGradient {
+    let (kind_and_flags, param, scale, bias) = match radial {
+        RadialKind::Radial { bias, scale } => (RADIAL_KIND_WELL_BEHAVED, 0.0, *scale, *bias),
+        RadialKind::Strip { scaled_r0_squared } => {
+            (RADIAL_KIND_STRIP, *scaled_r0_squared, 1.0, 0.0)
+        }
+        RadialKind::Focal {
+            kind,
+            fp0,
+            scale,
+            bias,
+        } => {
+            let kind_and_flags = match kind {
+                FocalKind::OnCircle => RADIAL_KIND_FOCAL_ON_CIRCLE,
+                FocalKind::WellBehaved => RADIAL_KIND_WELL_BEHAVED,
+                FocalKind::General { negate_root: false } => RADIAL_KIND_FOCAL,
+                FocalKind::General { negate_root: true } => {
+                    RADIAL_KIND_FOCAL | RADIAL_NEGATE_ROOT_FLAG
+                }
+            };
+            (kind_and_flags, *fp0, *scale, *bias)
+        }
+    };
+
+    GpuRadialGradient {
+        texture_width_and_extend_mode,
+        gradient_start,
+        transform,
+        kind_and_flags,
+        param,
+        scale,
+        bias,
+    }
 }
 
 /// Pack image `width` and `height` into a single u32.

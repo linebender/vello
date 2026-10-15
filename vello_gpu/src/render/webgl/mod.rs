@@ -49,9 +49,9 @@ use crate::{
         Config,
         common::{
             DeviceLimits, GpuBlurredRoundedRect, GpuEncodedImage, GpuEncodedPaint,
-            GpuLinearGradient, GpuRadialGradient, GpuSweepGradient, ScratchBuffers, ScratchTexture,
-            encode_native_image_paint, pack_image_offset, pack_image_params, pack_image_size,
-            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
+            GpuLinearGradient, GpuSweepGradient, ScratchBuffers, ScratchTexture,
+            encode_native_image_paint, encode_radial_gradient, pack_image_offset,
+            pack_image_params, pack_image_size, pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -80,7 +80,7 @@ use vello_common::{
     TextureId,
     encode::{
         EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
-        MAX_GRADIENT_LUT_SIZE, RadialKind,
+        MAX_GRADIENT_LUT_SIZE,
     },
     geometry::{RectU16, SizeU16},
     paint::{ImageId, ImageSource, TextureRegion},
@@ -1074,45 +1074,12 @@ impl WebGlRenderer {
                 gradient_start,
                 transform,
             }),
-            EncodedKind::Radial(radial) => {
-                let (kind, bias, scale, fp0, fp1, fr1, f_focal_x, f_is_swapped, scaled_r0_squared) =
-                    match radial {
-                        RadialKind::Radial { bias, scale } => {
-                            (0, *bias, *scale, 0.0, 0.0, 0.0, 0.0, 0, 0.0)
-                        }
-                        RadialKind::Strip { scaled_r0_squared } => {
-                            (1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, *scaled_r0_squared)
-                        }
-                        RadialKind::Focal {
-                            focal_data,
-                            fp0,
-                            fp1,
-                        } => (
-                            2,
-                            *fp0,
-                            *fp1,
-                            *fp0,
-                            *fp1,
-                            focal_data.fr1,
-                            focal_data.f_focal_x,
-                            focal_data.f_is_swapped as u32,
-                            0.0,
-                        ),
-                    };
-                GpuEncodedPaint::RadialGradient(GpuRadialGradient {
-                    texture_width_and_extend_mode,
-                    gradient_start,
-                    transform,
-                    kind_and_f_is_swapped: pack_radial_kind_and_swapped(kind, f_is_swapped),
-                    bias,
-                    scale,
-                    fp0,
-                    fp1,
-                    fr1,
-                    f_focal_x,
-                    scaled_r0_squared,
-                })
-            }
+            EncodedKind::Radial(radial) => GpuEncodedPaint::RadialGradient(encode_radial_gradient(
+                texture_width_and_extend_mode,
+                gradient_start,
+                transform,
+                radial,
+            )),
             EncodedKind::Sweep(sweep) => GpuEncodedPaint::SweepGradient(GpuSweepGradient {
                 texture_width_and_extend_mode,
                 gradient_start,
