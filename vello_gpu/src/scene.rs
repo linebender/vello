@@ -990,6 +990,9 @@ impl vello_common::probe::ProbeRenderer for Scene {
     }
 }
 
+// TODO: Consider validating paint/tint support at draw time so otherwise valid state updates
+// do not depend on setter order. See:
+// https://github.com/linebender/vello/pull/1994#discussion_r4278390451
 #[track_caller]
 fn assert_paint_supported(paint: &PaintType, tint: Option<Tint>) {
     match paint {
