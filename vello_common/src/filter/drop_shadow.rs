@@ -105,7 +105,7 @@ pub(crate) fn transform_shadow_params(
     let (scaled_dx, scaled_dy) = transform_offset_params(dx, dy, transform);
 
     // Scale the blur radius uniformly
-    let scaled_std_dev = transform_blur_params(std_deviation, transform);
+    let (scaled_std_dev, _) = transform_blur_params(std_deviation, std_deviation, transform);
 
     (scaled_dx, scaled_dy, scaled_std_dev)
 }

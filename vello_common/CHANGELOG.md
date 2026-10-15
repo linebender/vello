@@ -12,6 +12,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- `FilterPrimitive::GaussianBlur` blurs each axis by its own standard deviation (`std_deviation_x`, `std_deviation_y`), like SVG's `stdDeviation="x y"`; a blur along one axis only decimates and convolves that axis alone. ([#1997][] by [@theashraf][])
+
+### Changed
+
+- Breaking change: `FilterPrimitive::GaussianBlur`'s `std_deviation` is now `std_deviation_x` and `std_deviation_y`, `filter::gaussian_blur::GaussianBlur` carries a decimation plan and kernel per axis, and `DecimationSizer` scales the axes independently through `downscale_axes` and `upscale_axes`. ([#1997][] by [@theashraf][])
+
 ## [0.3.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.
@@ -270,6 +278,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
 [@taj-p]: https://github.com/taj-p
+[@theashraf]: https://github.com/theashraf
 [@tomcur]: https://github.com/tomcur
 [@tronical]: https://github.com/tronical
 [@upsuper]: https://github.com/upsuper
@@ -367,6 +376,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1932]: https://github.com/linebender/vello/pull/1932
 [#1949]: https://github.com/linebender/vello/pull/1949
 [#1962]: https://github.com/linebender/vello/pull/1962
+[#1997]: https://github.com/linebender/vello/pull/1997
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0

@@ -1,7 +1,19 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-import package::filters::blur::{BLUR_HORIZONTAL, BLUR_VERTICAL, gaussian_blur};
+import package::filters::blur::{
+    BLUR_HORIZONTAL,
+    BLUR_VERTICAL,
+    gaussian_blur,
+    get_center_weight_x,
+    get_center_weight_y,
+    get_linear_offsets_x,
+    get_linear_offsets_y,
+    get_linear_weights_x,
+    get_linear_weights_y,
+    get_n_linear_taps_x,
+    get_n_linear_taps_y
+};
 import package::filters::drop_shadow::{
     colorize_drop_shadow,
     composite_drop_shadow,
@@ -24,7 +36,7 @@ import package::helpers::util::unpack_u16_pair;
 
 // Keep these variables and layouts in sync with the ones in `filter.rs`!
 
-const FILTER_SIZE_BYTES: u32 = 48;
+const FILTER_SIZE_BYTES: u32 = 64;
 const FILTER_SIZE_U32: u32 = FILTER_SIZE_BYTES / 4;
 const TEXELS_PER_FILTER: u32 = FILTER_SIZE_U32 / 4u;
 
@@ -42,6 +54,10 @@ const PASS_BLUR_V: u32 = 5u;
 const PASS_UPSCALE: u32 = 6u;
 const PASS_COMPOSITE_DROP_SHADOW: u32 = 7u;
 const PASS_COLORIZE: u32 = 8u;
+const PASS_DOWNSCALE_X: u32 = 9u;
+const PASS_DOWNSCALE_Y: u32 = 10u;
+const PASS_UPSCALE_X: u32 = 11u;
+const PASS_UPSCALE_Y: u32 = 12u;
 
 // Keep in sync with FILTER_ATLAS_PADDING in vello_gpu/src/filter.rs.
 const FILTER_ATLAS_PADDING: u32 = 6u;
@@ -49,10 +65,12 @@ const FILTER_ATLAS_PADDING: u32 = 6u;
 // The layout of the header:
 //   bits [0:4]   = filter_type   (5 bits)
 //   bits [5:6]   = edge_mode     (2 bits, only for blur filters), currently ignored.
-//   bits [7:10]  = n_decimations (4 bits, only for blur filters), only read on the CPU side.
-//   bits [11:12] = n_linear_taps (2 bits, only for blur filters)
+//   bits [7:10]  = n_decimations_x (4 bits, only for blur filters), only read on the CPU side.
+//   bits [11:12] = n_linear_taps_x (2 bits, only for blur filters)
 //   bit  [13]    = composite_original (only for drop shadows), only read on the CPU side.
-//   bits [14:32] = reserved for future use
+//   bits [14:17] = n_decimations_y (4 bits, only for blur filters), only read on the CPU side.
+//   bits [18:19] = n_linear_taps_y (2 bits, only for blur filters)
+//   bits [20:32] = reserved for future use
 
 fn load_filter_texel(texel_offset: u32, texel_index: u32) -> vec4<u32> {
     let w = textureDimensions(filter_data).x;
@@ -207,13 +225,13 @@ fn fs_main(
             return sample_source_checked(source_origin, source_size, rel_coord - floor(dxdy + 0.5));
         }
         case PASS_DOWNSCALE: {
-            return downscale(
-                source_texture,
-                linear_sampler,
-                position,
-                source_origin,
-                dest_origin,
-            );
+            return downscale(source_texture, linear_sampler, position, source_origin, dest_origin, vec2<bool>(true, true));
+        }
+        case PASS_DOWNSCALE_X: {
+            return downscale(source_texture, linear_sampler, position, source_origin, dest_origin, vec2<bool>(true, false));
+        }
+        case PASS_DOWNSCALE_Y: {
+            return downscale(source_texture, linear_sampler, position, source_origin, dest_origin, vec2<bool>(false, true));
         }
         case PASS_BLUR_H: {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
@@ -224,31 +242,54 @@ fn fs_main(
                 source_origin,
                 rel_coord,
                 BLUR_HORIZONTAL,
-                filter_texel0,
-                filter_texel1,
+                get_center_weight_x(filter_texel0),
+                get_linear_weights_x(filter_texel0, filter_texel1),
+                get_linear_offsets_x(filter_texel1),
+                get_n_linear_taps_x(filter_texel0),
             );
         }
         case PASS_BLUR_V: {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
-            let filter_texel1 = load_filter_texel(filter_data_offset, 1u);
+            var center_weight: f32;
+            var linear_weights: vec3<f32>;
+            var linear_offsets: vec3<f32>;
+            var n_linear_taps: u32;
+            if get_filter_type(filter_texel0) == FILTER_TYPE_GAUSSIAN_BLUR {
+                // A blur carries its own y-axis kernel.
+                let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
+                let filter_texel3 = load_filter_texel(filter_data_offset, 3u);
+                center_weight = get_center_weight_y(filter_texel2);
+                linear_weights = get_linear_weights_y(filter_texel2);
+                linear_offsets = get_linear_offsets_y(filter_texel3);
+                n_linear_taps = get_n_linear_taps_y(filter_texel0);
+            } else {
+                // A drop shadow blurs both axes with the same kernel.
+                let filter_texel1 = load_filter_texel(filter_data_offset, 1u);
+                center_weight = get_center_weight_x(filter_texel0);
+                linear_weights = get_linear_weights_x(filter_texel0, filter_texel1);
+                linear_offsets = get_linear_offsets_x(filter_texel1);
+                n_linear_taps = get_n_linear_taps_x(filter_texel0);
+            }
             return gaussian_blur(
                 source_texture,
                 linear_sampler,
                 source_origin,
                 rel_coord,
                 BLUR_VERTICAL,
-                filter_texel0,
-                filter_texel1,
+                center_weight,
+                linear_weights,
+                linear_offsets,
+                n_linear_taps,
             );
         }
         case PASS_UPSCALE: {
-            return upscale(
-                source_texture,
-                linear_sampler,
-                position,
-                source_origin,
-                dest_origin,
-            );
+            return upscale(source_texture, linear_sampler, position, source_origin, dest_origin, vec2<bool>(true, true));
+        }
+        case PASS_UPSCALE_X: {
+            return upscale(source_texture, linear_sampler, position, source_origin, dest_origin, vec2<bool>(true, false));
+        }
+        case PASS_UPSCALE_Y: {
+            return upscale(source_texture, linear_sampler, position, source_origin, dest_origin, vec2<bool>(false, true));
         }
         case PASS_COMPOSITE_DROP_SHADOW: {
             let filter_texel2 = load_filter_texel(filter_data_offset, 2u);

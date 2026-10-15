@@ -12,24 +12,92 @@ use core::f32::consts::E;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 
-/// Scale a blur's standard deviation uniformly based on the transformation.
+/// Scale a blur's standard deviations into device space.
 ///
-/// Extracts the scale factors from the transformation matrix using SVD and
-/// averages them to get a uniform scale factor for the blur radius.
+/// A uniform blur (equal standard deviations) extracts the scale factors from the
+/// transformation matrix using SVD and averages them into one uniform scale factor,
+/// so rotating a uniform blur never changes it.
+///
+/// An anisotropic blur is the Gaussian with covariance `diag(σx², σy²)`; under the
+/// linear part `A` of the transform it becomes the Gaussian with covariance
+/// `A·diag(σx², σy²)·Aᵀ`. The diagonal of that matrix gives the device-space variances
+/// per axis, so a 90° rotation swaps the two deviations and a non-uniform scale scales
+/// each one on its own. The off-diagonal term (the tilt of a blur rotated by an angle
+/// that is not a multiple of 90°) cannot be represented by an axis-aligned kernel and is
+/// dropped.
 ///
 /// # Arguments
-/// * `std_deviation` - The blur standard deviation in user space
+/// * `std_deviation_x` - The blur standard deviation along the x-axis in user space
+/// * `std_deviation_y` - The blur standard deviation along the y-axis in user space
 /// * `transform` - The transformation matrix to extract scale from
 ///
 /// # Returns
-/// The scaled standard deviation in device space
-pub(crate) fn transform_blur_params(std_deviation: f32, transform: &Affine) -> f32 {
-    let (scale_x, scale_y) = extract_scales(transform);
-    let uniform_scale = (scale_x + scale_y) / 2.0;
-    // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
-    // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
-    // and allow blur to scale independently along each axis.
-    std_deviation * uniform_scale
+/// The scaled standard deviations in device space, as `(x, y)`.
+pub(crate) fn transform_blur_params(
+    std_deviation_x: f32,
+    std_deviation_y: f32,
+    transform: &Affine,
+) -> (f32, f32) {
+    if std_deviation_x == std_deviation_y {
+        let (scale_x, scale_y) = extract_scales(transform);
+        let uniform_scale = (scale_x + scale_y) / 2.0;
+        let scaled = std_deviation_x * uniform_scale;
+        return (scaled, scaled);
+    }
+
+    let [a, b, c, d, _, _] = transform.as_coeffs();
+    let (a, b, c, d) = (a as f32, b as f32, c as f32, d as f32);
+    let variance_x = std_deviation_x * std_deviation_x;
+    let variance_y = std_deviation_y * std_deviation_y;
+
+    (
+        (a * a * variance_x + c * c * variance_y).sqrt(),
+        (b * b * variance_x + d * d * variance_y).sqrt(),
+    )
+}
+
+/// The axes a decimation level halves.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DecimationAxes {
+    /// Both axes are halved.
+    Both,
+    /// Only the x-axis is halved.
+    X,
+    /// Only the y-axis is halved.
+    Y,
+}
+
+impl DecimationAxes {
+    /// Whether the level halves the x-axis.
+    #[inline]
+    pub fn x(self) -> bool {
+        matches!(self, Self::Both | Self::X)
+    }
+
+    /// Whether the level halves the y-axis.
+    #[inline]
+    pub fn y(self) -> bool {
+        matches!(self, Self::Both | Self::Y)
+    }
+}
+
+/// The decimation levels of a blur with `n_decimations_x` levels along the x-axis and
+/// `n_decimations_y` along the y-axis, from the finest to the coarsest.
+///
+/// Both axes are halved while both still have levels left; after that only the axis
+/// with the larger blur keeps being halved.
+pub fn decimation_levels(
+    n_decimations_x: usize,
+    n_decimations_y: usize,
+) -> impl DoubleEndedIterator<Item = DecimationAxes> + ExactSizeIterator + Clone {
+    (0..n_decimations_x.max(n_decimations_y)).map(move |level| {
+        match (level < n_decimations_x, level < n_decimations_y) {
+            (true, true) => DecimationAxes::Both,
+            (true, false) => DecimationAxes::X,
+            (false, true) => DecimationAxes::Y,
+            (false, false) => unreachable!("levels never exceed the larger count"),
+        }
+    })
 }
 
 /// Maximum size of the Gaussian kernel (must be odd and equal to or smaller than [`u8::MAX`]).
@@ -51,35 +119,72 @@ const _: () = const {
 };
 
 /// A gaussian blur.
+///
+/// Each axis has its own decimation plan and kernel, so the blur may differ per axis.
 #[derive(Debug)]
 pub struct GaussianBlur {
-    /// The standard deviation.
-    pub std_deviation: f32,
-    /// Number of 2× decimation levels to use (0 means no decimation, direct convolution).
-    pub n_decimations: usize,
-    /// Pre-computed Gaussian kernel weights for the reduced blur.
-    /// Only the first `kernel_size` elements are valid.
-    pub kernel: [f32; MAX_KERNEL_SIZE],
-    /// Actual length of the kernel (rest is padding up to `MAX_KERNEL_SIZE`).
-    pub kernel_size: u8,
+    /// The standard deviation along the x-axis.
+    pub std_deviation_x: f32,
+    /// The standard deviation along the y-axis.
+    pub std_deviation_y: f32,
+    /// Number of 2× decimation levels along the x-axis (0 means no decimation, direct
+    /// convolution).
+    pub n_decimations_x: usize,
+    /// Number of 2× decimation levels along the y-axis.
+    pub n_decimations_y: usize,
+    /// Pre-computed Gaussian kernel weights for the reduced blur along the x-axis.
+    /// Only the first `kernel_size_x` elements are valid.
+    pub kernel_x: [f32; MAX_KERNEL_SIZE],
+    /// Actual length of `kernel_x` (rest is padding up to `MAX_KERNEL_SIZE`).
+    pub kernel_size_x: u8,
+    /// Pre-computed Gaussian kernel weights for the reduced blur along the y-axis.
+    /// Only the first `kernel_size_y` elements are valid.
+    pub kernel_y: [f32; MAX_KERNEL_SIZE],
+    /// Actual length of `kernel_y` (rest is padding up to `MAX_KERNEL_SIZE`).
+    pub kernel_size_y: u8,
     /// Edge mode for handling out-of-bounds sampling.
     pub edge_mode: EdgeMode,
 }
 
 impl GaussianBlur {
-    /// Create a new Gaussian blur filter with the specified standard deviation.
+    /// Create a new Gaussian blur filter with the specified standard deviations.
     ///
-    /// This precomputes the decimation plan, kernel, and radius for optimal performance.
-    pub fn new(std_deviation: f32, edge_mode: EdgeMode) -> Self {
-        let (n_decimations, kernel, kernel_size) = plan_decimated_blur(std_deviation);
+    /// This precomputes the decimation plan, kernel, and radius of each axis for optimal
+    /// performance.
+    pub fn new(std_deviation_x: f32, std_deviation_y: f32, edge_mode: EdgeMode) -> Self {
+        let (n_decimations_x, kernel_x, kernel_size_x) = plan_decimated_blur(std_deviation_x);
+        let (n_decimations_y, kernel_y, kernel_size_y) = plan_decimated_blur(std_deviation_y);
 
         Self {
-            std_deviation,
+            std_deviation_x,
+            std_deviation_y,
             edge_mode,
-            n_decimations,
-            kernel,
-            kernel_size,
+            n_decimations_x,
+            n_decimations_y,
+            kernel_x,
+            kernel_size_x,
+            kernel_y,
+            kernel_size_y,
         }
+    }
+
+    /// The decimation levels of this blur, from the finest to the coarsest.
+    pub fn decimation_levels(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = DecimationAxes> + ExactSizeIterator + Clone {
+        decimation_levels(self.n_decimations_x, self.n_decimations_y)
+    }
+
+    /// The valid part of the x-axis kernel.
+    #[inline]
+    pub fn kernel_x(&self) -> &[f32] {
+        &self.kernel_x[..usize::from(self.kernel_size_x)]
+    }
+
+    /// The valid part of the y-axis kernel.
+    #[inline]
+    pub fn kernel_y(&self) -> &[f32] {
+        &self.kernel_y[..usize::from(self.kernel_size_y)]
     }
 }
 
@@ -164,11 +269,15 @@ pub fn compute_gaussian_kernel(std_deviation: f32) -> ([f32; MAX_KERNEL_SIZE], u
 }
 
 /// Tracks dimensions through a chain of downscale/upscale operations.
+///
+/// Each axis keeps its own history, so levels that halve one axis only can be undone in
+/// reverse order like any other.
 #[derive(Debug, Default)]
 pub struct DecimationSizer {
     width: u16,
     height: u16,
-    dim_stack: Vec<(u16, u16)>,
+    width_stack: Vec<u16>,
+    height_stack: Vec<u16>,
 }
 
 impl DecimationSizer {
@@ -178,7 +287,8 @@ impl DecimationSizer {
         Self {
             width,
             height,
-            dim_stack: Vec::new(),
+            width_stack: Vec::new(),
+            height_stack: Vec::new(),
         }
     }
 
@@ -187,7 +297,8 @@ impl DecimationSizer {
     pub fn reset(&mut self, width: u16, height: u16) {
         self.width = width;
         self.height = height;
-        self.dim_stack.clear();
+        self.width_stack.clear();
+        self.height_stack.clear();
     }
 
     /// Returns the current logical dimensions.
@@ -196,22 +307,44 @@ impl DecimationSizer {
         (self.width, self.height)
     }
 
-    /// Apply a new downscale operation.
+    /// Apply a new downscale operation on both axes.
     #[inline]
     pub fn downscale(&mut self) -> (u16, u16) {
-        self.dim_stack.push((self.width, self.height));
-        self.width = self.width.div_ceil(2);
-        self.height = self.height.div_ceil(2);
+        self.downscale_axes(DecimationAxes::Both)
+    }
+
+    /// Apply a new upscale operation on both axes.
+    #[inline]
+    pub fn upscale(&mut self) -> (u16, u16) {
+        self.upscale_axes(DecimationAxes::Both)
+    }
+
+    /// Apply a new downscale operation on the given axes.
+    #[inline]
+    pub fn downscale_axes(&mut self, axes: DecimationAxes) -> (u16, u16) {
+        if axes.x() {
+            self.width_stack.push(self.width);
+            self.width = self.width.div_ceil(2);
+        }
+        if axes.y() {
+            self.height_stack.push(self.height);
+            self.height = self.height.div_ceil(2);
+        }
         (self.width, self.height)
     }
 
-    /// Apply a new upscale operation.
+    /// Apply a new upscale operation on the given axes, undoing the matching downscale.
     #[inline]
-    pub fn upscale(&mut self) -> (u16, u16) {
-        let (target_w, target_h) = self.dim_stack.pop().unwrap();
+    pub fn upscale_axes(&mut self, axes: DecimationAxes) -> (u16, u16) {
         // Clamp because upscale can exceed target on odd dimensions (e.g., 5→3→6 > 5)
-        self.width = (self.width * 2).min(target_w);
-        self.height = (self.height * 2).min(target_h);
+        if axes.x() {
+            let target_w = self.width_stack.pop().unwrap();
+            self.width = (self.width * 2).min(target_w);
+        }
+        if axes.y() {
+            let target_h = self.height_stack.pop().unwrap();
+            self.height = (self.height * 2).min(target_h);
+        }
         (self.width, self.height)
     }
 }
@@ -219,8 +352,12 @@ impl DecimationSizer {
 #[cfg(test)]
 mod tests {
     use crate::filter::gaussian_blur::{
-        DecimationSizer, compute_gaussian_kernel, plan_decimated_blur,
+        DecimationAxes, DecimationSizer, GaussianBlur, compute_gaussian_kernel, decimation_levels,
+        plan_decimated_blur, transform_blur_params,
     };
+    use crate::filter_effects::EdgeMode;
+    use crate::kurbo::Affine;
+    use alloc::vec::Vec;
 
     /// Test Gaussian kernel computation for small σ.
     #[test]
@@ -333,5 +470,63 @@ mod tests {
         let mut sizer = DecimationSizer::new(100, 50);
         assert_eq!(sizer.downscale(), (50, 25));
         assert_eq!(sizer.upscale(), (100, 50));
+    }
+
+    #[test]
+    fn test_decimation_sizer_mixed_axes() {
+        let mut sizer = DecimationSizer::new(100, 50);
+        assert_eq!(sizer.downscale_axes(DecimationAxes::Both), (50, 25));
+        assert_eq!(sizer.downscale_axes(DecimationAxes::X), (25, 25));
+        assert_eq!(sizer.downscale_axes(DecimationAxes::X), (13, 25));
+
+        assert_eq!(sizer.upscale_axes(DecimationAxes::X), (25, 25));
+        assert_eq!(sizer.upscale_axes(DecimationAxes::X), (50, 25));
+        assert_eq!(sizer.upscale_axes(DecimationAxes::Both), (100, 50));
+    }
+
+    #[test]
+    fn test_decimation_levels_share_the_finest_levels() {
+        let levels: Vec<_> = decimation_levels(3, 1).collect();
+        assert_eq!(
+            levels,
+            [DecimationAxes::Both, DecimationAxes::X, DecimationAxes::X]
+        );
+
+        let levels: Vec<_> = decimation_levels(0, 2).collect();
+        assert_eq!(levels, [DecimationAxes::Y, DecimationAxes::Y]);
+
+        assert_eq!(decimation_levels(0, 0).len(), 0);
+    }
+
+    #[test]
+    fn test_anisotropic_blur_plans_each_axis() {
+        let blur = GaussianBlur::new(5.0, 0.0, EdgeMode::None);
+        assert_eq!(blur.n_decimations_x, 2);
+        assert_eq!(blur.n_decimations_y, 0);
+        assert_eq!(blur.kernel_y(), [1.0]);
+        assert!(blur.kernel_x().len() > 1);
+    }
+
+    #[test]
+    fn test_uniform_blur_transforms_like_before() {
+        let transform = Affine::rotate(0.7) * Affine::scale_non_uniform(2.0, 0.5);
+        let (x, y) = transform_blur_params(3.0, 3.0, &transform);
+        assert_eq!(x, y);
+        // The mean of the singular values 2.0 and 0.5.
+        assert!((x - 3.75).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_anisotropic_blur_scales_per_axis() {
+        let (x, y) = transform_blur_params(4.0, 1.0, &Affine::scale_non_uniform(2.0, 3.0));
+        assert!((x - 8.0).abs() < 1e-5);
+        assert!((y - 3.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_anisotropic_blur_rotated_by_a_quarter_turn_swaps_axes() {
+        let (x, y) = transform_blur_params(4.0, 1.0, &Affine::rotate(core::f64::consts::FRAC_PI_2));
+        assert!((x - 1.0).abs() < 1e-5);
+        assert!((y - 4.0).abs() < 1e-5);
     }
 }

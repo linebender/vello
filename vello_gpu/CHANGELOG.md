@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- Anisotropic Gaussian blur: `FilterPrimitive::GaussianBlur` with a different standard deviation per axis, including blurs along one axis only. ([#1997][] by [@theashraf][])
+
 ## [0.3.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.
@@ -266,6 +270,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [@nicoburns]: https://github.com/nicoburns
 [@oscargus]: https://github.com/oscargus
 [@taj-p]: https://github.com/taj-p
+[@theashraf]: https://github.com/theashraf
 [@tomcur]: https://github.com/tomcur
 [@tronical]: https://github.com/tronical
 [@upsuper]: https://github.com/upsuper
@@ -408,6 +413,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1962]: https://github.com/linebender/vello/pull/1962
 [#1966]: https://github.com/linebender/vello/pull/1966
 [#1970]: https://github.com/linebender/vello/pull/1970
+[#1997]: https://github.com/linebender/vello/pull/1997
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0
