@@ -99,7 +99,8 @@ clippy.use_self = "warn"
 
 clippy.cargo_common_metadata = "warn"
 clippy.negative_feature_names = "warn"
-clippy.redundant_feature_names = "warn"
+# To support the `full_image_support` feature name.
+clippy.redundant_feature_names = "allow"
 clippy.wildcard_dependencies = "warn"
 # END LINEBENDER LINT SET
 
