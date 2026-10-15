@@ -9,15 +9,26 @@ import package::helpers::paint::{PAINT_TEXTURE_INDEX_MASK, load_encoded_paint_te
 import package::helpers::texture::flat_index_to_texture_coord;
 
 fn get_gradient_sample_xy(
+    encoded_paints_texture: texture_2d<u32>,
+    tex_width_bits: u32,
+    paint_and_rect_flag: u32,
     scene_strip: vec2<u32>,
     corner: vec2<f32>,
     width: u32,
     height: u32,
 ) -> vec2<f32> {
-    return vec2<f32>(
+    let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+    let gradient_texel0 = load_encoded_paint_texel(
+        encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
+    );
+    let gradient_texel1 = load_encoded_paint_texel(
+        encoded_paints_texture, tex_width_bits, paint_tex_idx, 1u,
+    );
+    let scene_pos = vec2<f32>(
         f32(scene_strip.x) + corner.x * f32(width),
         f32(scene_strip.y) + corner.y * f32(height),
     );
+    return apply_gradient_transform(gradient_texel0, gradient_texel1, scene_pos);
 }
 
 fn sample_linear_gradient(
@@ -31,16 +42,9 @@ fn sample_linear_gradient(
     let gradient_texel0 = load_encoded_paint_texel(
         encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
     );
-    let gradient_texel1 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 1u,
-    );
-
-    // Calculate fragment position and apply affine transform
-    let fragment_pos = sample_xy;
-    let grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
 
     // For linear gradient, t-value is just the x coordinate in gradient space
-    let t_value = grad_pos.x + 0.00001;
+    let t_value = sample_xy.x + 0.00001;
     let gradient_color = sample_gradient_lut(
         gradient_texture,
         t_value,
@@ -62,19 +66,12 @@ fn sample_radial_gradient(
     let gradient_texel0 = load_encoded_paint_texel(
         encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
     );
-    let gradient_texel1 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 1u,
-    );
     let gradient_texel2 = load_encoded_paint_texel(
         encoded_paints_texture, tex_width_bits, paint_tex_idx, 2u,
     );
 
-    // Calculate fragment position and apply affine transform
-    let fragment_pos = sample_xy;
-    let grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
-
     // For radial gradient, calculate distance from center
-    let gradient_result = calculate_radial_gradient(grad_pos, gradient_texel2);
+    let gradient_result = calculate_radial_gradient(sample_xy, gradient_texel2);
     let gradient_color = sample_gradient_lut(
         gradient_texture,
         gradient_result.x,
@@ -101,16 +98,9 @@ fn sample_sweep_gradient(
     let gradient_texel0 = load_encoded_paint_texel(
         encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
     );
-    let gradient_texel1 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 1u,
-    );
     let gradient_texel2 = load_encoded_paint_texel(
         encoded_paints_texture, tex_width_bits, paint_tex_idx, 2u,
     );
-
-    // Calculate fragment position and apply affine transform
-    let fragment_pos = sample_xy;
-    var grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
 
     // Before passing the position to the angle calculation, we bias
     // very small coordinates to 0. Otherwise the sweep gradient's seam
@@ -121,7 +111,7 @@ fn sample_sweep_gradient(
     // noticeable as the seam is not anti-aliased. The flickering may
     // vary across machines. See
     // <https://github.com/linebender/vello/pull/1352>.
-    grad_pos = select(grad_pos, vec2(0.0), abs(grad_pos) < vec2(NEARLY_ZERO_TOLERANCE));
+    let grad_pos = select(sample_xy, vec2(0.0), abs(sample_xy) < vec2(NEARLY_ZERO_TOLERANCE));
 
     // For sweep gradient, calculate angle from center using fast polynomial approximation
     let unit_angle = xy_to_unit_angle(grad_pos.x, grad_pos.y);
@@ -190,9 +180,9 @@ fn get_gradient_translate(texel1: vec4<u32>) -> vec2<f32> {
 fn apply_gradient_transform(
     texel0: vec4<u32>,
     texel1: vec4<u32>,
-    fragment_pos: vec2<f32>,
+    pos: vec2<f32>,
 ) -> vec2<f32> {
-    return get_gradient_transform(texel0, texel1) * fragment_pos + get_gradient_translate(texel1);
+    return get_gradient_transform(texel0, texel1) * pos + get_gradient_translate(texel1);
 }
 
 /// Kind of radial gradient, see `RADIAL_KIND_*`.
