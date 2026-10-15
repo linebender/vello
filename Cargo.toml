@@ -99,8 +99,7 @@ clippy.use_self = "warn"
 
 clippy.cargo_common_metadata = "warn"
 clippy.negative_feature_names = "warn"
-# `full_image_support` distinguishes complete image support from native texture sampling.
-# This lint checks feature names across the workspace, so allow it here.
+# To support the `full_image_support` feature name.
 clippy.redundant_feature_names = "allow"
 clippy.wildcard_dependencies = "warn"
 # END LINEBENDER LINT SET
