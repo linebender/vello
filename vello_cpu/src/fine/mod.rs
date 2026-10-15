@@ -1043,7 +1043,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     EncodedKind::Radial(kind) => {
                         calculate_t_vals(
                             simd,
-                            SimdRadialKind::new(simd, kind),
+                            SimdRadialKind::new(simd, *kind),
                             t_vals,
                             gradient,
                             sampler_x,
