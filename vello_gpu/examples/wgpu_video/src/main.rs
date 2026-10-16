@@ -39,9 +39,8 @@ mod macos {
     use skrifa::MetadataProvider;
     use skrifa::raw::FileRef;
     use vello_common::color::palette::css::YELLOW;
-    use vello_common::geometry::RectU16;
     use vello_common::kurbo::{Affine, BezPath, Circle, Ellipse, Point, Rect, Shape, Vec2};
-    use vello_common::paint::{Image, ImageId, ImageSource};
+    use vello_common::paint::{Image, ImageId, ImageSource, TextureRegion};
     use vello_common::peniko::{
         Blob, Extend, FontData, ImageAlphaType, ImageQuality, ImageSampler,
     };
@@ -327,7 +326,12 @@ mod macos {
 
             for (i, slot) in self.slots.iter().enumerate() {
                 let frame = slot.source.current_frame();
-                bindings.insert_external_texture(slot.texture_id, frame.external_texture.clone());
+                bindings.insert_external_texture(
+                    slot.texture_id,
+                    frame.external_texture.clone(),
+                    u32::from(frame.width),
+                    u32::from(frame.height),
+                );
 
                 let col = i % cols;
                 let row = i / cols;
@@ -357,7 +361,7 @@ mod macos {
                 self.scene.set_paint(Image {
                     image: ImageSource::external_texture(
                         slot.texture_id,
-                        RectU16::new(0, 0, fw, fh),
+                        TextureRegion::Full,
                         false,
                     ),
                     sampler: ImageSampler {
