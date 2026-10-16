@@ -34,12 +34,7 @@ naga = { workspace = true, features = ["wgsl-in", "wgsl-out", "glsl-out"] }
 wesl = "=0.4.0"
 
 [features]
-default = [
-    "blurred_rounded_rect",
-    "full_image_support",
-    "gradient_sweep",
-    "wgpu_external_texture",
-]
+default = ["blurred_rounded_rect", "full_image_support", "gradient_sweep", "wgpu_external_texture"]
 blurred_rounded_rect = []
 full_image_support = []
 gradient_sweep = []
