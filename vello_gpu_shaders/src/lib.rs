@@ -27,28 +27,34 @@ mod feature_tests {
             "full_image_support",
             "gradient_sweep",
         ];
-        for mask in [0b000, 0b001, 0b010, 0b100, 0b111] {
-            let mut compiler = Wesl::new("shaders");
-            compiler.use_stripping(true);
-            for (bit, feature) in features.iter().enumerate() {
-                compiler.set_feature(feature, mask & (1 << bit) != 0);
+        for texture_external in [false, true] {
+            for mask in [0b000, 0b001, 0b010, 0b100, 0b111] {
+                let mut compiler = Wesl::new("shaders");
+                compiler.use_stripping(true);
+                for (bit, feature) in features.iter().enumerate() {
+                    compiler.set_feature(feature, mask & (1 << bit) != 0);
+                }
+                compiler.set_feature("texture_external", texture_external);
+                let source = compiler
+                    .compile(&"package::render".parse().unwrap())
+                    .expect("render shader links")
+                    .to_string();
+                let module = wgsl::parse_str(&source).expect("linked WGSL parses");
+                Validator::new(ValidationFlags::all(), Capabilities::all())
+                    .validate(&module)
+                    .expect("linked WGSL validates");
+                // WebGL never binds external textures as `texture_external`.
+                #[cfg(feature = "glsl")]
+                if !texture_external {
+                    crate::compile::compile_wgsl_shader(
+                        &source,
+                        "render",
+                        "vs_main",
+                        "fs_main",
+                        &std::collections::BTreeMap::new(),
+                    );
+                }
             }
-            let source = compiler
-                .compile(&"package::render".parse().unwrap())
-                .expect("render shader links")
-                .to_string();
-            let module = wgsl::parse_str(&source).expect("linked WGSL parses");
-            Validator::new(ValidationFlags::all(), Capabilities::all())
-                .validate(&module)
-                .expect("linked WGSL validates");
-            #[cfg(feature = "glsl")]
-            crate::compile::compile_wgsl_shader(
-                &source,
-                "render",
-                "vs_main",
-                "fs_main",
-                &std::collections::BTreeMap::new(),
-            );
         }
     }
 }

@@ -84,10 +84,64 @@ pub struct RenderTargetConfig {
     pub height: u16,
 }
 
+/// A runtime binding for a [`TextureId`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum TextureBinding {
+    /// A premultiplied RGBA texture view; see [`TextureBindings::insert`].
+    TextureView(TextureView),
+    /// A wgpu external texture; see [`TextureBindings::insert_external_texture`].
+    #[cfg(feature = "wgpu_external_texture")]
+    ExternalTexture {
+        /// The external texture.
+        texture: wgpu::ExternalTexture,
+        /// The external texture's width, as passed to [`wgpu::ExternalTextureDescriptor`].
+        width: u32,
+        /// The external texture's height, as passed to [`wgpu::ExternalTextureDescriptor`].
+        height: u32,
+    },
+}
+
+impl TextureBinding {
+    fn binding_resource(&self) -> wgpu::BindingResource<'_> {
+        match self {
+            Self::TextureView(view) => wgpu::BindingResource::TextureView(view),
+            #[cfg(feature = "wgpu_external_texture")]
+            Self::ExternalTexture { texture, .. } => {
+                wgpu::BindingResource::ExternalTexture(texture)
+            }
+        }
+    }
+
+    /// Width and height of the texture space that image paints sample from.
+    fn size(&self) -> (u32, u32) {
+        match self {
+            Self::TextureView(view) => {
+                let texture = view.texture();
+                (texture.width(), texture.height())
+            }
+            #[cfg(feature = "wgpu_external_texture")]
+            Self::ExternalTexture { width, height, .. } => (*width, *height),
+        }
+    }
+
+    /// Whether this binding reads its texels from `texture`.
+    ///
+    /// The planes of a [`wgpu::ExternalTexture`] are not observable, so this is always `false`
+    /// for them and wgpu's own usage validation is relied upon instead.
+    fn is_backed_by(&self, texture: &Texture) -> bool {
+        match self {
+            Self::TextureView(view) => view.texture() == texture,
+            #[cfg(feature = "wgpu_external_texture")]
+            Self::ExternalTexture { .. } => false,
+        }
+    }
+}
+
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct TextureBindings {
-    views: HashMap<TextureId, TextureView>,
+    bindings: HashMap<TextureId, TextureBinding>,
 }
 
 impl TextureBindings {
@@ -97,7 +151,7 @@ impl TextureBindings {
         Self::default()
     }
 
-    /// Insert or replace a texture binding.
+    /// Insert or replace a texture view binding.
     ///
     /// The [`TextureView`] must fit the following binding type.
     ///
@@ -118,23 +172,59 @@ impl TextureBindings {
     /// `Rgba8Unorm`; integer and unfilterable float formats are rejected by wgpu at bind time).
     /// The underlying texture must include [`wgpu::TextureUsages::TEXTURE_BINDING`], and only
     /// mip level 0 is read. The view must start at mip level 0 of its texture.
+    ///
+    /// If the renderer's device has [`wgpu::Features::EXTERNAL_TEXTURE`] enabled (and the
+    /// `wgpu_external_texture` feature of this crate is enabled), views are instead bound to a
+    /// [`wgpu::BindingType::ExternalTexture`] slot, which additionally requires the view to be a
+    /// single mip level of an `Rgba8Unorm`, `Bgra8Unorm` or `Rgba16Float` texture. Wrap other
+    /// formats with [`wgpu::Device::create_external_texture`] and use
+    /// [`Self::insert_external_texture`].
     #[inline]
     pub fn insert(&mut self, texture_id: TextureId, view: TextureView) {
-        self.views.insert(texture_id, view);
+        self.bindings
+            .insert(texture_id, TextureBinding::TextureView(view));
+    }
+
+    /// Insert or replace a [`wgpu::ExternalTexture`] binding.
+    ///
+    /// The renderer's device must have [`wgpu::Features::EXTERNAL_TEXTURE`] enabled. wgpu applies
+    /// the external texture's YCbCr → RGB conversion, load transform and color-space conversion
+    /// whenever Vello reads it, so source regions of image paints are in the external texture's
+    /// `width` × `height` space and the result must be premultiplied RGBA.
+    ///
+    /// `width` and `height` must match the [`wgpu::ExternalTextureDescriptor`] the texture was
+    /// created with, since wgpu does not expose them.
+    #[cfg(feature = "wgpu_external_texture")]
+    #[inline]
+    pub fn insert_external_texture(
+        &mut self,
+        texture_id: TextureId,
+        external_texture: wgpu::ExternalTexture,
+        width: u32,
+        height: u32,
+    ) {
+        self.bindings.insert(
+            texture_id,
+            TextureBinding::ExternalTexture {
+                texture: external_texture,
+                width,
+                height,
+            },
+        );
     }
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&TextureView> {
-        self.views.get(&texture_id)
+    fn get(&self, texture_id: TextureId) -> Option<&TextureBinding> {
+        self.bindings.get(&texture_id)
     }
 
     /// Remove a texture binding.
     ///
-    /// This returns the removed [`TextureView`] binding if it existed.
+    /// This returns the removed binding if it existed.
     #[inline]
-    pub fn remove(&mut self, texture_id: TextureId) -> Option<TextureView> {
-        self.views.remove(&texture_id)
+    pub fn remove(&mut self, texture_id: TextureId) -> Option<TextureBinding> {
+        self.bindings.remove(&texture_id)
     }
 }
 
@@ -697,16 +787,16 @@ impl Renderer {
                     ImageSource::ExternalTexture {
                         id, source_region, ..
                     } => {
-                        let texture_view = texture_bindings
+                        let texture_binding = texture_bindings
                             .get(*id)
                             .ok_or(RenderError::MissingTextureBinding(*id))?;
 
-                        let texture = texture_view.texture();
-                        if texture == render_target_texture {
+                        if texture_binding.is_backed_by(render_target_texture) {
                             return Err(RenderError::TextureFeedbackLoop(*id));
                         }
-                        let texture_width = u16::try_from(texture.width()).unwrap();
-                        let texture_height = u16::try_from(texture.height()).unwrap();
+                        let (texture_width, texture_height) = texture_binding.size();
+                        let texture_width = u16::try_from(texture_width).unwrap();
+                        let texture_height = u16::try_from(texture_height).unwrap();
                         self.encode_external_texture_paint(
                             img,
                             *source_region,
@@ -1080,6 +1170,36 @@ impl GpuStrip {
     }
 }
 
+/// Selects the strip shader and the binding type of its external texture slot.
+///
+/// The slot is a WGSL `texture_external`, which can hold a [`wgpu::ExternalTexture`], only when
+/// the device enables [`wgpu::Features::EXTERNAL_TEXTURE`]; wgpu does not implement that binding
+/// type on every backend.
+#[cfg_attr(
+    not(feature = "wgpu_external_texture"),
+    expect(
+        unused_variables,
+        reason = "only inspected for `texture_external` support"
+    )
+)]
+fn strip_shader_external_texture_binding(device: &Device) -> (&'static str, wgpu::BindingType) {
+    #[cfg(feature = "wgpu_external_texture")]
+    if device.features().contains(wgpu::Features::EXTERNAL_TEXTURE) {
+        return (
+            vello_gpu_shaders::wgsl::RENDER_TEXTURE_EXTERNAL,
+            wgpu::BindingType::ExternalTexture,
+        );
+    }
+    (
+        vello_gpu_shaders::wgsl::RENDER,
+        wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+    )
+}
+
 impl Programs {
     fn new(
         device: &Device,
@@ -1126,25 +1246,21 @@ impl Programs {
                 ],
             });
 
-        let external_texture_layout_entry = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        };
-        let external_sampler_layout_entry = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        };
+        let (strip_shader_source, external_texture_binding_type) =
+            strip_shader_external_texture_binding(device);
         let external_texture_layout_entries = [
-            external_texture_layout_entry(0),
-            external_sampler_layout_entry(1),
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: external_texture_binding_type,
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
         ];
         let external_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1184,7 +1300,7 @@ impl Programs {
 
         let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Strip Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::RENDER.into()),
+            source: wgpu::ShaderSource::Wgsl(strip_shader_source.into()),
         });
 
         let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1672,7 +1788,9 @@ impl Programs {
         let empty_external_texture_bind_group = Self::create_external_texture_bind_group(
             device,
             &external_texture_bind_group_layout,
-            [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
+            core::array::from_fn(|_| {
+                wgpu::BindingResource::TextureView(&placeholder_external_texture_view)
+            }),
             [&external_samplers[&ExternalSampler::DEFAULT]; EXTERNAL_TEXTURE_SLOT_COUNT],
         );
 
@@ -2021,6 +2139,8 @@ impl Programs {
         })
     }
 
+    /// 1×1 placeholder bound to the external-texture slot when no real external texture is in
+    /// use. `Rgba8Unorm` is accepted by both the `Texture` and `ExternalTexture` binding types.
     fn create_placeholder_external_texture(device: &Device) -> TextureView {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Placeholder External Texture"),
@@ -2062,17 +2182,19 @@ impl Programs {
     fn create_external_texture_bind_group(
         device: &Device,
         external_texture_bind_group_layout: &BindGroupLayout,
-        texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        resources: [wgpu::BindingResource<'_>; EXTERNAL_TEXTURE_SLOT_COUNT],
         samplers: [&Sampler; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
+        let [resource] = resources;
+        let [sampler] = samplers;
         let entries = [
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(texture_views[0]),
+                resource,
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::Sampler(samplers[0]),
+                resource: wgpu::BindingResource::Sampler(sampler),
             },
         ];
         device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2404,13 +2526,13 @@ impl Programs {
     fn create_run_external_texture_bind_group(
         &self,
         device: &Device,
-        texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        bindings: &[TextureBinding; EXTERNAL_TEXTURE_SLOT_COUNT],
         samplers: [&Sampler; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
         Self::create_external_texture_bind_group(
             device,
             &self.external_texture_bind_group_layout,
-            texture_views,
+            bindings.each_ref().map(TextureBinding::binding_resource),
             samplers,
         )
     }
@@ -2691,15 +2813,15 @@ impl RendererContext<'_> {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 let texture_sources = bindings.as_array();
-                let texture_views = core::array::from_fn(|slot| match texture_sources[slot] {
-                    Some(TextureSourceId::Atlas(atlas_id)) => {
-                        atlas_texture_views[atlas_id.as_u32() as usize].clone()
-                    }
+                let slot_bindings = core::array::from_fn(|slot| match texture_sources[slot] {
+                    Some(TextureSourceId::Atlas(atlas_id)) => TextureBinding::TextureView(
+                        atlas_texture_views[atlas_id.as_u32() as usize].clone(),
+                    ),
                     Some(TextureSourceId::External(texture_id, _)) => texture_bindings
                         .get(texture_id)
                         .expect("external texture binding was validated during paint preparation")
                         .clone(),
-                    None => placeholder.clone(),
+                    None => TextureBinding::TextureView(placeholder.clone()),
                 });
                 let sampler_keys = texture_sources.map(|source| match source {
                     Some(TextureSourceId::External(_, sampler)) => sampler,
@@ -2714,7 +2836,7 @@ impl RendererContext<'_> {
                 });
                 let bind_group = self.programs.create_run_external_texture_bind_group(
                     self.device,
-                    texture_views.each_ref(),
+                    &slot_bindings,
                     samplers.each_ref(),
                 );
                 entry.insert(bind_group)

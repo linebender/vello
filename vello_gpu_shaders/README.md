@@ -20,6 +20,9 @@ generated GLSL shader programs, used by the Vello GPU renderer.
 - Optional generation of minified GLSL and reflection metadata for WebGL.
 - The `blurred_rounded_rect`, `full_image_support`, and `gradient_sweep` features are
   enabled by default and include their respective shader paths.
+- The `wgpu_external_texture` feature (enabled by default) additionally embeds a
+  WGSL variant of the render shader that binds external textures as
+  `texture_external`. The generated GLSL never includes it.
 
 ## Usage
 

@@ -31,7 +31,7 @@ import package::helpers::blurred_rounded_rect::{
 };
 @if(full_image_support)
 import package::helpers::external_texture::sample_image_paint;
-import package::helpers::external_texture::sample_native_image_paint;
+import package::helpers::external_texture::{ExternalTexture, sample_native_image_paint};
 import package::helpers::gradient::get_gradient_sample_xy;
 import package::helpers::gradient::sample_linear_gradient;
 import package::helpers::gradient::sample_radial_gradient;
@@ -42,6 +42,7 @@ import package::helpers::geometry::{pixel_to_ndc, quad_corner, rect_coverage};
 import package::helpers::image::{get_image_transform, get_image_translate};
 import package::helpers::image::{
     get_native_image_opacity,
+    get_native_image_sampler,
     get_native_image_transform,
     get_native_image_translate
 };
@@ -136,7 +137,8 @@ struct Config {
 // │   └── payload = [x, y] scene coordinates
 // │
 // ├── paint_type = 6 (PAINT_TYPE_NATIVE_IMAGE) - Native image sampling
-// │   ├── payload = [x, y] scene coordinates in vertex shader; image opacity in fragment shader
+// │   ├── payload = [x, y] scene coordinates in vertex shader; in fragment shader, image opacity
+// │   │   (bits 0-7) and sampler params (bits 8-13)
 // │
 // ├── paint_type = 2 (PAINT_TYPE_LINEAR_GRADIENT) - Linear gradient rendering
 // ├── paint_type = 3 (PAINT_TYPE_RADIAL_GRADIENT) - Radial gradient (with kind discriminator)
@@ -205,7 +207,7 @@ struct VertexOutput {
 var<uniform> config: Config;
 
 @group(1) @binding(0)
-var external_texture_0: texture_2d<f32>;
+var external_texture_0: ExternalTexture;
 
 @group(1) @binding(1)
 var external_sampler_0: sampler;
@@ -280,7 +282,8 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32, instance: StripInstance)
                     );
                 out.sample_xy = get_native_image_translate(image_texel1)
                     + get_native_image_transform(image_texel0) * pos;
-                out.payload = get_native_image_opacity(image_texel1);
+                out.payload = get_native_image_opacity(image_texel1)
+                    | (get_native_image_sampler(image_texel1) << 8u);
             }
             @if(full_image_support)
             case PAINT_TYPE_IMAGE {
@@ -397,7 +400,8 @@ fn fs_main(
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (paint_and_rect_flag >> 26u) & 0x7u;
 
-        // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE or opacity for PAINT_TYPE_NATIVE_IMAGE
+        // in.payload encodes a color for PAINT_TYPE_SOLID, sample_xy for PAINT_TYPE_IMAGE, or opacity
+        // and sampler params for PAINT_TYPE_NATIVE_IMAGE
         switch paint_type {
             case PAINT_TYPE_SOLID { final_color = unpack4x8unorm(payload); }
             case PAINT_TYPE_NATIVE_IMAGE {
