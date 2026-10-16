@@ -37,6 +37,11 @@
 //!   for uploaded images, glyph atlas caching, bicubic sampling, cropped external
 //!   textures, and colored or alpha-mask tints.
 //! - `gradient_sweep` (enabled by default): Enables rendering of sweep gradients
+//! - `wgpu_external_texture` (enabled by default): Binds external textures as
+//!   WGSL `texture_external` when the wgpu device has
+//!   `wgpu::Features::EXTERNAL_TEXTURE` enabled, so `wgpu::ExternalTexture`s
+//!   (e.g. multi-planar YCbCr video frames) can be bound with
+//!   `TextureBindings::insert_external_texture`.
 //! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL
 //!   shaders for compatibility.
 //!
@@ -128,7 +133,7 @@ pub use render::{
     WebGlTextureWithDimensions,
 };
 #[cfg(feature = "wgpu")]
-pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
+pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBinding, TextureBindings};
 pub use render::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeOperation, WebGlProbeStatus};

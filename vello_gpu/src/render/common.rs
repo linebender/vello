@@ -381,7 +381,11 @@ pub(crate) struct GpuNativeImage {
     pub transform: [f32; 6],
     /// Opacity as an 8-bit unorm value in the low byte.
     pub opacity: u32,
-    pub _padding: u32,
+    /// Quality and extend modes packed with [`pack_image_params`].
+    ///
+    /// Only read by the `texture_external` strip shader, which cannot use the sampler's address
+    /// modes.
+    pub sampler: u32,
 }
 
 pub(crate) fn encode_native_image_paint(
@@ -406,7 +410,11 @@ pub(crate) fn encode_native_image_paint(
     Some(GpuEncodedPaint::NativeImage(GpuNativeImage {
         transform: transform.map(|x| x as f32),
         opacity: pack_tint(image.tint).0 >> 24,
-        _padding: 0,
+        sampler: pack_image_params(
+            image.sampler.quality as u32,
+            image.sampler.x_extend as u32,
+            image.sampler.y_extend as u32,
+        ),
     }))
 }
 

@@ -173,11 +173,14 @@ fn rename_optional(name: &mut Option<String>, names: &mut NameAllocator) {
 ///
 /// This does not change the module; invalid bindings, types, or entry points fail the build.
 fn validate(module: &Module) -> naga::valid::ModuleInfo {
-    Validator::new(ValidationFlags::all(), Capabilities::default())
-        .subgroup_stages(naga::valid::ShaderStages::all())
-        .subgroup_operations(naga::valid::SubgroupOperationSet::all())
-        .validate(module)
-        .expect("renamed WGSL should validate")
+    Validator::new(
+        ValidationFlags::all(),
+        Capabilities::default() | Capabilities::TEXTURE_EXTERNAL,
+    )
+    .subgroup_stages(naga::valid::ShaderStages::all())
+    .subgroup_operations(naga::valid::SubgroupOperationSet::all())
+    .validate(module)
+    .expect("renamed WGSL should validate")
 }
 
 /// Deterministically allocates compact uppercase identifiers.
