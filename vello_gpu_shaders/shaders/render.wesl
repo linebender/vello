@@ -189,7 +189,7 @@ struct VertexOutput {
     // Texture coordinates for the current fragment
     @location(1)
     tex_coord: vec2<f32>,
-    // UV coordinates for the current fragment, used for image sampling
+    // Image sampling coordinates or gradient-space position for the current fragment
     @location(2)
     sample_xy: vec2<f32>,
     // For normal strips: ending x-position of the dense (alpha) region.
@@ -309,13 +309,17 @@ fn vs_main(
                     + get_image_transform(image_texel0, image_texel1) * pos;
             }
             case PAINT_TYPE_LINEAR_GRADIENT, PAINT_TYPE_RADIAL_GRADIENT: {
-                // Use view coordinates for gradient transform (always in global view space)
-                out.sample_xy = get_gradient_sample_xy(scene_strip, corner, width, height);
+                out.sample_xy = get_gradient_sample_xy(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                    instance.paint_and_rect_flag, scene_strip, corner, width, height,
+                );
             }
             @if(gradient_sweep)
             case PAINT_TYPE_SWEEP_GRADIENT: {
-                // Use view coordinates for gradient transform (always in global view space)
-                out.sample_xy = get_gradient_sample_xy(scene_strip, corner, width, height);
+                out.sample_xy = get_gradient_sample_xy(
+                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
+                    instance.paint_and_rect_flag, scene_strip, corner, width, height,
+                );
             }
             @if(blurred_rounded_rect)
             case PAINT_TYPE_BLURRED_ROUNDED_RECT: {
