@@ -30,6 +30,22 @@ fn sample_native_image_paint(
     return image_opacity * textureSampleLevel(external_texture, external_sampler, sample_xy, 0.0);
 }
 
+/// Sample a full `wgpu::ExternalTexture` with pad extend.
+///
+/// wgpu applies the texture's YCbCr → RGB and color space conversion, which can leave the
+/// premultiplied range (e.g. for limited-range or wide-gamut sources), so the result is clamped.
+@if(texture_external)
+fn sample_wgpu_external_texture_paint(
+    external_texture: texture_external,
+    external_sampler: sampler,
+    opacity: u32,
+    sample_xy: vec2<f32>,
+) -> vec4<f32> {
+    let image_opacity = f32(opacity & 0xffu) * (1.0 / 255.0);
+    let color = textureSampleBaseClampToEdge(external_texture, external_sampler, sample_xy);
+    return image_opacity * vec4<f32>(clamp(color.rgb, vec3(0.0), vec3(color.a)), color.a);
+}
+
 @if(full_image_support)
 fn sample_image_paint(
     encoded_paints_texture: texture_2d<u32>,

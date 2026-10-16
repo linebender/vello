@@ -26,8 +26,9 @@ mod feature_tests {
             "blurred_rounded_rect",
             "full_image_support",
             "gradient_sweep",
+            "texture_external",
         ];
-        for mask in [0b000, 0b001, 0b010, 0b100, 0b111] {
+        for mask in [0b0000, 0b0001, 0b0010, 0b0100, 0b0111, 0b1000, 0b1111] {
             let mut compiler = Wesl::new("shaders");
             compiler.use_stripping(true);
             for (bit, feature) in features.iter().enumerate() {
@@ -41,14 +42,17 @@ mod feature_tests {
             Validator::new(ValidationFlags::all(), Capabilities::all())
                 .validate(&module)
                 .expect("linked WGSL validates");
+            // GLSL is only generated without `texture_external`, which naga can't translate.
             #[cfg(feature = "glsl")]
-            crate::compile::compile_wgsl_shader(
-                &source,
-                "render",
-                "vs_main",
-                "fs_main",
-                &std::collections::BTreeMap::new(),
-            );
+            if mask & 0b1000 == 0 {
+                crate::compile::compile_wgsl_shader(
+                    &source,
+                    "render",
+                    "vs_main",
+                    "fs_main",
+                    &std::collections::BTreeMap::new(),
+                );
+            }
         }
     }
 }

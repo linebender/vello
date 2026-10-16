@@ -351,7 +351,8 @@ fn create_wgpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
     .expect("Failed to find an appropriate adapter");
     pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("Device"),
-        required_features: wgpu::Features::empty(),
+        // Exercises Vello's `texture_external` binding path on backends that support it.
+        required_features: adapter.features() & wgpu::Features::EXTERNAL_TEXTURE,
         ..Default::default()
     }))
     .expect("Failed to create device")
@@ -372,6 +373,7 @@ pub struct GpuRenderer {
     depth_texture_view: Option<wgpu::TextureView>,
     renderer: vello_gpu::Renderer,
     external_textures: HashMap<TextureId, wgpu::TextureView>,
+    wgpu_external_textures: HashMap<TextureId, (wgpu::ExternalTexture, u32, u32)>,
     next_external_texture_id: u64,
     target_init: GpuTargetInit<'static>,
     gpu_test_guard: Option<std::sync::MutexGuard<'static, ()>>,
@@ -437,10 +439,37 @@ impl GpuRenderer {
             depth_texture_view,
             renderer,
             external_textures: HashMap::new(),
+            wgpu_external_textures: HashMap::new(),
             next_external_texture_id: 1,
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
             gpu_test_guard: None,
         }
+    }
+
+    /// The renderer's device, for creating wgpu resources such as external textures.
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    /// Binds `external_texture` (of size `width` × `height`) to a new texture ID for subsequent
+    /// renders.
+    ///
+    /// The device must have [`wgpu::Features::EXTERNAL_TEXTURE`] enabled.
+    pub fn register_wgpu_external_texture(
+        &mut self,
+        external_texture: wgpu::ExternalTexture,
+        width: u32,
+        height: u32,
+    ) -> TextureId {
+        let texture_id = TextureId(self.next_external_texture_id);
+        self.next_external_texture_id += 1;
+        self.wgpu_external_textures
+            .insert(texture_id, (external_texture, width, height));
+        texture_id
     }
 
     fn lock_gpu_test(&mut self) {
@@ -657,6 +686,9 @@ impl Renderer for GpuRenderer {
         let mut texture_bindings = vello_gpu::TextureBindings::new();
         for (texture_id, texture) in &self.external_textures {
             texture_bindings.insert(*texture_id, texture.clone());
+        }
+        for (texture_id, (texture, width, height)) in &self.wgpu_external_textures {
+            texture_bindings.insert_external_texture(*texture_id, texture.clone(), *width, *height);
         }
         let mut encoder = self
             .device

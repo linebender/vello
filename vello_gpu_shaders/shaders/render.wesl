@@ -32,6 +32,8 @@ import package::helpers::blurred_rounded_rect::{
 @if(full_image_support)
 import package::helpers::external_texture::sample_image_paint;
 import package::helpers::external_texture::sample_native_image_paint;
+@if(texture_external)
+import package::helpers::external_texture::sample_wgpu_external_texture_paint;
 import package::helpers::gradient::get_gradient_sample_xy;
 import package::helpers::gradient::sample_linear_gradient;
 import package::helpers::gradient::sample_radial_gradient;
@@ -62,6 +64,7 @@ const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3u;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4u;
 const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5u;
 const PAINT_TYPE_NATIVE_IMAGE: u32 = 6u;
+const PAINT_TYPE_WGPU_EXTERNAL_TEXTURE: u32 = 7u;
 
 const EXTERNAL_TEXTURE_SLOT_SHIFT: u32 = 24u;
 
@@ -137,6 +140,9 @@ struct Config {
 // │
 // ├── paint_type = 6 (PAINT_TYPE_NATIVE_IMAGE) - Native image sampling
 // │   ├── payload = [x, y] scene coordinates in vertex shader; image opacity in fragment shader
+// │
+// ├── paint_type = 7 (PAINT_TYPE_WGPU_EXTERNAL_TEXTURE) - `wgpu::ExternalTexture` sampling
+// │   ├── payload = same as PAINT_TYPE_NATIVE_IMAGE
 // │
 // ├── paint_type = 2 (PAINT_TYPE_LINEAR_GRADIENT) - Linear gradient rendering
 // ├── paint_type = 3 (PAINT_TYPE_RADIAL_GRADIENT) - Radial gradient (with kind discriminator)
@@ -218,6 +224,11 @@ var external_texture_0: texture_2d<f32>;
 
 @group(1) @binding(1)
 var external_sampler_0: sampler;
+
+@if(texture_external)
+@group(1) @binding(2)
+var wgpu_external_texture_0: texture_external;
+
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
 
@@ -272,7 +283,7 @@ fn vs_main(
         let scene_strip = unpack_u16_pair(instance.payload);
 
         switch paint_type {
-            case PAINT_TYPE_NATIVE_IMAGE: {
+            case PAINT_TYPE_NATIVE_IMAGE, PAINT_TYPE_WGPU_EXTERNAL_TEXTURE: {
                 let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
                 let image_texel0 = load_encoded_paint_texel(
                     encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 0u,
@@ -382,6 +393,12 @@ fn fs_main(
             case PAINT_TYPE_NATIVE_IMAGE: {
                 final_color = sample_native_image_paint(
                     external_texture_0, external_sampler_0, payload, sample_xy,
+                );
+            }
+            @if(texture_external)
+            case PAINT_TYPE_WGPU_EXTERNAL_TEXTURE: {
+                final_color = sample_wgpu_external_texture_paint(
+                    wgpu_external_texture_0, external_sampler_0, payload, sample_xy,
                 );
             }
             @if(full_image_support)
