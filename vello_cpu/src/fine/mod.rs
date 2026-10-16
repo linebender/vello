@@ -429,11 +429,12 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ///
     /// Applies advanced blending operations (e.g., multiply, screen, overlay) as specified
     /// by the blend mode. Optionally applies additional per-pixel alpha values.
+    /// `start_x` and `start_y` are `dest`'s first pixel in mask coordinates.
     fn blend(
         simd: S,
         dest: &mut [Self::Numeric],
-        start_x: u16,
-        start_y: u16,
+        start_x: i32,
+        start_y: i32,
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
         alphas: Option<&[u8]>,
@@ -745,7 +746,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         span,
                         attrs.blend_mode,
                         attrs.opacity,
-                        attrs.mask.as_ref(),
+                        attrs.mask.as_ref().map(|mask| (mask, attrs.mask_origin)),
                         alphas,
                     );
                 };
@@ -776,19 +777,24 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         );
     }
 
-    fn mask(&mut self, row_y: u16, span: TileAlignedSpan, mask: &Mask) {
+    /// `origin` is the target's top-left in mask coordinates.
+    fn mask(&mut self, row_y: u16, span: TileAlignedSpan, mask: &Mask, origin: (i32, i32)) {
         let x = span.pixel_x();
         let width = span.pixel_width();
         let target = self.blend_buffers.last_mut().unwrap();
         let target = &mut target[Self::scratch_range(span)];
-        let y = u32::from(row_y) + u32x4::from_slice(self.simd, &[0, 1, 2, 3]);
+        let mask_width = i32::from(mask.width());
+        let mask_height = i32::from(mask.height());
+        let y = i32::from(row_y) + origin.1;
+        let y = [y, y + 1, y + 2, y + 3];
         let iter = (x..x.saturating_add(width)).map(|x| {
-            let x_in_range = x < mask.width();
+            let x = i32::from(x) + origin.0;
+            let x_in_range = (0..mask_width).contains(&x);
 
             macro_rules! sample {
                 ($idx:expr) => {
-                    if x_in_range && (y[$idx] as u16) < mask.height() {
-                        mask.sample(x, y[$idx] as u16)
+                    if x_in_range && (0..mask_height).contains(&y[$idx]) {
+                        mask.sample(x as u16, y[$idx] as u16)
                     } else {
                         0
                     }
@@ -818,14 +824,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         span: TileAlignedSpan,
         blend_mode: BlendMode,
         opacity: f32,
-        mask: Option<&Mask>,
+        mask: Option<(&Mask, (i32, i32))>,
         alphas: Option<&[u8]>,
     ) {
         if opacity != 1.0 {
             self.opacity(span, opacity);
         }
-        if let Some(mask) = mask {
-            self.mask(row_y, span, mask);
+        if let Some((mask, origin)) = mask {
+            self.mask(row_y, span, mask, origin);
         }
 
         let x = span.pixel_x();
@@ -841,8 +847,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             T::blend(
                 self.simd,
                 target,
-                x,
-                row_y,
+                i32::from(x),
+                i32::from(row_y),
                 source
                     .chunks_exact(T::Composite::LENGTH)
                     .map(|s| T::Composite::from_slice(self.simd, s)),
@@ -903,8 +909,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         T::blend(
             simd,
             &mut scratch[Self::scratch_range(span)],
-            x,
-            self.row_y,
+            i32::from(x) + attrs.mask_origin.0,
+            i32::from(self.row_y) + attrs.mask_origin.1,
             iter::repeat(color),
             attrs.blend_mode,
             alphas,
@@ -975,8 +981,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         T::blend(
                             simd,
                             dest,
-                            x,
-                            y,
+                            i32::from(x) + attrs.mask_origin.0,
+                            i32::from(y) + attrs.mask_origin.1,
                             color_buf
                                 .chunks_exact(T::Composite::LENGTH)
                                 .map(|s| T::Composite::from_slice(simd, s)),

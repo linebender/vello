@@ -2134,3 +2134,90 @@ fn filter_with_clip_and_inner_clip(ctx: &mut impl Renderer) {
     ctx.pop_layer();
     ctx.pop_layer();
 }
+
+/// A disc away from the origin, so a filter layer's pixmap doesn't start at (0, 0).
+fn disc_mask() -> vello_common::mask::Mask {
+    let settings = vello_cpu::RenderSettings {
+        level: vello_cpu::Level::baseline(),
+        num_threads: 0,
+    };
+    let mut mask_ctx = vello_cpu::RenderContext::new_with(100, 100, settings);
+    let mut mask_pix = vello_cpu::Pixmap::new(100, 100);
+    mask_ctx.set_paint(BLACK);
+    mask_ctx.fill_path(&Circle::new((70.0, 70.0), 20.0).to_path(0.1));
+    mask_ctx.render(&mut mask_pix, &mut vello_cpu::Resources::new());
+    vello_common::mask::Mask::new_alpha(&mask_pix)
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_offset_zero_mask_layer(ctx: &mut impl Renderer) {
+    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::Offset {
+        dx: 0.0,
+        dy: 0.0,
+    }));
+    ctx.push_mask_layer(disc_mask());
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(40.0, 40.0, 100.0, 100.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+/// The mask applies before the offset.
+#[vello_test(skip_multithreaded)]
+fn filter_offset_mask_layer(ctx: &mut impl Renderer) {
+    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::Offset {
+        dx: -20.0,
+        dy: -30.0,
+    }));
+    ctx.push_mask_layer(disc_mask());
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(40.0, 40.0, 100.0, 100.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, gpu_tolerance = 1)]
+fn filter_drop_shadow_mask_layer(ctx: &mut impl Renderer) {
+    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: -12.0,
+        dy: -12.0,
+        std_deviation: 3.0,
+        color: BLACK,
+        edge_mode: EdgeMode::None,
+    }));
+    ctx.push_mask_layer(disc_mask());
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(40.0, 40.0, 100.0, 100.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, gpu_tolerance = 1)]
+fn filter_nested_mask_layer(ctx: &mut impl Renderer) {
+    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 1.0,
+        edge_mode: EdgeMode::None,
+    }));
+    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::Offset {
+        dx: -10.0,
+        dy: -10.0,
+    }));
+    ctx.push_mask_layer(disc_mask());
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(40.0, 40.0, 100.0, 100.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, skip_gpu, skip_webgl)]
+fn filter_offset_set_mask(ctx: &mut impl Renderer) {
+    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::Offset {
+        dx: -20.0,
+        dy: -30.0,
+    }));
+    ctx.set_mask(disc_mask());
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(40.0, 40.0, 100.0, 100.0));
+    ctx.pop_layer();
+}
