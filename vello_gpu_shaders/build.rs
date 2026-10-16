@@ -13,6 +13,10 @@
 //! reflection metadata. Global names are recorded before default-mode renaming so that this
 //! metadata continues to expose the resource names authored in WESL.
 //!
+//! With the `wgpu_external_texture` feature, roots in `TEXTURE_EXTERNAL_SHADERS` are linked a
+//! second time with the `texture_external` WESL feature into an extra `<NAME>_TEXTURE_EXTERNAL`
+//! WGSL constant. GLSL is always generated from the default link.
+//!
 //! ```text
 //!                                      |-> [default] renamed/minified WGSL -|
 //! shaders/*.wesl -> linked WGSL -------|                                    |-> WGSL constants
@@ -27,7 +31,11 @@ use std::env;
 use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
-use wesl::Wesl;
+use wesl::{StandardResolver, Wesl};
+
+/// Root modules that bind external textures and therefore need a `texture_external` variant.
+#[cfg(feature = "wgpu_external_texture")]
+const TEXTURE_EXTERNAL_SHADERS: &[&str] = &["render"];
 
 #[allow(warnings)]
 #[cfg(feature = "glsl")]
@@ -49,6 +57,9 @@ struct ShaderInfo {
     wgsl_source: String,
     #[cfg(feature = "glsl")]
     original_global_names: std::collections::BTreeMap<String, String>,
+    /// WGSL linked with the `texture_external` WESL feature, if this root has such a variant.
+    #[cfg(feature = "wgpu_external_texture")]
+    texture_external_wgsl_source: Option<String>,
 }
 
 // TODO: Format the generated code via `rustfmt`.
@@ -69,8 +80,30 @@ fn main() {
 
 fn load_shader_infos(shader_dir: &Path) -> Vec<ShaderInfo> {
     let shader_names = load_shader_names(shader_dir);
-    let mut compiler = Wesl::new(shader_dir);
+    let compiler = shader_compiler(shader_dir, false);
+    #[cfg(feature = "wgpu_external_texture")]
+    let texture_external_compiler = shader_compiler(shader_dir, true);
 
+    shader_names
+        .into_iter()
+        .map(|name| {
+            let linked = link_shader(&compiler, &name);
+            ShaderInfo {
+                wgsl_source: linked.source,
+                #[cfg(feature = "glsl")]
+                original_global_names: linked.original_global_names,
+                #[cfg(feature = "wgpu_external_texture")]
+                texture_external_wgsl_source: TEXTURE_EXTERNAL_SHADERS
+                    .contains(&name.as_str())
+                    .then(|| link_shader(&texture_external_compiler, &name).source),
+                name,
+            }
+        })
+        .collect()
+}
+
+fn shader_compiler(shader_dir: &Path, texture_external: bool) -> Wesl<StandardResolver> {
+    let mut compiler = Wesl::new(shader_dir);
     compiler.use_stripping(true);
     compiler.set_feature(
         "blurred_rounded_rect",
@@ -78,11 +111,8 @@ fn load_shader_infos(shader_dir: &Path) -> Vec<ShaderInfo> {
     );
     compiler.set_feature("full_image_support", cfg!(feature = "full_image_support"));
     compiler.set_feature("gradient_sweep", cfg!(feature = "gradient_sweep"));
-
-    shader_names
-        .into_iter()
-        .map(|name| compile_shader(&compiler, name))
-        .collect()
+    compiler.set_feature("texture_external", texture_external);
+    compiler
 }
 
 fn load_shader_names(shader_dir: &Path) -> Vec<String> {
@@ -101,7 +131,13 @@ fn load_shader_names(shader_dir: &Path) -> Vec<String> {
     shader_names
 }
 
-fn compile_shader<R: wesl::Resolver>(compiler: &Wesl<R>, name: String) -> ShaderInfo {
+struct LinkedWgsl {
+    source: String,
+    #[cfg(feature = "glsl")]
+    original_global_names: std::collections::BTreeMap<String, String>,
+}
+
+fn link_shader<R: wesl::Resolver>(compiler: &Wesl<R>, name: &str) -> LinkedWgsl {
     let module_path = format!("package::{name}")
         .parse()
         .expect("generated WESL module path should be valid");
@@ -111,20 +147,19 @@ fn compile_shader<R: wesl::Resolver>(compiler: &Wesl<R>, name: String) -> Shader
         .to_string();
 
     #[cfg(feature = "unminified")]
-    let wgsl_source = linked_wgsl;
+    let source = linked_wgsl;
     #[cfg(all(feature = "unminified", feature = "glsl"))]
     let original_global_names = std::collections::BTreeMap::new();
 
     #[cfg(not(feature = "unminified"))]
     let minified = minify::minify_wgsl(&linked_wgsl);
     #[cfg(not(feature = "unminified"))]
-    let wgsl_source = minified.source;
+    let source = minified.source;
     #[cfg(all(not(feature = "unminified"), feature = "glsl"))]
     let original_global_names = minified.original_global_names;
 
-    ShaderInfo {
-        name,
-        wgsl_source,
+    LinkedWgsl {
+        source,
         #[cfg(feature = "glsl")]
         original_global_names,
     }
@@ -195,6 +230,19 @@ fn generate_wgsl_shader_module(buf: &mut String, shader_info: &ShaderInfo) -> st
         "    pub const {const_name}: &str = r###\"{}\"###;",
         shader_info.wgsl_source
     )?;
+
+    #[cfg(feature = "wgpu_external_texture")]
+    if let Some(source) = &shader_info.texture_external_wgsl_source {
+        writeln!(
+            buf,
+            "    /// Linked WGSL source for `{}.wesl` that binds external textures as `texture_external`.",
+            shader_info.name
+        )?;
+        writeln!(
+            buf,
+            "    pub const {const_name}_TEXTURE_EXTERNAL: &str = r###\"{source}\"###;"
+        )?;
+    }
 
     Ok(())
 }

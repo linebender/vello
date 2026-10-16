@@ -6,7 +6,7 @@
 /// Image rendering quality.
 @if(full_image_support)
 const IMAGE_QUALITY_LOW: u32 = 0u;
-@if(full_image_support)
+@if(full_image_support || texture_external)
 const IMAGE_QUALITY_MEDIUM: u32 = 1u;
 @if(full_image_support)
 const IMAGE_QUALITY_HIGH: u32 = 2u;
@@ -35,11 +35,13 @@ const TINT_MODE_MULTIPLY: u32 = 1u;
 // texel0.xyzw: normalized transform matrix [a, b, c, d]
 // texel1.xy: normalized translation [tx, ty]
 // texel1.z: opacity (0-255)
-// texel1.w: padding
+// texel1.w: sampler params, packed like `image_params` (quality is low or medium)
 
 /// The rendering quality of the image.
 @if(full_image_support)
-fn get_image_quality(texel0: vec4<u32>) -> u32 { return texel0.x & 0x3u; }
+fn get_image_quality(texel0: vec4<u32>) -> u32 {
+    return texel0.x & 0x3u;
+}
 
 /// The extend modes in the horizontal and vertical direction.
 @if(full_image_support)
@@ -63,9 +65,9 @@ fn get_image_offset(texel0: vec4<u32>) -> vec2<f32> {
 @if(full_image_support)
 fn get_image_transform(texel0: vec4<u32>, texel1: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
-        vec2<f32>(bitcast<f32>(texel0.w), bitcast<f32>(texel1.x)),
-        vec2<f32>(bitcast<f32>(texel1.y), bitcast<f32>(texel1.z))
-    );
+            vec2<f32>(bitcast<f32>(texel0.w), bitcast<f32>(texel1.x)),
+            vec2<f32>(bitcast<f32>(texel1.y), bitcast<f32>(texel1.z)),
+        );
 }
 
 /// Translation part of the affine transform [tx, ty].
@@ -77,9 +79,9 @@ fn get_image_translate(texel1: vec4<u32>, texel2: vec4<u32>) -> vec2<f32> {
 /// Linear part of the native image transform, in normalized UV coordinates.
 fn get_native_image_transform(texel0: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
-        vec2<f32>(bitcast<f32>(texel0.x), bitcast<f32>(texel0.y)),
-        vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w))
-    );
+            vec2<f32>(bitcast<f32>(texel0.x), bitcast<f32>(texel0.y)),
+            vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w)),
+        );
 }
 
 /// Translation part of the native image transform, in normalized UV coordinates.
@@ -92,45 +94,46 @@ fn get_native_image_opacity(texel1: vec4<u32>) -> u32 {
     return texel1.z;
 }
 
+/// Sampler params for native image sampling, packed like `image_params`.
+fn get_native_image_sampler(texel1: vec4<u32>) -> u32 {
+    return texel1.w;
+}
+
 // Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)
 // Mitchell-Netravali cubic filter coefficients with parameters B=1/3 and C=1/3
 @if(full_image_support)
-const MF: array<vec4<f32>, 4> = array<vec4<f32>, 4>(
-    vec4<f32>(
-        (1.0 / 6.0) / 3.0,
-        -(3.0 / 6.0) / 3.0 - 1.0 / 3.0,
-        (3.0 / 6.0) / 3.0 + 2.0 * 1.0 / 3.0,
-        -(1.0 / 6.0) / 3.0 - 1.0 / 3.0
-    ),
-    vec4<f32>(
-        1.0 - (2.0 / 6.0) / 3.0,
-        0.0,
-        -3.0 + (12.0 / 6.0) / 3.0 + 1.0 / 3.0,
-        2.0 - (9.0 / 6.0) / 3.0 - 1.0 / 3.0
-    ),
-    vec4<f32>(
-        (1.0 / 6.0) / 3.0,
-        (3.0 / 6.0) / 3.0 + 1.0 / 3.0,
-        3.0 - (15.0 / 6.0) / 3.0 - 2.0 * 1.0 / 3.0,
-        -2.0 + (9.0 / 6.0) / 3.0 + 1.0 / 3.0
-    ),
-    vec4<f32>(
-        0.0,
-        0.0,
-        -1.0 / 3.0,
-        (1.0 / 6.0) / 3.0 + 1.0 / 3.0
-    )
-);
+const MF: array<vec4<f32>, 4> =
+    array<vec4<f32>, 4>(
+        vec4<f32>(
+            (1.0 / 6.0) / 3.0,
+            -(3.0 / 6.0) / 3.0 - 1.0 / 3.0,
+            (3.0 / 6.0) / 3.0 + 2.0 * 1.0 / 3.0,
+            -(1.0 / 6.0) / 3.0 - 1.0 / 3.0,
+        ),
+        vec4<f32>(
+            1.0 - (2.0 / 6.0) / 3.0,
+            0.0,
+            -3.0 + (12.0 / 6.0) / 3.0 + 1.0 / 3.0,
+            2.0 - (9.0 / 6.0) / 3.0 - 1.0 / 3.0,
+        ),
+        vec4<f32>(
+            (1.0 / 6.0) / 3.0,
+            (3.0 / 6.0) / 3.0 + 1.0 / 3.0,
+            3.0 - (15.0 / 6.0) / 3.0 - 2.0 * 1.0 / 3.0,
+            -2.0 + (9.0 / 6.0) / 3.0 + 1.0 / 3.0,
+        ),
+        vec4<f32>(0.0, 0.0, -1.0 / 3.0, (1.0 / 6.0) / 3.0 + 1.0 / 3.0),
+    );
 
 // Calculate the weights for a single fractional value (same as CPU weights function)
 @if(full_image_support)
 fn cubic_weights(fract: f32) -> vec4<f32> {
     return vec4<f32>(
-        single_weight(fract, MF[0][0], MF[0][1], MF[0][2], MF[0][3]),
-        single_weight(fract, MF[1][0], MF[1][1], MF[1][2], MF[1][3]),
-        single_weight(fract, MF[2][0], MF[2][1], MF[2][2], MF[2][3]),
-        single_weight(fract, MF[3][0], MF[3][1], MF[3][2], MF[3][3])
-    );
+            single_weight(fract, MF[0][0], MF[0][1], MF[0][2], MF[0][3]),
+            single_weight(fract, MF[1][0], MF[1][1], MF[1][2], MF[1][3]),
+            single_weight(fract, MF[2][0], MF[2][1], MF[2][2], MF[2][3]),
+            single_weight(fract, MF[3][0], MF[3][1], MF[3][2], MF[3][3]),
+        );
 }
 
 // Calculate a weight based on the fractional value t and the cubic coefficients
