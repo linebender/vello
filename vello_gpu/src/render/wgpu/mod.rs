@@ -9,6 +9,12 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+#[cfg(feature = "probe")]
+mod probe;
+
+#[cfg(feature = "probe")]
+pub use probe::{WgpuPendingProbe, WgpuProbeError, WgpuProbeStatus};
+
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
 #[cfg(feature = "wgpu_external_texture")]
@@ -231,6 +237,12 @@ pub struct Renderer {
     schedule_storage: ScheduleStorage,
     scratch_buffers: ScratchBuffers,
     layers_config: LayersConfig,
+    /// Format of the render target that the pipelines are created for.
+    #[cfg_attr(
+        not(feature = "probe"),
+        expect(dead_code, reason = "only read when probing")
+    )]
+    target_format: wgpu::TextureFormat,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
 }
@@ -281,6 +293,7 @@ impl Renderer {
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
             layers_config: layer_config,
+            target_format: render_target_config.format,
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
         };
