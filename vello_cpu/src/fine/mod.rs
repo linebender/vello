@@ -24,6 +24,7 @@ use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::peniko::{BlendMode, ImageQuality};
 use crate::region::Region;
 use crate::util::EncodedImageExt;
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -41,7 +42,7 @@ use vello_common::fearless_simd::{
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
+use vello_common::paint::{ImageId, ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::Splat4thExt;
 use vello_common::tile::Tile;
@@ -530,6 +531,12 @@ pub struct Fine<S: Simd, T: FineKernel<S>> {
     paint_buf: Vec<T::Numeric>,
     /// Buffer for storing gradient interpolation parameters (t values).
     f32_buf: Vec<f32>,
+    /// The most recently resolved opaque image.
+    ///
+    /// Caching it avoids hitting the image resolver (and the reference count of the
+    /// pixmap, which is shared between all threads) for each command that references
+    /// the same image, such as glyphs drawn from the same glyph atlas page.
+    resolved_image: Option<(ImageId, Arc<Pixmap>)>,
     /// The current strip row y-coordinate in scene/filter coordinates.
     row_y: u16,
     /// The origin of the current target we are rendering into.
@@ -550,6 +557,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             buffer_pool: VecPool::new(false),
             paint_buf: Vec::new(),
             f32_buf: Vec::new(),
+            resolved_image: None,
             row_y: 0,
             origin: (0, 0),
         }
@@ -1065,12 +1073,18 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 }
             }
             EncodedPaint::Image(image) => {
-                let pixmap = match &image.source {
-                    ImageSource::Pixmap(pixmap) => pixmap.clone(),
-                    ImageSource::OpaqueId { id, .. } => resources
-                        .image_resolver
-                        .resolve(*id)
-                        .unwrap_or_else(|| panic!("Image {:?} not found in registry", id)),
+                let pixmap: &Pixmap = match &image.source {
+                    ImageSource::Pixmap(pixmap) => pixmap,
+                    ImageSource::OpaqueId { id, .. } => {
+                        if !matches!(&self.resolved_image, Some((cached, _)) if cached == id) {
+                            let pixmap = resources
+                                .image_resolver
+                                .resolve(*id)
+                                .unwrap_or_else(|| panic!("Image {:?} not found in registry", id));
+                            self.resolved_image = Some((*id, pixmap));
+                        }
+                        &self.resolved_image.as_ref().unwrap().1
+                    }
                     ImageSource::ExternalTexture { .. } => {
                         unimplemented!("External textures are not supported by `vello_cpu`")
                     }
@@ -1084,7 +1098,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             fill_complex_paint!(
                                 image.may_have_transparency,
                                 T::plain_medium_quality_image_painter(
-                                    simd, image, &pixmap, sampler_x, sampler_y
+                                    simd, image, pixmap, sampler_x, sampler_y
                                 ),
                                 tint
                             );
@@ -1092,7 +1106,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             fill_complex_paint!(
                                 image.may_have_transparency,
                                 T::high_quality_image_painter(
-                                    simd, image, &pixmap, sampler_x, sampler_y
+                                    simd, image, pixmap, sampler_x, sampler_y
                                 ),
                                 tint
                             );
@@ -1104,7 +1118,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             fill_complex_paint!(
                                 image.may_have_transparency,
                                 T::medium_quality_image_painter(
-                                    simd, image, &pixmap, sampler_x, sampler_y
+                                    simd, image, pixmap, sampler_x, sampler_y
                                 ),
                                 tint
                             );
@@ -1112,7 +1126,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             fill_complex_paint!(
                                 image.may_have_transparency,
                                 T::high_quality_image_painter(
-                                    simd, image, &pixmap, sampler_x, sampler_y
+                                    simd, image, pixmap, sampler_x, sampler_y
                                 ),
                                 tint
                             );
@@ -1121,14 +1135,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     (false, true) => {
                         fill_complex_paint!(
                             image.may_have_transparency,
-                            T::plain_nn_image_painter(simd, image, &pixmap, sampler_x, sampler_y),
+                            T::plain_nn_image_painter(simd, image, pixmap, sampler_x, sampler_y),
                             tint
                         );
                     }
                     (true, true) => {
                         fill_complex_paint!(
                             image.may_have_transparency,
-                            T::nn_image_painter(simd, image, &pixmap, sampler_x, sampler_y),
+                            T::nn_image_painter(simd, image, pixmap, sampler_x, sampler_y),
                             tint
                         );
                     }
