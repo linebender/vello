@@ -162,6 +162,42 @@ fn mix_luminosity(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Luminosity, Compose::SrcOver));
 }
 
+/// Yields a 6x6 cell for each gray level, 16 to a row.
+fn gray_ramp_cells() -> impl Iterator<Item = (u8, Rect)> {
+    const CELL: f64 = 6.0;
+
+    (0..=255_u8).map(|level| {
+        let x = 2.0 + f64::from(level % 16) * CELL;
+        let y = 2.0 + f64::from(level / 16) * CELL;
+        (level, Rect::new(x, y, x + CELL, y + CELL))
+    })
+}
+
+// Each cell should be half its gray level, opaque.
+#[vello_test]
+fn mix_luminosity_gray_ramp(ctx: &mut impl Renderer) {
+    for (level, rect) in gray_ramp_cells() {
+        ctx.set_paint(AlphaColor::<Srgb>::from_rgba8(level, level, level, 255));
+        ctx.fill_rect(&rect);
+
+        ctx.push_blend_layer(BlendMode::new(Mix::Luminosity, Compose::SrcOver));
+        ctx.set_paint(Color::BLACK.with_alpha(0.5));
+        ctx.fill_rect(&rect);
+        ctx.pop_layer();
+    }
+}
+
+// Each cell should be its gray at half alpha.
+#[vello_test(transparent)]
+fn mix_color_gray_ramp(ctx: &mut impl Renderer) {
+    for (level, rect) in gray_ramp_cells() {
+        ctx.push_blend_layer(BlendMode::new(Mix::Color, Compose::SrcOver));
+        ctx.set_paint(AlphaColor::<Srgb>::from_rgba8(level, level, level, 128));
+        ctx.fill_rect(&rect);
+        ctx.pop_layer();
+    }
+}
+
 #[vello_test(transparent, gpu_no_depth)]
 fn mix_with_transparent_bg(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
