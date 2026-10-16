@@ -10,7 +10,7 @@ use crate::geometry::RectU16;
 use crate::kurbo::{Affine, PathEl, Rect, Stroke};
 use crate::peniko::Fill;
 use crate::strip::Strip;
-use crate::tile::Tiles;
+use crate::tile::{Tile, Tiles};
 use crate::{flatten, rect, strip};
 use alloc::vec::Vec;
 use peniko::kurbo::StrokeCtx;
@@ -84,6 +84,7 @@ pub struct StripGenerator {
     flatten_ctx: FlattenCtx,
     stroke_ctx: StrokeCtx,
     temp_storage: StripStorage,
+    clip_scratch: StripStorage,
     tiles: Tiles,
     width: u16,
     height: u16,
@@ -99,6 +100,7 @@ impl StripGenerator {
             flatten_ctx: FlattenCtx::default(),
             stroke_ctx: StrokeCtx::default(),
             temp_storage: StripStorage::default(),
+            clip_scratch: StripStorage::default(),
             width,
             height,
         }
@@ -185,6 +187,7 @@ impl StripGenerator {
         render_with_clip(
             level,
             &mut self.temp_storage,
+            &mut self.clip_scratch,
             strip_storage,
             clip_path,
             |strips, alphas| {
@@ -246,6 +249,7 @@ impl StripGenerator {
         render_with_clip(
             level,
             &mut self.temp_storage,
+            &mut self.clip_scratch,
             strip_storage,
             complex_clip,
             |strips, alphas| {
@@ -274,6 +278,7 @@ impl StripGenerator {
 fn render_with_clip(
     level: Level,
     temp_storage: &mut StripStorage,
+    clip_scratch: &mut StripStorage,
     strip_storage: &mut StripStorage,
     clip_path: Option<PathDataRef<'_>>,
     render_fn: impl FnOnce(&mut Vec<Strip>, &mut Vec<u8>),
@@ -293,8 +298,40 @@ fn render_with_clip(
             strips: &temp_storage.strips,
             alphas: &temp_storage.alphas,
             bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
+            lazy_rect: None,
         };
-        intersect(level, clip_path, path_data, strip_storage);
+        if let Some(rect) = clip_path.lazy_rect {
+            // The clip is a rectangle without strips. Generate them only for the tile
+            // rows the path covers: every row of a rectangle's strips is independent of
+            // the others, so those rows are the same as in the strips of the whole
+            // rectangle, and the rows left out can't intersect the path.
+            let (Some(first), Some(last)) =
+                (temp_storage.strips.first(), temp_storage.strips.last())
+            else {
+                return;
+            };
+            let top = f64::from(first.strip_y()) * f64::from(Tile::HEIGHT);
+            let bottom = (f64::from(last.strip_y()) + 1.0) * f64::from(Tile::HEIGHT);
+            let rows = Rect::new(rect.x0, rect.y0.max(top), rect.x1, rect.y1.min(bottom));
+            clip_scratch.clear();
+            if rows.x1 > rows.x0 && rows.y1 > rows.y0 {
+                rect::render(
+                    level,
+                    rows,
+                    &mut clip_scratch.strips,
+                    &mut clip_scratch.alphas,
+                );
+            }
+            let clip_data = PathDataRef {
+                strips: &clip_scratch.strips,
+                alphas: &clip_scratch.alphas,
+                bbox: clip_path.bbox,
+                lazy_rect: None,
+            };
+            intersect(level, clip_data, path_data, strip_storage);
+        } else {
+            intersect(level, clip_path, path_data, strip_storage);
+        }
     } else {
         render_fn(&mut strip_storage.strips, &mut strip_storage.alphas);
     }

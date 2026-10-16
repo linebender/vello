@@ -25,10 +25,23 @@ struct ClipData {
     ///
     /// These bounds have already been intersected with the viewport.
     bbox: RectU16,
+    /// Set when the clip is exactly this rectangle and no strips were generated for it.
+    lazy_rect: Option<Rect>,
 }
 
 impl ClipData {
     fn to_clip_ref<'a>(&self, storage: &'a StripStorage) -> ClipRef<'a> {
+        if self.lazy_rect.is_some() {
+            return ClipRef {
+                path: PathDataRef {
+                    strips: &[],
+                    alphas: &[],
+                    bbox: self.bbox,
+                    lazy_rect: self.lazy_rect,
+                },
+                shape: self.shape,
+            };
+        }
         ClipRef {
             path: PathDataRef {
                 strips: storage
@@ -40,6 +53,7 @@ impl ClipData {
                     .get(self.alpha_start as usize..)
                     .unwrap_or(&[]),
                 bbox: self.bbox,
+                lazy_rect: None,
             },
             shape: self.shape,
         }
@@ -52,6 +66,8 @@ pub struct ClipContext {
     storage: StripStorage,
     temp_storage: StripStorage,
     clip_stack: Vec<ClipData>,
+    /// Whether rectangular clips defer their strips until something is drawn.
+    lazy_rects: bool,
 }
 
 impl Default for ClipContext {
@@ -70,6 +86,16 @@ impl ClipContext {
             storage: main_storage,
             temp_storage: StripStorage::default(),
             clip_stack: vec![],
+            lazy_rects: true,
+        }
+    }
+
+    /// Create a clip context that always generates the strips of a clip when it is pushed.
+    #[inline]
+    pub fn new_eager() -> Self {
+        Self {
+            lazy_rects: false,
+            ..Self::new()
         }
     }
 
@@ -113,6 +139,35 @@ impl ClipContext {
     /// Push a rectangular clip path.
     #[inline]
     pub fn push_clip_rect(&mut self, rect: &Rect, strip_generator: &mut StripGenerator) {
+        if self.lazy_rects {
+            // A rectangle inside the viewport or inside another rectangle is again a
+            // rectangle, so its strips are only generated for the rows of the paths that
+            // are drawn through it (see `render_with_clip`).
+            let parent = match self.clip_stack.last() {
+                None => Some(Rect::new(
+                    0.0,
+                    0.0,
+                    f64::from(strip_generator.width()),
+                    f64::from(strip_generator.height()),
+                )),
+                Some(ClipData {
+                    shape: ClipShape::AxisAlignedRect(parent),
+                    ..
+                }) => Some(*parent),
+                Some(_) => None,
+            };
+            if let Some(parent) = parent {
+                let clamped = rect.abs().intersect(parent);
+                self.clip_stack.push(ClipData {
+                    alpha_start: self.storage.alphas.len() as u32,
+                    strip_start: self.storage.strips.len() as u32,
+                    shape: ClipShape::AxisAlignedRect(clamped),
+                    bbox: tile_bbox(clamped),
+                    lazy_rect: Some(clamped),
+                });
+                return;
+            }
+        }
         self.push_generated_clip(strip_generator, |generator, storage, existing_clip| {
             generator.generate_filled_rect_fast(rect, storage, existing_clip)
         });
@@ -139,6 +194,7 @@ impl ClipContext {
             strip_start,
             shape,
             bbox,
+            lazy_rect: None,
         });
     }
 
@@ -149,6 +205,22 @@ impl ClipContext {
         self.storage.strips.truncate(data.strip_start as usize);
         self.storage.alphas.truncate(data.alpha_start as usize);
     }
+}
+
+/// A tile-aligned bounding box that contains `rect`.
+fn tile_bbox(rect: Rect) -> RectU16 {
+    if rect.is_zero_area() {
+        return RectU16::ZERO;
+    }
+    let down = |v: f64| (v.max(0.0) as u32 / u32::from(Tile::WIDTH)) * u32::from(Tile::WIDTH);
+    let up = |v: f64| (v.max(0.0) as u32 / u32::from(Tile::WIDTH) + 1) * u32::from(Tile::WIDTH);
+    let clamp = |v: u32| v.min(u32::from(u16::MAX)) as u16;
+    RectU16::new(
+        clamp(down(rect.x0)),
+        clamp(down(rect.y0)),
+        clamp(up(rect.x1)),
+        clamp(up(rect.y1)),
+    )
 }
 
 /// Raw data of a previously pushed clip path.
@@ -367,6 +439,9 @@ pub struct PathDataRef<'a> {
     ///
     /// These bounds have already been intersected with the viewport.
     pub bbox: RectU16,
+    /// Set when this is a clip that is exactly this rectangle and whose strips have not
+    /// been generated; `strips` and `alphas` are then empty.
+    pub lazy_rect: Option<Rect>,
 }
 
 /// The known geometric shape of an active clip.
@@ -859,10 +934,10 @@ mod tests {
         let clip = clips.get().unwrap();
         assert_eq!(clip.shape, ClipShape::AxisAlignedRect(intersection));
 
-        let mut expected = StripStorage::default();
-        generator.generate_filled_rect_fast(&intersection, &mut expected, None);
-        assert_eq!(clip.path.strips, expected.strips);
-        assert_eq!(clip.path.alphas, expected.alphas);
+        // The strips of a rectangular clip are only generated once a path is drawn through it.
+        assert_eq!(clip.path.lazy_rect, Some(intersection));
+        assert!(clip.path.strips.is_empty());
+        assert!(clip.path.alphas.is_empty());
 
         let mut triangle = BezPath::new();
         triangle.move_to((0.0, 0.0));
@@ -888,6 +963,95 @@ mod tests {
             clips.get().unwrap().shape,
             ClipShape::AxisAlignedRect(first)
         );
+    }
+
+    #[test]
+    fn eager_rectangular_clip_stores_its_strips() {
+        let mut generator = StripGenerator::new(100, 100, Level::baseline());
+        let mut clips = ClipContext::new_eager();
+        let first = Rect::new(10.25, 5.5, 80.75, 90.0);
+        let second = Rect::new(20.5, 0.0, 70.25, 60.75);
+        let intersection = first.intersect(second);
+
+        clips.push_clip_rect(&first, &mut generator);
+        clips.push_clip_rect(&second, &mut generator);
+        let clip = clips.get().unwrap();
+        assert_eq!(clip.shape, ClipShape::AxisAlignedRect(intersection));
+        assert_eq!(clip.path.lazy_rect, None);
+
+        let mut expected = StripStorage::default();
+        generator.generate_filled_rect_fast(&intersection, &mut expected, None);
+        assert_eq!(clip.path.strips, expected.strips);
+        assert_eq!(clip.path.alphas, expected.alphas);
+    }
+
+    #[test]
+    fn path_through_lazy_rectangular_clip_matches_eager_clip() {
+        let rects = [
+            // Contains the whole viewport.
+            Rect::new(-10.0, -10.0, 200.0, 200.0),
+            // Fractional edges that cross the path.
+            Rect::new(10.25, 5.5, 80.75, 90.0),
+            // Edges on tile boundaries.
+            Rect::new(8.0, 12.0, 64.0, 48.0),
+            // Thinner than a pixel, and thinner than a tile.
+            Rect::new(30.2, 0.0, 30.7, 100.0),
+            Rect::new(0.0, 41.0, 100.0, 43.5),
+            // Above, below and beside the path.
+            Rect::new(0.0, 0.0, 100.0, 18.0),
+            Rect::new(0.0, 85.0, 100.0, 100.0),
+            Rect::new(90.0, 0.0, 100.0, 100.0),
+            // Empty and inverted.
+            Rect::new(40.0, 40.0, 40.0, 60.0),
+            Rect::new(70.0, 70.0, 30.0, 30.0),
+        ];
+
+        let mut paths = vec![];
+        let mut triangle = BezPath::new();
+        triangle.move_to((22.0, 21.0));
+        triangle.line_to((77.5, 30.25));
+        triangle.line_to((41.0, 79.0));
+        triangle.close_path();
+        paths.push(triangle);
+        let mut sliver = BezPath::new();
+        sliver.move_to((5.0, 50.0));
+        sliver.line_to((95.0, 51.0));
+        sliver.line_to((95.0, 52.5));
+        sliver.close_path();
+        paths.push(sliver);
+
+        for rect in rects {
+            for path in &paths {
+                let mut generator = StripGenerator::new(100, 100, Level::baseline());
+                let mut lazy = ClipContext::new();
+                let mut eager = ClipContext::new_eager();
+                lazy.push_clip_rect(&rect, &mut generator);
+                eager.push_clip_rect(&rect, &mut generator);
+                assert!(lazy.get().unwrap().path.lazy_rect.is_some());
+                assert!(eager.get().unwrap().path.lazy_rect.is_none());
+
+                let mut through_lazy = StripStorage::default();
+                generator.generate_filled_path(
+                    path.iter(),
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    None,
+                    &mut through_lazy,
+                    lazy.get().map(|clip| clip.path),
+                );
+                let mut through_eager = StripStorage::default();
+                generator.generate_filled_path(
+                    path.iter(),
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    None,
+                    &mut through_eager,
+                    eager.get().map(|clip| clip.path),
+                );
+                assert_eq!(through_lazy.strips, through_eager.strips, "{rect:?}");
+                assert_eq!(through_lazy.alphas, through_eager.alphas, "{rect:?}");
+            }
+        }
     }
 
     #[test]
@@ -1022,6 +1186,7 @@ mod tests {
             strips: &path_1.strips,
             alphas: &path_1.alphas,
             bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
+            lazy_rect: None,
         };
 
         let mut idx = 0;
@@ -1154,6 +1319,7 @@ mod tests {
             strips: &path.strips,
             alphas: &path.alphas,
             bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
+            lazy_rect: None,
         }
     }
 

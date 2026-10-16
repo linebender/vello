@@ -57,6 +57,7 @@ impl Worker {
                 strips: c.strips.as_ref(),
                 alphas: c.alphas.as_ref(),
                 bbox: c.bbox,
+                lazy_rect: None,
             },
             shape: c.shape,
         });
