@@ -398,7 +398,8 @@ impl MultiThreadedDispatcher {
     ) {
         let mut bucketer = self.bucketer.lock().unwrap();
         let filters = FilterContext::new(0);
-        bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
+        // No filter layers here, so nothing is shifted.
+        bucketer.reset(RectU16::new(0, 0, scene_width, scene_height), (0, 0));
         let target_init = settings.target_init.map(PremulColor::from_alpha_color);
         bucketer.bucket_commands(
             &self.recorder.nodes,
