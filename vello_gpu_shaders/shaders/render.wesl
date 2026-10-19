@@ -31,7 +31,9 @@ import package::helpers::blurred_rounded_rect::{
 };
 @if(full_image_support)
 import package::helpers::external_texture::sample_image_paint;
-import package::helpers::external_texture::{ExternalTexture, sample_native_image_paint};
+import package::helpers::external_texture::sample_native_image_paint;
+@if(texture_external)
+import package::helpers::external_texture::sample_wgpu_external_texture_paint;
 import package::helpers::gradient::get_gradient_sample_xy;
 import package::helpers::gradient::sample_linear_gradient;
 import package::helpers::gradient::sample_radial_gradient;
@@ -42,7 +44,6 @@ import package::helpers::geometry::{pixel_to_ndc, quad_corner, rect_coverage};
 import package::helpers::image::{get_image_transform, get_image_translate};
 import package::helpers::image::{
     get_native_image_opacity,
-    get_native_image_sampler,
     get_native_image_transform,
     get_native_image_translate
 };
@@ -63,6 +64,7 @@ const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3u;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4u;
 const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5u;
 const PAINT_TYPE_NATIVE_IMAGE: u32 = 6u;
+const PAINT_TYPE_WGPU_EXTERNAL_TEXTURE: u32 = 7u;
 
 const EXTERNAL_TEXTURE_SLOT_SHIFT: u32 = 24u;
 
@@ -137,8 +139,10 @@ struct Config {
 // │   └── payload = [x, y] scene coordinates
 // │
 // ├── paint_type = 6 (PAINT_TYPE_NATIVE_IMAGE) - Native image sampling
-// │   ├── payload = [x, y] scene coordinates in vertex shader; in fragment shader, image opacity
-// │   │   (bits 0-7) and sampler params (bits 8-13)
+// │   ├── payload = [x, y] scene coordinates in vertex shader; image opacity in fragment shader
+// │
+// ├── paint_type = 7 (PAINT_TYPE_WGPU_EXTERNAL_TEXTURE) - `wgpu::ExternalTexture` sampling
+// │   ├── payload = same as PAINT_TYPE_NATIVE_IMAGE
 // │
 // ├── paint_type = 2 (PAINT_TYPE_LINEAR_GRADIENT) - Linear gradient rendering
 // ├── paint_type = 3 (PAINT_TYPE_RADIAL_GRADIENT) - Radial gradient (with kind discriminator)
@@ -207,10 +211,15 @@ struct VertexOutput {
 var<uniform> config: Config;
 
 @group(1) @binding(0)
-var external_texture_0: ExternalTexture;
+var external_texture_0: texture_2d<f32>;
 
 @group(1) @binding(1)
 var external_sampler_0: sampler;
+
+@if(texture_external)
+@group(1) @binding(2)
+var wgpu_external_texture_0: texture_external;
+
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
 
@@ -262,7 +271,7 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32, instance: StripInstance)
         let scene_strip = unpack_u16_pair(instance.payload);
 
         switch paint_type {
-            case PAINT_TYPE_NATIVE_IMAGE {
+            case PAINT_TYPE_NATIVE_IMAGE, PAINT_TYPE_WGPU_EXTERNAL_TEXTURE {
                 let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
                 let image_texel0 = load_encoded_paint_texel(
                         encoded_paints_texture,
@@ -282,8 +291,7 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32, instance: StripInstance)
                     );
                 out.sample_xy = get_native_image_translate(image_texel1)
                     + get_native_image_transform(image_texel0) * pos;
-                out.payload = get_native_image_opacity(image_texel1)
-                    | (get_native_image_sampler(image_texel1) << 8u);
+                out.payload = get_native_image_opacity(image_texel1);
             }
             @if(full_image_support)
             case PAINT_TYPE_IMAGE {
@@ -400,13 +408,21 @@ fn fs_main(
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (paint_and_rect_flag >> 26u) & 0x7u;
 
-        // in.payload encodes a color for PAINT_TYPE_SOLID, sample_xy for PAINT_TYPE_IMAGE, or opacity
-        // and sampler params for PAINT_TYPE_NATIVE_IMAGE
+        // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE or opacity for PAINT_TYPE_NATIVE_IMAGE
         switch paint_type {
             case PAINT_TYPE_SOLID { final_color = unpack4x8unorm(payload); }
             case PAINT_TYPE_NATIVE_IMAGE {
                 final_color = sample_native_image_paint(
                         external_texture_0,
+                        external_sampler_0,
+                        payload,
+                        sample_xy,
+                    );
+            }
+            @if(texture_external)
+            case PAINT_TYPE_WGPU_EXTERNAL_TEXTURE {
+                final_color = sample_wgpu_external_texture_paint(
+                        wgpu_external_texture_0,
                         external_sampler_0,
                         payload,
                         sample_xy,

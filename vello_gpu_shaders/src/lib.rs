@@ -22,38 +22,49 @@ mod feature_tests {
 
     #[test]
     fn shader_feature_combinations_compile() {
-        let features = [
+        const FEATURES: [&str; 4] = [
             "blurred_rounded_rect",
             "full_image_support",
             "gradient_sweep",
+            "texture_external",
         ];
-        for texture_external in [false, true] {
-            for mask in [0b000, 0b001, 0b010, 0b100, 0b111] {
-                let mut compiler = Wesl::new("shaders");
-                compiler.use_stripping(true);
-                for (bit, feature) in features.iter().enumerate() {
-                    compiler.set_feature(feature, mask & (1 << bit) != 0);
-                }
-                compiler.set_feature("texture_external", texture_external);
-                let source = compiler
-                    .compile(&"package::render".parse().unwrap())
-                    .expect("render shader links")
-                    .to_string();
-                let module = wgsl::parse_str(&source).expect("linked WGSL parses");
-                Validator::new(ValidationFlags::all(), Capabilities::all())
-                    .validate(&module)
-                    .expect("linked WGSL validates");
-                // WebGL never binds external textures as `texture_external`.
-                #[cfg(feature = "glsl")]
-                if !texture_external {
-                    crate::compile::compile_wgsl_shader(
-                        &source,
-                        "render",
-                        "vs_main",
-                        "fs_main",
-                        &std::collections::BTreeMap::new(),
-                    );
-                }
+        let combinations: [&[&str]; 7] = [
+            &[],
+            &["blurred_rounded_rect"],
+            &["full_image_support"],
+            &["gradient_sweep"],
+            &[
+                "blurred_rounded_rect",
+                "full_image_support",
+                "gradient_sweep",
+            ],
+            &["texture_external"],
+            &FEATURES,
+        ];
+        for enabled in combinations {
+            let mut compiler = Wesl::new("shaders");
+            compiler.use_stripping(true);
+            for feature in FEATURES {
+                compiler.set_feature(feature, enabled.contains(&feature));
+            }
+            let source = compiler
+                .compile(&"package::render".parse().unwrap())
+                .expect("render shader links")
+                .to_string();
+            let module = wgsl::parse_str(&source).expect("linked WGSL parses");
+            Validator::new(ValidationFlags::all(), Capabilities::all())
+                .validate(&module)
+                .expect("linked WGSL validates");
+            // GLSL is only generated without `texture_external`, which naga can't translate.
+            #[cfg(feature = "glsl")]
+            if !enabled.contains(&"texture_external") {
+                crate::compile::compile_wgsl_shader(
+                    &source,
+                    "render",
+                    "vs_main",
+                    "fs_main",
+                    &std::collections::BTreeMap::new(),
+                );
             }
         }
     }

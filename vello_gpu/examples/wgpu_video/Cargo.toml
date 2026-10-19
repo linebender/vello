@@ -14,6 +14,7 @@ winit = { workspace = true }
 wgpu = { workspace = true, default-features = true }
 vello_common = { workspace = true, features = ["std"] }
 vello_gpu = { workspace = true, features = [
+    "full_image_support",
     "text",
     "wgpu",
     "wgpu_default",

@@ -6,7 +6,7 @@
 /// Image rendering quality.
 @if(full_image_support)
 const IMAGE_QUALITY_LOW: u32 = 0u;
-@if(full_image_support || texture_external)
+@if(full_image_support)
 const IMAGE_QUALITY_MEDIUM: u32 = 1u;
 @if(full_image_support)
 const IMAGE_QUALITY_HIGH: u32 = 2u;
@@ -35,7 +35,7 @@ const TINT_MODE_MULTIPLY: u32 = 1u;
 // texel0.xyzw: normalized transform matrix [a, b, c, d]
 // texel1.xy: normalized translation [tx, ty]
 // texel1.z: opacity (0-255)
-// texel1.w: sampler params, packed like `image_params` (quality is low or medium)
+// texel1.w: padding
 
 /// The rendering quality of the image.
 @if(full_image_support)
@@ -92,11 +92,6 @@ fn get_native_image_translate(texel1: vec4<u32>) -> vec2<f32> {
 /// Opacity for native image sampling, stored as an 8-bit unorm value.
 fn get_native_image_opacity(texel1: vec4<u32>) -> u32 {
     return texel1.z;
-}
-
-/// Sampler params for native image sampling, packed like `image_params`.
-fn get_native_image_sampler(texel1: vec4<u32>) -> u32 {
-    return texel1.w;
 }
 
 // Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)
