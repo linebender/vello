@@ -10,6 +10,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use thiserror::Error;
 use vello_common::TextureId;
 use vello_common::color::palette::css;
+use vello_common::image_cache::ImageCache;
 use vello_common::paint::{ImageSource, TextureRegion};
 use vello_common::pixmap::Pixmap;
 use vello_common::probe::{Probe, ProbeFeature};
@@ -155,11 +156,7 @@ impl Renderer {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Probe Encoder"),
         });
-        let dummy_image_cache = self
-            .dummy_image_cache
-            .take()
-            .expect("dummy image cache must exist");
-        let render_result = self.render_scene(
+        self.render_scene(
             &scene,
             device,
             queue,
@@ -167,14 +164,12 @@ impl Renderer {
             &render_size,
             &target_view,
             depth_view.as_ref(),
-            &dummy_image_cache,
+            &ImageCache::new_dummy(),
             &scene.encoded_paints,
             TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
             RootTarget::UserSurface,
             &texture_bindings,
-        );
-        self.dummy_image_cache = Some(dummy_image_cache);
-        render_result?;
+        )?;
 
         let padded_bytes_per_row =
             (u32::from(width) * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
