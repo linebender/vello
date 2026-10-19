@@ -59,7 +59,8 @@ Install the pinned version (building it requires Rust 1.98.1 or later):
 cargo install --git https://github.com/wgsl-analyzer/wgsl-analyzer --tag 2026-09-30 wgslfmt --locked
 ```
 
-Format the shaders, or check them without modifying any files:
+Format the shaders, or check them without modifying any files (CI runs the
+check on every pull request):
 
 ```sh
 wgslfmt vello_gpu_shaders/shaders

@@ -27,6 +27,11 @@ env:
   WASM_BINDGEN_TEST_TIMEOUT: "1200"
   # The files stored in LFS the tests need to access, in JSON format
   LFS_FILES: '["research/vello_research_tests/snapshots/*.png", "vello_tests/snapshots/*.png"]'
+  # The wgsl-analyzer release tag of the wgslfmt used to check WESL formatting.
+  # Keep in sync with the install command in `vello_gpu_shaders/README.md`.
+  WGSLFMT_TAG: "2026-09-30"
+  # The toolchain used to build wgslfmt, which requires a newer Rust than RUST_STABLE_VER.
+  WGSLFMT_RUST_VER: "1.98"
 
 
 # Rationale
@@ -131,6 +136,39 @@ jobs:
       # If this fails, consider changing your text or adding something to .typos.toml.
       - name: check typos
         uses: crate-ci/typos@v1.45.0
+
+  wesl-fmt:
+    name: WESL formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: restore wgslfmt cache
+        id: wgslfmt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.wgslfmt
+          key: wgslfmt-${{ runner.os }}-${{ env.WGSLFMT_TAG }}
+
+      - name: install wgslfmt toolchain
+        if: ${{ steps.wgslfmt-cache.outputs.cache-hit != 'true' }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.WGSLFMT_RUST_VER }}
+
+      - name: install wgslfmt
+        if: ${{ steps.wgslfmt-cache.outputs.cache-hit != 'true' }}
+        run: cargo install --git https://github.com/wgsl-analyzer/wgsl-analyzer --tag "$WGSLFMT_TAG" wgslfmt --locked --root ~/.wgslfmt
+
+      - name: save wgslfmt cache
+        if: ${{ steps.wgslfmt-cache.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.wgslfmt
+          key: wgslfmt-${{ runner.os }}-${{ env.WGSLFMT_TAG }}
+
+      - name: check WESL formatting
+        run: ~/.wgslfmt/bin/wgslfmt --check --print-diff vello_gpu_shaders/shaders
 
   clippy-stable:
     name: cargo clippy
