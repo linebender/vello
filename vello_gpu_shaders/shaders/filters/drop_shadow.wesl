@@ -3,11 +3,7 @@
 
 //! Drop shadow filter passes.
 
-fn sample_texture(
-    texture: texture_2d<f32>,
-    origin: vec2<u32>,
-    rel_coord: vec2<f32>,
-) -> vec4<f32> {
+fn sample_texture(texture: texture_2d<f32>, origin: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
     let coord = vec2<u32>(vec2<i32>(origin) + vec2<i32>(rel_coord));
     return textureLoad(texture, coord, 0);
 }

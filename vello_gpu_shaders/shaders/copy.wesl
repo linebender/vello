@@ -7,31 +7,22 @@ import package::helpers::geometry::{pixel_to_ndc, quad_corner};
 import package::helpers::util::unpack_u16_pair;
 
 struct CopyInstance {
-    @location(0)
-    dest_texture_origin: u32,
-    @location(1)
-    source_texture_origin: u32,
-    @location(2)
-    copy_rect_size: u32,
-    @location(3)
-    dest_texture_size: u32,
+    @location(0) dest_texture_origin: u32,
+    @location(1) source_texture_origin: u32,
+    @location(2) copy_rect_size: u32,
+    @location(3) dest_texture_size: u32,
 }
 
 struct VertexOutput {
-    @location(0)
-    source_texture_xy: vec2<f32>,
-    @builtin(position)
-    position: vec4<f32>,
+    @location(0) source_texture_xy: vec2<f32>,
+    @builtin(position) position: vec4<f32>,
 }
 
 @group(0) @binding(0)
 var source_texture: texture_2d<f32>;
 
 @vertex
-fn vs_main(
-    @builtin(vertex_index)vertex_index: u32,
-    instance: CopyInstance,
-) -> VertexOutput {
+fn vs_main(@builtin(vertex_index) vertex_index: u32, instance: CopyInstance) -> VertexOutput {
     let dest_texture_origin = unpack_u16_pair(instance.dest_texture_origin);
     let source_texture_origin = unpack_u16_pair(instance.source_texture_origin);
     let copy_rect_size = unpack_u16_pair(instance.copy_rect_size);
@@ -49,8 +40,6 @@ fn vs_main(
 }
 
 @fragment
-fn fs_main(
-    @location(0)source_texture_xy: vec2<f32>,
-) -> @location(0) vec4<f32> {
+fn fs_main(@location(0) source_texture_xy: vec2<f32>) -> @location(0) vec4<f32> {
     return textureLoad(source_texture, vec2<i32>(source_texture_xy), 0);
 }

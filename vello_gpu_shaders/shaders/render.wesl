@@ -27,7 +27,7 @@ import package::helpers::alpha::sample_strip_alpha;
 @if(blurred_rounded_rect)
 import package::helpers::blurred_rounded_rect::{
     get_blurred_rounded_rect_sample_xy,
-    sample_blurred_rounded_rect,
+    sample_blurred_rounded_rect
 };
 @if(full_image_support)
 import package::helpers::external_texture::sample_image_paint;
@@ -55,7 +55,7 @@ const COLOR_SOURCE_PAYLOAD: u32 = 0u;
 const COLOR_SOURCE_LAYER: u32 = 1u;
 
 // Paint types
-const PAINT_TYPE_SOLID: u32 = 0u;  
+const PAINT_TYPE_SOLID: u32 = 0u;
 const PAINT_TYPE_IMAGE: u32 = 1u;
 const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2u;
 const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3u;
@@ -153,8 +153,7 @@ struct Config {
 struct StripInstance {
     // [x, y] packed as u16's
     // x, y — coordinates of the strip or rect
-    @location(0)
-    xy: u32,
+    @location(0) xy: u32,
     // [width, dense_width] packed as u16's
     // width — width of the strip or rect
     // dense_width — width of the portion where alpha blending should be applied
@@ -164,50 +163,42 @@ struct StripInstance {
     // TODO: In the future, this could be optimized such that `width` always represents the width and a simple
     // 1-bit flag is used to distinguish between sparse fill region and strip. This frees up 15 other bits.
     // Otherwise, it might also be possible to merge a strip and sparse fill command into a single strip instance.
-    @location(1)
-    widths_or_rect_height: u32,
+    @location(1) widths_or_rect_height: u32,
     // For normal strips: alpha texture column index where this strip's alpha values begin.
     // There are [`Config::strip_height`] alpha values per column.
     // For rect strips: packed fractional edge offsets for AA.
-    @location(2)
-    col_idx_or_rect_frac: u32,
+    @location(2) col_idx_or_rect_frac: u32,
     // See StripInstance documentation above.
-    @location(3)
-    payload: u32,
+    @location(3) payload: u32,
     // See StripInstance documentation above.
-    @location(4)
-    paint_and_rect_flag: u32,
+    @location(4) paint_and_rect_flag: u32,
     // Painter's-order index for z-depth computation.
-    @location(5)
-    depth_index: u32,
+    @location(5) depth_index: u32,
 }
 
 struct VertexOutput {
     // Render type for the strip
-    @location(0) @interpolate(flat)
-    paint_and_rect_flag: u32,
+    @interpolate(flat)
+    @location(0) paint_and_rect_flag: u32,
     // Texture coordinates for the current fragment
-    @location(1)
-    tex_coord: vec2<f32>,
+    @location(1) tex_coord: vec2<f32>,
     // Image sampling coordinates or gradient-space position for the current fragment
-    @location(2)
-    sample_xy: vec2<f32>,
+    @location(2) sample_xy: vec2<f32>,
     // For normal strips: ending x-position of the dense (alpha) region.
     // For rect strips: packed dimensions (width | height << 16).
-    @location(3) @interpolate(flat)
-    dense_end_or_rect_size: u32,
+    @interpolate(flat)
+    @location(3) dense_end_or_rect_size: u32,
     // Packed paint payload or layer sample coordinate.
-    @location(4) @interpolate(flat)
-    payload: u32,
+    @interpolate(flat)
+    @location(4) payload: u32,
     // Packed fractional edge offsets for rectangles.
     // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
     // Zero for normal strips.
-    @location(5) @interpolate(flat)
-    rect_frac: u32,
+    @interpolate(flat)
+    @location(5) rect_frac: u32,
     // Normalized device coordinates (NDC) for the current vertex
-    @builtin(position)
-    position: vec4<f32>,
-};
+    @builtin(position) position: vec4<f32>,
+}
 
 // TODO: Measure performance of moving to a separate group
 @group(0) @binding(1)
@@ -225,10 +216,7 @@ var encoded_paints_texture: texture_2d<u32>;
 var gradient_texture: texture_2d<f32>;
 
 @vertex
-fn vs_main(
-    @builtin(vertex_index)in_vertex_index: u32,
-    instance: StripInstance,
-) -> VertexOutput {
+fn vs_main(@builtin(vertex_index) in_vertex_index: u32, instance: StripInstance) -> VertexOutput {
     var out: VertexOutput;
     out.sample_xy = vec2(0.0);
     out.payload = instance.payload;
@@ -258,9 +246,9 @@ fn vs_main(
     // Calculate the pixel coordinates of the current vertex within the strip.
     // Don't forget to apply the strip offset!
     let pixel = vec2<f32>(
-        f32(i32(x0) + config.strip_offset_x) + x * f32(width),
-        f32(i32(y0) + config.strip_offset_y) + y * f32(height),
-    );
+            f32(i32(x0) + config.strip_offset_x) + x * f32(width),
+            f32(i32(y0) + config.strip_offset_y) + y * f32(height),
+        );
     // Convert pixel coordinates to normalized device coordinates (NDC)
     // NDC ranges from -1 to 1, with (0,0) at the center of the viewport
     let ndc = pixel_to_ndc(pixel, vec2<f32>(f32(config.width), f32(config.height)));
@@ -272,67 +260,94 @@ fn vs_main(
         let scene_strip = unpack_u16_pair(instance.payload);
 
         switch paint_type {
-            case PAINT_TYPE_NATIVE_IMAGE: {
+            case PAINT_TYPE_NATIVE_IMAGE {
                 let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
                 let image_texel0 = load_encoded_paint_texel(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 0u,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        paint_tex_idx,
+                        0u,
+                    );
                 let image_texel1 = load_encoded_paint_texel(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 1u,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        paint_tex_idx,
+                        1u,
+                    );
                 let pos = vec2<f32>(
-                    f32(scene_strip.x) + x * f32(width),
-                    f32(scene_strip.y) + y * f32(height),
-                );
+                        f32(scene_strip.x) + x * f32(width),
+                        f32(scene_strip.y) + y * f32(height),
+                    );
                 out.sample_xy = get_native_image_translate(image_texel1)
                     + get_native_image_transform(image_texel0) * pos;
                 out.payload = get_native_image_opacity(image_texel1);
             }
             @if(full_image_support)
-            case PAINT_TYPE_IMAGE: {
+            case PAINT_TYPE_IMAGE {
                 let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
                 let image_texel0 = load_encoded_paint_texel(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 0u,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        paint_tex_idx,
+                        0u,
+                    );
                 let image_texel1 = load_encoded_paint_texel(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 1u,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        paint_tex_idx,
+                        1u,
+                    );
                 let image_texel2 = load_encoded_paint_texel(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits, paint_tex_idx, 2u,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        paint_tex_idx,
+                        2u,
+                    );
                 // Use view coordinates for image sampling (always in global view space)
                 let pos = vec2<f32>(
-                    f32(scene_strip.x) + x * f32(width),
-                    f32(scene_strip.y) + y * f32(height),
-                );
+                        f32(scene_strip.x) + x * f32(width),
+                        f32(scene_strip.y) + y * f32(height),
+                    );
                 out.sample_xy = get_image_translate(image_texel1, image_texel2)
                     + get_image_transform(image_texel0, image_texel1) * pos;
             }
-            case PAINT_TYPE_LINEAR_GRADIENT, PAINT_TYPE_RADIAL_GRADIENT: {
+            case PAINT_TYPE_LINEAR_GRADIENT, PAINT_TYPE_RADIAL_GRADIENT {
                 out.sample_xy = get_gradient_sample_xy(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                    instance.paint_and_rect_flag, scene_strip, corner, width, height,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        instance.paint_and_rect_flag,
+                        scene_strip,
+                        corner,
+                        width,
+                        height,
+                    );
             }
             @if(gradient_sweep)
-            case PAINT_TYPE_SWEEP_GRADIENT: {
+            case PAINT_TYPE_SWEEP_GRADIENT {
                 out.sample_xy = get_gradient_sample_xy(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                    instance.paint_and_rect_flag, scene_strip, corner, width, height,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        instance.paint_and_rect_flag,
+                        scene_strip,
+                        corner,
+                        width,
+                        height,
+                    );
             }
             @if(blurred_rounded_rect)
-            case PAINT_TYPE_BLURRED_ROUNDED_RECT: {
-                out.sample_xy = get_blurred_rounded_rect_sample_xy(scene_strip, corner, width, height);
+            case PAINT_TYPE_BLURRED_ROUNDED_RECT {
+                out.sample_xy = get_blurred_rounded_rect_sample_xy(
+                        scene_strip,
+                        corner,
+                        width,
+                        height,
+                    );
             }
-            default: {}
+            default {}
         }
     } else if color_source == COLOR_SOURCE_LAYER {
         let source = unpack_u16_pair(instance.payload);
-        out.sample_xy = vec2<f32>(
-            f32(source.x) + x * f32(width),
-            f32(source.y) + y * f32(height),
-        );
+        out.sample_xy = vec2<f32>(f32(source.x) + x * f32(width), f32(source.y) + y * f32(height));
     }
 
     let col_offset = select(f32(instance.col_idx_or_rect_frac), 0.0, is_rect);
@@ -357,12 +372,16 @@ var layer_input_texture: texture_2d<f32>;
 
 @fragment
 fn fs_main(
-    @location(0) @interpolate(flat)paint_and_rect_flag: u32,
+    @interpolate(flat)
+    @location(0) paint_and_rect_flag: u32,
     @location(1) tex_coord: vec2<f32>,
     @location(2) sample_xy: vec2<f32>,
-    @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
-    @location(4) @interpolate(flat) payload: u32,
-    @location(5) @interpolate(flat) rect_frac: u32,
+    @interpolate(flat)
+    @location(3) dense_end_or_rect_size: u32,
+    @interpolate(flat)
+    @location(4) payload: u32,
+    @interpolate(flat)
+    @location(5) rect_frac: u32,
     @builtin(position) position: vec4<f32>,
 ) -> @location(0) vec4<f32> {
     var alpha = 1.0;
@@ -380,48 +399,63 @@ fn fs_main(
 
         // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE or opacity for PAINT_TYPE_NATIVE_IMAGE
         switch paint_type {
-            case PAINT_TYPE_SOLID: {
-                final_color = unpack4x8unorm(payload);
-            }
-            case PAINT_TYPE_NATIVE_IMAGE: {
+            case PAINT_TYPE_SOLID { final_color = unpack4x8unorm(payload); }
+            case PAINT_TYPE_NATIVE_IMAGE {
                 final_color = sample_native_image_paint(
-                    external_texture_0, external_sampler_0, payload, sample_xy,
-                );
+                        external_texture_0,
+                        external_sampler_0,
+                        payload,
+                        sample_xy,
+                    );
             }
             @if(full_image_support)
-            case PAINT_TYPE_IMAGE: {
+            case PAINT_TYPE_IMAGE {
                 final_color = sample_image_paint(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                    external_texture_0, paint_and_rect_flag, sample_xy,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        external_texture_0,
+                        paint_and_rect_flag,
+                        sample_xy,
+                    );
             }
-            case PAINT_TYPE_LINEAR_GRADIENT: {
+            case PAINT_TYPE_LINEAR_GRADIENT {
                 final_color = sample_linear_gradient(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                    gradient_texture, paint_and_rect_flag, sample_xy,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        gradient_texture,
+                        paint_and_rect_flag,
+                        sample_xy,
+                    );
             }
-            case PAINT_TYPE_RADIAL_GRADIENT: {
+            case PAINT_TYPE_RADIAL_GRADIENT {
                 final_color = sample_radial_gradient(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                    gradient_texture, paint_and_rect_flag, sample_xy,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        gradient_texture,
+                        paint_and_rect_flag,
+                        sample_xy,
+                    );
             }
             @if(gradient_sweep)
-            case PAINT_TYPE_SWEEP_GRADIENT: {
+            case PAINT_TYPE_SWEEP_GRADIENT {
                 final_color = sample_sweep_gradient(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                    gradient_texture, paint_and_rect_flag, sample_xy,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        gradient_texture,
+                        paint_and_rect_flag,
+                        sample_xy,
+                    );
             }
             @if(blurred_rounded_rect)
-            case PAINT_TYPE_BLURRED_ROUNDED_RECT: {
+            case PAINT_TYPE_BLURRED_ROUNDED_RECT {
                 final_color = sample_blurred_rounded_rect(
-                    encoded_paints_texture, config.encoded_paints_tex_width_bits,
-                    paint_and_rect_flag, sample_xy,
-                );
+                        encoded_paints_texture,
+                        config.encoded_paints_tex_width_bits,
+                        paint_and_rect_flag,
+                        sample_xy,
+                    );
             }
-            default: {}
+            default {}
         }
     } else if color_source == COLOR_SOURCE_LAYER {
         let layer_opacity = f32(paint_and_rect_flag & 0xffu) * (1.0 / 255.0);

@@ -13,7 +13,7 @@ import package::helpers::image::{
     get_image_extend_modes,
     get_image_offset,
     get_image_quality,
-    get_image_size,
+    get_image_size
 };
 @if(full_image_support)
 import package::helpers::image::cubic_weights;
@@ -40,11 +40,17 @@ fn sample_image_paint(
 ) -> vec4<f32> {
     let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
     let image_texel0 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
-    );
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            0u,
+        );
     let image_texel2 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 2u,
-    );
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            2u,
+        );
     let image_offset = get_image_offset(image_texel0);
     let image_size = get_image_size(image_texel0);
     let image_extend_modes = get_image_extend_modes(image_texel0);
@@ -53,19 +59,15 @@ fn sample_image_paint(
     let image_tint = unpack4x8unorm(packed_tint);
     let is_multiply = image_texel2.z == TINT_MODE_MULTIPLY;
     let sample_color = sample_external_image(
-        external_texture,
-        image_quality,
-        sample_xy,
-        image_offset,
-        image_size,
-        image_extend_modes,
-    );
+            external_texture,
+            image_quality,
+            sample_xy,
+            image_offset,
+            image_size,
+            image_extend_modes,
+        );
 
-    return select(
-        image_tint * sample_color.a,
-        sample_color * image_tint,
-        is_multiply
-    );
+    return select(image_tint * sample_color.a, sample_color * image_tint, is_multiply);
 }
 
 @if(full_image_support)
@@ -89,23 +91,29 @@ fn external_bilinear_sample(
     var y: vec2<i32>;
 
     if all(image_extend_modes == vec2<u32>(EXTEND_PAD)) {
-        x = vec2<i32>(clamp(
-            base_coords.xx + vec2<f32>(-1.0, 0.0),
-            vec2<f32>(0.0), vec2<f32>(image_size.x - 1.0),
-        ));
-        y = vec2<i32>(clamp(
-            base_coords.yy + vec2<f32>(-1.0, 0.0),
-            vec2<f32>(0.0), vec2<f32>(image_size.y - 1.0),
-        ));
+        x = vec2<i32>(
+                clamp(
+                    base_coords.xx + vec2<f32>(-1.0, 0.0),
+                    vec2<f32>(0.0),
+                    vec2<f32>(image_size.x - 1.0),
+                ),
+            );
+        y = vec2<i32>(
+                clamp(
+                    base_coords.yy + vec2<f32>(-1.0, 0.0),
+                    vec2<f32>(0.0),
+                    vec2<f32>(image_size.y - 1.0),
+                ),
+            );
     } else {
         x = vec2<i32>(
-            external_axis_index(base_coords.x - 1.0, image_extend_modes.x, image_size.x),
-            external_axis_index(base_coords.x, image_extend_modes.x, image_size.x),
-        );
+                external_axis_index(base_coords.x - 1.0, image_extend_modes.x, image_size.x),
+                external_axis_index(base_coords.x, image_extend_modes.x, image_size.x),
+            );
         y = vec2<i32>(
-            external_axis_index(base_coords.y - 1.0, image_extend_modes.y, image_size.y),
-            external_axis_index(base_coords.y, image_extend_modes.y, image_size.y),
-        );
+                external_axis_index(base_coords.y - 1.0, image_extend_modes.y, image_size.y),
+                external_axis_index(base_coords.y, image_extend_modes.y, image_size.y),
+            );
     }
     let offset = vec2<i32>(image_offset);
     let a = textureLoad(external_texture, offset + vec2<i32>(x.x, y.x), 0);
@@ -134,27 +142,33 @@ fn external_bicubic_sample(
     var y: vec4<i32>;
 
     if all(image_extend_modes == vec2<u32>(EXTEND_PAD)) {
-        x = vec4<i32>(clamp(
-            base_coords.xxxx + vec4<f32>(-2.0, -1.0, 0.0, 1.0),
-            vec4<f32>(0.0), vec4<f32>(image_size.x - 1.0),
-        ));
-        y = vec4<i32>(clamp(
-            base_coords.yyyy + vec4<f32>(-2.0, -1.0, 0.0, 1.0),
-            vec4<f32>(0.0), vec4<f32>(image_size.y - 1.0),
-        ));
+        x = vec4<i32>(
+                clamp(
+                    base_coords.xxxx + vec4<f32>(-2.0, -1.0, 0.0, 1.0),
+                    vec4<f32>(0.0),
+                    vec4<f32>(image_size.x - 1.0),
+                ),
+            );
+        y = vec4<i32>(
+                clamp(
+                    base_coords.yyyy + vec4<f32>(-2.0, -1.0, 0.0, 1.0),
+                    vec4<f32>(0.0),
+                    vec4<f32>(image_size.y - 1.0),
+                ),
+            );
     } else {
         x = vec4<i32>(
-            external_axis_index(base_coords.x - 2.0, image_extend_modes.x, image_size.x),
-            external_axis_index(base_coords.x - 1.0, image_extend_modes.x, image_size.x),
-            external_axis_index(base_coords.x, image_extend_modes.x, image_size.x),
-            external_axis_index(base_coords.x + 1.0, image_extend_modes.x, image_size.x),
-        );
+                external_axis_index(base_coords.x - 2.0, image_extend_modes.x, image_size.x),
+                external_axis_index(base_coords.x - 1.0, image_extend_modes.x, image_size.x),
+                external_axis_index(base_coords.x, image_extend_modes.x, image_size.x),
+                external_axis_index(base_coords.x + 1.0, image_extend_modes.x, image_size.x),
+            );
         y = vec4<i32>(
-            external_axis_index(base_coords.y - 2.0, image_extend_modes.y, image_size.y),
-            external_axis_index(base_coords.y - 1.0, image_extend_modes.y, image_size.y),
-            external_axis_index(base_coords.y, image_extend_modes.y, image_size.y),
-            external_axis_index(base_coords.y + 1.0, image_extend_modes.y, image_size.y),
-        );
+                external_axis_index(base_coords.y - 2.0, image_extend_modes.y, image_size.y),
+                external_axis_index(base_coords.y - 1.0, image_extend_modes.y, image_size.y),
+                external_axis_index(base_coords.y, image_extend_modes.y, image_size.y),
+                external_axis_index(base_coords.y + 1.0, image_extend_modes.y, image_size.y),
+            );
     }
     let offset = vec2<i32>(image_offset);
 
@@ -200,28 +214,28 @@ fn sample_external_image(
 ) -> vec4<f32> {
     if quality == IMAGE_QUALITY_HIGH {
         return external_bicubic_sample(
-            external_texture,
-            coords,
-            image_offset,
-            image_size,
-            image_extend_modes,
-        );
+                external_texture,
+                coords,
+                image_offset,
+                image_size,
+                image_extend_modes,
+            );
     }
     if quality == IMAGE_QUALITY_MEDIUM {
         return external_bilinear_sample(
-            external_texture,
-            coords,
-            image_offset,
-            image_size,
-            image_extend_modes,
-        );
+                external_texture,
+                coords,
+                image_offset,
+                image_size,
+                image_extend_modes,
+            );
     }
     return textureLoad(
-        external_texture,
-        vec2<i32>(image_offset) + vec2<i32>(
-            external_axis_index(coords.x, image_extend_modes.x, image_size.x),
-            external_axis_index(coords.y, image_extend_modes.y, image_size.y),
-        ),
-        0,
-    );
+            external_texture,
+            vec2<i32>(image_offset) + vec2<i32>(
+                external_axis_index(coords.x, image_extend_modes.x, image_size.x),
+                external_axis_index(coords.y, image_extend_modes.y, image_size.y),
+            ),
+            0,
+        );
 }
