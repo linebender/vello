@@ -10,27 +10,23 @@ const BLUR_HORIZONTAL: vec2<f32> = vec2<f32>(1.0, 0.0);
 const BLUR_VERTICAL: vec2<f32> = vec2<f32>(0.0, 1.0);
 
 /// Number of linear taps stored in the packed filter header.
-fn get_n_linear_taps(texel0: vec4<u32>) -> u32 { return (texel0.x >> 11u) & 0x3u; }
+fn get_n_linear_taps(texel0: vec4<u32>) -> u32 {
+    return (texel0.x >> 11u) & 0x3u;
+}
 
 /// Center weight for gaussian blur convolution.
-fn get_center_weight(texel0: vec4<u32>) -> f32 { return bitcast<f32>(texel0.y); }
+fn get_center_weight(texel0: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel0.y);
+}
 
 /// Linear sample weights for gaussian blur convolution.
 fn get_linear_weights(texel0: vec4<u32>, texel1: vec4<u32>) -> vec3<f32> {
-    return vec3<f32>(
-        bitcast<f32>(texel0.z),
-        bitcast<f32>(texel0.w),
-        bitcast<f32>(texel1.x),
-    );
+    return vec3<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w), bitcast<f32>(texel1.x));
 }
 
 /// Linear sample offsets for gaussian blur convolution.
 fn get_linear_offsets(texel1: vec4<u32>) -> vec3<f32> {
-    return vec3<f32>(
-        bitcast<f32>(texel1.y),
-        bitcast<f32>(texel1.z),
-        bitcast<f32>(texel1.w),
-    );
+    return vec3<f32>(bitcast<f32>(texel1.y), bitcast<f32>(texel1.z), bitcast<f32>(texel1.w));
 }
 
 fn gaussian_blur(
@@ -48,29 +44,59 @@ fn gaussian_blur(
     let center_weight = get_center_weight(texel0);
 
     var color = textureSampleLevel(
-        source_texture,
-        linear_sampler,
-        (source_texel + 0.5) / source_texture_size,
-        0.0,
-    ) * center_weight;
+            source_texture,
+            linear_sampler,
+            (source_texel + 0.5) / source_texture_size,
+            0.0,
+        ) * center_weight;
 
     let linear_weights = get_linear_weights(texel0, texel1);
     let linear_offsets = get_linear_offsets(texel1);
 
     if n_linear_taps > 0u {
         let distance = direction * linear_offsets.x;
-        color += textureSampleLevel(source_texture, linear_sampler, (source_texel + distance + 0.5) / source_texture_size, 0.0) * linear_weights.x;
-        color += textureSampleLevel(source_texture, linear_sampler, (source_texel - distance + 0.5) / source_texture_size, 0.0) * linear_weights.x;
+        color += textureSampleLevel(
+                source_texture,
+                linear_sampler,
+                (source_texel + distance + 0.5) / source_texture_size,
+                0.0,
+            ) * linear_weights.x;
+        color += textureSampleLevel(
+                source_texture,
+                linear_sampler,
+                (source_texel - distance + 0.5) / source_texture_size,
+                0.0,
+            ) * linear_weights.x;
     }
     if n_linear_taps > 1u {
         let distance = direction * linear_offsets.y;
-        color += textureSampleLevel(source_texture, linear_sampler, (source_texel + distance + 0.5) / source_texture_size, 0.0) * linear_weights.y;
-        color += textureSampleLevel(source_texture, linear_sampler, (source_texel - distance + 0.5) / source_texture_size, 0.0) * linear_weights.y;
+        color += textureSampleLevel(
+                source_texture,
+                linear_sampler,
+                (source_texel + distance + 0.5) / source_texture_size,
+                0.0,
+            ) * linear_weights.y;
+        color += textureSampleLevel(
+                source_texture,
+                linear_sampler,
+                (source_texel - distance + 0.5) / source_texture_size,
+                0.0,
+            ) * linear_weights.y;
     }
     if n_linear_taps > 2u {
         let distance = direction * linear_offsets.z;
-        color += textureSampleLevel(source_texture, linear_sampler, (source_texel + distance + 0.5) / source_texture_size, 0.0) * linear_weights.z;
-        color += textureSampleLevel(source_texture, linear_sampler, (source_texel - distance + 0.5) / source_texture_size, 0.0) * linear_weights.z;
+        color += textureSampleLevel(
+                source_texture,
+                linear_sampler,
+                (source_texel + distance + 0.5) / source_texture_size,
+                0.0,
+            ) * linear_weights.z;
+        color += textureSampleLevel(
+                source_texture,
+                linear_sampler,
+                (source_texel - distance + 0.5) / source_texture_size,
+                0.0,
+            ) * linear_weights.z;
     }
 
     return color;

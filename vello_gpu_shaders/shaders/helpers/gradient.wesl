@@ -19,15 +19,21 @@ fn get_gradient_sample_xy(
 ) -> vec2<f32> {
     let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
     let gradient_texel0 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
-    );
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            0u,
+        );
     let gradient_texel1 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 1u,
-    );
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            1u,
+        );
     let scene_pos = vec2<f32>(
-        f32(scene_strip.x) + corner.x * f32(width),
-        f32(scene_strip.y) + corner.y * f32(height),
-    );
+            f32(scene_strip.x) + corner.x * f32(width),
+            f32(scene_strip.y) + corner.y * f32(height),
+        );
     return apply_gradient_transform(gradient_texel0, gradient_texel1, scene_pos);
 }
 
@@ -40,18 +46,21 @@ fn sample_linear_gradient(
 ) -> vec4<f32> {
     let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
     let gradient_texel0 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
-    );
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            0u,
+        );
 
     // For linear gradient, t-value is just the x coordinate in gradient space
     let t_value = sample_xy.x + 0.00001;
     let gradient_color = sample_gradient_lut(
-        gradient_texture,
-        t_value,
-        get_gradient_extend_mode(gradient_texel0),
-        get_gradient_start(gradient_texel0),
-        get_gradient_texture_width(gradient_texel0)
-    );
+            gradient_texture,
+            t_value,
+            get_gradient_extend_mode(gradient_texel0),
+            get_gradient_start(gradient_texel0),
+            get_gradient_texture_width(gradient_texel0),
+        );
     return gradient_color;
 }
 
@@ -64,26 +73,28 @@ fn sample_radial_gradient(
 ) -> vec4<f32> {
     let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
     let gradient_texel0 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
-    );
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            0u,
+        );
     let gradient_texel2 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 2u,
-    );
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            2u,
+        );
 
     // For radial gradient, calculate distance from center
     let gradient_result = calculate_radial_gradient(sample_xy, gradient_texel2);
     let gradient_color = sample_gradient_lut(
-        gradient_texture,
-        gradient_result.x,
-        get_gradient_extend_mode(gradient_texel0),
-        get_gradient_start(gradient_texel0),
-        get_gradient_texture_width(gradient_texel0)
-    );
-    return select(
-        vec4<f32>(0.0, 0.0, 0.0, 0.0),
-        gradient_color,
-        gradient_result.y != 0.0
-    );
+            gradient_texture,
+            gradient_result.x,
+            get_gradient_extend_mode(gradient_texel0),
+            get_gradient_start(gradient_texel0),
+            get_gradient_texture_width(gradient_texel0),
+        );
+    return select(vec4<f32>(0.0, 0.0, 0.0, 0.0), gradient_color, gradient_result.y != 0.0);
 }
 
 @if(gradient_sweep)
@@ -96,11 +107,17 @@ fn sample_sweep_gradient(
 ) -> vec4<f32> {
     let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
     let gradient_texel0 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 0u,
-    );
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            0u,
+        );
     let gradient_texel2 = load_encoded_paint_texel(
-        encoded_paints_texture, tex_width_bits, paint_tex_idx, 2u,
-    );
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            2u,
+        );
 
     // Before passing the position to the angle calculation, we bias
     // very small coordinates to 0. Otherwise the sweep gradient's seam
@@ -117,14 +134,15 @@ fn sample_sweep_gradient(
     let unit_angle = xy_to_unit_angle(grad_pos.x, grad_pos.y);
     // Convert unit angle [0, 1) to radians [0, 2π)
     let angle = unit_angle * TWO_PI;
-    let t_value = (angle - get_sweep_start_angle(gradient_texel2)) * get_sweep_inv_angle_delta(gradient_texel2);
+    let t_value = (angle - get_sweep_start_angle(gradient_texel2))
+        * get_sweep_inv_angle_delta(gradient_texel2);
     let gradient_color = sample_gradient_lut(
-        gradient_texture,
-        t_value,
-        get_gradient_extend_mode(gradient_texel0),
-        get_gradient_start(gradient_texel0),
-        get_gradient_texture_width(gradient_texel0)
-    );
+            gradient_texture,
+            t_value,
+            get_gradient_extend_mode(gradient_texel0),
+            get_gradient_start(gradient_texel0),
+            get_gradient_texture_width(gradient_texel0),
+        );
     return gradient_color;
 }
 
@@ -156,20 +174,26 @@ fn sample_gradient_lut(
 }
 
 /// Width of the gradient texture.
-fn get_gradient_texture_width(texel0: vec4<u32>) -> u32 { return texel0.x & 0x0FFFFFFFu; }
+fn get_gradient_texture_width(texel0: vec4<u32>) -> u32 {
+    return texel0.x & 0x0FFFFFFFu;
+}
 
 /// The extend mode for the gradient.
-fn get_gradient_extend_mode(texel0: vec4<u32>) -> u32 { return (texel0.x >> 30u) & 3u; }
+fn get_gradient_extend_mode(texel0: vec4<u32>) -> u32 {
+    return (texel0.x >> 30u) & 3u;
+}
 
 /// Start coordinate in the flat gradient texture.
-fn get_gradient_start(texel0: vec4<u32>) -> u32 { return texel0.y; }
+fn get_gradient_start(texel0: vec4<u32>) -> u32 {
+    return texel0.y;
+}
 
 /// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
 fn get_gradient_transform(texel0: vec4<u32>, texel1: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
-        vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w)),
-        vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y))
-    );
+            vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w)),
+            vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y)),
+        );
 }
 
 /// Translation part of the affine transform [tx, ty].
@@ -177,34 +201,44 @@ fn get_gradient_translate(texel1: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(bitcast<f32>(texel1.z), bitcast<f32>(texel1.w));
 }
 
-fn apply_gradient_transform(
-    texel0: vec4<u32>,
-    texel1: vec4<u32>,
-    pos: vec2<f32>,
-) -> vec2<f32> {
+fn apply_gradient_transform(texel0: vec4<u32>, texel1: vec4<u32>, pos: vec2<f32>) -> vec2<f32> {
     return get_gradient_transform(texel0, texel1) * pos + get_gradient_translate(texel1);
 }
 
 /// Kind of radial gradient, see `RADIAL_KIND_*`.
-fn get_radial_kind(texel2: vec4<u32>) -> u32 { return texel2.x & 0x3u; }
+fn get_radial_kind(texel2: vec4<u32>) -> u32 {
+    return texel2.x & 0x3u;
+}
 
 /// Whether to negate the square root of `RADIAL_KIND_FOCAL`.
-fn get_radial_negate_root(texel2: vec4<u32>) -> bool { return (texel2.x & 0x4u) != 0u; }
+fn get_radial_negate_root(texel2: vec4<u32>) -> bool {
+    return (texel2.x & 0x4u) != 0u;
+}
 
 /// `fp0` for focal gradients, `scaled_r0_squared` for strip gradients and 0 otherwise.
-fn get_radial_param(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.y); }
+fn get_radial_param(texel2: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel2.y);
+}
 
 /// Scale applied to the computed gradient position.
-fn get_radial_scale(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.z); }
+fn get_radial_scale(texel2: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel2.z);
+}
 
 /// Bias added to the scaled gradient position.
-fn get_radial_bias(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.w); }
+fn get_radial_bias(texel2: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel2.w);
+}
 
 /// Starting angle for sweep gradient (in radians).
-fn get_sweep_start_angle(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.x); }
+fn get_sweep_start_angle(texel2: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel2.x);
+}
 
 /// Inverse of angle delta for sweep gradient.
-fn get_sweep_inv_angle_delta(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.y); }
+fn get_sweep_inv_angle_delta(texel2: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel2.y);
+}
 
 // Fast polynomial approximation for xy_to_unit_angle from Skia
 // Returns angle in [0, 1) range representing [0, 2π)
@@ -218,7 +252,12 @@ fn xy_to_unit_angle(x: f32, y: f32) -> f32 {
     // This was generated using sollya.gforge.inria.fr.
     // A float optimized polynomial was generated using the following command.
     // P1 = fpminimax((1/(2*Pi))*atan(x),[|1,3,5,7|],[|24...|],[2^(-40),1],relative);
-    var phi = slope * (0.15912117063999176025390625 + s * (-5.185396969318389892578125e-2 + s * (2.476101927459239959716796875e-2 + s * (-7.0547382347285747528076171875e-3))));
+    var phi = slope
+        * (0.15912117063999176025390625
+            + s
+            * (-5.185396969318389892578125e-2
+                + s
+                * (2.476101927459239959716796875e-2 + s * (-7.0547382347285747528076171875e-3))));
     // Map from first octant to full circle using quadrant information
     // Handle [0°, 90°] range
     phi = select(phi, 0.25 - phi, xabs < yabs);
@@ -232,10 +271,7 @@ fn xy_to_unit_angle(x: f32, y: f32) -> f32 {
 }
 
 // Calculate a radial gradient; matches vello_cpu implementation.
-fn calculate_radial_gradient(
-    grad_pos: vec2<f32>,
-    texel2: vec4<u32>,
-) -> vec2<f32> {
+fn calculate_radial_gradient(grad_pos: vec2<f32>, texel2: vec4<u32>) -> vec2<f32> {
     let x_pos = grad_pos.x;
     let y_pos = grad_pos.y;
     let param = get_radial_param(texel2);
@@ -244,19 +280,17 @@ fn calculate_radial_gradient(
     var is_valid = true;
 
     switch get_radial_kind(texel2) {
-        case RADIAL_KIND_WELL_BEHAVED: {
-            t = sqrt(x_pos * x_pos + y_pos * y_pos) - x_pos * param;
-        }
-        case RADIAL_KIND_STRIP: {
+        case RADIAL_KIND_WELL_BEHAVED { t = sqrt(x_pos * x_pos + y_pos * y_pos) - x_pos * param; }
+        case RADIAL_KIND_STRIP {
             let p1 = param - y_pos * y_pos;
             is_valid = p1 >= 0.0;
             t = x_pos + sqrt(p1);
         }
-        case RADIAL_KIND_FOCAL_ON_CIRCLE: {
+        case RADIAL_KIND_FOCAL_ON_CIRCLE {
             t = x_pos + y_pos * y_pos / x_pos;
             is_valid = (t >= 0.0) & (x_pos != 0.0);
         }
-        case RADIAL_KIND_FOCAL, default: {
+        case RADIAL_KIND_FOCAL, default {
             let discriminant = x_pos * x_pos - y_pos * y_pos;
             let root = sqrt(discriminant);
             t = select(root, -root, get_radial_negate_root(texel2)) - x_pos * param;

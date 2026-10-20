@@ -13,14 +13,18 @@ import package::helpers::texture::flat_index_to_texture_coord;
 import package::helpers::util::unpack_u16_pair;
 
 // The texture that holds the encoded parameters for all filter effects used in the scene.
-@group(0) @binding(0) var filter_data: texture_2d<u32>;
+@group(0) @binding(0)
+var filter_data: texture_2d<u32>;
 // The texture page containing the current ping-pong source for this filter pass.
-@group(1) @binding(0) var source_texture: texture_2d<f32>;
+@group(1) @binding(0)
+var source_texture: texture_2d<f32>;
 // A bilinear sampler.
-@group(1) @binding(1) var linear_sampler: sampler;
+@group(1) @binding(1)
+var linear_sampler: sampler;
 // Texture containing preserved original, unfiltered layer content for filters
 // that need it. Otherwise, this is potentially just a dummy texture.
-@group(2) @binding(0) var original_texture: texture_2d<f32>;
+@group(2) @binding(0)
+var original_texture: texture_2d<f32>;
 
 // Keep these variables and layouts in sync with the ones in `filter.rs`!
 
@@ -61,61 +65,59 @@ fn load_filter_texel(texel_offset: u32, texel_index: u32) -> vec4<u32> {
 }
 
 /// Filter type stored in the packed header.
-fn get_filter_type(texel0: vec4<u32>) -> u32 { return texel0.x & 0x1Fu; }
+fn get_filter_type(texel0: vec4<u32>) -> u32 {
+    return texel0.x & 0x1Fu;
+}
 
 /// Horizontal offset for an offset filter.
-fn get_offset_dx(texel0: vec4<u32>) -> f32 { return bitcast<f32>(texel0.y); }
+fn get_offset_dx(texel0: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel0.y);
+}
 
 /// Vertical offset for an offset filter.
-fn get_offset_dy(texel0: vec4<u32>) -> f32 { return bitcast<f32>(texel0.z); }
+fn get_offset_dy(texel0: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel0.z);
+}
 
 /// Flood color packed as RGBA8.
-fn get_flood_color(texel0: vec4<u32>) -> u32 { return texel0.y; }
+fn get_flood_color(texel0: vec4<u32>) -> u32 {
+    return texel0.y;
+}
 
 struct FilterInstanceData {
-    @location(0)
-    source_origin: u32,
-    @location(1)
-    source_size: u32,
-    @location(2)
-    dest_origin: u32,
-    @location(3)
-    dest_size: u32,
-    @location(4)
-    dest_texture_size: u32,
-    @location(5)
-    filter_data_offset: u32,
-    @location(6)
-    original_origin: u32,
-    @location(7)
-    original_size: u32,
-    @location(8)
-    filter_pass_kind: u32,
+    @location(0) source_origin: u32,
+    @location(1) source_size: u32,
+    @location(2) dest_origin: u32,
+    @location(3) dest_size: u32,
+    @location(4) dest_texture_size: u32,
+    @location(5) filter_data_offset: u32,
+    @location(6) original_origin: u32,
+    @location(7) original_size: u32,
+    @location(8) filter_pass_kind: u32,
 }
 
 struct FilterVertexOutput {
-    @builtin(position)
-    position: vec4<f32>,
-    @location(0) @interpolate(flat)
-    filter_data_offset: u32,
-    @location(1) @interpolate(flat)
-    source_origin: vec2<u32>,
-    @location(2) @interpolate(flat)
-    source_size: vec2<u32>,
-    @location(3) @interpolate(flat)
-    dest_origin: vec2<u32>,
-    @location(4) @interpolate(flat)
-    dest_size: vec2<u32>,
-    @location(5) @interpolate(flat)
-    original_origin: vec2<u32>,
-    @location(6) @interpolate(flat)
-    filter_pass_kind: u32,
+    @builtin(position) position: vec4<f32>,
+    @interpolate(flat)
+    @location(0) filter_data_offset: u32,
+    @interpolate(flat)
+    @location(1) source_origin: vec2<u32>,
+    @interpolate(flat)
+    @location(2) source_size: vec2<u32>,
+    @interpolate(flat)
+    @location(3) dest_origin: vec2<u32>,
+    @interpolate(flat)
+    @location(4) dest_size: vec2<u32>,
+    @interpolate(flat)
+    @location(5) original_origin: vec2<u32>,
+    @interpolate(flat)
+    @location(6) filter_pass_kind: u32,
 }
 
 @vertex
 fn vs_main(
-    @builtin(vertex_index)vertex_index: u32,
-    instance: FilterInstanceData
+    @builtin(vertex_index) vertex_index: u32,
+    instance: FilterInstanceData,
 ) -> FilterVertexOutput {
     let corner = quad_corner(vertex_index);
     let source_origin = unpack_u16_pair(instance.source_origin);
@@ -158,8 +160,8 @@ fn sample_source_checked(
     source_size: vec2<u32>,
     rel_coord: vec2<f32>,
 ) -> vec4<f32> {
-    if rel_coord.x < 0.0 || rel_coord.x >= f32(source_size.x) ||
-       rel_coord.y < 0.0 || rel_coord.y >= f32(source_size.y) {
+    if rel_coord.x < 0.0 || rel_coord.x >= f32(source_size.x) || rel_coord.y < 0.0
+        || rel_coord.y >= f32(source_size.y) {
         return vec4<f32>(0.0);
     }
 
@@ -168,13 +170,20 @@ fn sample_source_checked(
 
 @fragment
 fn fs_main(
-    @location(0) @interpolate(flat)filter_data_offset: u32,
-    @location(1) @interpolate(flat) source_origin: vec2<u32>,
-    @location(2) @interpolate(flat) source_size: vec2<u32>,
-    @location(3) @interpolate(flat) dest_origin: vec2<u32>,
-    @location(4) @interpolate(flat) dest_size: vec2<u32>,
-    @location(5) @interpolate(flat) original_origin: vec2<u32>,
-    @location(6) @interpolate(flat) filter_pass_kind: u32,
+    @interpolate(flat)
+    @location(0) filter_data_offset: u32,
+    @interpolate(flat)
+    @location(1) source_origin: vec2<u32>,
+    @interpolate(flat)
+    @location(2) source_size: vec2<u32>,
+    @interpolate(flat)
+    @location(3) dest_origin: vec2<u32>,
+    @interpolate(flat)
+    @location(4) dest_size: vec2<u32>,
+    @interpolate(flat)
+    @location(5) original_origin: vec2<u32>,
+    @interpolate(flat)
+    @location(6) filter_pass_kind: u32,
     @builtin(position) position: vec4<f32>,
 ) -> @location(0) vec4<f32> {
     let frag_coord = vec2<u32>(position.xy);
@@ -185,14 +194,12 @@ fn fs_main(
     }
 
     switch filter_pass_kind {
-        case PASS_COPY: {
-            return sample_source(source_origin, rel_coord);
-        }
-        case PASS_FLOOD: {
+        case PASS_COPY { return sample_source(source_origin, rel_coord); }
+        case PASS_FLOOD {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
             return unpack4x8unorm(get_flood_color(filter_texel0));
         }
-        case PASS_OFFSET: {
+        case PASS_OFFSET {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
             var dxdy: vec2<f32>;
 
@@ -206,73 +213,54 @@ fn fs_main(
             // CPU version uses normal round but WGSL round with ties even, so we use floor + 0.5 instead.
             return sample_source_checked(source_origin, source_size, rel_coord - floor(dxdy + 0.5));
         }
-        case PASS_DOWNSCALE: {
-            return downscale(
-                source_texture,
-                linear_sampler,
-                position,
-                source_origin,
-                dest_origin,
-            );
+        case PASS_DOWNSCALE {
+            return downscale(source_texture, linear_sampler, position, source_origin, dest_origin);
         }
-        case PASS_BLUR_H: {
+        case PASS_BLUR_H {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
             let filter_texel1 = load_filter_texel(filter_data_offset, 1u);
             return gaussian_blur(
-                source_texture,
-                linear_sampler,
-                source_origin,
-                rel_coord,
-                BLUR_HORIZONTAL,
-                filter_texel0,
-                filter_texel1,
-            );
+                    source_texture,
+                    linear_sampler,
+                    source_origin,
+                    rel_coord,
+                    BLUR_HORIZONTAL,
+                    filter_texel0,
+                    filter_texel1,
+                );
         }
-        case PASS_BLUR_V: {
+        case PASS_BLUR_V {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
             let filter_texel1 = load_filter_texel(filter_data_offset, 1u);
             return gaussian_blur(
-                source_texture,
-                linear_sampler,
-                source_origin,
-                rel_coord,
-                BLUR_VERTICAL,
-                filter_texel0,
-                filter_texel1,
-            );
+                    source_texture,
+                    linear_sampler,
+                    source_origin,
+                    rel_coord,
+                    BLUR_VERTICAL,
+                    filter_texel0,
+                    filter_texel1,
+                );
         }
-        case PASS_UPSCALE: {
-            return upscale(
-                source_texture,
-                linear_sampler,
-                position,
-                source_origin,
-                dest_origin,
-            );
+        case PASS_UPSCALE {
+            return upscale(source_texture, linear_sampler, position, source_origin, dest_origin);
         }
-        case PASS_COMPOSITE_DROP_SHADOW: {
+        case PASS_COMPOSITE_DROP_SHADOW {
             let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
             return composite_drop_shadow(
-                source_texture,
-                original_texture,
-                source_origin,
-                original_origin,
-                rel_coord,
-                filter_texel2,
-            );
+                    source_texture,
+                    original_texture,
+                    source_origin,
+                    original_origin,
+                    rel_coord,
+                    filter_texel2,
+                );
         }
-        case PASS_COLORIZE: {
+        case PASS_COLORIZE {
             let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
-            return colorize_drop_shadow(
-                source_texture,
-                source_origin,
-                rel_coord,
-                filter_texel2,
-            );
+            return colorize_drop_shadow(source_texture, source_origin, rel_coord, filter_texel2);
         }
         // Shouldn't be reached.
-        default: {
-            return vec4<f32>(0.0);
-        }
+        default { return vec4<f32>(0.0); }
     }
 }
