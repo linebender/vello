@@ -870,6 +870,63 @@ mod radial {
         ctx.fill_rect(&rect);
     }
 
+    #[vello_test]
+    fn gradient_radial_focal_on_circle_not_natively_focal(ctx: &mut impl Renderer) {
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+        let gradient = Gradient {
+            kind: Radial(RadialGradientPosition {
+                start_center: Point::new(40.0, 50.0),
+                start_radius: 10.0,
+                end_center: Point::new(60.0, 50.0),
+                end_radius: 30.0,
+            }),
+            stops: stops_blue_green_red_yellow(),
+            ..Default::default()
+        };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+    }
+
+    #[vello_test]
+    fn gradient_radial_c1_inside_c0(ctx: &mut impl Renderer) {
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+        let gradient = Gradient {
+            kind: Radial(RadialGradientPosition {
+                start_center: Point::new(50.0, 50.0),
+                start_radius: 40.0,
+                end_center: Point::new(55.0, 50.0),
+                end_radius: 10.0,
+            }),
+            stops: stops_blue_green_red_yellow(),
+            ..Default::default()
+        };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+    }
+
+    #[vello_test]
+    fn gradient_radial_swapped_not_well_behaved(ctx: &mut impl Renderer) {
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+        let gradient = Gradient {
+            kind: Radial(RadialGradientPosition {
+                start_center: Point::new(30.0, 50.0),
+                start_radius: 20.0,
+                end_center: Point::new(70.0, 50.0),
+                end_radius: 0.0,
+            }),
+            stops: stops_blue_green_red_yellow(),
+            ..Default::default()
+        };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+    }
+
     // See <https://github.com/linebender/vello/issues/1212>
     #[vello_test]
     fn gradient_radial_smaller_r1_with_reflect(ctx: &mut impl Renderer) {

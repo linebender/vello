@@ -89,10 +89,8 @@ impl RendererWrapper {
         };
         surface.configure(&device, &surface_config);
 
-        let settings = RenderSettings {
-            level: Level::try_detect().unwrap_or(Level::baseline()),
-            ..Default::default()
-        };
+        let settings =
+            RenderSettings::default().with_level(Level::try_detect().unwrap_or(Level::baseline()));
         let (renderer, resources) = Renderer::new_with(
             &device,
             &RenderTargetConfig {
@@ -382,16 +380,16 @@ impl AppState {
         if self.mouse_down
             && let Some(last_client_pos) = self.last_drag_client_position
         {
-            let delta = client_delta_to_canvas_px(
-                &self.canvas,
-                x - last_client_pos.x,
-                y - last_client_pos.y,
-            );
-            self.transform = Affine::translate(delta) * self.transform;
+            self.handle_pan(x - last_client_pos.x, y - last_client_pos.y);
         }
 
         self.last_cursor_position = Some(current_pos);
         self.last_drag_client_position = Some(Vec2::new(x, y));
+    }
+
+    fn handle_pan(&mut self, client_delta_x: f64, client_delta_y: f64) {
+        let delta = client_delta_to_canvas_px(&self.canvas, client_delta_x, client_delta_y);
+        self.transform = Affine::translate(delta) * self.transform;
     }
 
     fn handle_wheel(
@@ -402,9 +400,6 @@ impl AppState {
         ctrl_key: bool,
         delta_mode: u32,
     ) {
-        let cursor_pos = client_to_canvas_px(&self.canvas, client_x, client_y);
-        self.last_cursor_position = Some(cursor_pos);
-
         let scale = if ctrl_key {
             0.01
         } else {
@@ -413,6 +408,12 @@ impl AppState {
         };
         let zoom_factor = (-delta_y * scale).exp();
 
+        self.handle_zoom(client_x, client_y, zoom_factor);
+    }
+
+    fn handle_zoom(&mut self, client_x: f64, client_y: f64, zoom_factor: f64) {
+        let cursor_pos = client_to_canvas_px(&self.canvas, client_x, client_y);
+        self.last_cursor_position = Some(cursor_pos);
         self.transform = Affine::translate(cursor_pos)
             * Affine::scale(zoom_factor)
             * Affine::translate(-cursor_pos)
@@ -674,11 +675,26 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         closure.forget();
     }
 
+    // On-screen arrows and touch swipes
+    {
+        let prev_state = app_state.clone();
+        let next_state = app_state.clone();
+        let pan_state = app_state.clone();
+        let zoom_state = app_state.clone();
+        vello_example_scenes::navigation::add_scene_navigation(
+            &canvas,
+            move || prev_state.borrow_mut().prev_scene(),
+            move || next_state.borrow_mut().next_scene(),
+            move |dx, dy| pan_state.borrow_mut().handle_pan(dx, dy),
+            move |x, y, factor| zoom_state.borrow_mut().handle_zoom(x, y, factor),
+        );
+    }
+
     // Create instructions element
     let document = web_sys::window().unwrap().document().unwrap();
     let instructions = document.create_element("div").unwrap();
     instructions.set_inner_html(
-        "Left/Right Arrow: Change scene | Space: Reset view | Mouse Drag: Pan | Mouse Wheel: Zoom",
+        "Arrow Keys or Buttons: Change scene | Space: Reset view | Mouse or Touch Drag: Pan | Mouse Wheel or Pinch: Zoom",
     );
     let style = instructions
         .dyn_ref::<web_sys::HtmlElement>()

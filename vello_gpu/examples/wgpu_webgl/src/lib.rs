@@ -95,10 +95,8 @@ impl RendererWrapper {
         };
         surface.configure(&device, &surface_config);
 
-        let settings = RenderSettings {
-            level: Level::try_detect().unwrap_or(Level::baseline()),
-            ..Default::default()
-        };
+        let settings =
+            RenderSettings::default().with_level(Level::try_detect().unwrap_or(Level::baseline()));
         let (renderer, resources) = Renderer::new_with(
             &device,
             &RenderTargetConfig {
@@ -397,10 +395,17 @@ impl AppState {
         if self.mouse_down
             && let Some(last_pos) = self.last_cursor_position
         {
-            self.transform = self.transform.then_translate(current_pos - last_pos);
+            let delta = current_pos - last_pos;
+            self.handle_pan(delta.x, delta.y);
         }
 
         self.last_cursor_position = Some(current_pos);
+    }
+
+    fn handle_pan(&mut self, delta_x: f64, delta_y: f64) {
+        self.transform = self
+            .transform
+            .then_translate(vello_common::kurbo::Vec2::new(delta_x, delta_y));
     }
 
     fn handle_wheel(&mut self, delta_y: f64) {
@@ -415,6 +420,12 @@ impl AppState {
                 y: 0.5 * self.height as f64,
             }),
         );
+    }
+
+    fn handle_zoom(&mut self, client_x: f64, client_y: f64, zoom_factor: f64) {
+        let cursor_pos = Point::new(client_x, client_y);
+        self.last_cursor_position = Some(cursor_pos);
+        self.transform = self.transform.then_scale_about(zoom_factor, cursor_pos);
     }
 
     fn upload_images_to_atlas(&mut self) {
@@ -660,11 +671,26 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         closure.forget();
     }
 
+    // On-screen arrows and touch swipes
+    {
+        let prev_state = app_state.clone();
+        let next_state = app_state.clone();
+        let pan_state = app_state.clone();
+        let zoom_state = app_state.clone();
+        vello_example_scenes::navigation::add_scene_navigation(
+            &canvas,
+            move || prev_state.borrow_mut().prev_scene(),
+            move || next_state.borrow_mut().next_scene(),
+            move |dx, dy| pan_state.borrow_mut().handle_pan(dx, dy),
+            move |x, y, factor| zoom_state.borrow_mut().handle_zoom(x, y, factor),
+        );
+    }
+
     // Create instructions element
     let document = web_sys::window().unwrap().document().unwrap();
     let instructions = document.create_element("div").unwrap();
     instructions.set_inner_html(
-        "Left/Right Arrow: Change scene | Space: Reset view | Mouse Drag: Pan | Mouse Wheel: Zoom",
+        "Arrow Keys or Buttons: Change scene | Space: Reset view | Mouse or Touch Drag: Pan | Mouse Wheel or Pinch: Zoom",
     );
     let style = instructions
         .dyn_ref::<web_sys::HtmlElement>()

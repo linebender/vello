@@ -15,6 +15,9 @@ pub enum WebGlError {
     /// Rendering failed for a certain reason.
     #[error(transparent)]
     Render(#[from] RenderError),
+    /// An image upload was attempted without the `full_image_support` feature.
+    #[error("uploaded images require the `full_image_support` feature")]
+    FullImageSupportDisabled,
     /// A WebGL2 context could not be created for the canvas.
     #[error("WebGL2 context unavailable")]
     ContextUnavailable,
@@ -88,6 +91,8 @@ pub enum WebGlContextOperation {
 pub enum WebGlResourceKind {
     /// A texture.
     Texture,
+    /// A sampler.
+    Sampler,
     /// A buffer.
     Buffer,
     /// A framebuffer.

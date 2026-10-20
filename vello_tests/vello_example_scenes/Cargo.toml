@@ -24,7 +24,10 @@ bytemuck = { workspace = true, features = [] }
 smallvec = { workspace = true }
 glifo = { workspace = true }
 skrifa = { workspace = true }
-vello_gpu = { workspace = true, default-features = false, features = ["text"] }
+vello_gpu = { workspace = true, default-features = false, features = [
+    "text",
+    "all_shader_features",
+] }
 vello_common = { workspace = true, features = ["pico_svg", "png"] }
 image = { workspace = true, features = ["jpeg"] }
 vello_cpu = { workspace = true, optional = true }
@@ -36,6 +39,7 @@ log = { workspace = true }
 parley = { version = "0.11.0", default-features = false, features = ["std"] }
 wasm-bindgen = { workspace = true }
 web-sys = { workspace = true, features = [
+    "AddEventListenerOptions",
     "Window",
     "Performance",
     "Document",
@@ -43,6 +47,9 @@ web-sys = { workspace = true, features = [
     "Element",
     "HtmlElement",
     "CssStyleDeclaration",
+    "Touch",
+    "TouchEvent",
+    "TouchList",
 ] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

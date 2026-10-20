@@ -105,7 +105,9 @@ pub mod reexports {
         pub use crate::filter_effects;
         pub use crate::geometry;
         pub use crate::mask::Mask;
-        pub use crate::paint::{Image, ImageId, ImageSource, PaintType, Tint, TintMode};
+        pub use crate::paint::{
+            Image, ImageId, ImageSource, PaintType, TextureRegion, Tint, TintMode,
+        };
         pub use crate::pixmap::{PixelMetadata, Pixels, Pixmap};
         pub use crate::render_state::RenderState;
         pub use crate::transforms::Transforms;

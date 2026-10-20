@@ -21,8 +21,17 @@ env:
   # List of packages that can not target Wasm.
   # `vello_research_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_research_tests --exclude xtask"
+  # See https://github.com/linebender/vello/pull/1958, this value needs to be
+  # large enough so no single test run exceeds it.
+  # Keep in sync with the 1200s timeout in `vello_tests/webdriver.json`.
+  WASM_BINDGEN_TEST_TIMEOUT: "1200"
   # The files stored in LFS the tests need to access, in JSON format
   LFS_FILES: '["research/vello_research_tests/snapshots/*.png", "vello_tests/snapshots/*.png"]'
+  # The wgsl-analyzer release tag of the wgslfmt used to check WESL formatting.
+  # Keep in sync with the install command in `vello_gpu_shaders/README.md`.
+  WGSLFMT_TAG: "2026-09-30"
+  # The toolchain used to build wgslfmt, which requires a newer Rust than RUST_STABLE_VER.
+  WGSLFMT_RUST_VER: "1.98"
 
 
 # Rationale
@@ -127,6 +136,39 @@ jobs:
       # If this fails, consider changing your text or adding something to .typos.toml.
       - name: check typos
         uses: crate-ci/typos@v1.45.0
+
+  wesl-fmt:
+    name: WESL formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: restore wgslfmt cache
+        id: wgslfmt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.wgslfmt
+          key: wgslfmt-${{ runner.os }}-${{ env.WGSLFMT_TAG }}
+
+      - name: install wgslfmt toolchain
+        if: ${{ steps.wgslfmt-cache.outputs.cache-hit != 'true' }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.WGSLFMT_RUST_VER }}
+
+      - name: install wgslfmt
+        if: ${{ steps.wgslfmt-cache.outputs.cache-hit != 'true' }}
+        run: cargo install --git https://github.com/wgsl-analyzer/wgsl-analyzer --tag "$WGSLFMT_TAG" wgslfmt --locked --root ~/.wgslfmt
+
+      - name: save wgslfmt cache
+        if: ${{ steps.wgslfmt-cache.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.wgslfmt
+          key: wgslfmt-${{ runner.os }}-${{ env.WGSLFMT_TAG }}
+
+      - name: check WESL formatting
+        run: ~/.wgslfmt/bin/wgslfmt --check --print-diff vello_gpu_shaders/shaders
 
   clippy-stable:
     name: cargo clippy
@@ -348,6 +390,14 @@ jobs:
           # However, if we do, the tests are designed to be robust against that, if this environment variable is set.
           # If we do run out of bandwidth, uncomment the following line and inform @DJMcNab.
           # VELLO_SKIP_LFS_SNAPSHOTS: all
+
+      - name: run shader compilation tests
+        if: matrix.os == 'ubuntu-latest'
+        run: bash vello_tests/feature_tests/run.sh --features wgpu --release
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+          RUSTFLAGS: ${{ matrix.rustflags }}
+          VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
       
       - name: Upload test results due to failure
         uses: actions/upload-artifact@v4
@@ -473,10 +523,12 @@ jobs:
         working-directory: vello_tests
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-          # See https://github.com/linebender/vello/pull/1958, this value needs to be
-          # large enough so no single test run exceeds it.
-          # Keep in sync with the 1200s timeout in `webdriver.json.
-          WASM_BINDGEN_TEST_TIMEOUT: "1200"
+
+      - name: run shader compilation tests
+        run: bash vello_tests/feature_tests/run.sh --mode no-install --headless --chrome --features webgl --release
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+          WASM_BINDGEN_TEST_WEBDRIVER_JSON: ${{ github.workspace }}/vello_tests/webdriver.json
 
   check-stable-wasm-webgl-examples:
     name: cargo check (wasm32 webgl examples)
@@ -490,11 +542,6 @@ jobs:
         with:
           toolchain: ${{ env.RUST_STABLE_VER }}
           targets: wasm32-unknown-unknown
-
-      - name: restore cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: install wasm-pack
         uses: taiki-e/install-action@v2
@@ -657,8 +704,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: install nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
 
       - name: install native dependencies
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libfontconfig-dev
@@ -668,8 +717,7 @@ jobs:
         with:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      # We test documentation using nightly to match docs.rs.
       - name: cargo doc
         run: cargo doc --workspace --locked --all-features --no-deps --document-private-items
         env:
-          RUSTDOCFLAGS: '--cfg docsrs -D warnings'
+          RUSTDOCFLAGS: '-D warnings'

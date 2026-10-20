@@ -25,7 +25,7 @@ use vello_common::paint::{Paint, PaintType, PremulColor, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Fill};
+use vello_common::peniko::{BlendMode, Fill, GradientKind};
 use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps, PoppedLayer};
 use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
@@ -109,12 +109,47 @@ impl Drawable for RecordedDraw {
 }
 
 /// Settings to apply to the render context.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct RenderSettings {
-    /// The SIMD level that should be used for rendering operations.
-    pub level: Level,
-    /// Configuration for GPU memory used while rendering.
-    pub memory_settings: MemorySettings,
+    pub(crate) level: Level,
+    pub(crate) memory_settings: MemorySettings,
+    #[cfg(feature = "wgpu")]
+    pub(crate) pipeline_cache: Option<wgpu::PipelineCache>,
+}
+
+impl RenderSettings {
+    /// Sets the SIMD level used for rendering operations.
+    ///
+    /// By default, the level is detected at runtime, falling back to [`Level::baseline`].
+    #[must_use]
+    pub fn with_level(mut self, level: Level) -> Self {
+        self.level = level;
+        self
+    }
+
+    /// Returns the SIMD level used for rendering operations.
+    pub fn level(&self) -> Level {
+        self.level
+    }
+
+    /// Sets the configuration for GPU memory used while rendering.
+    #[must_use]
+    pub fn with_memory_settings(mut self, memory_settings: MemorySettings) -> Self {
+        self.memory_settings = memory_settings;
+        self
+    }
+
+    /// Sets the cache used when creating the wgpu render pipelines.
+    ///
+    /// A cache can substantially reduce startup times, especially on low-tier devices.
+    /// Requires [`wgpu::Features::PIPELINE_CACHE`] on the device.
+    /// By default, no cache is used.
+    #[cfg(feature = "wgpu")]
+    #[must_use]
+    pub fn with_pipeline_cache(mut self, pipeline_cache: wgpu::PipelineCache) -> Self {
+        self.pipeline_cache = Some(pipeline_cache);
+        self
+    }
 }
 
 /// Settings controlling usage of GPU memory.
@@ -197,6 +232,8 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
             memory_settings: MemorySettings::default(),
+            #[cfg(feature = "wgpu")]
+            pipeline_cache: None,
         }
     }
 }
@@ -547,6 +584,7 @@ impl Scene {
     ///
     /// This operation uses the current transform and paint transform. Like Vello CPU, it only
     /// uses solid paints; non-solid paints fall back to black.
+    #[track_caller]
     pub fn fill_blurred_rounded_rect(
         &mut self,
         rect: &Rect,
@@ -554,6 +592,10 @@ impl Scene {
         std_dev: f32,
         invert: bool,
     ) {
+        if !cfg!(feature = "blurred_rounded_rect") {
+            panic!("blurred rounded rectangles require the `blurred_rounded_rect` feature");
+        }
+
         if !self.paint_transform_has_area() {
             return;
         }
@@ -770,12 +812,19 @@ impl Scene {
     // TODO: This API is not final. Supporting images from a pixmap is explicitly out of scope.
     //       Instead images should be passed via a backend-agnostic opaque id, and be hydrated at
     //       render time into a texture usable by the renderer backend.
+    #[track_caller]
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        self.render_state.paint = paint.into();
+        let paint = paint.into();
+        assert_paint_supported(&paint, self.render_state.tint);
+
+        self.render_state.paint = paint;
     }
 
     /// Set the tint for subsequent image paint operations.
+    #[track_caller]
     pub fn set_tint(&mut self, tint: Option<Tint>) {
+        assert_paint_supported(&self.render_state.paint, tint);
+
         self.render_state.tint = tint;
     }
 
@@ -890,27 +939,92 @@ impl Scene {
     }
 
     /// Restore rendering state.
+    #[track_caller]
     pub fn restore_state(&mut self, state: RenderState) {
+        assert_paint_supported(&state.paint, state.tint);
+
         self.render_state = state;
+    }
+}
+
+#[cfg(feature = "probe")]
+impl vello_common::probe::ProbeRenderer for Scene {
+    fn set_transform(&mut self, transform: Affine) {
+        Self::set_transform(self, transform);
+    }
+
+    fn set_paint(&mut self, paint: PaintType) {
+        Self::set_paint(self, paint);
+    }
+
+    fn fill_path(&mut self, path: &BezPath) {
+        Self::fill_path(self, path);
+    }
+
+    fn fill_rect(&mut self, rect: &Rect) {
+        Self::fill_rect(self, rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
+        Self::fill_blurred_rounded_rect(self, rect, radius, std_dev, invert);
+    }
+
+    fn push_layer(&mut self, blend_mode: Option<BlendMode>, opacity: Option<f32>) {
+        Self::push_layer(self, None, blend_mode, opacity, None, None);
+    }
+
+    fn push_filter_layer(&mut self, filter: Filter) {
+        Self::push_filter_layer(self, filter);
+    }
+
+    fn pop_layer(&mut self) {
+        Self::pop_layer(self);
+    }
+
+    fn set_paint_transform(&mut self, paint_transform: Affine) {
+        Self::set_paint_transform(self, paint_transform);
+    }
+
+    fn reset_paint_transform(&mut self) {
+        Self::reset_paint_transform(self);
+    }
+}
+
+// TODO: Consider validating paint/tint support at draw time so otherwise valid state updates
+// do not depend on setter order. See:
+// https://github.com/linebender/vello/pull/1994#discussion_r4278390451
+#[track_caller]
+fn assert_paint_supported(paint: &PaintType, tint: Option<Tint>) {
+    match paint {
+        PaintType::Solid(_) => {}
+        PaintType::Gradient(gradient) => assert!(
+            cfg!(feature = "gradient_sweep") || !matches!(gradient.kind, GradientKind::Sweep(_)),
+            "sweep gradients require the `gradient_sweep` feature"
+        ),
+        PaintType::Image(image) => assert!(
+            cfg!(feature = "full_image_support")
+                || crate::paint::supports_native_image(&image.image, image.sampler.quality, tint),
+            "extended image sampling requires the `full_image_support` feature"
+        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{RecordedDraw, Scene};
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", feature = "full_image_support"))]
     use crate::resources::Resources;
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", feature = "full_image_support"))]
     use alloc::sync::Arc;
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", feature = "full_image_support"))]
     use glifo::Glyph;
     use vello_common::TextureId;
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{BezPath, Rect};
-    use vello_common::paint::{Image, ImageSource, Paint, PremulColor};
+    use vello_common::paint::{Image, ImageSource, Paint, PremulColor, TextureRegion};
     use vello_common::peniko::ImageSampler;
     use vello_common::peniko::color::palette::css::BLUE;
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", feature = "full_image_support"))]
     use vello_common::peniko::{Blob, FontData};
     use vello_common::record::Drawable;
 
@@ -983,7 +1097,7 @@ mod tests {
     fn zero_area_external_texture_rect_is_a_noop() {
         let mut scene = Scene::new(100, 100);
         scene.set_paint(Image {
-            image: ImageSource::external_texture(TextureId(7), RectU16::new(0, 0, 8, 8), false),
+            image: ImageSource::external_texture(TextureId(7), TextureRegion::Full, false),
             sampler: ImageSampler::default(),
         });
 
@@ -995,7 +1109,7 @@ mod tests {
         assert!(scene.recorder.nodes.is_empty());
     }
 
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", feature = "full_image_support"))]
     #[test]
     fn glyph_atlas_resources_are_lazy() {
         const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");

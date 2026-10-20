@@ -3,12 +3,66 @@
 
 //! Shared encoded blurred rounded rectangle accessors and evaluation.
 
+import package::helpers::paint::{PAINT_TEXTURE_INDEX_MASK, load_encoded_paint_texel};
+
+fn get_blurred_rounded_rect_sample_xy(
+    scene_strip: vec2<u32>,
+    corner: vec2<f32>,
+    width: u32,
+    height: u32,
+) -> vec2<f32> {
+    return vec2<f32>(
+            f32(scene_strip.x) + corner.x * f32(width),
+            f32(scene_strip.y) + corner.y * f32(height),
+        );
+}
+
+fn sample_blurred_rounded_rect(
+    encoded_paints_texture: texture_2d<u32>,
+    tex_width_bits: u32,
+    paint_and_rect_flag: u32,
+    sample_xy: vec2<f32>,
+) -> vec4<f32> {
+    let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+    let texel0 = load_encoded_paint_texel(
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            0u,
+        );
+    let texel1 = load_encoded_paint_texel(
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            1u,
+        );
+    let texel2 = load_encoded_paint_texel(
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            2u,
+        );
+    let texel3 = load_encoded_paint_texel(
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            3u,
+        );
+    let texel4 = load_encoded_paint_texel(
+            encoded_paints_texture,
+            tex_width_bits,
+            paint_tex_idx,
+            4u,
+        );
+    return calculate_blurred_rounded_rect(sample_xy, texel0, texel1, texel2, texel3, texel4);
+}
+
 /// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
 fn get_blurred_rounded_rect_transform(texel0: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
-        vec2<f32>(bitcast<f32>(texel0.x), bitcast<f32>(texel0.y)),
-        vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w))
-    );
+            vec2<f32>(bitcast<f32>(texel0.x), bitcast<f32>(texel0.y)),
+            vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w)),
+        );
 }
 
 /// Translation part of the affine transform [tx, ty].
@@ -17,30 +71,54 @@ fn get_blurred_rounded_rect_translate(texel1: vec4<u32>) -> vec2<f32> {
 }
 
 /// Premultiplied rectangle color.
-fn get_blurred_rounded_rect_color(texel1: vec4<u32>) -> vec4<f32> { return unpack4x8unorm(texel1.z); }
+fn get_blurred_rounded_rect_color(texel1: vec4<u32>) -> vec4<f32> {
+    return unpack4x8unorm(texel1.z);
+}
 
 /// Whether to paint the inverse (`1 - alpha`) of the blur coverage.
-fn get_blurred_rounded_rect_invert(texel1: vec4<u32>) -> u32 { return texel1.w; }
+fn get_blurred_rounded_rect_invert(texel1: vec4<u32>) -> u32 {
+    return texel1.w;
+}
 
-fn get_blurred_rounded_rect_exponent(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.x); }
+fn get_blurred_rounded_rect_exponent(texel2: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel2.x);
+}
 
-fn get_blurred_rounded_rect_recip_exponent(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.y); }
+fn get_blurred_rounded_rect_recip_exponent(texel2: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel2.y);
+}
 
-fn get_blurred_rounded_rect_scale(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.z); }
+fn get_blurred_rounded_rect_scale(texel2: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel2.z);
+}
 
-fn get_blurred_rounded_rect_std_dev_inv(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.w); }
+fn get_blurred_rounded_rect_std_dev_inv(texel2: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel2.w);
+}
 
-fn get_blurred_rounded_rect_min_edge(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.x); }
+fn get_blurred_rounded_rect_min_edge(texel3: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel3.x);
+}
 
-fn get_blurred_rounded_rect_w(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.y); }
+fn get_blurred_rounded_rect_w(texel3: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel3.y);
+}
 
-fn get_blurred_rounded_rect_h(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.z); }
+fn get_blurred_rounded_rect_h(texel3: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel3.z);
+}
 
-fn get_blurred_rounded_rect_r1(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.w); }
+fn get_blurred_rounded_rect_r1(texel3: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel3.w);
+}
 
-fn get_blurred_rounded_rect_width(texel4: vec4<u32>) -> f32 { return bitcast<f32>(texel4.x); }
+fn get_blurred_rounded_rect_width(texel4: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel4.x);
+}
 
-fn get_blurred_rounded_rect_height(texel4: vec4<u32>) -> f32 { return bitcast<f32>(texel4.y); }
+fn get_blurred_rounded_rect_height(texel4: vec4<u32>) -> f32 {
+    return bitcast<f32>(texel4.y);
+}
 
 // Approximation to erf used by Vello Classic and vello_cpu.
 fn erf7(x: f32) -> f32 {
@@ -85,16 +163,10 @@ fn calculate_blurred_rounded_rect(
     let x0 = r1 + abs(x) - 0.5 * w;
     let x1 = max(x0, 0.0);
 
-    let d_pos = pow(
-        pow(x1, exponent) + pow(y1, exponent),
-        recip_exponent,
-    );
+    let d_pos = pow(pow(x1, exponent) + pow(y1, exponent), recip_exponent);
     let d_neg = min(max(x0, y0), 0.0);
     let d = d_pos + d_neg - r1;
-    let blur_coverage = scale * (
-        erf7(std_dev_inv * (min_edge + d)) -
-        erf7(std_dev_inv * d)
-    );
+    let blur_coverage = scale * (erf7(std_dev_inv * (min_edge + d)) - erf7(std_dev_inv * d));
 
     // Invert alpha when `invert` flag is set
     let blur_alpha = select(blur_coverage, 1.0 - blur_coverage, invert != 0u);

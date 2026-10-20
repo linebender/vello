@@ -18,6 +18,11 @@ generated GLSL shader programs, used by the Vello GPU renderer.
   [naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) to minify the resulting
   WGSL.
 - Optional generation of minified GLSL and reflection metadata for WebGL.
+- The `blurred_rounded_rect`, `full_image_support`, and `gradient_sweep` features are
+  enabled by default and include their respective shader paths.
+- The `wgpu_external_texture` feature (enabled by default) additionally embeds a
+  WGSL variant of the render shader with a `texture_external` binding for
+  `wgpu::ExternalTexture`s. The generated GLSL never includes it.
 
 ## Usage
 
@@ -43,6 +48,34 @@ enable the diagnostic `unminified` feature as well:
 ```sh
 cargo run -p vello_gpu_shaders --features glsl,unminified
 ```
+
+## Formatting
+
+The WESL sources are formatted with [`wgslfmt`] using its default options
+(4-space indentation). `wgslfmt` is the formatter bundled with the
+[wgsl-analyzer] editor extension, so formatting a `.wesl` file from an editor
+with that extension produces the same result.
+
+Install the pinned version (building it requires Rust 1.98.1 or later):
+
+```sh
+cargo install --git https://github.com/wgsl-analyzer/wgsl-analyzer --tag 2026-09-30 wgslfmt --locked
+```
+
+Format the shaders, or check them without modifying any files (CI runs the
+check on every pull request):
+
+```sh
+wgslfmt vello_gpu_shaders/shaders
+wgslfmt --check vello_gpu_shaders/shaders
+```
+
+In VS Code-based editors, the repository's workspace settings make wgsl-analyzer
+the default formatter for `.wesl` files; enable `editor.formatOnSave` for
+`[wesl]` to format on save.
+
+[`wgslfmt`]: https://github.com/wgsl-analyzer/wgsl-analyzer/tree/main/crates/wgslfmt
+[wgsl-analyzer]: https://marketplace.visualstudio.com/items?itemName=wgsl-analyzer.wgsl-analyzer
 
 ## Minimum supported Rust Version (MSRV)
 

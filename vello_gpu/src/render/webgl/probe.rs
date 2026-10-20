@@ -13,12 +13,8 @@ use core::ops::Deref;
 use thiserror::Error;
 use vello_common::TextureId;
 use vello_common::color::palette::css;
-use vello_common::filter_effects::Filter;
-use vello_common::geometry::RectU16;
 use vello_common::image_cache::ImageCache;
-use vello_common::kurbo::{Affine, BezPath, Rect};
-use vello_common::paint::{ImageSource, PaintType};
-use vello_common::peniko::BlendMode;
+use vello_common::paint::{ImageSource, TextureRegion};
 use vello_common::pixmap::Pixmap;
 use vello_common::probe::{Probe, ProbeFeature};
 use web_sys::WebGl2RenderingContext;
@@ -149,13 +145,18 @@ impl WebGlRenderer {
 
         let probe_texture_id = TextureId(0);
         let mut texture_bindings = WebGlTextureBindings::new();
-        texture_bindings.insert(probe_texture_id, probe_image_texture.deref().clone());
+        texture_bindings.insert(
+            probe_texture_id,
+            probe_image_texture.deref().clone(),
+            probe_image.width(),
+            probe_image.height(),
+        );
         let mut scene = Scene::new(width, height);
         vello_common::probe::draw_scene(
             &mut scene,
             ImageSource::external_texture(
                 probe_texture_id,
-                RectU16::new(0, 0, probe_image.width(), probe_image.height()),
+                TextureRegion::Full,
                 probe_image.may_have_transparency(),
             ),
             elements,
@@ -316,46 +317,4 @@ fn launch_probe(
         height,
         elements: elements.to_vec(),
     })
-}
-
-impl vello_common::probe::ProbeRenderer for Scene {
-    fn set_transform(&mut self, transform: Affine) {
-        Self::set_transform(self, transform);
-    }
-
-    fn set_paint(&mut self, paint: PaintType) {
-        Self::set_paint(self, paint);
-    }
-
-    fn fill_path(&mut self, path: &BezPath) {
-        Self::fill_path(self, path);
-    }
-
-    fn fill_rect(&mut self, rect: &Rect) {
-        Self::fill_rect(self, rect);
-    }
-
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
-        Self::fill_blurred_rounded_rect(self, rect, radius, std_dev, invert);
-    }
-
-    fn push_layer(&mut self, blend_mode: Option<BlendMode>, opacity: Option<f32>) {
-        Self::push_layer(self, None, blend_mode, opacity, None, None);
-    }
-
-    fn push_filter_layer(&mut self, filter: Filter) {
-        Self::push_filter_layer(self, filter);
-    }
-
-    fn pop_layer(&mut self) {
-        Self::pop_layer(self);
-    }
-
-    fn set_paint_transform(&mut self, paint_transform: Affine) {
-        Self::set_paint_transform(self, paint_transform);
-    }
-
-    fn reset_paint_transform(&mut self) {
-        Self::reset_paint_transform(self);
-    }
 }

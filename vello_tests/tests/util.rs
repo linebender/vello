@@ -5,7 +5,6 @@
 
 use crate::renderer::Renderer;
 use glifo::Glyph;
-use image::load_from_memory;
 use skrifa::MetadataProvider;
 use skrifa::raw::FileRef;
 use smallvec::smallvec;
@@ -15,10 +14,7 @@ use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_cpu::{Level, RenderMode};
-use vello_tests::diff::get_diff;
 
-#[cfg(target_arch = "wasm32")]
-use image::RgbaImage;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
@@ -316,181 +312,32 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
     ])
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn check_ref(
     ctx: &mut impl Renderer,
-    // The name of the test.
     test_name: &str,
-    // The name of the specific instance of the test that is being run
-    // (e.g. test_gpu, test_cpu_u8, etc.)
     specific_name: &str,
-    // Tolerance for pixel differences.
     threshold: u8,
     diff_pixels: u32,
-    // Whether the test instance is the "gold standard" and should be used
-    // for creating reference images.
     is_reference: bool,
-    _: &[u8],
+    _ref_data: &[u8],
 ) {
-    ctx.render();
-    let pixmap = ctx.snapshot();
-
-    let encoded_image = pixmap.into_png().unwrap();
-    let ref_path = REFS_PATH.join(format!("{test_name}.png"));
-
-    let write_ref_image = || {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let optimized =
-                oxipng::optimize_from_memory(&encoded_image, &oxipng::Options::max_compression())
-                    .unwrap();
-            std::fs::write(&ref_path, optimized).unwrap();
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            panic("Reference images cannot be created from WASM");
-        }
-    };
-
-    if !ref_path.exists() {
-        if is_reference {
-            write_ref_image();
-            panic!("new reference image was created");
-        } else {
-            panic!("no reference image exists");
-        }
-    }
-
-    let ref_image = load_from_memory(&std::fs::read(&ref_path).unwrap())
-        .unwrap()
-        .into_rgba8();
-    let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
-
-    let diff_result = get_diff(&ref_image, &actual, threshold, diff_pixels);
-
-    if let Some((diff_image, diff_data)) = diff_result {
-        if should_replace() && is_reference {
-            write_ref_image();
-            panic!("test was replaced");
-        }
-
-        let (diff_path, json_path) = vello_tests::diff::write_diff(
-            &DIFFS_PATH.join(specific_name),
-            &diff_image,
-            &vello_tests::diff::DiffReport::new(diff_data),
-        );
-
-        panic!(
-            "test didn't match reference image\n  diff image: {}\n  diff report: {}",
-            diff_path.display(),
-            json_path.display()
-        );
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn check_ref(
-    ctx: &mut impl Renderer,
-    _test_name: &str,
-    // The name of the specific instance of the test that is being run
-    // (e.g. test_gpu, test_cpu_u8, etc.)
-    specific_name: &str,
-    // Tolerance for pixel differences.
-    threshold: u8,
-    diff_pixels: u32,
-    // Must be `false` on `wasm32` as reference image cannot be written to filesystem.
-    is_reference: bool,
-    ref_data: &[u8],
-) {
+    #[cfg(target_arch = "wasm32")]
     assert!(!is_reference, "WASM cannot create new reference images");
 
     ctx.render();
-    let pixmap = ctx.snapshot();
-    let encoded_image = pixmap.into_png().unwrap();
-    let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
-
-    let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
-
-    let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels);
-    if let Some((ref img, _)) = diff_image {
-        append_diff_image_to_browser_document(specific_name, img);
-        panic!("test didn't match reference image. Scroll to bottom of browser to view diff.");
+    let encoded_image = ctx.snapshot().into_png().unwrap();
+    vello_test_support::Snapshot {
+        reference_name: test_name,
+        run_name: specific_name,
+        threshold,
+        diff_pixels,
+        is_reference,
+        #[cfg(not(target_arch = "wasm32"))]
+        snapshots_dir: &REFS_PATH,
+        #[cfg(not(target_arch = "wasm32"))]
+        diffs_dir: &DIFFS_PATH,
+        #[cfg(target_arch = "wasm32")]
+        reference_png: _ref_data,
     }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn append_diff_image_to_browser_document(specific_name: &str, diff_image: &RgbaImage) {
-    use image::ImageEncoder;
-    use wasm_bindgen::JsCast;
-    use web_sys::js_sys::{Array, Uint8Array};
-    use web_sys::{Blob, BlobPropertyBag, HtmlImageElement, Url, window};
-
-    let window = window().unwrap();
-    let document = window.document().unwrap();
-    let body = document.body().unwrap();
-
-    let container = document.create_element("div").unwrap();
-    container
-        .set_attribute(
-            "style",
-            "border: 2px solid red; \
-         margin: 20px; \
-         padding: 20px; \
-         background: #f0f0f0; \
-         display: inline-block;",
-        )
-        .unwrap();
-
-    let title = document.create_element("h3").unwrap();
-    title.set_text_content(Some(&format!("Test Failed: {specific_name}")));
-    title
-        .set_attribute("style", "color: red; margin-top: 0;")
-        .unwrap();
-    container.append_child(&title).unwrap();
-
-    let diff_png = {
-        let mut png_data = Vec::new();
-        let cursor = std::io::Cursor::new(&mut png_data);
-        let encoder = image::codecs::png::PngEncoder::new(cursor);
-        encoder
-            .write_image(
-                diff_image.as_raw(),
-                diff_image.width(),
-                diff_image.height(),
-                image::ExtendedColorType::Rgba8,
-            )
-            .unwrap();
-        png_data
-    };
-
-    let uint8_array = Uint8Array::new_with_length(diff_png.len() as u32);
-    uint8_array.copy_from(&diff_png);
-    let array = Array::new();
-    array.push(&uint8_array.buffer());
-    let blob_property_bag = BlobPropertyBag::new();
-    blob_property_bag.set_type("image/png");
-    let blob = Blob::new_with_u8_array_sequence_and_options(&array, &blob_property_bag).unwrap();
-    let url = Url::create_object_url_with_blob(&blob).unwrap();
-
-    let img = document
-        .create_element("img")
-        .unwrap()
-        .dyn_into::<HtmlImageElement>()
-        .unwrap();
-    img.set_src(&url);
-    img.set_attribute("style", "border: 1px solid #ccc; max-width: 100%;")
-        .unwrap();
-    img.set_attribute("title", "Expected | Diff | Actual")
-        .unwrap();
-
-    container.append_child(&img).unwrap();
-    body.append_child(&container).unwrap();
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn should_replace() -> bool {
-    match std::env::var("REPLACE") {
-        Ok(value) => value == "1",
-        Err(_) => false,
-    }
+    .check(&encoded_image);
 }

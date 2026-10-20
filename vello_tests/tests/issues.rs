@@ -863,12 +863,12 @@ fn image_filtering_at_extend_boundary(
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test]
 fn issue_image_filtering_at_reflect_boundary(ctx: &mut impl Renderer) {
     image_filtering_at_extend_boundary(ctx, 2, Extend::Reflect, (-1.0_f32).next_down());
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test]
 fn issue_image_filtering_at_repeat_boundary(ctx: &mut impl Renderer) {
     image_filtering_at_extend_boundary(ctx, 3, Extend::Repeat, 15.0_f32.next_down());
 }

@@ -20,6 +20,7 @@ use bytemuck::Pod;
 use core::cell::OnceCell;
 use core::hash::{Hash, Hasher};
 use fearless_simd::{Simd, SimdBase, SimdFloat, SimdFrom, f32x4, f32x16, mask32x16};
+use fearless_simd_macros::simd;
 use peniko::color::cache_key::{BitEq, BitHash, CacheKey};
 use peniko::color::gradient_unpremultiplied;
 use peniko::{
@@ -153,14 +154,7 @@ impl EncodeExt for Gradient {
                         let focal_data =
                             FocalData::create(r0 / d_center, r1 / d_center, &mut base_transform);
 
-                        let fp0 = 1.0 / focal_data.fr1;
-                        let fp1 = focal_data.f_focal_x;
-
-                        RadialKind::Focal {
-                            focal_data,
-                            fp0,
-                            fp1,
-                        }
+                        RadialKind::focal(&focal_data)
                     }
                 };
 
@@ -706,24 +700,73 @@ pub enum RadialKind {
     },
     /// A general, two-point conical gradient.
     Focal {
-        /// The focal data  (from the Skia implementation).
-        focal_data: FocalData,
+        /// How the gradient position is computed.
+        kind: FocalKind,
         /// The `fp0` value (from the Skia implementation).
         fp0: f32,
-        /// The `fp1` value (from the Skia implementation).
-        fp1: f32,
+        /// The scale applied to the computed gradient position.
+        scale: f32,
+        /// The bias added to the scaled gradient position.
+        bias: f32,
     },
 }
 
 impl RadialKind {
+    /// Create a focal radial gradient from the given focal data.
+    pub fn focal(focal_data: &FocalData) -> Self {
+        let is_flipped = 1.0 - focal_data.f_focal_x < 0.0;
+        let kind = if focal_data.is_focal_on_circle() {
+            FocalKind::OnCircle
+        } else if focal_data.is_well_behaved() {
+            FocalKind::WellBehaved
+        } else {
+            FocalKind::General {
+                negate_root: focal_data.is_swapped() || is_flipped,
+            }
+        };
+
+        let sign = if is_flipped { -1.0 } else { 1.0 };
+        let offset = if focal_data.is_natively_focal() {
+            0.0
+        } else {
+            focal_data.f_focal_x
+        };
+        let (scale, bias) = if focal_data.is_swapped() {
+            (-sign, 1.0 - offset)
+        } else {
+            (sign, offset)
+        };
+
+        Self::Focal {
+            kind,
+            fp0: 1.0 / focal_data.fr1,
+            scale,
+            bias,
+        }
+    }
+
     /// Whether the gradient is undefined at any location.
     pub fn has_undefined(&self) -> bool {
         match self {
             Self::Radial { .. } => false,
             Self::Strip { .. } => true,
-            Self::Focal { focal_data, .. } => !focal_data.is_well_behaved(),
+            Self::Focal { kind, .. } => *kind != FocalKind::WellBehaved,
         }
     }
+}
+
+/// How the position of a focal radial gradient is computed.
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum FocalKind {
+    /// The focal point lies on the end circle.
+    OnCircle,
+    /// The gradient is defined at every location.
+    WellBehaved,
+    /// The gradient is only defined at some locations.
+    General {
+        /// Whether to take the negative square root.
+        negate_root: bool,
+    },
 }
 
 /// Computed properties of a sweep gradient.
@@ -1029,11 +1072,9 @@ pub struct GradientLut<T: GradientLutExt> {
 
 impl<T: GradientLutExt> GradientLut<T> {
     /// Create a new lookup table.
+    #[simd]
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || Self::new_inner(simd, ranges),
-        )
+        Self::new_inner(simd, ranges)
     }
 
     #[inline(always)]
