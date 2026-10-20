@@ -326,7 +326,7 @@ mod macos {
 
             for (i, slot) in self.slots.iter().enumerate() {
                 let frame = slot.source.current_frame();
-                bindings.insert_external_texture(
+                bindings.insert_wgpu_external_texture(
                     slot.texture_id,
                     frame.external_texture.clone(),
                     u32::from(frame.width),

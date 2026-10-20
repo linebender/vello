@@ -32,8 +32,9 @@ fn sample_native_image_paint(
 
 /// Sample a full `wgpu::ExternalTexture` with pad extend.
 ///
-/// wgpu applies the texture's YCbCr → RGB and color space conversion, which can leave the
-/// premultiplied range (e.g. for limited-range or wide-gamut sources), so the result is clamped.
+/// Single-plane RGBA textures are sampled as-is. For multi-planar YCbCr formats, wgpu's
+/// YCbCr → RGB and color space conversion can leave the premultiplied range (e.g. for
+/// limited-range or wide-gamut sources), so the result is clamped.
 @if(texture_external)
 fn sample_wgpu_external_texture_paint(
     external_texture: texture_external,

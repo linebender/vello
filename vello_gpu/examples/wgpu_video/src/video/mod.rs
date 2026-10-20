@@ -6,7 +6,7 @@
 //! Frames stay in their native two-plane NV12 layout (`R8` Y plane, `Rg8` interleaved
 //! Cb/Cr plane) in the IOSurface VideoToolbox decoded into, wrapped in a
 //! [`wgpu::ExternalTexture`] that Vello samples through
-//! [`TextureBindings::insert_external_texture`](vello_gpu::TextureBindings::insert_external_texture).
+//! [`TextureBindings::insert_wgpu_external_texture`](vello_gpu::TextureBindings::insert_wgpu_external_texture).
 //! wgpu converts to RGB at sample time, so there is no separate conversion pass.
 
 #![allow(

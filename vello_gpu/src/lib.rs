@@ -40,8 +40,8 @@
 //! - `wgpu_external_texture` (enabled by default): Adds a WGSL `texture_external`
 //!   binding when the wgpu device has `wgpu::Features::EXTERNAL_TEXTURE` enabled,
 //!   so `wgpu::ExternalTexture`s (e.g. multi-planar YCbCr video frames) can be
-//!   bound with `TextureBindings::insert_external_texture`. Other images are not
-//!   affected.
+//!   bound with `TextureBindings::insert_wgpu_external_texture`. Other images are
+//!   not affected.
 //! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL
 //!   shaders for compatibility.
 //!

@@ -688,7 +688,12 @@ impl Renderer for GpuRenderer {
             texture_bindings.insert(*texture_id, texture.clone());
         }
         for (texture_id, (texture, width, height)) in &self.wgpu_external_textures {
-            texture_bindings.insert_external_texture(*texture_id, texture.clone(), *width, *height);
+            texture_bindings.insert_wgpu_external_texture(
+                *texture_id,
+                texture.clone(),
+                *width,
+                *height,
+            );
         }
         let mut encoder = self
             .device

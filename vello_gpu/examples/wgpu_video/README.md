@@ -2,7 +2,7 @@
 
 A wgpu-native example that renders decoded NV12 video frames through Vello
 GPU's external-texture API (`ImageSource::external_texture` +
-`TextureBindings::insert_external_texture`) backed by `wgpu::ExternalTexture`.
+`TextureBindings::insert_wgpu_external_texture`) backed by `wgpu::ExternalTexture`.
 
 ## What it does
 
@@ -32,7 +32,7 @@ Demuxer (AVAssetReader, compressed CMSampleBuffers)
   -> MetalImporter (CVMetalTextureCache, one wgpu::Texture per plane)
   -> VideoFrame { external_texture, pts_ns, color_space, ... }
   -> VideoFileSource (reorders to display order, paces by timestamp)
-  -> Scene::set_paint (ImageSource::external_texture) + TextureBindings::insert_external_texture
+  -> Scene::set_paint (ImageSource::external_texture) + TextureBindings::insert_wgpu_external_texture
 ```
 
 Each frame's `wgpu::ExternalTexture` is created from two plane views — a

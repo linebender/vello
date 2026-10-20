@@ -92,9 +92,9 @@ pub struct RenderTargetConfig {
 pub enum TextureBinding {
     /// A premultiplied RGBA texture view; see [`TextureBindings::insert`].
     TextureView(TextureView),
-    /// A wgpu external texture; see [`TextureBindings::insert_external_texture`].
+    /// A wgpu external texture; see [`TextureBindings::insert_wgpu_external_texture`].
     #[cfg(feature = "wgpu_external_texture")]
-    ExternalTexture {
+    WgpuExternalTexture {
         /// The external texture.
         texture: wgpu::ExternalTexture,
         /// The external texture's width, as passed to [`wgpu::ExternalTextureDescriptor`].
@@ -113,7 +113,7 @@ impl TextureBinding {
                 (texture.width(), texture.height())
             }
             #[cfg(feature = "wgpu_external_texture")]
-            Self::ExternalTexture { width, height, .. } => (*width, *height),
+            Self::WgpuExternalTexture { width, height, .. } => (*width, *height),
         }
     }
 }
@@ -168,23 +168,32 @@ impl TextureBindings {
     /// Image paints must sample the full texture ([`TextureRegion::Full`]) with
     /// [`Extend::Pad`](vello_common::peniko::Extend::Pad), low or medium quality, and no tint
     /// other than opacity. Other paints fail with
-    /// [`RenderError::UnsupportedExternalTextureSampling`]. Crops and rotations can be expressed
-    /// in the external texture's descriptor instead.
+    /// [`RenderError::UnsupportedExternalTextureSampling`]. To crop or rotate, use the paint
+    /// transform and limit the drawn geometry.
     ///
-    /// `width` and `height` must match the [`wgpu::ExternalTextureDescriptor`] the texture was
-    /// created with, since wgpu does not expose them.
+    /// `width` and `height` are the texture's size in texels, which wgpu does not expose. Pass
+    /// the [`wgpu::ExternalTextureDescriptor`]'s size, or the first plane's size if the
+    /// descriptor uses `(0, 0)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `width` or `height` is zero.
     #[cfg(feature = "wgpu_external_texture")]
     #[inline]
-    pub fn insert_external_texture(
+    pub fn insert_wgpu_external_texture(
         &mut self,
         texture_id: TextureId,
         external_texture: wgpu::ExternalTexture,
         width: u32,
         height: u32,
     ) {
+        assert!(
+            width > 0 && height > 0,
+            "wgpu external texture size must be non-zero, got {width}x{height}"
+        );
         self.bindings.insert(
             texture_id,
-            TextureBinding::ExternalTexture {
+            TextureBinding::WgpuExternalTexture {
                 texture: external_texture,
                 width,
                 height,
@@ -786,7 +795,7 @@ impl Renderer {
                                 )
                             }
                             #[cfg(feature = "wgpu_external_texture")]
-                            TextureBinding::ExternalTexture { .. } => {
+                            TextureBinding::WgpuExternalTexture { .. } => {
                                 encode_wgpu_external_texture_paint(
                                     img,
                                     texture_width,
@@ -2537,7 +2546,7 @@ impl Programs {
                     .then_some(wgpu::BindingResource::TextureView(placeholder)),
             ),
             #[cfg(feature = "wgpu_external_texture")]
-            TextureBinding::ExternalTexture { texture, .. } => (
+            TextureBinding::WgpuExternalTexture { texture, .. } => (
                 placeholder,
                 Some(wgpu::BindingResource::ExternalTexture(texture)),
             ),
