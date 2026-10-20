@@ -22,6 +22,8 @@ const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
 const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5;
 const PAINT_TYPE_NATIVE_IMAGE: u32 = 6;
+#[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+const PAINT_TYPE_WGPU_EXTERNAL_TEXTURE: u32 = 7;
 
 // See the layout information in `render.wesl`.
 pub(crate) const COLOR_SOURCE_SHIFT: u32 = 29;
@@ -200,6 +202,13 @@ impl<'a> PaintResolver<'a> {
                             let (paint_type, sampler) = match &self.gpu_paints[paint_id] {
                                 GpuEncodedPaint::NativeImage(_) => (
                                     PAINT_TYPE_NATIVE_IMAGE,
+                                    ExternalSampler::from_native_image_sampler(
+                                        &encoded_image.sampler,
+                                    ),
+                                ),
+                                #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+                                GpuEncodedPaint::WgpuExternalTexture(_) => (
+                                    PAINT_TYPE_WGPU_EXTERNAL_TEXTURE,
                                     ExternalSampler::from_native_image_sampler(
                                         &encoded_image.sampler,
                                     ),

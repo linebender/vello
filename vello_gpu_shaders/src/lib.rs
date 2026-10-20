@@ -22,16 +22,30 @@ mod feature_tests {
 
     #[test]
     fn shader_feature_combinations_compile() {
-        let features = [
+        const FEATURES: [&str; 4] = [
             "blurred_rounded_rect",
             "full_image_support",
             "gradient_sweep",
+            "texture_external",
         ];
-        for mask in [0b000, 0b001, 0b010, 0b100, 0b111] {
+        let combinations: [&[&str]; 7] = [
+            &[],
+            &["blurred_rounded_rect"],
+            &["full_image_support"],
+            &["gradient_sweep"],
+            &[
+                "blurred_rounded_rect",
+                "full_image_support",
+                "gradient_sweep",
+            ],
+            &["texture_external"],
+            &FEATURES,
+        ];
+        for enabled in combinations {
             let mut compiler = Wesl::new("shaders");
             compiler.use_stripping(true);
-            for (bit, feature) in features.iter().enumerate() {
-                compiler.set_feature(feature, mask & (1 << bit) != 0);
+            for feature in FEATURES {
+                compiler.set_feature(feature, enabled.contains(&feature));
             }
             let source = compiler
                 .compile(&"package::render".parse().unwrap())
@@ -41,14 +55,17 @@ mod feature_tests {
             Validator::new(ValidationFlags::all(), Capabilities::all())
                 .validate(&module)
                 .expect("linked WGSL validates");
+            // GLSL is only generated without `texture_external`, which naga can't translate.
             #[cfg(feature = "glsl")]
-            crate::compile::compile_wgsl_shader(
-                &source,
-                "render",
-                "vs_main",
-                "fs_main",
-                &std::collections::BTreeMap::new(),
-            );
+            if !enabled.contains(&"texture_external") {
+                crate::compile::compile_wgsl_shader(
+                    &source,
+                    "render",
+                    "vs_main",
+                    "fs_main",
+                    &std::collections::BTreeMap::new(),
+                );
+            }
         }
     }
 }

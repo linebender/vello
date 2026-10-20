@@ -309,6 +309,9 @@ pub(crate) enum GpuEncodedPaint {
     Image(GpuEncodedImage),
     /// A full external image sampled by the GPU sampler.
     NativeImage(GpuNativeImage),
+    /// A full `wgpu::ExternalTexture` sampled by the GPU sampler with pad extend.
+    #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+    WgpuExternalTexture(GpuNativeImage),
     /// An encoded linear gradient.
     LinearGradient(GpuLinearGradient),
     /// An encoded radial gradient.
@@ -342,6 +345,8 @@ impl GpuEncodedPaint {
         match self {
             Self::Image(paint) => bytemuck::bytes_of(paint),
             Self::NativeImage(paint) => bytemuck::bytes_of(paint),
+            #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+            Self::WgpuExternalTexture(paint) => bytemuck::bytes_of(paint),
             Self::LinearGradient(paint) => bytemuck::bytes_of(paint),
             Self::RadialGradient(paint) => bytemuck::bytes_of(paint),
             Self::SweepGradient(paint) => bytemuck::bytes_of(paint),
@@ -354,6 +359,8 @@ impl GpuEncodedPaint {
         match self {
             Self::Image(_) => Self::IMAGE_TEXELS,
             Self::NativeImage(_) => Self::NATIVE_IMAGE_TEXELS,
+            #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+            Self::WgpuExternalTexture(_) => Self::NATIVE_IMAGE_TEXELS,
             Self::LinearGradient(_) => Self::LINEAR_TEXELS,
             Self::RadialGradient(_) => Self::RADIAL_TEXELS,
             Self::SweepGradient(_) => Self::SWEEP_TEXELS,
@@ -408,6 +415,30 @@ pub(crate) fn encode_native_image_paint(
         opacity: pack_tint(image.tint).0 >> 24,
         _padding: 0,
     }))
+}
+
+/// Encode an image paint that samples a `wgpu::ExternalTexture`.
+///
+/// Returns `None` if the paint can't be drawn from an external texture, which only supports
+/// sampling the full texture with pad extend, low or medium quality and opacity as the only tint.
+#[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+pub(crate) fn encode_wgpu_external_texture_paint(
+    image: &EncodedImage,
+    texture_width: u16,
+    texture_height: u16,
+) -> Option<GpuEncodedPaint> {
+    use vello_common::peniko::Extend;
+
+    if image.sampler.x_extend != Extend::Pad || image.sampler.y_extend != Extend::Pad {
+        return None;
+    }
+    let Some(GpuEncodedPaint::NativeImage(paint)) =
+        encode_native_image_paint(image, texture_width, texture_height)
+    else {
+        return None;
+    };
+
+    Some(GpuEncodedPaint::WgpuExternalTexture(paint))
 }
 
 /// GPU encoded image data.
@@ -837,5 +868,48 @@ mod tests {
         image.tint = None;
         image.sampler.quality = ImageQuality::High;
         assert!(encode_native_image_paint(&image, 2, 2).is_none());
+    }
+
+    #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+    #[test]
+    fn wgpu_external_texture_encoding_requires_full_pad_sampling() {
+        use super::{GpuEncodedPaint, encode_wgpu_external_texture_paint};
+        use vello_common::geometry::RectU16;
+        use vello_common::peniko::Extend;
+
+        let encode = |modify: fn(&mut EncodedImage)| {
+            let mut image = EncodedImage {
+                source: ImageSource::external_texture(TextureId(1), TextureRegion::Full, false),
+                sampler: ImageSampler {
+                    quality: ImageQuality::Medium,
+                    ..ImageSampler::default()
+                },
+                may_have_transparency: false,
+                transform: Affine::IDENTITY,
+                x_advance: Vec2::new(1.0, 0.0),
+                y_advance: Vec2::new(0.0, 1.0),
+                tint: None,
+            };
+            modify(&mut image);
+            encode_wgpu_external_texture_paint(&image, 2, 2)
+        };
+
+        assert!(matches!(
+            encode(|_| {}),
+            Some(GpuEncodedPaint::WgpuExternalTexture(_))
+        ));
+        assert!(encode(|image| image.sampler.x_extend = Extend::Repeat).is_none());
+        assert!(encode(|image| image.sampler.y_extend = Extend::Reflect).is_none());
+        assert!(encode(|image| image.sampler.quality = ImageQuality::High).is_none());
+        assert!(
+            encode(|image| {
+                image.source = ImageSource::external_texture(
+                    TextureId(1),
+                    TextureRegion::Rect(RectU16::new(0, 0, 1, 1)),
+                    false,
+                );
+            })
+            .is_none()
+        );
     }
 }

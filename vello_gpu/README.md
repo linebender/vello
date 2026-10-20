@@ -56,6 +56,11 @@ preprocessing and GPU rendering:
   for uploaded images, glyph atlas caching, bicubic sampling, cropped external
   textures, and colored or alpha-mask tints.
 - `gradient_sweep` (enabled by default): Enables rendering of sweep gradients
+- `wgpu_external_texture` (enabled by default): Adds a WGSL `texture_external`
+  binding when the wgpu device has `wgpu::Features::EXTERNAL_TEXTURE` enabled,
+  so `wgpu::ExternalTexture`s (e.g. multi-planar YCbCr video frames) can be
+  bound with `TextureBindings::insert_wgpu_external_texture`. Other images are
+  not affected.
 - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL
   shaders for compatibility.
 
