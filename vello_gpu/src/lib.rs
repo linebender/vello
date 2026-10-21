@@ -137,6 +137,8 @@ pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBinding, Text
 pub use render::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeOperation, WebGlProbeStatus};
+#[cfg(all(feature = "wgpu", feature = "probe"))]
+pub use render::{WgpuPendingProbe, WgpuProbeError, WgpuProbeStatus};
 pub use resources::Resources;
 pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
 #[cfg(feature = "text")]
