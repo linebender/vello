@@ -82,7 +82,8 @@ pub struct GlyphCacheKey {
 impl GlyphCacheKey {
     /// Creates a new cache key.
     ///
-    /// `fractional_x` (the fractional pixel offset) is quantized into
+    /// `fractional_x` is the fractional pixel offset in `[0, 1]` left after
+    /// flooring the glyph's horizontal position. It is quantized into
     /// `SUBPIXEL_BUCKETS` buckets, so nearby positions share the same entry.
     #[inline]
     pub fn new(
@@ -182,25 +183,20 @@ pub(crate) fn pack_color(color: AlphaColor<Srgb>) -> u32 {
     color.premultiply().to_rgba8().to_u32()
 }
 
-/// Quantize a fractional pixel offset into one of [`SUBPIXEL_BUCKETS`] buckets.
+/// Quantize a fractional pixel offset in `[0, 1]` into one of
+/// [`SUBPIXEL_BUCKETS`] buckets.
 ///
-/// Values near 1.0 (>= 0.875 with 4 buckets) are clamped to the last bucket
-/// rather than wrapping to 0. Wrapping to bucket 0 without also incrementing the
-/// integer pixel coordinate would shift the glyph by ~0.75px in the wrong
-/// direction. Clamping keeps the worst-case error to 0.125px.
+/// Values near 1.0 (>= 0.875 with 4 buckets, including exactly 1.0) are clamped
+/// to the last bucket rather than wrapping to 0. Wrapping to bucket 0 without
+/// also incrementing the integer pixel coordinate would shift the glyph by
+/// ~0.75px in the wrong direction. Clamping keeps the error to at most 0.25px.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "result is clamped to SUBPIXEL_BUCKETS-1 which fits in u8"
 )]
 #[inline]
 fn quantize_subpixel(frac: f32) -> u8 {
-    let normalized = frac.fract();
-    let normalized = if normalized < 0.0 {
-        normalized + 1.0
-    } else {
-        normalized
-    };
-    ((normalized * SUBPIXEL_BUCKETS as f32).round() as u8).min(SUBPIXEL_BUCKETS - 1)
+    ((frac * SUBPIXEL_BUCKETS as f32).round() as u8).min(SUBPIXEL_BUCKETS - 1)
 }
 
 /// Convert a quantized bucket index back to the fractional pixel offset it represents.
@@ -228,7 +224,8 @@ mod tests {
         assert_eq!(quantize_subpixel(0.7), 3);
         assert_eq!(quantize_subpixel(0.75), 3);
         assert_eq!(quantize_subpixel(0.9), 3);
-        assert_eq!(quantize_subpixel(1.0), 0);
+        // The pixel was not incremented for this value, so it must not wrap.
+        assert_eq!(quantize_subpixel(1.0), 3);
     }
 
     #[test]
