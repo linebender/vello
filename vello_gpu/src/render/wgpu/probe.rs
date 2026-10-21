@@ -76,6 +76,9 @@ impl Renderer {
     ///
     /// The probe scene is submitted to `queue` immediately. The returned handle allows inspecting
     /// the result once it has been read back from the GPU, see [`WgpuPendingProbe::try_finish`].
+    ///
+    /// Call this before [`render`](Self::render), or submit any encoder passed to `render` first;
+    /// otherwise that render will draw with the probe's data.
     pub fn probe(
         &mut self,
         device: &Device,
