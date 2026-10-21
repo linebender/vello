@@ -12,6 +12,11 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- `WebGlShaders` for starting WebGL shader compilation from just the canvas, before the renderer is created, with `WebGlRenderer::begin_with_shaders` and non-blocking `is_ready` checks. WebGL initialization now flushes compile commands immediately, so compilation starts even if the caller keeps the main thread busy.
+- `WebGlShaders::from_precompiled` adopts shader programs compiled by the JavaScript module in `vello_gpu_shaders::webgl_bootstrap::JS_MODULE`, so compilation can start before the WebAssembly module is downloaded and instantiated.
+
 ## [0.3.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.

@@ -66,12 +66,14 @@ use crate::{
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::cell::Cell;
 use core::time::Duration;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use hashbrown::{HashMap, hash_map::Entry};
 use resource::{
     Buffer, FragmentShader, Framebuffer, Program, Sampler, Texture, VertexArray, VertexShader,
+    WebGlFragmentShader, WebGlVertexShader,
 };
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::image_cache::{ImageCache, ImageResource};
@@ -167,15 +169,40 @@ pub struct WebGlRenderer {
 
 /// WebGL renderer initialization that may still be compiling shader programs.
 ///
-/// Poll this with [`WebGlRendererInit::try_finish`] from successive animation frames to avoid
-/// blocking the browser's main thread when `KHR_parallel_shader_compile` is available. On browsers
-/// without the extension, the first poll falls back to synchronously finishing initialization.
+/// Its [`Resources`] are already usable, so CPU-side work such as glyph preparation can proceed
+/// while compilation continues. Check [`WebGlRendererInit::is_ready`] (or poll
+/// [`WebGlRendererInit::try_finish`]) from successive animation frames to avoid blocking the
+/// browser's main thread when `KHR_parallel_shader_compile` is available. On browsers without the
+/// extension, finishing falls back to synchronously completing compilation.
 #[derive(Debug)]
 pub struct WebGlRendererInit {
-    programs: PendingWebGlPrograms,
-    gl: WebGl2RenderingContext,
+    shaders: WebGlShaders,
+    resources: WebGlResources,
+    encoded_paints_data: Vec<u8>,
     gradient_cache: GradientRampCache,
     layers_config: LayersConfig,
+}
+
+/// Vello's WebGL shader programs, whose compilation and linking may still be in progress.
+///
+/// Compiling needs only the canvas, so it can start before the rest of the application is
+/// initialized and continue while other work runs. To start even before the WebAssembly module
+/// loads, compile from JavaScript and adopt the result with [`WebGlShaders::from_precompiled`].
+/// Turn the shaders into a renderer with [`WebGlRenderer::begin_with_shaders`]. The programs
+/// belong to the canvas's WebGL context and cannot be used with any other context.
+#[derive(Debug)]
+pub struct WebGlShaders {
+    gl: WebGl2RenderingContext,
+    use_depth_buffer: bool,
+    parallel_shader_compile: bool,
+    precompiled: bool,
+    compilation_start_ms: f64,
+    poll_count: Cell<u32>,
+    ready: Cell<bool>,
+    strip_program: PendingShaderProgram,
+    filter_program: PendingShaderProgram,
+    blend_program: PendingShaderProgram,
+    copy_program: PendingShaderProgram,
 }
 
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
@@ -255,7 +282,7 @@ pub struct ShaderCompilationStats {
     /// Number of non-blocking completion-status polls.
     ///
     /// This is zero when initialization is completed through [`WebGlRendererInit::finish`]
-    /// without first calling [`WebGlRendererInit::try_finish`].
+    /// without first checking [`WebGlShaders::is_ready`] or [`WebGlRendererInit::is_ready`].
     pub poll_count: u32,
     /// Wall-clock time from issuing the first compilation until all programs were confirmed
     /// linked.
@@ -300,11 +327,14 @@ impl WebGlRenderer {
     /// Begins creating a WebGL2 renderer and its persistent resources.
     ///
     /// When `KHR_parallel_shader_compile` is available, shader compilation and program linking can
-    /// continue while the caller yields to the browser. Poll the returned initialization with
-    /// [`WebGlRendererInit::try_finish`] on successive animation frames.
+    /// continue while the caller yields to the browser. Check [`WebGlRendererInit::is_ready`] (or
+    /// poll [`WebGlRendererInit::try_finish`]) on successive animation frames.
     ///
-    /// If the extension is unavailable, the first poll synchronously finishes shader compilation
-    /// and linking.
+    /// If the extension is unavailable, finishing synchronously completes shader compilation and
+    /// linking.
+    ///
+    /// To start compiling before the render settings are known, use [`WebGlShaders::compile`]
+    /// followed by [`WebGlRenderer::begin_with_shaders`].
     pub fn begin(canvas: &HtmlCanvasElement) -> Result<(WebGlRendererInit, Resources), WebGlError> {
         Self::begin_with(canvas, RenderSettings::default(), true)
     }
@@ -314,139 +344,26 @@ impl WebGlRenderer {
     /// See [`WebGlRenderer::begin`] for polling and fallback behavior.
     pub fn begin_with(
         canvas: &HtmlCanvasElement,
-        mut settings: RenderSettings,
+        settings: RenderSettings,
         use_depth_buffer: bool,
     ) -> Result<(WebGlRendererInit, Resources), WebGlError> {
-        #[allow(
-            clippy::assertions_on_constants,
-            reason = "intentional guard against non-wasm32 use"
-        )]
-        {
-            debug_assert!(
-                cfg!(target_arch = "wasm32"),
-                "`WebGlRenderer` can only be constructed when targeting `wasm32`",
-            );
-        }
-        super::common::maybe_warn_about_webgl_feature_conflict();
+        Self::begin_with_shaders(WebGlShaders::compile(canvas, use_depth_buffer)?, settings)
+    }
 
-        // We do our own anti-aliasing, so no need to enable it in the WebGL
-        // context.
-        let context_options = js_sys::Object::new();
-        js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE)
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
-        // Avoid running Vello GPU if it's gonna be super slow.
-        js_sys::Reflect::set(
-            &context_options,
-            &"failIfMajorPerformanceCaveat".into(),
-            &JsValue::TRUE,
-        )
-        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
-        // The opaque-strip optimization requires a 24+ bit depth buffer. If the hardware falls
-        // back to a 16 bit depth buffer, correctness issues will arise. For all intents and
-        // purposes, a device manufactured in the past 10 years should support 24+ bit depth
-        // buffers (certainly those within the realm of what we consider "supported" devices) but:
-        //
-        // Relevant code for default depth buffer behaviour can be found here:
-        // - Chromium defaults to 24 bit with no fallback: https://github.com/chromium/chromium/blob/86bafb3aab8e999690d310b201d0b5489f512b08/third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.cc#L1376-L1400
-        // - Firefox defaults to 24 bit with no fallback: https://github.com/mozilla/gecko-dev/blob/5836a062726f715fda621338a17b51aff30d0a8c/gfx/gl/MozFramebuffer.cpp#L155-L161
-        // - Safari defaults to 24 bit _with 16 bit_ fallback: https://github.com/WebKit/WebKit/blob/a6d6c154bbee0643f5ad1e55c071558c0df9aef7/Source/WebCore/platform/graphics/angle/GraphicsContextGLANGLE.cpp#L393-L416
-        //
-        // TODO: The above understanding is encoded in a below assertion, but this should be encapsulated within a
-        // "this device can run Vello correctly" check function.
-        let depth = if use_depth_buffer {
-            &JsValue::TRUE
-        } else {
-            &JsValue::FALSE
-        };
-        js_sys::Reflect::set(&context_options, &"depth".into(), depth)
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
-
-        let context = canvas
-            .get_context_with_context_options("webgl2", &context_options)
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Create))?
-            .ok_or(WebGlError::ContextUnavailable)?;
-        let gl = context
-            .dyn_into::<WebGl2RenderingContext>()
-            .expect("Context to be a WebGL2 context");
-
-        // See https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_webgl_provoking_vertex_when_its_available
-        // for why we need to set this. This has been confirmed by benchmarks, where doing just a
-        // couple of draw calls with external textures tanks performance on any
-        // Apple device, especially low-tier iOS devices.
-        // IMPORTANT: This assumes that any use of flat parameters in shaders is the same across
-        // each vertex! In case this ever changes, we need to revisit this.
-        // https://web3dsurvey.com/webgl2/extensions/WEBGL_provoking_vertex
-        if let Some(ext) = gl
-            .get_extension("WEBGL_provoking_vertex")
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
-        {
-            // See https://registry.khronos.org/webgl/extensions/WEBGL_provoking_vertex
-            const FIRST_VERTEX_CONVENTION_WEBGL: u32 = 0x8E4D;
-
-            // In WebGL, the _last_ vertex supplies the value for flat shader varyings by default.
-            // According to the spec, implementations should only expose this flag if the _first_
-            // convention is faster by default. Therefore, if the extension is available, we always
-            // set it to _first_.
-            js_sys::Reflect::get(ext.as_ref(), &"provokingVertexWEBGL".into())
-                .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
-                .unchecked_into::<js_sys::Function>()
-                .call1(ext.as_ref(), &JsValue::from(FIRST_VERTEX_CONVENTION_WEBGL))
-                .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?;
-        }
-
-        // Note: It is not entirely clear whether we really _have_ to ensure anti-aliasing is disabled.
-        // This code is inherited from a similar snippet in wgpu
-        // (https://github.com/gfx-rs/wgpu/blob/56e4a389ddd02403e232beef3d3ff305625e6485/wgpu-hal/src/gles/web.rs#L101-L106),
-        // which itself seems to have been copied from the older `gfx` crate, where it was first introduced
-        // in https://github.com/gfx-rs/gfx/pull/2554/changes#diff-a47711d61df7a43fe6dd99c39b936d17ff817cbc2238d7e3ae6698ffde9b88f7R79,
-        // without any comment on why.
-        // From my (Laurenz) testing, tests seem to work even when anti-aliasing is enabled,
-        // but Andrew previously got errors similar to the ones outlined in
-        // https://github.com/gfx-rs/wgpu/issues/5263. Therefore, we just leave it as is for now.
-        #[cfg(debug_assertions)]
-        {
-            // If a WebGL context already exists on this canvas, it will be returned instead of
-            // creating a new one with the correct context_options set.
-            // See this comment for why we still care about non-antialiased context:
-            // https://github.com/linebender/vello/pull/1546/changes#r3008692535
-            let context_attributes =
-                gl.get_context_attributes()
-                    .ok_or(WebGlError::OperationFailed {
-                        operation: WebGlOperation::Context(WebGlContextOperation::Query),
-                        message: None,
-                    })?;
-            let antialias = js_sys::Reflect::get(&context_attributes, &"antialias".into())
-                .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
-                .as_bool()
-                .unwrap();
-            if antialias {
-                return Err(WebGlError::IncompatibleContext(
-                    IncompatibleContextReason::AntialiasingEnabled,
-                ));
-            }
-        }
-
+    /// Begins creating a WebGL2 renderer from shaders that may still be compiling.
+    ///
+    /// This allocates the renderer's persistent resources without waiting for compilation. See
+    /// [`WebGlRenderer::begin`] for polling and fallback behavior.
+    pub fn begin_with_shaders(
+        shaders: WebGlShaders,
+        mut settings: RenderSettings,
+    ) -> Result<(WebGlRendererInit, Resources), WebGlError> {
+        let gl = &shaders.gl;
         let device_limits = DeviceLimits {
-            max_texture_dimension_2d: u16::try_from(get_max_texture_dimension_2d(&gl)?)
+            max_texture_dimension_2d: u16::try_from(get_max_texture_dimension_2d(gl)?)
                 .unwrap_or(u16::MAX),
         };
         settings.memory_settings.normalize(&device_limits);
-        if use_depth_buffer {
-            let actual_bits = gl
-                .get_parameter(WebGl2RenderingContext::DEPTH_BITS)
-                .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
-                .as_f64()
-                .unwrap() as u32;
-
-            if actual_bits < REQUIRED_DEPTH_BITS {
-                return Err(WebGlError::IncompatibleContext(
-                    IncompatibleContextReason::InsufficientDepthBuffer {
-                        actual_bits,
-                        required_bits: REQUIRED_DEPTH_BITS,
-                    },
-                ));
-            }
-        }
         let resources = Resources::new(settings.memory_settings.image_atlas_config);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
 
@@ -455,27 +372,178 @@ impl WebGlRenderer {
         let max_gradient_cache_size = resource_texture_dimension_2d * resource_texture_dimension_2d
             / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
-        let layer_config = settings.memory_settings.layers_config;
-        let init = WebGlRendererInit {
-            programs: PendingWebGlPrograms::new(
-                gl.clone(),
-                &resources.image_cache,
-                layer_config,
-                resource_texture_dimension_2d,
-                use_depth_buffer,
-            )?,
+        let layers_config = settings.memory_settings.layers_config;
+
+        let webgl_resources = create_webgl_resources(
             gl,
+            &resources.image_cache,
+            layers_config,
+            resource_texture_dimension_2d,
+            shaders.use_depth_buffer,
+        )?;
+        initialize_strip_vao(gl, &webgl_resources);
+        initialize_filter_vao(gl, &webgl_resources);
+        initialize_blend_vao(gl, &webgl_resources);
+        initialize_copy_vao(gl, &webgl_resources);
+        let encoded_paints_data = vec![0; (resource_texture_dimension_2d << 4) as usize];
+
+        let init = WebGlRendererInit {
+            shaders,
+            resources: webgl_resources,
+            encoded_paints_data,
             gradient_cache,
-            layers_config: layer_config,
+            layers_config,
         };
 
         Ok((init, resources))
     }
+}
 
+/// Creates the canvas's WebGL2 context with the attributes the renderer depends on.
+///
+/// If the canvas already has a WebGL2 context, the browser returns it and ignores the requested
+/// attributes, so the ones that can be queried are validated afterwards. The attributes must match
+/// the defaults of `compileVelloShaders` in `vello_gpu_shaders/src/webgl_bootstrap.js`, which
+/// creates the context when shaders are compiled from JavaScript.
+fn create_context(
+    canvas: &HtmlCanvasElement,
+    use_depth_buffer: bool,
+) -> Result<WebGl2RenderingContext, WebGlError> {
+    #[allow(
+        clippy::assertions_on_constants,
+        reason = "intentional guard against non-wasm32 use"
+    )]
+    {
+        debug_assert!(
+            cfg!(target_arch = "wasm32"),
+            "`WebGlRenderer` can only be constructed when targeting `wasm32`",
+        );
+    }
+    super::common::maybe_warn_about_webgl_feature_conflict();
+
+    // We do our own anti-aliasing, so no need to enable it in the WebGL
+    // context.
+    let context_options = js_sys::Object::new();
+    js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE)
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
+    // Avoid running Vello GPU if it's gonna be super slow.
+    js_sys::Reflect::set(
+        &context_options,
+        &"failIfMajorPerformanceCaveat".into(),
+        &JsValue::TRUE,
+    )
+    .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
+    // The opaque-strip optimization requires a 24+ bit depth buffer. If the hardware falls
+    // back to a 16 bit depth buffer, correctness issues will arise. For all intents and
+    // purposes, a device manufactured in the past 10 years should support 24+ bit depth
+    // buffers (certainly those within the realm of what we consider "supported" devices) but:
+    //
+    // Relevant code for default depth buffer behaviour can be found here:
+    // - Chromium defaults to 24 bit with no fallback: https://github.com/chromium/chromium/blob/86bafb3aab8e999690d310b201d0b5489f512b08/third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.cc#L1376-L1400
+    // - Firefox defaults to 24 bit with no fallback: https://github.com/mozilla/gecko-dev/blob/5836a062726f715fda621338a17b51aff30d0a8c/gfx/gl/MozFramebuffer.cpp#L155-L161
+    // - Safari defaults to 24 bit _with 16 bit_ fallback: https://github.com/WebKit/WebKit/blob/a6d6c154bbee0643f5ad1e55c071558c0df9aef7/Source/WebCore/platform/graphics/angle/GraphicsContextGLANGLE.cpp#L393-L416
+    //
+    // TODO: The above understanding is encoded in a below assertion, but this should be encapsulated within a
+    // "this device can run Vello correctly" check function.
+    let depth = if use_depth_buffer {
+        &JsValue::TRUE
+    } else {
+        &JsValue::FALSE
+    };
+    js_sys::Reflect::set(&context_options, &"depth".into(), depth)
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
+
+    let context = canvas
+        .get_context_with_context_options("webgl2", &context_options)
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Create))?
+        .ok_or(WebGlError::ContextUnavailable)?;
+    let gl = context
+        .dyn_into::<WebGl2RenderingContext>()
+        .expect("Context to be a WebGL2 context");
+
+    // See https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_webgl_provoking_vertex_when_its_available
+    // for why we need to set this. This has been confirmed by benchmarks, where doing just a
+    // couple of draw calls with external textures tanks performance on any
+    // Apple device, especially low-tier iOS devices.
+    // IMPORTANT: This assumes that any use of flat parameters in shaders is the same across
+    // each vertex! In case this ever changes, we need to revisit this.
+    // https://web3dsurvey.com/webgl2/extensions/WEBGL_provoking_vertex
+    if let Some(ext) = gl
+        .get_extension("WEBGL_provoking_vertex")
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
+    {
+        // See https://registry.khronos.org/webgl/extensions/WEBGL_provoking_vertex
+        const FIRST_VERTEX_CONVENTION_WEBGL: u32 = 0x8E4D;
+
+        // In WebGL, the _last_ vertex supplies the value for flat shader varyings by default.
+        // According to the spec, implementations should only expose this flag if the _first_
+        // convention is faster by default. Therefore, if the extension is available, we always
+        // set it to _first_.
+        js_sys::Reflect::get(ext.as_ref(), &"provokingVertexWEBGL".into())
+            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
+            .unchecked_into::<js_sys::Function>()
+            .call1(ext.as_ref(), &JsValue::from(FIRST_VERTEX_CONVENTION_WEBGL))
+            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?;
+    }
+
+    // Note: It is not entirely clear whether we really _have_ to ensure anti-aliasing is disabled.
+    // This code is inherited from a similar snippet in wgpu
+    // (https://github.com/gfx-rs/wgpu/blob/56e4a389ddd02403e232beef3d3ff305625e6485/wgpu-hal/src/gles/web.rs#L101-L106),
+    // which itself seems to have been copied from the older `gfx` crate, where it was first introduced
+    // in https://github.com/gfx-rs/gfx/pull/2554/changes#diff-a47711d61df7a43fe6dd99c39b936d17ff817cbc2238d7e3ae6698ffde9b88f7R79,
+    // without any comment on why.
+    // From my (Laurenz) testing, tests seem to work even when anti-aliasing is enabled,
+    // but Andrew previously got errors similar to the ones outlined in
+    // https://github.com/gfx-rs/wgpu/issues/5263. Therefore, we just leave it as is for now.
+    #[cfg(debug_assertions)]
+    {
+        // If a WebGL context already exists on this canvas, it will be returned instead of
+        // creating a new one with the correct context_options set.
+        // See this comment for why we still care about non-antialiased context:
+        // https://github.com/linebender/vello/pull/1546/changes#r3008692535
+        let context_attributes =
+            gl.get_context_attributes()
+                .ok_or(WebGlError::OperationFailed {
+                    operation: WebGlOperation::Context(WebGlContextOperation::Query),
+                    message: None,
+                })?;
+        let antialias = js_sys::Reflect::get(&context_attributes, &"antialias".into())
+            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
+            .as_bool()
+            .unwrap();
+        if antialias {
+            return Err(WebGlError::IncompatibleContext(
+                IncompatibleContextReason::AntialiasingEnabled,
+            ));
+        }
+    }
+
+    if use_depth_buffer {
+        let actual_bits = gl
+            .get_parameter(WebGl2RenderingContext::DEPTH_BITS)
+            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
+            .as_f64()
+            .unwrap() as u32;
+
+        if actual_bits < REQUIRED_DEPTH_BITS {
+            return Err(WebGlError::IncompatibleContext(
+                IncompatibleContextReason::InsufficientDepthBuffer {
+                    actual_bits,
+                    required_bits: REQUIRED_DEPTH_BITS,
+                },
+            ));
+        }
+    }
+
+    Ok(gl)
+}
+
+impl WebGlRenderer {
     /// Returns the shaders compiled while creating this renderer and the time spent.
     ///
-    /// When initialization is polled with [`WebGlRendererInit::try_finish`], `elapsed` also
-    /// includes time between polls, so its resolution is limited by the polling frequency.
+    /// `elapsed` is measured until the renderer is finished, so when finishing is deferred (for
+    /// example, by polling readiness or doing other work first) it is an upper bound on the actual
+    /// compilation time.
     pub fn shader_compilation_stats(&self) -> ShaderCompilationStats {
         self.programs.shader_compilation_stats
     }
@@ -1143,37 +1211,99 @@ impl WebGlRenderer {
 }
 
 impl WebGlRendererInit {
+    /// Returns whether shader compilation and program linking have finished, without blocking.
+    ///
+    /// See [`WebGlShaders::is_ready`] for the behavior without `KHR_parallel_shader_compile`.
+    pub fn is_ready(&self) -> bool {
+        self.shaders.is_ready()
+    }
+
     /// Polls shader compilation and program linking without blocking when
     /// `KHR_parallel_shader_compile` is available.
     ///
     /// On browsers without the extension, this synchronously finishes initialization and returns
     /// [`WebGlRendererInitStatus::Complete`].
-    pub fn try_finish(mut self) -> Result<WebGlRendererInitStatus, WebGlError> {
-        self.programs.poll_count += 1;
-        if self.programs.is_complete(&self.gl) {
+    pub fn try_finish(self) -> Result<WebGlRendererInitStatus, WebGlError> {
+        if self.is_ready() {
             Ok(WebGlRendererInitStatus::Complete(self.finish()?))
         } else {
             Ok(WebGlRendererInitStatus::Pending(self))
         }
     }
 
-    /// Blocks until shader compilation and program linking finish.
+    /// Finishes initialization, blocking until shader compilation and program linking finish.
     ///
-    /// Prefer [`WebGlRendererInit::try_finish`] when blocking the browser's main thread is
-    /// undesirable.
+    /// This does not block once [`WebGlRendererInit::is_ready`] has returned `true`.
     pub fn finish(self) -> Result<WebGlRenderer, WebGlError> {
-        let programs = self.programs.finish(&self.gl)?;
+        let Self {
+            shaders,
+            resources,
+            encoded_paints_data,
+            gradient_cache,
+            layers_config,
+        } = self;
+        let WebGlShaders {
+            gl,
+            compilation_start_ms,
+            poll_count,
+            strip_program,
+            filter_program,
+            blend_program,
+            copy_program,
+            ..
+        } = shaders;
+
+        let strip_program = strip_program.finish(&gl)?;
+        let filter_program = filter_program.finish(&gl)?;
+        let blend_program = blend_program.finish(&gl)?;
+        let copy_program = copy_program.finish(&gl)?;
+        let shader_compilation_stats = ShaderCompilationStats {
+            shader_count: WebGlShaders::PROGRAM_COUNT * PendingShaderProgram::SHADER_COUNT,
+            poll_count: poll_count.get(),
+            elapsed: Duration::from_secs_f64((performance_now() - compilation_start_ms) / 1_000.0),
+        };
+
+        let filter_uniforms = get_filter_pass_uniforms(&gl, &filter_program)?;
+        let blend_uniforms = get_blend_uniforms(&gl, &blend_program)?;
+        let copy_uniforms = get_copy_uniforms(&gl, &copy_program)?;
+        let strip_uniforms = get_strip_uniforms(&gl, &strip_program)?;
+
+        gl.enable(WebGl2RenderingContext::BLEND);
+        gl.blend_func(
+            WebGl2RenderingContext::ONE,
+            WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA,
+        );
+
+        let programs = WebGlPrograms {
+            strip_program,
+            strip_uniforms,
+            filter_program,
+            filter_uniforms,
+            blend_program,
+            blend_uniforms,
+            copy_program,
+            copy_uniforms,
+            shader_compilation_stats,
+            resources,
+            render_size: RenderSize {
+                width: 0,
+                height: 0,
+            },
+            negate_ndc: false,
+            encoded_paints_data,
+            filter_data: Vec::new(),
+        };
 
         Ok(WebGlRenderer {
             programs,
-            gl: self.gl,
+            gl,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
-            gradient_cache: self.gradient_cache,
+            gradient_cache,
             dummy_image_cache: Some(ImageCache::new_dummy()),
             schedule_storage: ScheduleStorage::default(),
             scratch_buffers: ScratchBuffers::default(),
-            layers_config: self.layers_config,
+            layers_config,
         })
     }
 }
@@ -1545,134 +1675,196 @@ impl PendingShaderProgram {
     }
 }
 
-#[derive(Debug)]
-struct PendingWebGlPrograms {
-    parallel_shader_compile: bool,
-    compilation_start_ms: f64,
-    poll_count: u32,
-    strip_program: PendingShaderProgram,
-    filter_program: PendingShaderProgram,
-    blend_program: PendingShaderProgram,
-    copy_program: PendingShaderProgram,
-    resources: WebGlResources,
-    encoded_paints_data: Vec<u8>,
-}
-
-impl PendingWebGlPrograms {
+impl WebGlShaders {
     const PROGRAM_COUNT: u32 = 4;
 
-    /// Starts compiling all programs before performing any blocking status queries.
-    fn new(
-        gl: WebGl2RenderingContext,
-        image_cache: &ImageCache,
-        layer_config: LayersConfig,
-        resource_texture_dimension_2d: u32,
+    /// Creates the canvas's WebGL2 context and starts compiling and linking all shader programs,
+    /// returning without waiting for them to finish.
+    ///
+    /// When `use_depth_buffer` is true, the WebGL context allocates a depth buffer and the renderer
+    /// uses it for opaque-strip occlusion. Disabling it reduces GPU memory usage, but can increase
+    /// overdraw.
+    pub fn compile(canvas: &HtmlCanvasElement, use_depth_buffer: bool) -> Result<Self, WebGlError> {
+        let gl = create_context(canvas, use_depth_buffer)?;
+        let (compilation_start_ms, programs) = compile_programs(&gl)?;
+
+        Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs, false)
+    }
+
+    /// Adopts the shader programs that the `compileVelloShaders` JavaScript function from
+    /// [`vello_gpu_shaders::webgl_bootstrap::JS_MODULE`] started compiling.
+    ///
+    /// Running that module before the WebAssembly module is downloaded and instantiated lets shader
+    /// compilation overlap with loading it. `precompiled` must be the value returned for `canvas`,
+    /// with a `depth` context attribute matching `use_depth_buffer`.
+    ///
+    /// If `precompiled` is `null` or `undefined`, this behaves like [`WebGlShaders::compile`].
+    /// If it can't be adopted, for example because the JavaScript module was generated from
+    /// different shader sources or for another canvas, a warning is logged and the shaders are
+    /// compiled from scratch.
+    pub fn from_precompiled(
+        canvas: &HtmlCanvasElement,
         use_depth_buffer: bool,
+        precompiled: &JsValue,
+    ) -> Result<Self, WebGlError> {
+        if precompiled.is_null() || precompiled.is_undefined() {
+            return Self::compile(canvas, use_depth_buffer);
+        }
+
+        let gl = create_context(canvas, use_depth_buffer)?;
+        match adopt_precompiled_programs(&gl, precompiled) {
+            Ok((compilation_start_ms, programs)) => {
+                Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs, true)
+            }
+            Err(reason) => {
+                log::warn!("Ignoring precompiled Vello shaders: {reason}");
+                let (compilation_start_ms, programs) = compile_programs(&gl)?;
+                Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs, false)
+            }
+        }
+    }
+
+    fn from_programs(
+        gl: WebGl2RenderingContext,
+        use_depth_buffer: bool,
+        compilation_start_ms: f64,
+        [strip_program, filter_program, blend_program, copy_program]: [PendingShaderProgram; 4],
+        precompiled: bool,
     ) -> Result<Self, WebGlError> {
         let parallel_shader_compile = gl
             .get_extension("KHR_parallel_shader_compile")
             .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
             .is_some();
 
-        let compilation_start_ms = performance_now();
-        let strip_program =
-            PendingShaderProgram::new(&gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE)?;
-        let filter_program = PendingShaderProgram::new(
-            &gl,
+        Ok(Self {
+            gl,
+            use_depth_buffer,
+            parallel_shader_compile,
+            precompiled,
+            compilation_start_ms,
+            poll_count: Cell::new(0),
+            ready: Cell::new(false),
+            strip_program,
+            filter_program,
+            blend_program,
+            copy_program,
+        })
+    }
+
+    /// Returns whether the programs were adopted by [`WebGlShaders::from_precompiled`] instead of
+    /// being compiled by Vello.
+    pub fn is_precompiled(&self) -> bool {
+        self.precompiled
+    }
+
+    /// Returns whether all shader programs have finished compiling and linking, without blocking.
+    ///
+    /// Without `KHR_parallel_shader_compile`, completion cannot be queried without blocking, so
+    /// this returns `true` immediately and finishing the renderer completes compilation
+    /// synchronously.
+    pub fn is_ready(&self) -> bool {
+        if !self.ready.get() {
+            self.poll_count.set(self.poll_count.get() + 1);
+            let ready = [
+                &self.strip_program,
+                &self.filter_program,
+                &self.blend_program,
+                &self.copy_program,
+            ]
+            .into_iter()
+            .all(|program| program.is_complete(&self.gl, self.parallel_shader_compile));
+            self.ready.set(ready);
+        }
+        self.ready.get()
+    }
+}
+
+/// Starts compiling all programs, returning when compilation started and the programs in
+/// [`WebGlShaders`]' field order.
+fn compile_programs(
+    gl: &WebGl2RenderingContext,
+) -> Result<(f64, [PendingShaderProgram; 4]), WebGlError> {
+    // Must be enabled before compiling: besides the completion status polled by
+    // `WebGlShaders::is_ready`, enabling it is what makes Chromium compile on background threads.
+    gl.get_extension("KHR_parallel_shader_compile")
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?;
+
+    let compilation_start_ms = performance_now();
+    let programs = [
+        PendingShaderProgram::new(gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE)?,
+        PendingShaderProgram::new(
+            gl,
             filter_shader::VERTEX_SOURCE,
             filter_shader::FRAGMENT_SOURCE,
-        )?;
-        let blend_program =
-            PendingShaderProgram::new(&gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE)?;
-        let copy_program =
-            PendingShaderProgram::new(&gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE)?;
+        )?,
+        PendingShaderProgram::new(gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE)?,
+        PendingShaderProgram::new(gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE)?,
+    ];
+    // Browsers may buffer WebGL commands until the next flush, which would delay compilation
+    // until the caller yields if it keeps the main thread busy instead.
+    gl.flush();
 
-        let resources = create_webgl_resources(
-            &gl,
-            image_cache,
-            layer_config,
-            resource_texture_dimension_2d,
-            use_depth_buffer,
-        )?;
+    Ok((compilation_start_ms, programs))
+}
 
-        initialize_strip_vao(&gl, &resources);
-        initialize_filter_vao(&gl, &resources);
-        initialize_blend_vao(&gl, &resources);
-        initialize_copy_vao(&gl, &resources);
+/// Takes ownership of the programs in a `compileVelloShaders` result, returning when compilation
+/// started and the programs in [`WebGlShaders`]' field order.
+///
+/// This avoids WebGL queries, which may block until compilation finishes.
+fn adopt_precompiled_programs(
+    gl: &WebGl2RenderingContext,
+    precompiled: &JsValue,
+) -> Result<(f64, [PendingShaderProgram; 4]), &'static str> {
+    let get = |object: &JsValue, key: &str| {
+        js_sys::Reflect::get(object, &key.into())
+            .ok()
+            .filter(|value| !value.is_undefined() && !value.is_null())
+    };
 
-        let encoded_paints_data = vec![0; (resources.resource_texture_dimension_2d << 4) as usize];
-
-        Ok(Self {
-            parallel_shader_compile,
-            compilation_start_ms,
-            poll_count: 0,
-            strip_program,
-            filter_program,
-            blend_program,
-            copy_program,
-            resources,
-            encoded_paints_data,
-        })
+    let sources_hash = get(precompiled, "sourcesHash")
+        .and_then(|hash| hash.as_string())
+        .ok_or("the value is not a `compileVelloShaders` result")?;
+    if sources_hash != vello_gpu_shaders::webgl_bootstrap::SOURCES_HASH {
+        return Err("they were compiled from different shader sources");
     }
-
-    fn is_complete(&self, gl: &WebGl2RenderingContext) -> bool {
-        self.strip_program
-            .is_complete(gl, self.parallel_shader_compile)
-            && self
-                .filter_program
-                .is_complete(gl, self.parallel_shader_compile)
-            && self
-                .blend_program
-                .is_complete(gl, self.parallel_shader_compile)
-            && self
-                .copy_program
-                .is_complete(gl, self.parallel_shader_compile)
+    let context = get(precompiled, "gl").ok_or("the WebGL context is missing")?;
+    if !js_sys::Object::is(&context, gl) {
+        return Err("they belong to a different WebGL context");
     }
+    let compilation_start_ms = get(precompiled, "startTime")
+        .and_then(|time| time.as_f64())
+        .ok_or("the compilation start time is missing")?;
+    let programs = get(precompiled, "programs").ok_or("the programs are missing")?;
 
-    fn finish(self, gl: &WebGl2RenderingContext) -> Result<WebGlPrograms, WebGlError> {
-        let strip_program = self.strip_program.finish(gl)?;
-        let filter_program = self.filter_program.finish(gl)?;
-        let blend_program = self.blend_program.finish(gl)?;
-        let copy_program = self.copy_program.finish(gl)?;
-        let shader_compilation_stats = ShaderCompilationStats {
-            shader_count: Self::PROGRAM_COUNT * PendingShaderProgram::SHADER_COUNT,
-            poll_count: self.poll_count,
-            elapsed: Duration::from_secs_f64(
-                (performance_now() - self.compilation_start_ms) / 1_000.0,
-            ),
+    let adopt = |name: &str| {
+        let program = get(&programs, name).ok_or("a program is missing")?;
+        let shader = |key| {
+            get(&program, key)
+                .and_then(|shader| shader.dyn_into::<WebGlShader>().ok())
+                .ok_or("a shader is missing")
         };
+        let vertex_shader = shader("vertexShader")?;
+        let fragment_shader = shader("fragmentShader")?;
+        let program = get(&program, "program")
+            .and_then(|program| program.dyn_into::<WebGlProgram>().ok())
+            .ok_or("a program handle is missing")?;
 
-        let filter_uniforms = get_filter_pass_uniforms(gl, &filter_program)?;
-        let blend_uniforms = get_blend_uniforms(gl, &blend_program)?;
-        let copy_uniforms = get_copy_uniforms(gl, &copy_program)?;
-        let strip_uniforms = get_strip_uniforms(gl, &strip_program)?;
-
-        gl.enable(WebGl2RenderingContext::BLEND);
-        gl.blend_func(
-            WebGl2RenderingContext::ONE,
-            WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA,
-        );
-
-        Ok(WebGlPrograms {
-            strip_program,
-            strip_uniforms,
-            filter_program,
-            filter_uniforms,
-            blend_program,
-            blend_uniforms,
-            copy_program,
-            copy_uniforms,
-            shader_compilation_stats,
-            resources: self.resources,
-            render_size: RenderSize {
-                width: 0,
-                height: 0,
-            },
-            negate_ndc: false,
-            encoded_paints_data: self.encoded_paints_data,
-            filter_data: Vec::new(),
+        Ok(PendingShaderProgram {
+            vertex_shader: VertexShader::from_raw(gl, WebGlVertexShader(vertex_shader)),
+            fragment_shader: FragmentShader::from_raw(gl, WebGlFragmentShader(fragment_shader)),
+            program: Program::from_raw(gl, program),
         })
-    }
+    };
+
+    Ok((
+        compilation_start_ms,
+        [
+            adopt("render")?,
+            adopt("filter")?,
+            adopt("blend")?,
+            adopt("copy")?,
+        ],
+    ))
 }
 
 impl WebGlPrograms {
