@@ -9,7 +9,8 @@ use vello_common::{
     pixmap::PixelMetadata,
 };
 use vello_gpu::{
-    ClearSettings, RenderSize, RenderTargetConfig, Renderer, Scene, TargetInit, TextureBindings,
+    ClearSettings, RenderOptions, RenderSize, RenderTarget, RenderTargetConfig, Renderer, Scene,
+    TargetInit, TextureBindings,
 };
 
 pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
@@ -25,7 +26,7 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
         height,
         format: wgpu::TextureFormat::Rgba8Unorm,
     };
-    let (mut renderer, mut resources) = Renderer::new(&device, &config);
+    let (mut renderer, mut resources) = Renderer::new(&device, &queue, &config);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
     let image = probe::probe_image_pixmap();
@@ -94,14 +95,16 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
         .render(
             &scene,
             &mut resources,
-            &device,
-            &queue,
             &mut encoder,
-            &size,
-            &texture.create_view(&wgpu::TextureViewDescriptor::default()),
-            Some(&depth),
-            &texture_bindings,
-            TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
+            &RenderTarget {
+                view: &texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                depth_view: Some(&depth),
+                size,
+            },
+            &RenderOptions {
+                texture_bindings: Some(&texture_bindings),
+                target_init: TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
+            },
         )
         .unwrap();
 

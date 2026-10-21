@@ -9,7 +9,7 @@ use vello_common::{
     peniko::ImageAlphaType,
     pixmap::PixelMetadata,
 };
-use vello_gpu::{RenderSettings, RenderSize, Scene, WebGlRenderer, WebGlTextureBindings};
+use vello_gpu::{RenderSettings, Scene, WebGlRenderOptions, WebGlRenderer, WebGlTextureBindings};
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
@@ -78,9 +78,10 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
         .render(
             &scene,
             &mut resources,
-            &RenderSize { width, height },
-            &texture_bindings,
-            css::WHITE,
+            &WebGlRenderOptions {
+                texture_bindings: Some(&texture_bindings),
+                clear_color: css::WHITE,
+            },
         )
         .unwrap();
 

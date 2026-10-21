@@ -178,6 +178,31 @@ pub struct WebGlRendererInit {
     layers_config: LayersConfig,
 }
 
+/// Options for [`WebGlRenderer::render`].
+#[derive(Debug, Clone, Copy)]
+pub struct WebGlRenderOptions<'a> {
+    /// Runtime bindings for the [externally owned textures](`TextureId`) referenced by the scene.
+    ///
+    /// `None` is equivalent to an empty [`WebGlTextureBindings`].
+    pub texture_bindings: Option<&'a WebGlTextureBindings>,
+    /// The color that the drawing buffer is cleared to before drawing.
+    ///
+    /// Note that in WebGL, the contents of drawing buffers are not guaranteed to be preserved
+    /// unless `preserveDrawingBuffer` has been set to `true` (which is highly discouraged).
+    /// Therefore, for the WebGL backend we currently don't expose more configurable clear
+    /// options.
+    pub clear_color: AlphaColor<Srgb>,
+}
+
+impl Default for WebGlRenderOptions<'_> {
+    fn default() -> Self {
+        Self {
+            texture_bindings: None,
+            clear_color: AlphaColor::TRANSPARENT,
+        }
+    }
+}
+
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct WebGlTextureBindings {
@@ -480,35 +505,32 @@ impl WebGlRenderer {
         self.programs.shader_compilation_stats
     }
 
-    /// Render `scene` using WebGL2
+    /// Render `scene` into the drawing buffer using WebGL2.
     ///
     /// This method creates GPU resources as needed and schedules potentially multiple draw calls.
     ///
-    /// Every [`TextureId`] referenced by the scene must have a binding; this returns
-    /// [`WebGlError::Render`] containing [`RenderError::MissingTextureBinding`] otherwise. See
-    /// [`WebGlTextureBindings::insert`] for the requirements on the bound textures.
-    ///
-    /// To render without any texture bindings, you can pass an empty [`WebGlTextureBindings`].
+    /// Every [`TextureId`] referenced by the scene must have a binding in
+    /// [`WebGlRenderOptions::texture_bindings`]; this returns [`WebGlError::Render`] containing
+    /// [`RenderError::MissingTextureBinding`] otherwise. See [`WebGlTextureBindings::insert`] for
+    /// the requirements on the bound textures.
     pub fn render(
         &mut self,
         scene: &Scene,
         resources: &mut Resources,
-        render_size: &RenderSize,
-        texture_bindings: &WebGlTextureBindings,
-        // Note that in WebGL, the contents of drawing buffers are not guaranteed to be preserved
-        // unless `preserveDrawingBuffer` has been set to `true` (which is highly discouraged).
-        // Therefore, for the WebGL backend we currently don't expose more configurable clear
-        // options.
-        clear_color: AlphaColor<Srgb>,
+        options: &WebGlRenderOptions<'_>,
     ) -> Result<(), WebGlError> {
-        debug_assert_eq!(
-            RenderSize {
-                width: self.gl.drawing_buffer_width().try_into().unwrap(),
-                height: self.gl.drawing_buffer_height().try_into().unwrap()
-            },
-            *render_size,
-            "Render size must match drawing buffer size"
-        );
+        let render_size = RenderSize {
+            width: self.gl.drawing_buffer_width().try_into().unwrap(),
+            height: self.gl.drawing_buffer_height().try_into().unwrap(),
+        };
+        let empty_texture_bindings;
+        let texture_bindings = match options.texture_bindings {
+            Some(texture_bindings) => texture_bindings,
+            None => {
+                empty_texture_bindings = WebGlTextureBindings::new();
+                &empty_texture_bindings
+            }
+        };
 
         #[cfg(feature = "text")]
         resources.before_render(
@@ -535,8 +557,10 @@ impl WebGlRenderer {
         self.render_scene(
             scene,
             &resources.image_cache,
-            render_size,
-            TargetInit::Clear(ClearSettings::Viewport { color: clear_color }),
+            &render_size,
+            TargetInit::Clear(ClearSettings::Viewport {
+                color: options.clear_color,
+            }),
             RootTarget::UserSurface,
             texture_bindings,
             None,

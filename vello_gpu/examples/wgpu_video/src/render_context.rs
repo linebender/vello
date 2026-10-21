@@ -126,6 +126,7 @@ impl<'window> RenderContext<'window> {
         };
         let (renderer, resources) = Renderer::new(
             &device,
+            &queue,
             &RenderTargetConfig {
                 format: SURFACE_FORMAT,
                 width: render_size.width,

@@ -418,6 +418,7 @@ impl GpuRenderer {
         // Create renderer and render the scene to the texture
         let (renderer, resources) = vello_gpu::Renderer::new_with(
             &device,
+            &queue,
             &vello_gpu::RenderTargetConfig {
                 format: texture.format(),
                 width,
@@ -486,13 +487,9 @@ impl GpuRenderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
-        let image_id = self.renderer.upload_image(
-            &mut self.resources,
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            pixmap,
-        );
+        let image_id = self
+            .renderer
+            .upload_image(&mut self.resources, &mut encoder, pixmap);
         self.queue.submit([encoder.finish()]);
         image_id
     }
@@ -704,14 +701,16 @@ impl Renderer for GpuRenderer {
             .render(
                 &self.scene,
                 &mut self.resources,
-                &self.device,
-                &self.queue,
                 &mut encoder,
-                &render_size,
-                &self.texture_view,
-                self.depth_texture_view.as_ref(),
-                &texture_bindings,
-                self.target_init,
+                &vello_gpu::RenderTarget {
+                    view: &self.texture_view,
+                    depth_view: self.depth_texture_view.as_ref(),
+                    size: render_size,
+                },
+                &vello_gpu::RenderOptions {
+                    texture_bindings: Some(&texture_bindings),
+                    target_init: self.target_init,
+                },
             )
             .unwrap();
 
@@ -1078,17 +1077,14 @@ impl Renderer for GpuRenderer {
     }
 
     fn render(&mut self) {
-        let width = self.scene.width();
-        let height = self.scene.height();
-
-        let render_size = vello_gpu::RenderSize { width, height };
         self.renderer
             .render(
                 &self.scene,
                 &mut self.resources,
-                &render_size,
-                &self.external_textures,
-                self.clear_color,
+                &vello_gpu::WebGlRenderOptions {
+                    texture_bindings: Some(&self.external_textures),
+                    clear_color: self.clear_color,
+                },
             )
             .unwrap();
     }
