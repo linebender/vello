@@ -24,7 +24,7 @@ use vello_example_scenes::{
     AnyScene,
     performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
 };
-use vello_gpu::{RenderSettings, Scene};
+use vello_gpu::{RenderSettings, Scene, WebGlShaders};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
@@ -36,22 +36,17 @@ struct RendererWrapper {
 }
 
 impl RendererWrapper {
-    async fn new(canvas: HtmlCanvasElement) -> Self {
+    /// Creates the renderer once `shaders`, which were compiled from `canvas`, are ready.
+    async fn new(canvas: HtmlCanvasElement, shaders: WebGlShaders) -> Self {
         let settings = RenderSettings::default();
-        let (mut init, resources) = vello_gpu::WebGlRenderer::begin_with(&canvas, settings, true)
+        let (init, resources) = vello_gpu::WebGlRenderer::begin_with_shaders(shaders, settings)
             .expect("failed to create WebGL renderer");
-        let renderer = loop {
-            match init
-                .try_finish()
-                .expect("failed to finish WebGL renderer initialization")
-            {
-                vello_gpu::WebGlRendererInitStatus::Complete(renderer) => break renderer,
-                vello_gpu::WebGlRendererInitStatus::Pending(pending) => {
-                    init = pending;
-                    next_animation_frame().await;
-                }
-            }
-        };
+        while !init.is_ready() {
+            next_animation_frame().await;
+        }
+        let renderer = init
+            .finish()
+            .expect("failed to finish WebGL renderer initialization");
 
         Self {
             renderer,
@@ -95,12 +90,16 @@ struct AppState {
 }
 
 impl AppState {
-    async fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<Scene>]>) -> Self {
+    async fn new(
+        canvas: HtmlCanvasElement,
+        shaders: WebGlShaders,
+        scenes: Box<[AnyScene<Scene>]>,
+    ) -> Self {
         let width = canvas.width();
         let height = canvas.height();
         let current_scene = initial_scene_index(scenes.len());
 
-        let mut renderer_wrapper = RendererWrapper::new(canvas.clone()).await;
+        let mut renderer_wrapper = RendererWrapper::new(canvas.clone(), shaders).await;
         let probe_indicator = ProbeIndicator::new(&mut renderer_wrapper.renderer);
         let shader_compilation = renderer_wrapper.renderer.shader_compilation_stats();
         let timing_note = if renderer_wrapper.gpu_timer.is_some() {
@@ -428,15 +427,19 @@ async fn next_animation_frame() {
     JsFuture::from(promise).await.unwrap();
 }
 
-/// Creates a `HTMLCanvasElement` of the given dimensions and renders the given scenes into it,
-/// with interactive controls for panning, zooming, and switching between scenes.
+#[wasm_bindgen(module = "/generated/bootstrap.js")]
+extern "C" {
+    #[wasm_bindgen(js_name = earlyCanvasElement)]
+    fn early_canvas_element() -> Option<HtmlCanvasElement>;
+    #[wasm_bindgen(js_name = earlyPrecompiledShaders)]
+    fn early_precompiled_shaders() -> JsValue;
+}
+
+/// Sizes the canvas whose shaders started compiling before the WebAssembly module loaded, and
+/// renders the example scenes into it with interactive controls for panning, zooming, and
+/// switching between scenes.
 pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
-    let canvas = web_sys::Window::document(&web_sys::window().unwrap())
-        .unwrap()
-        .create_element("canvas")
-        .unwrap()
-        .dyn_into::<HtmlCanvasElement>()
-        .unwrap();
+    let canvas = early_canvas_element().expect("the bootstrap snippet runs in a document");
     canvas.set_width(canvas_width as u32);
     canvas.set_height(canvas_height as u32);
     canvas.style().set_property("width", "100%").unwrap();
@@ -454,6 +457,14 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     // Add canvas to body
     body.append_child(&canvas).unwrap();
 
+    // The shaders keep compiling while the example scenes are built.
+    let shaders = WebGlShaders::from_precompiled(&canvas, true, &early_precompiled_shaders())
+        .expect("failed to create WebGL context");
+    log::info!(
+        "Shaders compiled before WebAssembly loaded: {}",
+        shaders.is_precompiled()
+    );
+
     let scenes = {
         let v = vello_example_scenes::get_example_scenes(
             vello_example_scenes::Capabilities::default(),
@@ -466,7 +477,9 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         v.into_boxed_slice()
     };
 
-    let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));
+    let app_state = Rc::new(RefCell::new(
+        AppState::new(canvas.clone(), shaders, scenes).await,
+    ));
 
     // Set up animation frame loop
     {
@@ -654,11 +667,12 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         .append_child(&canvas)
         .unwrap();
 
+    let shaders = WebGlShaders::compile(&canvas, true).expect("failed to create WebGL context");
     let RendererWrapper {
         mut renderer,
         mut resources,
         ..
-    } = RendererWrapper::new(canvas).await;
+    } = RendererWrapper::new(canvas, shaders).await;
 
     let render_size = vello_gpu::RenderSize { width, height };
     renderer

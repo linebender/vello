@@ -55,6 +55,8 @@ web-sys = { workspace = true, features = [
 ] }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
+# Provides the JavaScript module that compiles WebGL shaders before the WASM binary loads.
+vello_gpu_shaders = { workspace = true, features = ["glsl"] }
 # Required for introspecting the built WASM binary.
 wasmparser = "0.235.0"
 

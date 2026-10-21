@@ -46,5 +46,15 @@ web-sys = { workspace = true, features = [
     "KeyboardEvent",
 ] }
 
+[build-dependencies]
+# The shader features must match those enabled for `vello_gpu`, or the shaders compiled by the
+# generated JavaScript are rejected and recompiled.
+vello_gpu_shaders = { workspace = true, features = [
+    "glsl",
+    "blurred_rounded_rect",
+    "full_image_support",
+    "gradient_sweep",
+] }
+
 [dev-dependencies]
 wasm-bindgen-test = { workspace = true }

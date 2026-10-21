@@ -44,6 +44,14 @@ impl<T: GlResource> Resource<T> {
             raw,
         })
     }
+
+    /// Takes ownership of a resource created elsewhere, which is deleted when this is dropped.
+    pub(super) fn from_raw(gl: &WebGl2RenderingContext, raw: T) -> Self {
+        Self {
+            gl: gl.clone(),
+            raw,
+        }
+    }
 }
 
 impl<T: GlResource> Drop for Resource<T> {
@@ -61,7 +69,7 @@ impl<T: GlResource> Deref for Resource<T> {
 }
 
 #[derive(Debug)]
-pub(crate) struct WebGlVertexShader(WebGlShader);
+pub(crate) struct WebGlVertexShader(pub(super) WebGlShader);
 
 impl Deref for WebGlVertexShader {
     type Target = WebGlShader;
@@ -72,7 +80,7 @@ impl Deref for WebGlVertexShader {
 }
 
 #[derive(Debug)]
-pub(crate) struct WebGlFragmentShader(WebGlShader);
+pub(crate) struct WebGlFragmentShader(pub(super) WebGlShader);
 
 impl Deref for WebGlFragmentShader {
     type Target = WebGlShader;
