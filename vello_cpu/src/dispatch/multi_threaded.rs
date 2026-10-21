@@ -36,6 +36,7 @@ use vello_common::pixmap::PixmapMut;
 use vello_common::record::{CommandRecorder, LayerClip, LayerProps, PoppedLayer};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::util::RectExt;
 
 mod cost;
 mod worker;
@@ -396,9 +397,29 @@ impl MultiThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
+        let (viewport, params) = if let Some(vp) = settings.viewport {
+            let snapped = vp
+                .intersect(RectU16::new(0, 0, scene_width, scene_height))
+                .snap_to_tile_coordinates();
+            let params = FineRenderParams {
+                scene_size: (snapped.width(), snapped.height()),
+                target_offset: (
+                    settings.offset.0.saturating_add(snapped.x0),
+                    settings.offset.1.saturating_add(snapped.y0),
+                ),
+            };
+            (snapped, params)
+        } else {
+            let params = FineRenderParams {
+                scene_size: (scene_width, scene_height),
+                target_offset: settings.offset,
+            };
+            (RectU16::new(0, 0, scene_width, scene_height), params)
+        };
+
         let mut bucketer = self.bucketer.lock().unwrap();
         let filters = FilterContext::new(0);
-        bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
+        bucketer.reset(viewport);
         let target_init = settings.target_init.map(PremulColor::from_alpha_color);
         bucketer.bucket_commands(
             &self.recorder.nodes,
@@ -417,10 +438,6 @@ impl MultiThreadedDispatcher {
                 encoded_paints,
                 filter_paints: &bucketer.filter_paints,
                 image_resolver,
-            };
-            let params = FineRenderParams {
-                scene_size: (scene_width, scene_height),
-                target_offset: settings.offset,
             };
 
             let mut regions = Regions::new(
