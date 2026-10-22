@@ -13,6 +13,8 @@ use vello_common::tile::Tile;
 #[derive(Default, Debug)]
 pub struct Region<'a> {
     pub(crate) row_idx: usize,
+    x_start: u16,
+    y_start: u16,
     width: u16,
     pub(crate) height: u16,
     areas: [&'a mut [u8]; Tile::HEIGHT as usize],
@@ -37,6 +39,8 @@ impl<'a> Region<'a> {
         let buffer = pixmap.data_mut();
         Self::from_rows(
             row_idx,
+            0,
+            0,
             width,
             height,
             row_stride,
@@ -53,6 +57,14 @@ impl<'a> Region<'a> {
         self.width
     }
 
+    pub(crate) fn x_start(&self) -> u16 {
+        self.x_start
+    }
+
+    pub(crate) fn rows(&self) -> core::ops::Range<u16> {
+        self.y_start..self.y_start + self.height
+    }
+
     /// Return a horizontal sub-span of the region.
     pub(crate) fn sub_span(&mut self, x: u16, width: u16) -> Region<'_> {
         let x_offset = usize::from(x) * COLOR_COMPONENTS;
@@ -62,8 +74,9 @@ impl<'a> Region<'a> {
         for (source, area) in self
             .areas
             .iter_mut()
-            .take(usize::from(self.height))
             .zip(areas.iter_mut())
+            .skip(usize::from(self.y_start))
+            .take(usize::from(self.height))
         {
             let (_, source) = source.split_at_mut(x_offset);
             let (source, _) = source.split_at_mut(row_width_bytes);
@@ -72,6 +85,8 @@ impl<'a> Region<'a> {
 
         Region {
             row_idx: self.row_idx,
+            x_start: self.x_start + x,
+            y_start: self.y_start,
             width,
             height: self.height,
             areas,
@@ -84,6 +99,8 @@ impl<'a> Region<'a> {
 
     fn from_rows(
         row_idx: usize,
+        x_start: u16,
+        y_start: u16,
         width: u16,
         height: u16,
         row_stride: usize,
@@ -93,7 +110,11 @@ impl<'a> Region<'a> {
         let row_width_bytes = usize::from(width) * COLOR_COMPONENTS;
         let mut areas: [&mut [u8]; Tile::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
 
-        for area in areas.iter_mut().take(usize::from(height)) {
+        for area in areas
+            .iter_mut()
+            .skip(usize::from(y_start))
+            .take(usize::from(height))
+        {
             let (row, rest) = rows.split_at_mut(row_stride);
             let (_, row) = row.split_at_mut(x_offset);
             let (row, _) = row.split_at_mut(row_width_bytes);
@@ -103,6 +124,8 @@ impl<'a> Region<'a> {
 
         Self {
             row_idx,
+            x_start,
+            y_start,
             width,
             height,
             areas,
@@ -119,36 +142,57 @@ impl<'a> Regions<'a> {
     pub(crate) fn new(
         target: &'a mut PixmapMut<'_>,
         scene_size: (u16, u16),
-        offset: (u16, u16),
+        offset: (i32, i32),
         row_count: usize,
     ) -> Self {
+        let empty = Self {
+            regions: Vec::new(),
+        };
         let (dst_x, dst_y) = offset;
-
         let (scene_width, scene_height) = scene_size;
-        let width = scene_width.min(target.width().saturating_sub(dst_x));
-        let height = scene_height.min(target.height().saturating_sub(dst_y));
+        let max_height = u16::try_from(row_count * usize::from(Tile::HEIGHT)).unwrap_or(u16::MAX);
+        let scene_height = scene_height.min(max_height);
 
-        if width == 0 || height == 0 {
-            return Self {
-                regions: Vec::new(),
-            };
+        let x0 = dst_x.saturating_neg().clamp(0, i32::from(scene_width));
+        let y0 = dst_y.saturating_neg().clamp(0, i32::from(scene_height));
+        let x1 = i32::from(target.width())
+            .saturating_sub(dst_x)
+            .clamp(x0, i32::from(scene_width));
+        let y1 = i32::from(target.height())
+            .saturating_sub(dst_y)
+            .clamp(y0, i32::from(scene_height));
+
+        if x0 == x1 || y0 == y1 {
+            return empty;
         }
 
-        let row_count = row_count.min(usize::from(height).div_ceil(Tile::HEIGHT as usize));
-        let stride = usize::from(target.width()) * COLOR_COMPONENTS;
-        let x_offset = usize::from(dst_x) * COLOR_COMPONENTS;
-        let render_bytes = usize::from(height) * stride;
-        let target = target.data_mut();
-        let mut remaining = &mut target[usize::from(dst_y) * stride..][..render_bytes];
-        let mut regions = Vec::with_capacity(row_count);
+        let [x0, y0, x1, y1] = [x0, y0, x1, y1].map(|v| u16::try_from(v).unwrap());
+        let width = x1 - x0;
+        let first_row = y0 / Tile::HEIGHT;
+        let last_row = (y1 - 1) / Tile::HEIGHT;
 
-        for row_idx in 0..row_count {
-            let row_y = row_idx as u16 * Tile::HEIGHT;
-            let row_height = (height - row_y).min(Tile::HEIGHT);
-            let band_len = usize::from(row_height) * stride;
-            let (buffer, rest) = remaining.split_at_mut(band_len);
+        let stride = usize::from(target.width()) * COLOR_COMPONENTS;
+        let x_offset = usize::try_from(i32::from(x0) + dst_x).unwrap() * COLOR_COMPONENTS;
+        let render_bytes = usize::from(y1 - y0) * stride;
+        let start_row = usize::try_from(i32::from(y0) + dst_y).unwrap();
+        let target = target.data_mut();
+        let mut remaining = &mut target[start_row * stride..][..render_bytes];
+        let mut regions = Vec::with_capacity(usize::from(last_row - first_row + 1));
+
+        for row in first_row..=last_row {
+            let row_y0 = (row * Tile::HEIGHT).max(y0);
+            let row_y1 = (row * Tile::HEIGHT).saturating_add(Tile::HEIGHT).min(y1);
+            let row_height = row_y1 - row_y0;
+            let (buffer, rest) = remaining.split_at_mut(usize::from(row_height) * stride);
             regions.push(Region::from_rows(
-                row_idx, width, row_height, stride, x_offset, buffer,
+                usize::from(row),
+                x0,
+                row_y0 - row * Tile::HEIGHT,
+                width,
+                row_height,
+                stride,
+                x_offset,
+                buffer,
             ));
             remaining = rest;
         }

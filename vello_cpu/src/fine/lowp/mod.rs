@@ -355,7 +355,7 @@ fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Regio
 
 #[inline(always)]
 fn pack_tail(scratch: &[u8], x: usize, width: usize, region: &mut Region<'_>) {
-    for y in 0..region.height {
+    for y in region.rows() {
         let row = &mut region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
         for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
             let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
@@ -422,7 +422,7 @@ fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch
 
 #[inline(always)]
 fn unpack_tail(region: &mut Region<'_>, x: usize, width: usize, scratch: &mut [u8]) {
-    for y in 0..region.height {
+    for y in region.rows() {
         let row = &region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
         for (dx, pixel) in row.chunks_exact(COLOR_COMPONENTS).enumerate() {
             let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));

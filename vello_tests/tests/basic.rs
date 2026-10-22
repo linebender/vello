@@ -568,7 +568,7 @@ fn render_src_over_with_offset() {
             RasterizerSettings {
                 render_mode: RenderMode::OptimizeQuality,
                 target_init: TargetInit::SrcOver,
-                offset: (dst_x, dst_y),
+                offset: (dst_x.into(), dst_y.into()),
                 ..Default::default()
             },
         );

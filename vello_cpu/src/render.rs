@@ -120,8 +120,8 @@ pub struct RasterizerSettings {
     pub pixel_format: PixelFormat,
     /// Offset in destination pixels where the render context origin is placed.
     ///
-    /// See [`RenderContext::render_with`] for more information.
-    pub offset: (u16, u16),
+    /// The offset can be negative. See [`RenderContext::render_with`] for more information.
+    pub offset: (i32, i32),
 }
 
 impl Default for RasterizerSettings {
@@ -840,6 +840,8 @@ impl RenderContext {
     /// 3. In case the width/height of the pixmap is _smaller_ than the offset + width/height of the
     ///    scene, then anything that exceeds the pixmap boundaries is simply cut off. This can be useful
     ///    if for some reason you only want to rasterize a small cut-out of the original scene.
+    ///    The same applies to negative offsets, in which case the parts of the scene that end up
+    ///    to the top/left of the pixmap are cut off.
     pub fn render_with<'a>(
         &self,
         target: impl Into<PixmapMut<'a>>,

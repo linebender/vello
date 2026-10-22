@@ -464,7 +464,7 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
 ) {
     let scene_y = region.row_idx as u16 * Tile::HEIGHT;
     let row = &bucketer.rows()[region.row_idx];
-    let span = Span::new(0, region.width()).tile_aligned();
+    let span = Span::new(region.x_start(), region.width()).tile_aligned();
 
     fine.set_row_y(scene_y);
     depth.clear();
@@ -595,9 +595,10 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             // The pixmap we load from does not necessarily have a width that is
                             // a multiple of the tile width! We therefore clamp and leave any
                             // tail in the blend buffer uninitialized.
-                            .intersect(Span::new(0, region.width()))
+                            .intersect(Span::new(region.x_start(), region.width()))
                         {
-                            let mut region = region.sub_span(span.pixel_x(), span.pixel_width());
+                            let mut region = region
+                                .sub_span(span.pixel_x() - region.x_start(), span.pixel_width());
                             self.unpack(span.pixel_x(), &mut region);
                         }
                     },
@@ -656,9 +657,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[doc(hidden)]
     pub fn pack(&self, region: &mut Region<'_>) {
         let width = usize::from(region.width());
+        let scratch_x = usize::from(region.x_start());
         let scratch = self.blend_buffers.last().unwrap();
 
-        T::pack(self.simd, scratch, width, region);
+        T::pack(
+            self.simd,
+            &scratch[scratch_x * TILE_HEIGHT_COMPONENTS..],
+            width,
+            region,
+        );
     }
 
     /// Reads the pixels of the target back into the buffer.
@@ -1163,7 +1170,7 @@ pub(crate) struct FineRenderParams {
     /// Scene/filter dimensions before clipping to the destination pixmap.
     pub(crate) scene_size: (u16, u16),
     /// Destination offset in the target pixmap.
-    pub(crate) target_offset: (u16, u16),
+    pub(crate) target_offset: (i32, i32),
 }
 
 /// A trait for objects that can render pixel data into buffers.

@@ -259,7 +259,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     }
 
     fn pack(_simd: S, scratch: &[Self::Numeric], width: usize, region: &mut Region<'_>) {
-        for y in 0..region.height {
+        for y in region.rows() {
             let row = &mut region.row_mut(y)[..width * COLOR_COMPONENTS];
             // TODO: SIMDify
             for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
@@ -274,7 +274,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     }
 
     fn unpack(_simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [Self::Numeric]) {
-        for y in 0..region.height {
+        for y in region.rows() {
             let row = &region.row_mut(y)[..width * COLOR_COMPONENTS];
             // TODO: SIMDify + multiply by 1.0/255.0 instead.
             for (dx, pixel) in row.chunks_exact(COLOR_COMPONENTS).enumerate() {
