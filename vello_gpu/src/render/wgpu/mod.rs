@@ -560,17 +560,20 @@ impl Renderer {
             &self.schedule_storage.filter_context,
         );
 
-        let strip_count = self
+        let opaque_strip_count = self
             .schedule_storage
             .buffers
             .draw_buffers
             .opaque
             .strips()
-            .len()
-            + self.schedule_storage.buffers.draw_buffers.strips.len();
+            .len();
+        let strip_count =
+            opaque_strip_count + self.schedule_storage.buffers.draw_buffers.strips.len();
+        // Every draw pass uploads once, plus the opaque pre-pass when it has strips.
+        let upload_count = schedule.draw_pass_count() + usize::from(opaque_strip_count != 0);
         self.programs
             .strips_arena
-            .begin_frame(device, (strip_count * size_of::<GpuStrip>()) as u64);
+            .begin_frame(device, strip_count, upload_count);
 
         let mut ctx = RendererContext {
             programs: &mut self.programs,
@@ -1053,9 +1056,29 @@ struct Programs {
     filter_data: Vec<u8>,
 }
 
+/// Alignment of the offset and length of every strip upload into the arena.
+///
+/// wgpu only requires [`COPY_BUFFER_ALIGNMENT`] (4 bytes), but some drivers implement buffer
+/// copies as blits of 128-bit texels and reject copies whose destination is not 16-byte aligned.
+/// `PowerVR` Rogue (e.g. GE8320) fails `vkQueueSubmit` with `PVRSRV_ERROR_NOT_SUPPORTED` in that
+/// case, which wgpu surfaces as an out-of-memory error. Since [`GpuStrip`] is 24 bytes, an odd
+/// strip count would otherwise place the next upload at an offset of 8 modulo 16.
+const STRIP_UPLOAD_ALIGNMENT: u64 = 16;
+const _: () = assert!(
+    STRIP_UPLOAD_ALIGNMENT.is_multiple_of(COPY_BUFFER_ALIGNMENT),
+    "arena offsets must also satisfy wgpu's copy alignment"
+);
+
 #[derive(Debug)]
 struct StripBufferArena {
     buffer: Buffer,
+    layout: StripArenaLayout,
+}
+
+/// Bump-allocation bookkeeping for [`StripBufferArena`], kept separate from the GPU buffer so
+/// the alignment invariants can be tested without a device.
+#[derive(Debug, Default)]
+struct StripArenaLayout {
     capacity: u64,
     cursor: u64,
 }
@@ -1073,26 +1096,60 @@ impl StripBufferArena {
     fn new(device: &Device) -> Self {
         Self {
             buffer: create_arena_buffer(device, 0),
-            capacity: 0,
-            cursor: 0,
+            layout: StripArenaLayout::default(),
         }
     }
 
-    fn begin_frame(&mut self, device: &Device, frame_size: u64) {
-        self.cursor = 0;
-        if frame_size > self.capacity {
-            let new_capacity = frame_size
-                .max(self.capacity * 2)
-                .min(device.limits().max_buffer_size);
+    /// Reset the arena for a frame uploading `strip_count` strips across at most `upload_count`
+    /// separate uploads, growing the buffer if needed.
+    fn begin_frame(&mut self, device: &Device, strip_count: usize, upload_count: usize) {
+        let frame_size = StripArenaLayout::frame_size(strip_count, upload_count);
+        if let Some(new_capacity) = self
+            .layout
+            .begin_frame(frame_size, device.limits().max_buffer_size)
+        {
             self.buffer = create_arena_buffer(device, new_capacity);
-            self.capacity = new_capacity;
         }
     }
 
-    fn alloc(&mut self, len: u64) -> u64 {
-        let offset = self.cursor.next_multiple_of(COPY_BUFFER_ALIGNMENT);
-        self.cursor = offset + len;
-        offset
+    fn alloc(&mut self, len: u64) -> (u64, u64) {
+        self.layout.alloc(len)
+    }
+}
+
+impl StripArenaLayout {
+    /// Upper bound on the arena bytes needed for a frame, including the padding each upload
+    /// may add to reach [`STRIP_UPLOAD_ALIGNMENT`].
+    fn frame_size(strip_count: usize, upload_count: usize) -> u64 {
+        (strip_count * size_of::<GpuStrip>()) as u64
+            + upload_count as u64 * (STRIP_UPLOAD_ALIGNMENT - 1)
+    }
+
+    /// Reset the cursor and return the new capacity if the buffer must grow to hold
+    /// `frame_size` bytes.
+    fn begin_frame(&mut self, frame_size: u64, max_buffer_size: u64) -> Option<u64> {
+        self.cursor = 0;
+        if frame_size <= self.capacity {
+            return None;
+        }
+        let new_capacity = frame_size.max(self.capacity * 2).min(max_buffer_size);
+        self.capacity = new_capacity;
+        Some(new_capacity)
+    }
+
+    /// Reserve `len` bytes and return the aligned offset and the padded length that must be
+    /// written so the copy covers whole [`STRIP_UPLOAD_ALIGNMENT`] units.
+    fn alloc(&mut self, len: u64) -> (u64, u64) {
+        let offset = self.cursor.next_multiple_of(STRIP_UPLOAD_ALIGNMENT);
+        let padded_len = len.next_multiple_of(STRIP_UPLOAD_ALIGNMENT);
+        self.cursor = offset + padded_len;
+        debug_assert!(
+            self.cursor <= self.capacity,
+            "strip arena overflow: cursor {} exceeds capacity {}",
+            self.cursor,
+            self.capacity
+        );
+        (offset, padded_len)
     }
 }
 
@@ -2756,8 +2813,8 @@ impl Programs {
         }
 
         let arena = &mut self.strips_arena;
-        let offset = arena.alloc(total_len);
-        let size = NonZeroU64::new(total_len).expect("total length is non-zero");
+        let (offset, padded_len) = arena.alloc(total_len);
+        let size = NonZeroU64::new(padded_len).expect("total length is non-zero");
         // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
         let mut view = queue
             .write_buffer_with(&arena.buffer, offset, size)
@@ -2772,6 +2829,8 @@ impl Programs {
             view.slice(pos..pos + bytes.len()).copy_from_slice(bytes);
             pos += bytes.len();
         }
+        // The staging memory is uninitialized, so the alignment padding must be written too.
+        view.slice(pos..).fill(0);
 
         offset..offset + total_len
     }
@@ -3644,5 +3703,65 @@ fn clear_color(color: AlphaColor<Srgb>) -> wgpu::Color {
         g: f64::from(g),
         b: f64::from(b),
         a: f64::from(a),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GpuStrip, STRIP_UPLOAD_ALIGNMENT, StripArenaLayout};
+
+    const STRIP_SIZE: u64 = size_of::<GpuStrip>() as u64;
+
+    fn layout_for(strip_counts: &[usize]) -> StripArenaLayout {
+        let mut layout = StripArenaLayout::default();
+        let frame_size =
+            StripArenaLayout::frame_size(strip_counts.iter().sum(), strip_counts.len());
+        layout.begin_frame(frame_size, u64::MAX);
+        layout
+    }
+
+    /// Seven opaque strips followed by three alpha strips used to place the second copy at
+    /// byte 168, which `PowerVR` GE8320 rejects.
+    #[test]
+    fn uploads_after_odd_strip_count_stay_aligned() {
+        let counts = [7, 3];
+        let mut layout = layout_for(&counts);
+
+        let (first_offset, first_len) = layout.alloc(7 * STRIP_SIZE);
+        let (second_offset, second_len) = layout.alloc(3 * STRIP_SIZE);
+
+        assert_eq!(first_offset, 0);
+        assert_eq!(first_len, 176);
+        assert_eq!(second_offset, 176);
+        assert_eq!(second_len, 80);
+        for value in [first_offset, first_len, second_offset, second_len] {
+            assert!(value.is_multiple_of(STRIP_UPLOAD_ALIGNMENT));
+        }
+    }
+
+    #[test]
+    fn frame_size_covers_padding_of_every_upload() {
+        // Odd counts maximize padding; every allocation must still fit the frame budget.
+        let counts = [1, 3, 5, 7, 9, 11];
+        let mut layout = layout_for(&counts);
+
+        for count in counts {
+            let (offset, padded_len) = layout.alloc(count as u64 * STRIP_SIZE);
+            assert!(offset.is_multiple_of(STRIP_UPLOAD_ALIGNMENT));
+            assert!(padded_len.is_multiple_of(STRIP_UPLOAD_ALIGNMENT));
+            assert!(offset + padded_len <= layout.capacity);
+        }
+    }
+
+    #[test]
+    fn begin_frame_only_grows_when_needed() {
+        let mut layout = StripArenaLayout::default();
+
+        assert_eq!(layout.begin_frame(100, u64::MAX), Some(100));
+        assert_eq!(layout.begin_frame(50, u64::MAX), None);
+        // Growth at least doubles to avoid reallocating every frame.
+        assert_eq!(layout.begin_frame(101, u64::MAX), Some(200));
+        // Growth is clamped to the device limit.
+        assert_eq!(layout.begin_frame(1000, 500), Some(500));
     }
 }

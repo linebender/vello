@@ -66,6 +66,12 @@ impl Rounds {
         page_counts
     }
 
+    /// Number of draw passes executed across all rounds.
+    #[cfg(feature = "wgpu")]
+    pub(super) fn draw_pass_count(&self) -> usize {
+        self.rounds.iter().map(Round::draw_pass_count).sum()
+    }
+
     pub(super) fn round_mut(&mut self, index: usize) -> &mut Round {
         &mut self.rounds[index]
     }
@@ -228,6 +234,18 @@ impl Round {
                     rects,
                 })
             })
+    }
+
+    /// Number of draw passes this round executes: one per layer texture with strips plus the
+    /// root draw, matching the passes yielded by [`Self::layer_passes`] and
+    /// [`Self::root_draw_pass`].
+    #[cfg(feature = "wgpu")]
+    pub(super) fn draw_pass_count(&self) -> usize {
+        self.layer_texture_passes
+            .iter()
+            .filter(|pass| pass.draw.strip_ranges.len() != 0)
+            .count()
+            + usize::from(self.root_draw.strip_ranges.len() != 0)
     }
 
     pub(super) fn root_draw_mut(&mut self) -> &mut Draw {
