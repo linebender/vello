@@ -710,6 +710,7 @@ impl Renderer for GpuRenderer {
                 &vello_gpu::RenderOptions {
                     texture_bindings: Some(&texture_bindings),
                     target_init: self.target_init,
+                    ..Default::default()
                 },
             )
             .unwrap();
@@ -1084,6 +1085,7 @@ impl Renderer for GpuRenderer {
                 &vello_gpu::WebGlRenderOptions {
                     texture_bindings: Some(&self.external_textures),
                     clear_color: self.clear_color,
+                    ..Default::default()
                 },
             )
             .unwrap();

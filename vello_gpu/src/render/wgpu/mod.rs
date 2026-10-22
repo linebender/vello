@@ -123,6 +123,12 @@ pub struct RenderOptions<'a> {
     pub texture_bindings: Option<&'a TextureBindings>,
     /// How existing target contents are handled before drawing.
     pub target_init: TargetInit<'a>,
+    /// The position of the scene's origin within the target, in pixels.
+    ///
+    /// The offset can be negative, and parts of the scene that end up outside of the target are
+    /// discarded. It only applies to the scene itself, all other values (such as the target size
+    /// and clear rectangles) are still in target coordinates.
+    pub offset: (i32, i32),
 }
 
 impl Default for RenderOptions<'_> {
@@ -130,6 +136,7 @@ impl Default for RenderOptions<'_> {
         Self {
             texture_bindings: None,
             target_init: TargetInit::Clear(ClearSettings::default()),
+            offset: (0, 0),
         }
     }
 }
@@ -443,6 +450,7 @@ impl Renderer {
             options.target_init,
             RootTarget::UserSurface,
             texture_bindings,
+            options.offset,
         );
 
         #[cfg(feature = "text")]
@@ -518,6 +526,7 @@ impl Renderer {
             TargetInit::SrcOver,
             RootTarget::AtlasLayer,
             texture_bindings,
+            (0, 0),
         );
         self.dummy_image_cache = Some(dummy_image_cache);
 
@@ -554,6 +563,7 @@ impl Renderer {
         target_init: TargetInit<'_>,
         root_output_target: RootTarget,
         texture_bindings: &TextureBindings,
+        scene_offset: (i32, i32),
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
         self.prepare_gpu_encoded_paints(
@@ -599,6 +609,7 @@ impl Renderer {
             &self.encoded_paints,
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
+            scene_offset,
             &self.paint_idxs,
             &self.schedule_storage.filter_context,
         );
@@ -1077,6 +1088,8 @@ struct Programs {
     wgpu_external_textures: bool,
     /// Dimensions of the rendering target
     render_size: RenderSize,
+    /// Offset of the scene within the rendering target.
+    scene_offset: (i32, i32),
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
     /// Scratch buffer for staging filter data texture data.
@@ -1933,6 +1946,7 @@ impl Programs {
                 width: render_target_config.width,
                 height: render_target_config.height,
             },
+            scene_offset: (0, 0),
             clear_pipeline,
             root_clear_pipeline,
             atlas_clear_pipeline,
@@ -2356,6 +2370,7 @@ impl Programs {
         encoded_paints: &[GpuEncodedPaint],
         alphas: &mut Vec<u8>,
         new_render_size: &RenderSize,
+        scene_offset: (i32, i32),
         paint_idxs: &[u32],
         filter_context: &FilterContext,
     ) {
@@ -2363,7 +2378,12 @@ impl Programs {
         self.maybe_resize_alphas_tex(device, resource_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, resource_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_tex(device, resource_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(queue, resource_texture_dimension_2d, new_render_size);
+        self.maybe_update_config_buffer(
+            queue,
+            resource_texture_dimension_2d,
+            new_render_size,
+            scene_offset,
+        );
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints, paint_idxs);
@@ -2530,22 +2550,23 @@ impl Programs {
         }
     }
 
-    /// Update config buffer if dimensions changed.
+    /// Update config buffer if dimensions or the scene offset changed.
     fn maybe_update_config_buffer(
         &mut self,
         queue: &Queue,
         resource_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
+        scene_offset: (i32, i32),
     ) {
-        if self.render_size != *new_render_size {
+        if self.render_size != *new_render_size || self.scene_offset != scene_offset {
             let config = Config {
                 width: u32::from(new_render_size.width),
                 height: u32::from(new_render_size.height),
                 strip_height: Tile::HEIGHT.into(),
                 alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
                 encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
-                strip_offset_x: 0,
-                strip_offset_y: 0,
+                strip_offset_x: scene_offset.0,
+                strip_offset_y: scene_offset.1,
                 negate_ndc: 0,
             };
             let mut buffer = queue
@@ -2554,6 +2575,7 @@ impl Programs {
             buffer.copy_from_slice(bytemuck::bytes_of(&config));
 
             self.render_size = new_render_size.clone();
+            self.scene_offset = scene_offset;
         }
     }
 

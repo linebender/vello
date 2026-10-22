@@ -87,10 +87,8 @@ struct Config {
     encoded_paints_tex_width_bits: u32,
     // An offset to apply to the strip.
     //
-    // In most cases, these will be zero. However,
-    // when rendering filter layers, we need to account for the 1) shift caused by
-    // only rendering the tight bounding box of the filter layer and 2) the offset
-    // within the atlas where the filter layer will be rendered to.
+    // This is used to position the scene within the final render target, and is
+    // zero when rendering into intermediate textures.
     strip_offset_x: i32,
     strip_offset_y: i32,
     // Whether to flip the y-component of the NDC coordinates.

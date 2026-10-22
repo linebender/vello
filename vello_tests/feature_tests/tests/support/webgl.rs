@@ -81,6 +81,7 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
             &WebGlRenderOptions {
                 texture_bindings: Some(&texture_bindings),
                 clear_color: css::WHITE,
+                ..Default::default()
             },
         )
         .unwrap();

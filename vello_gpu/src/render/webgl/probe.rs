@@ -174,6 +174,7 @@ impl WebGlRenderer {
             RootTarget::UserSurface,
             &texture_bindings,
             Some(&probe_texture),
+            (0, 0),
         );
         let probe_framebuffer = core::mem::replace(
             &mut self.programs.resources.view_framebuffer,

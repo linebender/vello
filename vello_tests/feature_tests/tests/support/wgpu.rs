@@ -104,6 +104,7 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
             &RenderOptions {
                 texture_bindings: Some(&texture_bindings),
                 target_init: TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
+                ..Default::default()
             },
         )
         .unwrap();
