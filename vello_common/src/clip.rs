@@ -4,9 +4,9 @@
 //! Managing clipping state.
 
 use crate::geometry::RectU16;
-use crate::kurbo::{Affine, BezPath, PathEl, Rect};
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
+use crate::kurbo::{Affine, BezPath, PathEl, Rect};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use crate::tile::Tile;
