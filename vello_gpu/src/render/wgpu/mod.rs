@@ -1082,8 +1082,9 @@ impl UploadStagingBelt {
     }
 
     fn prepare(&mut self, device: &Device) {
-        if self.frame_allocated > self.capacity {
-            self.capacity = (self.frame_allocated * 2).min(device.limits().max_buffer_size);
+        let max_buffer_size = device.limits().max_buffer_size;
+        if self.frame_allocated > self.capacity && self.capacity < max_buffer_size {
+            self.capacity = (self.frame_allocated * 2).min(max_buffer_size);
             self.belt = StagingBelt::new(device.clone(), self.capacity);
         }
         self.frame_allocated = 0;
