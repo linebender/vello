@@ -48,6 +48,7 @@ mod issues;
 mod layer;
 mod mask;
 mod mix;
+mod offset;
 mod opacity;
 use vello_tests::renderer;
 mod scenes;

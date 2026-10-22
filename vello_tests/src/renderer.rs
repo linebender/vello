@@ -89,6 +89,7 @@ pub trait Renderer: Sized {
     fn reset_filter_effect(&mut self);
     fn reset(&mut self);
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>);
+    fn set_offset(&mut self, offset: (i32, i32));
     fn render(&mut self);
     fn snapshot(&mut self) -> Pixmap;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
@@ -104,6 +105,7 @@ pub struct CpuRenderer {
     render_mode: RenderMode,
     target: Pixmap,
     target_init: GpuTargetInit<'static>,
+    offset: (i32, i32),
 }
 
 impl Renderer for CpuRenderer {
@@ -125,6 +127,7 @@ impl Renderer for CpuRenderer {
             render_mode,
             target: Pixmap::new(width, height),
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
+            offset: (0, 0),
         }
     }
 
@@ -293,6 +296,10 @@ impl Renderer for CpuRenderer {
         self.target_init = target_init;
     }
 
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
+    }
+
     fn render(&mut self) {
         let target_init = match self.target_init {
             GpuTargetInit::SrcOver => CpuTargetInit::SrcOver,
@@ -310,6 +317,7 @@ impl Renderer for CpuRenderer {
             RasterizerSettings {
                 render_mode: self.render_mode,
                 target_init,
+                offset: self.offset,
                 ..Default::default()
             },
         );
@@ -376,6 +384,7 @@ pub struct GpuRenderer {
     wgpu_external_textures: HashMap<TextureId, (wgpu::ExternalTexture, u32, u32)>,
     next_external_texture_id: u64,
     target_init: GpuTargetInit<'static>,
+    offset: (i32, i32),
     gpu_test_guard: Option<std::sync::MutexGuard<'static, ()>>,
 }
 
@@ -443,6 +452,7 @@ impl GpuRenderer {
             wgpu_external_textures: HashMap::new(),
             next_external_texture_id: 1,
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
+            offset: (0, 0),
             gpu_test_guard: None,
         }
     }
@@ -667,6 +677,10 @@ impl Renderer for GpuRenderer {
         self.target_init = target_init;
     }
 
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
+    }
+
     fn render(&mut self) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
@@ -710,7 +724,7 @@ impl Renderer for GpuRenderer {
                 &vello_gpu::RenderOptions {
                     texture_bindings: Some(&texture_bindings),
                     target_init: self.target_init,
-                    ..Default::default()
+                    offset: self.offset,
                 },
             )
             .unwrap();
@@ -862,6 +876,7 @@ pub struct GpuRenderer {
     external_textures: vello_gpu::WebGlTextureBindings,
     next_external_texture_id: u64,
     clear_color: AlphaColor<Srgb>,
+    offset: (i32, i32),
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -939,6 +954,7 @@ impl Renderer for GpuRenderer {
             external_textures: vello_gpu::WebGlTextureBindings::new(),
             next_external_texture_id: 1,
             clear_color: AlphaColor::TRANSPARENT,
+            offset: (0, 0),
         }
     }
 
@@ -1077,6 +1093,10 @@ impl Renderer for GpuRenderer {
         };
     }
 
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
+    }
+
     fn render(&mut self) {
         self.renderer
             .render(
@@ -1085,7 +1105,7 @@ impl Renderer for GpuRenderer {
                 &vello_gpu::WebGlRenderOptions {
                     texture_bindings: Some(&self.external_textures),
                     clear_color: self.clear_color,
-                    ..Default::default()
+                    offset: self.offset,
                 },
             )
             .unwrap();

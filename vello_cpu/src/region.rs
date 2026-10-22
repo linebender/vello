@@ -219,7 +219,14 @@ mod tests {
 
     #[test]
     fn regions_with_off_target_offsets_do_not_panic() {
-        for offset in [(20, 0), (0, 20)] {
+        for offset in [
+            (20, 0),
+            (0, 20),
+            (-20, 0),
+            (0, -20),
+            (i32::MIN, i32::MIN),
+            (i32::MAX, i32::MAX),
+        ] {
             let mut pixmap = Pixmap::new(10, 10);
             let mut pixmap = pixmap.as_mut();
             let _regions = Regions::new(&mut pixmap, (4, 4), offset, 1);
