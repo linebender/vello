@@ -31,29 +31,27 @@ struct ClipData {
 
 impl ClipData {
     fn to_clip_ref<'a>(&self, storage: &'a StripStorage) -> ClipRef<'a> {
-        if self.lazy_rect.is_some() {
-            return ClipRef {
-                path: PathDataRef {
-                    strips: &[],
-                    alphas: &[],
-                    bbox: self.bbox,
-                    lazy_rect: self.lazy_rect,
-                },
-                shape: self.shape,
-            };
-        }
-        ClipRef {
-            path: PathDataRef {
-                strips: storage
+        // A lazy rectangular clip has no strips of its own in the storage.
+        let (strips, alphas) = if self.lazy_rect.is_some() {
+            (&[][..], &[][..])
+        } else {
+            (
+                storage
                     .strips
                     .get(self.strip_start as usize..)
                     .unwrap_or(&[]),
-                alphas: storage
+                storage
                     .alphas
                     .get(self.alpha_start as usize..)
                     .unwrap_or(&[]),
+            )
+        };
+        ClipRef {
+            path: PathDataRef {
+                strips,
+                alphas,
                 bbox: self.bbox,
-                lazy_rect: None,
+                lazy_rect: self.lazy_rect,
             },
             shape: self.shape,
         }
@@ -86,15 +84,21 @@ impl ClipContext {
             storage: main_storage,
             temp_storage: StripStorage::default(),
             clip_stack: vec![],
-            lazy_rects: true,
+            lazy_rects: false,
         }
     }
 
-    /// Create a clip context that always generates the strips of a clip when it is pushed.
+    /// Create a clip context whose rectangular clips on the viewport or on another
+    /// rectangular clip don't generate strips when they are pushed, only for the tile rows
+    /// of each path drawn through them.
+    ///
+    /// The [`PathDataRef`] of such a clip has empty `strips` and `alphas` and the rectangle
+    /// in `lazy_rect`. [`intersect`] and [`StripGenerator`] handle it; code that reads the
+    /// strips itself has to use [`ClipContext::new`].
     #[inline]
-    pub fn new_eager() -> Self {
+    pub fn new_lazy() -> Self {
         Self {
-            lazy_rects: false,
+            lazy_rects: true,
             ..Self::new()
         }
     }
@@ -207,19 +211,20 @@ impl ClipContext {
     }
 }
 
-/// A tile-aligned bounding box that contains `rect`.
+/// The tile-aligned bounding box of the strips of `rect`, as `strip_bbox` gives it for
+/// strips generated for `rect`. `rect` lies within the viewport, so the box does too.
 fn tile_bbox(rect: Rect) -> RectU16 {
     if rect.is_zero_area() {
         return RectU16::ZERO;
     }
-    let down = |v: f64| (v.max(0.0) as u32 / u32::from(Tile::WIDTH)) * u32::from(Tile::WIDTH);
-    let up = |v: f64| (v.max(0.0) as u32 / u32::from(Tile::WIDTH) + 1) * u32::from(Tile::WIDTH);
-    let clamp = |v: u32| v.min(u32::from(u16::MAX)) as u16;
+    let down = |v: f64, tile: u16| (v.max(0.0) / f64::from(tile)).floor() * f64::from(tile);
+    let up = |v: f64, tile: u16| (v.max(0.0) / f64::from(tile)).ceil() * f64::from(tile);
+    let clamp = |v: f64| v.min(f64::from(u16::MAX)) as u16;
     RectU16::new(
-        clamp(down(rect.x0)),
-        clamp(down(rect.y0)),
-        clamp(up(rect.x1)),
-        clamp(up(rect.y1)),
+        clamp(down(rect.x0, Tile::WIDTH)),
+        clamp(down(rect.y0, Tile::HEIGHT)),
+        clamp(up(rect.x1, Tile::WIDTH)),
+        clamp(up(rect.y1, Tile::HEIGHT)),
     )
 }
 
@@ -288,7 +293,7 @@ impl ClipState {
     /// Create a new clip state.
     pub fn new() -> Self {
         Self {
-            context: ClipContext::new(),
+            context: ClipContext::new_lazy(),
             context_pool: Pool::default(),
             path_elements: Vec::new(),
             raw_clips: Vec::new(),
@@ -308,7 +313,10 @@ impl ClipState {
         source_shift: (u16, u16),
         strip_generator: &mut StripGenerator,
     ) {
-        let parent_context = core::mem::replace(&mut self.context, self.context_pool.take());
+        // The pool makes new contexts with `Default`, which is eager.
+        let mut context = self.context_pool.take();
+        context.lazy_rects = true;
+        let parent_context = core::mem::replace(&mut self.context, context);
         let source_shift =
             Affine::translate((f64::from(source_shift.0), f64::from(source_shift.1)))
                 * self.active_shift();
@@ -465,13 +473,64 @@ pub struct ClipRef<'a> {
 /// Compute the sparse strips representation of a path that results
 /// from intersecting the two input paths. This can be used to implement
 /// clip paths.
+///
+/// Either path can be a lazy rectangular clip (see [`ClipContext::new_lazy`]); the strips it
+/// needs are generated here.
 pub fn intersect(
     level: Level,
     path_1: PathDataRef<'_>,
     path_2: PathDataRef<'_>,
     target: &mut StripStorage,
 ) {
+    if let Some(rect) = path_1.lazy_rect {
+        let mut rows = StripStorage::default();
+        lazy_rect_strips(level, rect, &path_2, &mut rows);
+        let path_1 = PathDataRef {
+            strips: &rows.strips,
+            alphas: &rows.alphas,
+            bbox: path_1.bbox,
+            lazy_rect: None,
+        };
+        return intersect(level, path_1, path_2, target);
+    }
+    if let Some(rect) = path_2.lazy_rect {
+        let mut rows = StripStorage::default();
+        lazy_rect_strips(level, rect, &path_1, &mut rows);
+        let path_2 = PathDataRef {
+            strips: &rows.strips,
+            alphas: &rows.alphas,
+            bbox: path_2.bbox,
+            lazy_rect: None,
+        };
+        return intersect(level, path_1, path_2, target);
+    }
     dispatch!(level, simd => intersect_impl(simd, path_1, path_2, target));
+}
+
+/// Generates into `storage` the strips of the lazy rectangular clip `rect` for the tile rows
+/// that `path` covers. Every tile row of a rectangle's strips is independent of the others,
+/// so these rows are the same as in the strips of the whole rectangle, and the rows left out
+/// can't intersect `path`. If `path` is a lazy clip too, all of `rect`'s rows are generated.
+pub(crate) fn lazy_rect_strips(
+    level: Level,
+    rect: Rect,
+    path: &PathDataRef<'_>,
+    storage: &mut StripStorage,
+) {
+    storage.clear();
+    let rows = if path.lazy_rect.is_some() {
+        rect
+    } else {
+        let (Some(first), Some(last)) = (path.strips.first(), path.strips.last()) else {
+            return;
+        };
+        let top = f64::from(first.strip_y()) * f64::from(Tile::HEIGHT);
+        let bottom = (f64::from(last.strip_y()) + 1.0) * f64::from(Tile::HEIGHT);
+        Rect::new(rect.x0, rect.y0.max(top), rect.x1, rect.y1.min(bottom))
+    };
+    if rows.x1 > rows.x0 && rows.y1 > rows.y0 {
+        crate::rect::render(level, rows, &mut storage.strips, &mut storage.alphas);
+    }
 }
 
 /// The implementation of the clipping algorithm using sparse strips. Conceptually, it is relatively
@@ -908,10 +967,10 @@ mod tests {
         first_strip_at_or_after, intersect,
     };
     use crate::geometry::RectU16;
-    use crate::kurbo::{Affine, BezPath, Rect};
+    use crate::kurbo::{Affine, BezPath, Rect, Stroke};
     use crate::peniko::Fill;
     use crate::strip::Strip;
-    use crate::strip_generator::{StripGenerator, StripStorage};
+    use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
     use crate::tile::Tile;
     use fearless_simd::Level;
     use std::vec;
@@ -919,7 +978,7 @@ mod tests {
     #[test]
     fn rectangular_clip_metadata_tracks_intersections_and_pops() {
         let mut generator = StripGenerator::new(100, 100, Level::baseline());
-        let mut clips = ClipContext::new();
+        let mut clips = ClipContext::new_lazy();
         let first = Rect::new(10.25, 5.5, 80.75, 90.0);
         let second = Rect::new(20.5, 0.0, 70.25, 60.75);
         let intersection = first.intersect(second);
@@ -968,7 +1027,7 @@ mod tests {
     #[test]
     fn eager_rectangular_clip_stores_its_strips() {
         let mut generator = StripGenerator::new(100, 100, Level::baseline());
-        let mut clips = ClipContext::new_eager();
+        let mut clips = ClipContext::new();
         let first = Rect::new(10.25, 5.5, 80.75, 90.0);
         let second = Rect::new(20.5, 0.0, 70.25, 60.75);
         let intersection = first.intersect(second);
@@ -985,73 +1044,282 @@ mod tests {
         assert_eq!(clip.path.alphas, expected.alphas);
     }
 
-    #[test]
-    fn path_through_lazy_rectangular_clip_matches_eager_clip() {
-        let rects = [
+    /// Rectangular clips for comparing lazy and eager clip contexts on a 100x100 viewport.
+    fn clip_rects() -> [Rect; 10] {
+        [
             // Contains the whole viewport.
             Rect::new(-10.0, -10.0, 200.0, 200.0),
-            // Fractional edges that cross the path.
+            // Fractional edges that cross the paths.
             Rect::new(10.25, 5.5, 80.75, 90.0),
             // Edges on tile boundaries.
             Rect::new(8.0, 12.0, 64.0, 48.0),
             // Thinner than a pixel, and thinner than a tile.
             Rect::new(30.2, 0.0, 30.7, 100.0),
             Rect::new(0.0, 41.0, 100.0, 43.5),
-            // Above, below and beside the path.
+            // Above, below and beside the paths.
             Rect::new(0.0, 0.0, 100.0, 18.0),
             Rect::new(0.0, 85.0, 100.0, 100.0),
             Rect::new(90.0, 0.0, 100.0, 100.0),
             // Empty and inverted.
             Rect::new(40.0, 40.0, 40.0, 60.0),
             Rect::new(70.0, 70.0, 30.0, 30.0),
-        ];
+        ]
+    }
 
-        let mut paths = vec![];
+    /// A triangle, a sliver and a path entirely outside the viewport (no strips at all).
+    fn clip_test_paths() -> [BezPath; 3] {
         let mut triangle = BezPath::new();
         triangle.move_to((22.0, 21.0));
         triangle.line_to((77.5, 30.25));
         triangle.line_to((41.0, 79.0));
         triangle.close_path();
-        paths.push(triangle);
         let mut sliver = BezPath::new();
         sliver.move_to((5.0, 50.0));
         sliver.line_to((95.0, 51.0));
         sliver.line_to((95.0, 52.5));
         sliver.close_path();
-        paths.push(sliver);
+        let mut outside = BezPath::new();
+        outside.move_to((150.0, 150.0));
+        outside.line_to((180.0, 150.0));
+        outside.line_to((160.0, 190.0));
+        outside.close_path();
+        [triangle, sliver, outside]
+    }
 
-        for rect in rects {
-            for path in &paths {
+    fn fill_through(
+        generator: &mut StripGenerator,
+        path: &BezPath,
+        clip: &ClipContext,
+        storage: &mut StripStorage,
+    ) {
+        generator.generate_filled_path(
+            path.iter(),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+            storage,
+            clip.get().map(|clip| clip.path),
+        );
+    }
+
+    /// The strips from `from` on, or none of them if they are only sentinel strips: where a
+    /// path's rows miss an eager clip, intersecting still appends a lone sentinel, while a lazy
+    /// clip appends nothing. Neither draws anything.
+    fn drawn(strips: &[Strip], from: usize) -> &[Strip] {
+        let from = from.min(strips.len());
+        if strips[from..].iter().all(Strip::is_sentinel) {
+            &strips[..from]
+        } else {
+            strips
+        }
+    }
+
+    /// A lazy and an eager clip context with the same rectangle pushed.
+    fn lazy_and_eager(rect: Rect, generator: &mut StripGenerator) -> (ClipContext, ClipContext) {
+        let mut lazy = ClipContext::new_lazy();
+        let mut eager = ClipContext::new();
+        lazy.push_clip_rect(&rect, generator);
+        eager.push_clip_rect(&rect, generator);
+        assert!(lazy.get().unwrap().path.lazy_rect.is_some());
+        assert!(eager.get().unwrap().path.lazy_rect.is_none());
+        (lazy, eager)
+    }
+
+    #[test]
+    fn path_through_lazy_rectangular_clip_matches_eager_clip() {
+        for rect in clip_rects() {
+            for path in &clip_test_paths() {
                 let mut generator = StripGenerator::new(100, 100, Level::baseline());
-                let mut lazy = ClipContext::new();
-                let mut eager = ClipContext::new_eager();
-                lazy.push_clip_rect(&rect, &mut generator);
-                eager.push_clip_rect(&rect, &mut generator);
-                assert!(lazy.get().unwrap().path.lazy_rect.is_some());
-                assert!(eager.get().unwrap().path.lazy_rect.is_none());
+                let (lazy, eager) = lazy_and_eager(rect, &mut generator);
+                // Within the viewport, and around the clamped rectangle.
+                let bbox = lazy.get().unwrap().path.bbox;
+                let clamped = rect.abs().intersect(Rect::new(0.0, 0.0, 100.0, 100.0));
+                assert!(bbox.x1 <= 100 && bbox.y1 <= 100, "{rect:?}: {bbox:?}");
+                if !clamped.is_zero_area() {
+                    assert!(f64::from(bbox.x0) <= clamped.x0, "{rect:?}: {bbox:?}");
+                    assert!(f64::from(bbox.y0) <= clamped.y0, "{rect:?}: {bbox:?}");
+                    assert!(f64::from(bbox.x1) >= clamped.x1, "{rect:?}: {bbox:?}");
+                    assert!(f64::from(bbox.y1) >= clamped.y1, "{rect:?}: {bbox:?}");
+                }
 
                 let mut through_lazy = StripStorage::default();
-                generator.generate_filled_path(
-                    path.iter(),
-                    Fill::NonZero,
-                    Affine::IDENTITY,
-                    None,
-                    &mut through_lazy,
-                    lazy.get().map(|clip| clip.path),
-                );
+                fill_through(&mut generator, path, &lazy, &mut through_lazy);
                 let mut through_eager = StripStorage::default();
-                generator.generate_filled_path(
-                    path.iter(),
-                    Fill::NonZero,
-                    Affine::IDENTITY,
-                    None,
-                    &mut through_eager,
-                    eager.get().map(|clip| clip.path),
+                fill_through(&mut generator, path, &eager, &mut through_eager);
+                assert_eq!(
+                    drawn(&through_lazy.strips, 0),
+                    drawn(&through_eager.strips, 0),
+                    "{rect:?}"
                 );
-                assert_eq!(through_lazy.strips, through_eager.strips, "{rect:?}");
                 assert_eq!(through_lazy.alphas, through_eager.alphas, "{rect:?}");
             }
         }
+    }
+
+    #[test]
+    fn stroke_through_lazy_rectangular_clip_matches_eager_clip() {
+        let stroke = Stroke::new(3.5);
+        for rect in clip_rects() {
+            for path in &clip_test_paths() {
+                let mut generator = StripGenerator::new(100, 100, Level::baseline());
+                let (lazy, eager) = lazy_and_eager(rect, &mut generator);
+                let mut through = [StripStorage::default(), StripStorage::default()];
+                for (clip, storage) in [&lazy, &eager].into_iter().zip(&mut through) {
+                    generator.generate_stroked_path(
+                        path.iter(),
+                        &stroke,
+                        Affine::IDENTITY,
+                        None,
+                        storage,
+                        clip.get().map(|clip| clip.path),
+                    );
+                }
+                assert_eq!(through[0].strips, through[1].strips, "{rect:?}");
+                assert_eq!(through[0].alphas, through[1].alphas, "{rect:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn path_clip_on_lazy_rectangular_clip_matches_eager_clip() {
+        let [triangle, sliver, _] = clip_test_paths();
+        for rect in clip_rects() {
+            let mut generator = StripGenerator::new(100, 100, Level::baseline());
+            let (mut lazy, mut eager) = lazy_and_eager(rect, &mut generator);
+            for clips in [&mut lazy, &mut eager] {
+                clips.push_clip_path(
+                    triangle.iter(),
+                    &mut generator,
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    None,
+                );
+            }
+            let (lazy_clip, eager_clip) = (lazy.get().unwrap(), eager.get().unwrap());
+            assert_eq!(lazy_clip.path.strips, eager_clip.path.strips, "{rect:?}");
+            assert_eq!(lazy_clip.path.alphas, eager_clip.path.alphas, "{rect:?}");
+
+            let mut through_lazy = StripStorage::default();
+            fill_through(&mut generator, &sliver, &lazy, &mut through_lazy);
+            let mut through_eager = StripStorage::default();
+            fill_through(&mut generator, &sliver, &eager, &mut through_eager);
+            assert_eq!(through_lazy.strips, through_eager.strips, "{rect:?}");
+            assert_eq!(through_lazy.alphas, through_eager.alphas, "{rect:?}");
+        }
+    }
+
+    #[test]
+    fn appending_through_lazy_rectangular_clip_matches_eager_clip() {
+        let paths = clip_test_paths();
+        for rect in clip_rects() {
+            for mode in [GenerationMode::Append, GenerationMode::ReplaceAfter(2)] {
+                for path in &paths {
+                    let mut generator = StripGenerator::new(100, 100, Level::baseline());
+                    let (lazy, eager) = lazy_and_eager(rect, &mut generator);
+                    let mut through = [StripStorage::default(), StripStorage::default()];
+                    let mut before = 0;
+                    for (clip, storage) in [&lazy, &eager].into_iter().zip(&mut through) {
+                        // Strips already in the storage, from a path drawn without a clip.
+                        generator.generate_filled_path(
+                            paths[0].iter(),
+                            Fill::NonZero,
+                            Affine::IDENTITY,
+                            None,
+                            storage,
+                            None,
+                        );
+                        before = storage.strips.len();
+                        storage.set_generation_mode(mode);
+                        fill_through(&mut generator, path, clip, storage);
+                    }
+                    let from = match mode {
+                        GenerationMode::ReplaceAfter(n) => n,
+                        _ => before,
+                    };
+                    assert_eq!(
+                        drawn(&through[0].strips, from),
+                        drawn(&through[1].strips, from),
+                        "{rect:?} {mode:?}"
+                    );
+                    assert_eq!(through[0].alphas, through[1].alphas, "{rect:?} {mode:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn intersect_expands_lazy_rectangular_clips() {
+        let [triangle, ..] = clip_test_paths();
+        for rect in clip_rects() {
+            let mut generator = StripGenerator::new(100, 100, Level::baseline());
+            let (lazy, eager) = lazy_and_eager(rect, &mut generator);
+            let mut path = StripStorage::default();
+            fill_through(&mut generator, &triangle, &ClipContext::new(), &mut path);
+            let path = PathDataRef {
+                strips: &path.strips,
+                alphas: &path.alphas,
+                bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
+                lazy_rect: None,
+            };
+            let (lazy, eager) = (lazy.get().unwrap().path, eager.get().unwrap().path);
+
+            let run = |a: PathDataRef<'_>, b: PathDataRef<'_>| {
+                let mut out = StripStorage::default();
+                intersect(Level::baseline(), a, b, &mut out);
+                (out.strips, out.alphas)
+            };
+            assert_eq!(run(lazy, path), run(eager, path), "{rect:?} lazy first");
+            assert_eq!(run(path, lazy), run(path, eager), "{rect:?} lazy second");
+            assert_eq!(run(lazy, lazy), run(eager, eager), "{rect:?} both lazy");
+        }
+    }
+
+    #[test]
+    fn clip_state_rebuilds_lazy_rects_for_a_root_viewport() {
+        let [triangle, ..] = clip_test_paths();
+        let mut parent_generator = StripGenerator::new(100, 100, Level::baseline());
+        let mut filter_generator = StripGenerator::new(120, 120, Level::baseline());
+        let rect = Rect::new(10.25, 5.5, 80.75, 90.0);
+        let mut clips = ClipState::new();
+        clips.push_clip_rect(&rect, &mut parent_generator);
+        assert!(clips.get().unwrap().path.lazy_rect.is_some());
+
+        // In the filter layer: the rectangle, shifted by the layer's source shift.
+        clips.push_root_viewport((3, 7), &mut filter_generator);
+        assert!(clips.get().unwrap().path.lazy_rect.is_some());
+        let mut eager = ClipContext::new();
+        eager.push_clip_rect(&Rect::new(13.25, 12.5, 83.75, 97.0), &mut filter_generator);
+        let mut through_state = StripStorage::default();
+        filter_generator.generate_filled_path(
+            triangle.iter(),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+            &mut through_state,
+            clips.get().map(|clip| clip.path),
+        );
+        let mut through_eager = StripStorage::default();
+        fill_through(&mut filter_generator, &triangle, &eager, &mut through_eager);
+        assert_eq!(through_state.strips, through_eager.strips);
+        assert_eq!(through_state.alphas, through_eager.alphas);
+
+        // Back in the parent viewport: the rectangle as pushed.
+        clips.pop_root_viewport(&mut parent_generator);
+        let mut eager = ClipContext::new();
+        eager.push_clip_rect(&rect, &mut parent_generator);
+        let mut through_state = StripStorage::default();
+        parent_generator.generate_filled_path(
+            triangle.iter(),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+            &mut through_state,
+            clips.get().map(|clip| clip.path),
+        );
+        let mut through_eager = StripStorage::default();
+        fill_through(&mut parent_generator, &triangle, &eager, &mut through_eager);
+        assert_eq!(through_state.strips, through_eager.strips);
+        assert_eq!(through_state.alphas, through_eager.alphas);
     }
 
     #[test]

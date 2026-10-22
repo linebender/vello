@@ -3,14 +3,14 @@
 
 //! Abstraction for generating strips from paths.
 
-use crate::clip::{ClipRef, ClipShape, PathDataRef, intersect};
+use crate::clip::{ClipRef, ClipShape, PathDataRef, intersect, lazy_rect_strips};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::geometry::RectU16;
 use crate::kurbo::{Affine, PathEl, Rect, Stroke};
 use crate::peniko::Fill;
 use crate::strip::Strip;
-use crate::tile::{Tile, Tiles};
+use crate::tile::Tiles;
 use crate::{flatten, rect, strip};
 use alloc::vec::Vec;
 use peniko::kurbo::StrokeCtx;
@@ -301,27 +301,8 @@ fn render_with_clip(
             lazy_rect: None,
         };
         if let Some(rect) = clip_path.lazy_rect {
-            // The clip is a rectangle without strips. Generate them only for the tile
-            // rows the path covers: every row of a rectangle's strips is independent of
-            // the others, so those rows are the same as in the strips of the whole
-            // rectangle, and the rows left out can't intersect the path.
-            let (Some(first), Some(last)) =
-                (temp_storage.strips.first(), temp_storage.strips.last())
-            else {
-                return;
-            };
-            let top = f64::from(first.strip_y()) * f64::from(Tile::HEIGHT);
-            let bottom = (f64::from(last.strip_y()) + 1.0) * f64::from(Tile::HEIGHT);
-            let rows = Rect::new(rect.x0, rect.y0.max(top), rect.x1, rect.y1.min(bottom));
-            clip_scratch.clear();
-            if rows.x1 > rows.x0 && rows.y1 > rows.y0 {
-                rect::render(
-                    level,
-                    rows,
-                    &mut clip_scratch.strips,
-                    &mut clip_scratch.alphas,
-                );
-            }
+            // `intersect` would do this too, but into storage it allocates for every path.
+            lazy_rect_strips(level, rect, &path_data, clip_scratch);
             let clip_data = PathDataRef {
                 strips: &clip_scratch.strips,
                 alphas: &clip_scratch.alphas,

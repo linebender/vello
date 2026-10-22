@@ -14,7 +14,7 @@ This release has an [MSRV][] of 1.89.
 
 ### Changed
 
-- Breaking change: Rectangular clips pushed onto the viewport or onto another rectangular clip generate their strips lazily, for the tile rows of each path drawn through them. `PathDataRef` has a new `lazy_rect` field, and `ClipContext::new_eager` keeps the previous behavior. ([#1989][] by [@Thenewmanator15][])
+- Breaking change: In `ClipState`, and in a `ClipContext` made with the new `ClipContext::new_lazy`, rectangular clips pushed onto the viewport or onto another rectangular clip generate their strips lazily, for the tile rows of each path drawn through them. Their `PathDataRef` has empty strips and the rectangle in the new `lazy_rect` field, which `intersect` handles. `ClipContext::new` keeps the previous behavior. ([#1989][] by [@Thenewmanator15][])
 
 ## [0.3.0][] - 2026-10-02
 
