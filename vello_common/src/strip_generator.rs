@@ -3,7 +3,7 @@
 
 //! Abstraction for generating strips from paths.
 
-use crate::clip::{ClipRef, ClipShape, PathDataRef, intersect};
+use crate::clip::{ClipRef, ClipShape, PathDataRef, intersect, lazy_rect_strips};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::geometry::RectU16;
@@ -84,6 +84,7 @@ pub struct StripGenerator {
     flatten_ctx: FlattenCtx,
     stroke_ctx: StrokeCtx,
     temp_storage: StripStorage,
+    clip_scratch: StripStorage,
     tiles: Tiles,
     width: u16,
     height: u16,
@@ -99,6 +100,7 @@ impl StripGenerator {
             flatten_ctx: FlattenCtx::default(),
             stroke_ctx: StrokeCtx::default(),
             temp_storage: StripStorage::default(),
+            clip_scratch: StripStorage::default(),
             width,
             height,
         }
@@ -185,6 +187,7 @@ impl StripGenerator {
         render_with_clip(
             level,
             &mut self.temp_storage,
+            &mut self.clip_scratch,
             strip_storage,
             clip_path,
             |strips, alphas| {
@@ -246,6 +249,7 @@ impl StripGenerator {
         render_with_clip(
             level,
             &mut self.temp_storage,
+            &mut self.clip_scratch,
             strip_storage,
             complex_clip,
             |strips, alphas| {
@@ -274,6 +278,7 @@ impl StripGenerator {
 fn render_with_clip(
     level: Level,
     temp_storage: &mut StripStorage,
+    clip_scratch: &mut StripStorage,
     strip_storage: &mut StripStorage,
     clip_path: Option<PathDataRef<'_>>,
     render_fn: impl FnOnce(&mut Vec<Strip>, &mut Vec<u8>),
@@ -293,8 +298,21 @@ fn render_with_clip(
             strips: &temp_storage.strips,
             alphas: &temp_storage.alphas,
             bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
+            lazy_rect: None,
         };
-        intersect(level, clip_path, path_data, strip_storage);
+        if let Some(rect) = clip_path.lazy_rect {
+            // `intersect` would do this too, but into storage it allocates for every path.
+            lazy_rect_strips(level, rect, &path_data, clip_scratch);
+            let clip_data = PathDataRef {
+                strips: &clip_scratch.strips,
+                alphas: &clip_scratch.alphas,
+                bbox: clip_path.bbox,
+                lazy_rect: None,
+            };
+            intersect(level, clip_data, path_data, strip_storage);
+        } else {
+            intersect(level, clip_path, path_data, strip_storage);
+        }
     } else {
         render_fn(&mut strip_storage.strips, &mut strip_storage.alphas);
     }

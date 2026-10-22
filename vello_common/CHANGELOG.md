@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Changed
+
+- Breaking change: In `ClipState`, and in a `ClipContext` made with the new `ClipContext::new_lazy`, rectangular clips pushed onto the viewport or onto another rectangular clip generate their strips lazily, for the tile rows of each path drawn through them. Their `PathDataRef` has empty strips and the rectangle in the new `lazy_rect` field, which `intersect` handles. `ClipContext::new` keeps the previous behavior. ([#1989][] by [@Thenewmanator15][])
+
 ## [0.3.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.
@@ -270,6 +274,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
 [@taj-p]: https://github.com/taj-p
+[@Thenewmanator15]: https://github.com/Thenewmanator15
 [@tomcur]: https://github.com/tomcur
 [@tronical]: https://github.com/tronical
 [@upsuper]: https://github.com/upsuper
@@ -367,6 +372,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1932]: https://github.com/linebender/vello/pull/1932
 [#1949]: https://github.com/linebender/vello/pull/1949
 [#1962]: https://github.com/linebender/vello/pull/1962
+[#1989]: https://github.com/linebender/vello/pull/1989
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0
