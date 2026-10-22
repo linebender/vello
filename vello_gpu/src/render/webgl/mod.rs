@@ -200,6 +200,24 @@ pub struct WebGlRenderOptions<'a> {
     pub offset: (i32, i32),
 }
 
+/// An offscreen texture that [`WebGlRenderer::render_to_texture`] renders into.
+#[derive(Debug, Clone, Copy)]
+pub struct WebGlRenderTarget<'a> {
+    /// The texture to render into.
+    ///
+    /// It must be a `TEXTURE_2D` created with the renderer's WebGL context, whose level 0 is an
+    /// `RGBA8` image of at least `width` × `height` pixels. It must not be sampled by the scene,
+    /// so it must not be bound in [`WebGlRenderOptions::texture_bindings`].
+    ///
+    /// The image is stored in the same orientation as in the drawing buffer, so the texture's
+    /// first row holds the bottom row of the rendered image.
+    pub texture: &'a WebGlTexture,
+    /// The width of the rendered area, in pixels.
+    pub width: u16,
+    /// The height of the rendered area, in pixels.
+    pub height: u16,
+}
+
 impl Default for WebGlRenderOptions<'_> {
     fn default() -> Self {
         Self {
@@ -530,6 +548,39 @@ impl WebGlRenderer {
             width: self.gl.drawing_buffer_width().try_into().unwrap(),
             height: self.gl.drawing_buffer_height().try_into().unwrap(),
         };
+        self.render_inner(scene, resources, &render_size, None, options)
+    }
+
+    /// Render `scene` into an offscreen texture instead of the drawing buffer.
+    ///
+    /// This behaves like [`render`](Self::render), except that the target is `target.texture`
+    /// and the render size is `target.width` × `target.height`. The clear color only applies to
+    /// that area. No depth buffer is used.
+    ///
+    /// Combined with [`WebGlRenderOptions::offset`], this allows rendering different parts of the
+    /// same scene into separate textures, e.g. to cache it as tiles.
+    pub fn render_to_texture(
+        &mut self,
+        scene: &Scene,
+        resources: &mut Resources,
+        target: &WebGlRenderTarget<'_>,
+        options: &WebGlRenderOptions<'_>,
+    ) -> Result<(), WebGlError> {
+        let render_size = RenderSize {
+            width: target.width,
+            height: target.height,
+        };
+        self.render_inner(scene, resources, &render_size, Some(target), options)
+    }
+
+    fn render_inner(
+        &mut self,
+        scene: &Scene,
+        resources: &mut Resources,
+        render_size: &RenderSize,
+        target: Option<&WebGlRenderTarget<'_>>,
+        options: &WebGlRenderOptions<'_>,
+    ) -> Result<(), WebGlError> {
         let empty_texture_bindings;
         let texture_bindings = match options.texture_bindings {
             Some(texture_bindings) => texture_bindings,
@@ -561,18 +612,70 @@ impl WebGlRenderer {
             },
         )?;
 
-        self.render_scene(
-            scene,
-            &resources.image_cache,
-            &render_size,
-            TargetInit::Clear(ClearSettings::Viewport {
-                color: options.clear_color,
-            }),
-            RootTarget::UserSurface,
-            texture_bindings,
-            None,
-            options.offset,
-        )?;
+        let target_init = TargetInit::Clear(ClearSettings::Viewport {
+            color: options.clear_color,
+        });
+        match target {
+            None => self.render_scene(
+                scene,
+                &resources.image_cache,
+                render_size,
+                target_init,
+                RootTarget::UserSurface,
+                texture_bindings,
+                None,
+                options.offset,
+            )?,
+            Some(target) => {
+                let framebuffer = match self.programs.resources.target_framebuffer.take() {
+                    Some(framebuffer) => framebuffer,
+                    None => Framebuffer::new(&self.gl)?,
+                };
+                self.gl
+                    .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
+                self.gl.framebuffer_texture_2d(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    WebGl2RenderingContext::COLOR_ATTACHMENT0,
+                    WebGl2RenderingContext::TEXTURE_2D,
+                    Some(target.texture),
+                    0,
+                );
+                let previous_view_framebuffer = core::mem::replace(
+                    &mut self.programs.resources.view_framebuffer,
+                    ViewFramebuffer::offscreen(framebuffer, false),
+                );
+                let result = self.render_scene(
+                    scene,
+                    &resources.image_cache,
+                    render_size,
+                    target_init,
+                    RootTarget::UserSurface,
+                    texture_bindings,
+                    Some(target.texture),
+                    options.offset,
+                );
+                let framebuffer = core::mem::replace(
+                    &mut self.programs.resources.view_framebuffer,
+                    previous_view_framebuffer,
+                )
+                .into_framebuffer()
+                .unwrap();
+                // Detach the texture so that the cached framebuffer does not keep it alive.
+                self.gl
+                    .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
+                self.gl.framebuffer_texture_2d(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    WebGl2RenderingContext::COLOR_ATTACHMENT0,
+                    WebGl2RenderingContext::TEXTURE_2D,
+                    None,
+                    0,
+                );
+                self.gl
+                    .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+                self.programs.resources.target_framebuffer = Some(framebuffer);
+                result?;
+            }
+        }
 
         #[cfg(feature = "text")]
         // TODO: We should sort the rectangles once by atlas
@@ -1380,6 +1483,9 @@ pub(crate) struct WebGlResources {
     /// Cached framebuffer for rendering into an atlas texture in `render_to_atlas`.
     /// Reused to avoid create/delete overhead on every call.
     atlas_render_framebuffer: Option<Framebuffer>,
+
+    /// Cached framebuffer for rendering into a user texture in `render_to_texture`.
+    target_framebuffer: Option<Framebuffer>,
 
     /// RGBA32UI texture storing filter parameters.
     filter_data_texture: Texture,
@@ -2672,6 +2778,7 @@ fn create_webgl_resources(
         resource_texture_dimension_2d,
         texture_size,
         atlas_render_framebuffer: None,
+        target_framebuffer: None,
         filter_data_texture,
         filter_data_texture_height: 0,
         filter_instance_buffer,
