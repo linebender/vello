@@ -23,7 +23,13 @@ pub struct Resources {
 }
 
 impl Resources {
-    pub(crate) fn new(image_atlas_config: AtlasConfig) -> Self {
+    /// Creates resources that are not tied to a renderer yet.
+    ///
+    /// Renderers create their resources themselves, so this is only needed to build scenes
+    /// elsewhere, e.g. on another thread, which needs resources for preparing glyphs. Scenes built
+    /// this way can only be rendered with other resources if they do not reference images uploaded
+    /// to these resources and do not cache glyphs in the atlas.
+    pub fn new(image_atlas_config: AtlasConfig) -> Self {
         Self {
             image_cache: ImageCache::new_with_config(image_atlas_config),
             #[cfg(feature = "text")]
