@@ -343,6 +343,9 @@ impl Renderer {
     /// The [WebGPU render pass validation rules] require every color and depth attachment view in
     /// a render pass to have matching render extents.
     ///
+    /// The commands are recorded into `encoder`, which must be submitted to `queue`. If this is not
+    /// done, subsequent calls to `render` might produce invalid rendering.
+    ///
     /// [WebGPU render pass validation rules]: https://gpuweb.github.io/gpuweb/#abstract-opdef-gpurenderpassdescriptor-valid-usage
     pub fn render(
         &mut self,
