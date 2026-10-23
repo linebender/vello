@@ -92,7 +92,8 @@ use vello_gpu_shaders::{blend, copy, filter as filter_shader, render};
 use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
-    WebGlSampler, WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
+    WebGlRenderbuffer, WebGlSampler, WebGlShader, WebGlTexture, WebGlUniformLocation,
+    WebGlVertexArrayObject,
 };
 
 #[wasm_bindgen]
@@ -216,6 +217,12 @@ pub struct WebGlRenderTarget<'a> {
     pub width: u16,
     /// The height of the rendered area, in pixels.
     pub height: u16,
+    /// An optional depth buffer, which reduces overdraw like the drawing buffer's depth buffer.
+    ///
+    /// It must be a `DEPTH_COMPONENT24` renderbuffer of at least `width` × `height` pixels. Its
+    /// contents are cleared on each render, so the same renderbuffer can be used for any number
+    /// of targets.
+    pub depth: Option<&'a WebGlRenderbuffer>,
 }
 
 impl Default for WebGlRenderOptions<'_> {
@@ -555,7 +562,7 @@ impl WebGlRenderer {
     ///
     /// This behaves like [`render`](Self::render), except that the target is `target.texture`
     /// and the render size is `target.width` × `target.height`. The clear color only applies to
-    /// that area. No depth buffer is used.
+    /// that area. A depth buffer is only used if `target.depth` is set.
     ///
     /// Combined with [`WebGlRenderOptions::offset`], this allows rendering different parts of the
     /// same scene into separate textures, e.g. to cache it as tiles.
@@ -640,9 +647,15 @@ impl WebGlRenderer {
                     Some(target.texture),
                     0,
                 );
+                self.gl.framebuffer_renderbuffer(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    WebGl2RenderingContext::DEPTH_ATTACHMENT,
+                    WebGl2RenderingContext::RENDERBUFFER,
+                    target.depth,
+                );
                 let previous_view_framebuffer = core::mem::replace(
                     &mut self.programs.resources.view_framebuffer,
-                    ViewFramebuffer::offscreen(framebuffer, false),
+                    ViewFramebuffer::offscreen(framebuffer, target.depth.is_some()),
                 );
                 let result = self.render_scene(
                     scene,
@@ -660,7 +673,7 @@ impl WebGlRenderer {
                 )
                 .into_framebuffer()
                 .unwrap();
-                // Detach the texture so that the cached framebuffer does not keep it alive.
+                // Detach the attachments so that the cached framebuffer does not keep them alive.
                 self.gl
                     .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
                 self.gl.framebuffer_texture_2d(
@@ -669,6 +682,12 @@ impl WebGlRenderer {
                     WebGl2RenderingContext::TEXTURE_2D,
                     None,
                     0,
+                );
+                self.gl.framebuffer_renderbuffer(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    WebGl2RenderingContext::DEPTH_ATTACHMENT,
+                    WebGl2RenderingContext::RENDERBUFFER,
+                    None,
                 );
                 self.gl
                     .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
