@@ -57,6 +57,18 @@ pub trait DrawSink {
     fn width(&self) -> u16;
     /// Height of the surface.
     fn height(&self) -> u16;
+    /// The area in device space that anything drawn next can be visible in, or `None` if it is
+    /// unknown.
+    ///
+    /// Glyphs that lie completely outside of it are skipped.
+    fn visible_bounds(&self) -> Option<Rect> {
+        Some(Rect::new(
+            0.0,
+            0.0,
+            f64::from(self.width()),
+            f64::from(self.height()),
+        ))
+    }
 }
 
 /// A stateful renderer that can draw sequences of cached and uncached glyphs.

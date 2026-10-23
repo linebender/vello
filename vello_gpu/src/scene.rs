@@ -262,6 +262,9 @@ pub struct Scene {
     filter: Option<Filter>,
     /// The command recorder.
     pub(crate) recorder: CommandRecorder<RecordedDraw>,
+    /// The device-space bounds of the clip of each pushed layer, if any, or `None` for filter
+    /// layers, which can move content into view from anywhere.
+    layer_visible_bounds: Vec<Option<Option<RectU16>>>,
 }
 
 impl Scene {
@@ -287,6 +290,7 @@ impl Scene {
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
             recorder: CommandRecorder::new(width, height),
+            layer_visible_bounds: Vec::new(),
         }
     }
 
@@ -726,6 +730,11 @@ impl Scene {
                 })
         });
 
+        self.layer_visible_bounds.push(if filter_data.is_some() {
+            None
+        } else {
+            Some(clip_path.as_ref().map(|clip| clip.bbox))
+        });
         self.recorder.push_layer(
             LayerProps {
                 blend_mode,
@@ -771,6 +780,7 @@ impl Scene {
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
+        self.layer_visible_bounds.pop();
         if self.recorder.pop_layer() == PoppedLayer::Filter {
             self.viewport_state.pop_root_viewport();
         }
@@ -916,6 +926,32 @@ impl Scene {
         self.aliasing_threshold = None;
         self.recorder.reset(self.width, self.height);
         self.filter = None;
+        self.layer_visible_bounds.clear();
+    }
+
+    /// The area in device space that anything drawn next can be visible in, or `None` if it is
+    /// unknown because a filter layer is active.
+    pub(crate) fn visible_bounds(&self) -> Option<Rect> {
+        let to_rect = |rect: RectU16| {
+            Rect::new(
+                f64::from(rect.x0),
+                f64::from(rect.y0),
+                f64::from(rect.x1),
+                f64::from(rect.y1),
+            )
+        };
+        let mut bounds = self.active_rect();
+        if let Some(clip) = self.viewport_state.clip() {
+            bounds = bounds.intersect(to_rect(clip.path.bbox));
+        }
+        for layer in &self.layer_visible_bounds {
+            match layer {
+                None => return None,
+                Some(Some(clip)) => bounds = bounds.intersect(to_rect(*clip)),
+                Some(None) => {}
+            }
+        }
+        Some(bounds)
     }
 
     /// Get the width of the render context.

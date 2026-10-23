@@ -478,12 +478,25 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let scale_props =
             GlyphScaleProperties::new(draw_props.font_size, font_info.upem, hinted, style);
 
+        // Glyphs whose conservative bounds lie completely outside of the visible area are
+        // culled before doing any work for them. The bounds are the font's bounding box, plus
+        // half an em of margin for strokes, emboldening and color glyphs.
+        let visible_bounds = renderer.visible_bounds();
+        let glyph_bounds = font_ref.head().ok().map(|head| {
+            let scale = f64::from(draw_props.font_size / font_info.upem);
+            let margin = f64::from(draw_props.font_size) * 0.5;
+            Rect::new(
+                f64::from(head.x_min()) * scale,
+                f64::from(head.y_min()) * scale,
+                f64::from(head.x_max()) * scale,
+                f64::from(head.y_max()) * scale,
+            )
+            .inflate(margin, margin)
+        });
+
         let mut first_skipped = None;
         let mut skipped_count = 0;
         for (index, glyph) in self.glyph_iterator.clone().enumerate() {
-            // TODO: Add a mechanism such that glyphs that are completely outside of the viewport
-            // (especially for more expensive COLR glyphs), we don't do any processing in the
-            // first place and cull them.
             let glyph_id = GlyphId::new(glyph.id);
 
             // ── Speculative outline cache check ─────────────────────────
@@ -493,6 +506,16 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // On a miss we keep both for reuse in the outline branch below.
             let outline_transform =
                 calculate_outline_transform(glyph, draw_props, hinting_instance);
+            if let (Some(visible), Some(bounds)) = (visible_bounds, glyph_bounds) {
+                let bounds = outline_transform.transform_rect_bbox(bounds);
+                if bounds.x1 <= visible.x0
+                    || bounds.x0 >= visible.x1
+                    || bounds.y1 <= visible.y0
+                    || bounds.y0 >= visible.y1
+                {
+                    continue;
+                }
+            }
             let outline_draw_transform = outline_transform.pre_scale(scale_props.draw_scale);
 
             // We assume that the backend calculates the absolute paint transform

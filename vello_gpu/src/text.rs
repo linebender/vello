@@ -212,6 +212,11 @@ impl DrawSink for Scene {
     fn height(&self) -> u16 {
         Self::height(self)
     }
+
+    #[inline]
+    fn visible_bounds(&self) -> Option<Rect> {
+        Self::visible_bounds(self)
+    }
 }
 
 #[doc(hidden)]
