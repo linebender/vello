@@ -21,6 +21,7 @@ This release has an [MSRV][] of 1.89.
 ### Fixed
 
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
+- Strip uploads in the wgpu backend are now 16-byte aligned, fixing `Queue::submit` failing with an out-of-memory error on PowerVR Vulkan drivers whenever a frame uploaded an odd number of strips before another draw pass. (by [@grebmeg][])
 
 ## [0.3.0][] - 2026-10-02
 

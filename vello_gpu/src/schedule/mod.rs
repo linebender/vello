@@ -208,6 +208,13 @@ impl Schedule {
     pub(crate) fn intermediate_texture_requirements(&self) -> IntermediateTextureRequirements {
         self.intermediate_textures
     }
+
+    /// Number of draw passes the backend will execute for this schedule, excluding the
+    /// separate opaque pre-pass.
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn draw_pass_count(&self) -> usize {
+        self.rounds.draw_pass_count()
+    }
 }
 
 /// Intermediate textures required to execute a [`Schedule`].
