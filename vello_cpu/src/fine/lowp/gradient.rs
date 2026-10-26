@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::common::gradient::apply_extend;
-use core::slice::ChunksExact;
+use core::slice::Iter;
 use fearless_simd_macros::simd;
 use vello_common::encode::EncodedGradient;
 use vello_common::fearless_simd::*;
@@ -14,7 +14,7 @@ use vello_common::fearless_simd::*;
 pub(crate) struct GradientPainter<'a, S: Simd> {
     gradient: &'a EncodedGradient,
     lut: &'a [[u8; 4]],
-    t_vals: ChunksExact<'a, f32>,
+    t_vals: Iter<'a, [f32; 16]>,
     scale_factor: f32x16<S>,
     simd: S,
 }
@@ -29,7 +29,7 @@ impl<'a, S: Simd> GradientPainter<'a, S> {
             gradient,
             scale_factor,
             lut: lut.lut(),
-            t_vals: t_vals.chunks_exact(16),
+            t_vals: t_vals.as_chunks::<16>().0.iter(),
             simd,
         }
     }
@@ -46,7 +46,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         let indices = (t_vals * self.scale_factor).to_int::<u32x16<S>>();
 
         let mut vals = [0_u8; 64];
-        for (val, idx) in vals.chunks_exact_mut(4).zip(*indices) {
+        for (val, idx) in vals.as_chunks_mut::<4>().0.iter_mut().zip(*indices) {
             val.copy_from_slice(&self.lut[idx as usize]);
         }
 
@@ -59,7 +59,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
         self.simd.vectorize(
             #[inline(always)]
             || {
-                for chunk in buf.chunks_exact_mut(64) {
+                for chunk in buf.as_chunks_mut::<64>().0 {
                     self.next().unwrap().store_slice(chunk);
                 }
             },

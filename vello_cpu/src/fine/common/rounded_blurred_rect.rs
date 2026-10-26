@@ -76,7 +76,7 @@ impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
         self.a.simd.vectorize(
             #[inline(always)]
             || {
-                for chunk in buf.chunks_exact_mut(64) {
+                for chunk in buf.as_chunks_mut::<64>().0 {
                     let first = self.next().unwrap();
                     let simd = first.r.simd;
                     let second = self.next().unwrap();
@@ -99,7 +99,7 @@ impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
         self.a.simd.vectorize(
             #[inline(always)]
             || {
-                for chunk in buf.chunks_exact_mut(32) {
+                for chunk in buf.as_chunks_mut::<32>().0 {
                     let [c1, c2] = self.next().unwrap().get();
                     c1[0]
                         .simd

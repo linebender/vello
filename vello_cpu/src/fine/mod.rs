@@ -1258,7 +1258,7 @@ mod macros {
                     use crate::fine::NumericVec;
 
                     self.simd.vectorize(#[inline(always)] || {
-                        for chunk in buf.chunks_exact_mut(16) {
+                        for chunk in buf.as_chunks_mut::<16>().0 {
                             let next = self.next().unwrap();
                             let converted = u8x16::<S>::from_f32(next.simd, next);
                             converted.store_slice(chunk);
@@ -1268,7 +1268,7 @@ mod macros {
 
                 fn paint_f32(mut self, buf: &mut [f32]) {
                     self.simd.vectorize(#[inline(always)] || {
-                        for chunk in buf.chunks_exact_mut(16) {
+                        for chunk in buf.as_chunks_mut::<16>().0 {
                             let next = self.next().unwrap();
                             next.store_slice(chunk);
                         }
@@ -1287,7 +1287,7 @@ mod macros {
             impl<S: Simd> crate::fine::Painter for $($type_path)+ {
                 fn paint_u8(mut self, buf: &mut [u8]) {
                     self.simd.vectorize(#[inline(always)] || {
-                        for chunk in buf.chunks_exact_mut(16) {
+                        for chunk in buf.as_chunks_mut::<16>().0 {
                             let next = self.next().unwrap();
                             next.store_slice(chunk);
                         }
@@ -1299,7 +1299,7 @@ mod macros {
                     use crate::fine::NumericVec;
 
                     self.simd.vectorize(#[inline(always)] || {
-                        for chunk in buf.chunks_exact_mut(16) {
+                        for chunk in buf.as_chunks_mut::<16>().0 {
                             let next = self.next().unwrap();
                             let converted = f32x16::<S>::from_u8(next.simd, next);
                             converted.store_slice(chunk);

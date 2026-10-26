@@ -31,10 +31,6 @@ pub struct SimpleText {
     noto_emoji_cbtf_subset: FontData,
 }
 
-#[expect(
-    single_use_lifetimes,
-    reason = "False positive: https://github.com/rust-lang/rust/issues/129255"
-)]
 impl SimpleText {
     pub fn new() -> Self {
         Self {

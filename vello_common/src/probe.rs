@@ -281,8 +281,14 @@ fn cell_statistics(
         let actual_start = ((actual_origin.1 + row) * actual_width + actual_origin.0) * 4;
         let expected_start = row * row_len;
         for (expected, actual) in expected[expected_start..expected_start + row_len]
-            .chunks_exact(4)
-            .zip(actual.data[actual_start..actual_start + row_len].chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(
+                actual.data[actual_start..actual_start + row_len]
+                    .as_chunks::<4>()
+                    .0,
+            )
         {
             let differs = if expected[3] != 0 || actual[3] != 0 {
                 let mut differs = false;

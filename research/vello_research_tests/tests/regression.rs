@@ -227,8 +227,7 @@ fn many_bins(use_cpu: bool) {
     assert_eq!(image.format, ImageFormat::Rgba8, "image should be Rgba8");
     let mut red_count = 0;
     let mut black_count = 0;
-    for pixel in image.data.data().chunks_exact(4) {
-        let &[r, g, b, a] = pixel else { unreachable!() };
+    for pixel @ &[r, g, b, a] in image.data.data().as_chunks::<4>().0 {
         let is_red = r == 255 && g == 0 && b == 0 && a == 255;
         let is_black = r == 0 && g == 0 && b == 0 && a == 255;
         if !is_red && !is_black {

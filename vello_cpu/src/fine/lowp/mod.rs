@@ -125,7 +125,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         dest: &mut [Self::Numeric],
         mut src: impl Iterator<Item = Self::NumericVec>,
     ) {
-        for el in dest.chunks_exact_mut(16) {
+        for el in dest.as_chunks_mut::<16>().0 {
             let loaded = u8x16::from_slice(simd, el);
             let mulled = narrow(normalized_mul_u8(loaded, src.next().unwrap()));
             mulled.store_slice(el);
@@ -152,7 +152,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
 
         match tint.mode {
             TintMode::AlphaMask => {
-                for chunk in dest.chunks_exact_mut(32) {
+                for chunk in dest.as_chunks_mut::<32>().0 {
                     let pixel = u8x32::from_slice(simd, chunk);
                     let alphas = pixel.splat_4th();
                     let tinted = tint_v.normalized_mul(alphas);
@@ -160,7 +160,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                 }
             }
             TintMode::Multiply => {
-                for chunk in dest.chunks_exact_mut(32) {
+                for chunk in dest.as_chunks_mut::<32>().0 {
                     let pixel = u8x32::from_slice(simd, chunk);
                     let tinted = pixel.normalized_mul(tint_v);
                     tinted.store_slice(chunk);
@@ -203,7 +203,11 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         src: &[Self::Numeric],
         alphas: Option<&[u8]>,
     ) {
-        let src_iter = src.chunks_exact(32).map(|el| u8x32::from_slice(simd, el));
+        let src_iter = src
+            .as_chunks::<32>()
+            .0
+            .iter()
+            .map(|el| u8x32::from_slice(simd, el));
 
         if let Some(alphas) = alphas {
             alpha_fill::alpha_composite(
@@ -329,7 +333,10 @@ fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Regio
     let mut row2 = &mut row2[..row_len];
     let mut row3 = &mut row3[..row_len];
 
-    for col in scratch[..width * TILE_HEIGHT_COMPONENTS].chunks_exact(CHUNK_LENGTH) {
+    for col in scratch[..width * TILE_HEIGHT_COMPONENTS]
+        .as_chunks::<CHUNK_LENGTH>()
+        .0
+    {
         let casted: &[u32; 16] = cast_slice::<u8, u32>(col).try_into().unwrap();
 
         let [loaded_1, loaded_2, loaded_3, loaded_4] = simd
@@ -357,7 +364,12 @@ fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Regio
 fn pack_tail(scratch: &[u8], x: usize, width: usize, region: &mut Region<'_>) {
     for y in 0..region.height {
         let row = &mut region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
-        for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
+        for (dx, pixel) in row
+            .as_chunks_mut::<COLOR_COMPONENTS>()
+            .0
+            .iter_mut()
+            .enumerate()
+        {
             let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
             pixel.copy_from_slice(&scratch[idx..idx + COLOR_COMPONENTS]);
         }
@@ -424,7 +436,7 @@ fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch
 fn unpack_tail(region: &mut Region<'_>, x: usize, width: usize, scratch: &mut [u8]) {
     for y in 0..region.height {
         let row = &region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
-        for (dx, pixel) in row.chunks_exact(COLOR_COMPONENTS).enumerate() {
+        for (dx, pixel) in row.as_chunks::<COLOR_COMPONENTS>().0.iter().enumerate() {
             let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
             scratch[idx..idx + COLOR_COMPONENTS].copy_from_slice(pixel);
         }
@@ -454,7 +466,7 @@ mod fill {
         blend_mode: BlendMode,
     ) {
         let default_mix = matches!(blend_mode.mix, Mix::Normal);
-        for (next_dest, next_src) in dest.chunks_exact_mut(32).zip(src) {
+        for (next_dest, next_src) in dest.as_chunks_mut::<32>().0.iter_mut().zip(src) {
             let bg_v = u8x32::from_slice(simd, next_dest);
             let src_v = if default_mix {
                 next_src
@@ -474,7 +486,7 @@ mod fill {
         let one_minus_alpha = 255 - u8x32::splat(s, src[3]);
         let src_c = u32x8::splat(s, u32::from_ne_bytes(src)).to_bytes();
 
-        for next_dest in dest.chunks_exact_mut(64) {
+        for next_dest in dest.as_chunks_mut::<64>().0 {
             // We process in batches of 64 because loading/storing is much faster this way (at least on NEON),
             // but since we widen to u16, we can only work with 256 bits, so we split it up.
             let bg_v = u8x64::from_slice(s, next_dest);
@@ -495,7 +507,7 @@ mod fill {
         dest: &mut [u8],
         src: T,
     ) {
-        for (next_dest, next_src) in dest.chunks_exact_mut(32).zip(src) {
+        for (next_dest, next_src) in dest.as_chunks_mut::<32>().0.iter_mut().zip(src) {
             let one_minus_alpha = 255 - next_src.splat_4th();
             let bg_v = u8x32::from_slice(simd, next_dest);
             let res = alpha_composite_inner(simd, bg_v, next_src, one_minus_alpha);
@@ -543,7 +555,9 @@ mod alpha_fill {
     ) {
         let default_mix = matches!(blend_mode.mix, Mix::Normal);
 
-        for ((next_bg, next_mask), next_src) in dest.chunks_exact_mut(32).zip(alphas).zip(src) {
+        for ((next_bg, next_mask), next_src) in
+            dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas).zip(src)
+        {
             let bg_v = u8x32::from_slice(simd, next_bg);
             let src_c = if default_mix {
                 next_src
@@ -572,7 +586,7 @@ mod alpha_fill {
         let src_c = u32x8::splat(s, u32::from_ne_bytes(src)).to_bytes();
         let one = u8x32::splat(s, 255);
 
-        for (next_bg, next_mask) in dest.chunks_exact_mut(32).zip(alphas) {
+        for (next_bg, next_mask) in dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas) {
             alpha_composite_inner(s, next_bg, &next_mask, src_c, src_a, one);
         }
     }
@@ -590,7 +604,9 @@ mod alpha_fill {
     ) {
         let one = u8x32::splat(simd, 255);
 
-        for ((next_dest, next_mask), next_src) in dest.chunks_exact_mut(32).zip(alphas).zip(src) {
+        for ((next_dest, next_mask), next_src) in
+            dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas).zip(src)
+        {
             let src_a = next_src.splat_4th();
             alpha_composite_inner(simd, next_dest, &next_mask, next_src, src_a, one);
         }
