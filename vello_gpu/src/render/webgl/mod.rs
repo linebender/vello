@@ -2262,8 +2262,8 @@ impl WebGlPrograms {
         let used_height = (gradient_cache.luts_size() as u32).div_ceil(gradient_texture_width * 4);
         let used_size = (gradient_texture_width * used_height * 4) as usize;
 
-        // Take ownership of the luts to avoid copying, then pad to the end of the last used row.
-        let mut luts = gradient_cache.take_luts();
+        // Borrow the luts and pad to the end of the last used row.
+        let luts = gradient_cache.luts_mut();
         let old_luts_len = luts.len();
         luts.resize(used_size, 0);
 
@@ -2283,18 +2283,14 @@ impl WebGlPrograms {
                 used_height as i32,
                 WebGl2RenderingContext::RGBA,
                 WebGl2RenderingContext::UNSIGNED_BYTE,
-                Some(&luts),
+                Some(luts.as_slice()),
             )
             .map_js_error(WebGlOperation::DataTransfer(
                 WebGlDataTransferOperation::TextureUpload,
             ));
 
-        // Restore the luts back to the cache.
         luts.truncate(old_luts_len);
-        gradient_cache.restore_luts(luts);
-        result?;
-
-        Ok(())
+        result
     }
 
     /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.

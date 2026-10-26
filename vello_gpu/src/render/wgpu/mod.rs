@@ -2727,12 +2727,12 @@ impl Programs {
             return;
         }
 
-        let texture = &self.resources.gradient_texture;
-        let luts = gradient_cache.take_luts();
-
-        self.staging_belt.upload_texture(encoder, texture, &luts, 4);
-
-        gradient_cache.restore_luts(luts);
+        self.staging_belt.upload_texture(
+            encoder,
+            &self.resources.gradient_texture,
+            gradient_cache.luts(),
+            4,
+        );
     }
 
     /// Uploads two strip slices (opaque then alpha) into the frame arena and
