@@ -691,8 +691,13 @@ impl FilterContext {
         self.filters.len() as u32 * GpuFilterData::SIZE_TEXELS
     }
 
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        bytemuck::cast_slice(&self.filters)
+    }
+
+    #[cfg(feature = "webgl")]
     pub(crate) fn serialize_to_buffer(&self, buffer: &mut [u8]) {
-        let src = bytemuck::cast_slice::<GpuFilterData, u8>(&self.filters);
+        let src = self.as_bytes();
         debug_assert!(
             buffer.len() >= src.len(),
             "filter data buffer too small: {} < {}",
