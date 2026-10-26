@@ -29,9 +29,9 @@ pub(crate) mod resource;
 pub use error::WebGlProbeOperation;
 pub(crate) use error::WebGlResultExt;
 pub use error::{
-    IncompatibleContextReason, WebGlContextOperation, WebGlDataTransferOperation, WebGlError,
-    WebGlOperation, WebGlResourceKind, WebGlShaderInterfaceOperation, WebGlShaderProgramOperation,
-    WebGlShaderStage,
+    IncompatibleContextReason, IncompatiblePrecompiledShadersReason, WebGlContextOperation,
+    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResourceKind,
+    WebGlShaderInterfaceOperation, WebGlShaderProgramOperation, WebGlShaderStage,
 };
 
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
@@ -185,17 +185,12 @@ pub struct WebGlRendererInit {
 
 /// Vello's WebGL shader programs, whose compilation and linking may still be in progress.
 ///
-/// Compiling needs only the canvas, so it can start before the rest of the application is
-/// initialized and continue while other work runs. To start even before the WebAssembly module
-/// loads, compile from JavaScript and adopt the result with [`WebGlShaders::from_precompiled`].
-/// Turn the shaders into a renderer with [`WebGlRenderer::begin_with_shaders`]. The programs
-/// belong to the canvas's WebGL context and cannot be used with any other context.
+/// The programs belong to the canvas's WebGL context and cannot be used with any other context.
 #[derive(Debug)]
-pub struct WebGlShaders {
+struct WebGlShaders {
     gl: WebGl2RenderingContext,
     use_depth_buffer: bool,
     parallel_shader_compile: bool,
-    precompiled: bool,
     compilation_start_ms: f64,
     poll_count: Cell<u32>,
     ready: Cell<bool>,
@@ -282,7 +277,7 @@ pub struct ShaderCompilationStats {
     /// Number of non-blocking completion-status polls.
     ///
     /// This is zero when initialization is completed through [`WebGlRendererInit::finish`]
-    /// without first checking [`WebGlShaders::is_ready`] or [`WebGlRendererInit::is_ready`].
+    /// without first checking [`WebGlRendererInit::is_ready`].
     pub poll_count: u32,
     /// Wall-clock time from issuing the first compilation until all programs were confirmed
     /// linked.
@@ -332,9 +327,6 @@ impl WebGlRenderer {
     ///
     /// If the extension is unavailable, finishing synchronously completes shader compilation and
     /// linking.
-    ///
-    /// To start compiling before the render settings are known, use [`WebGlShaders::compile`]
-    /// followed by [`WebGlRenderer::begin_with_shaders`].
     pub fn begin(canvas: &HtmlCanvasElement) -> Result<(WebGlRendererInit, Resources), WebGlError> {
         Self::begin_with(canvas, RenderSettings::default(), true)
     }
@@ -350,11 +342,34 @@ impl WebGlRenderer {
         Self::begin_with_shaders(WebGlShaders::compile(canvas, use_depth_buffer)?, settings)
     }
 
-    /// Begins creating a WebGL2 renderer from shaders that may still be compiling.
+    /// Begins creating a WebGL2 renderer from the shader programs that the `compileVelloShaders`
+    /// JavaScript function from [`vello_gpu_shaders::webgl_bootstrap::JS_MODULE`] started
+    /// compiling.
     ///
-    /// This allocates the renderer's persistent resources without waiting for compilation. See
+    /// Running that module before the WebAssembly module is downloaded and instantiated lets shader
+    /// compilation overlap with loading it. The renderer uses the canvas and WebGL context that
+    /// `compileVelloShaders` created, and a depth buffer only if that context has one. See
     /// [`WebGlRenderer::begin`] for polling and fallback behavior.
-    pub fn begin_with_shaders(
+    ///
+    /// The renderer takes ownership of the shaders and programs in `precompiled` and deletes them
+    /// when it's dropped, so they must not be used elsewhere, and the same result must not be
+    /// passed to this function twice.
+    ///
+    /// Returns [`WebGlError::IncompatiblePrecompiledShaders`] if the programs can't be adopted,
+    /// including when `precompiled` is `null` because WebGL2 was unavailable.
+    /// [`IncompatiblePrecompiledShadersReason::DifferentModule`] can also happen in
+    /// production, for example when a cached JavaScript module from an older build is served
+    /// with a newer WebAssembly module, so callers should fall back to
+    /// [`WebGlRenderer::begin_with`] rather than give up on rendering.
+    pub fn begin_with_precompiled(
+        precompiled: &JsValue,
+        settings: RenderSettings,
+    ) -> Result<(WebGlRendererInit, Resources), WebGlError> {
+        Self::begin_with_shaders(WebGlShaders::from_precompiled(precompiled)?, settings)
+    }
+
+    /// Allocates the renderer's persistent resources without waiting for `shaders` to compile.
+    fn begin_with_shaders(
         shaders: WebGlShaders,
         mut settings: RenderSettings,
     ) -> Result<(WebGlRendererInit, Resources), WebGlError> {
@@ -404,7 +419,8 @@ impl WebGlRenderer {
 /// If the canvas already has a WebGL2 context, the browser returns it and ignores the requested
 /// attributes, so the ones that can be queried are validated afterwards. The attributes must match
 /// the defaults of `compileVelloShaders` in `vello_gpu_shaders/src/webgl_bootstrap.js`, which
-/// creates the context when shaders are compiled from JavaScript.
+/// creates the context when shaders are compiled from JavaScript;
+/// `webgl_contexts_created_by_javascript_and_rust_match` in `vello_tests` checks this.
 fn create_context(
     canvas: &HtmlCanvasElement,
     use_depth_buffer: bool,
@@ -501,17 +517,7 @@ fn create_context(
         // creating a new one with the correct context_options set.
         // See this comment for why we still care about non-antialiased context:
         // https://github.com/linebender/vello/pull/1546/changes#r3008692535
-        let context_attributes =
-            gl.get_context_attributes()
-                .ok_or(WebGlError::OperationFailed {
-                    operation: WebGlOperation::Context(WebGlContextOperation::Query),
-                    message: None,
-                })?;
-        let antialias = js_sys::Reflect::get(&context_attributes, &"antialias".into())
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
-            .as_bool()
-            .unwrap();
-        if antialias {
+        if context_attribute(&gl, "antialias")? {
             return Err(WebGlError::IncompatibleContext(
                 IncompatibleContextReason::AntialiasingEnabled,
             ));
@@ -536,6 +542,21 @@ fn create_context(
     }
 
     Ok(gl)
+}
+
+/// Returns a boolean attribute that `gl` was actually created with.
+fn context_attribute(gl: &WebGl2RenderingContext, name: &str) -> Result<bool, WebGlError> {
+    let context_attributes = gl
+        .get_context_attributes()
+        .ok_or(WebGlError::OperationFailed {
+            operation: WebGlOperation::Context(WebGlContextOperation::Query),
+            message: None,
+        })?;
+
+    Ok(js_sys::Reflect::get(&context_attributes, &name.into())
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
+        .as_bool()
+        .unwrap_or(false))
 }
 
 impl WebGlRenderer {
@@ -1180,7 +1201,9 @@ impl WebGlRenderer {
 impl WebGlRendererInit {
     /// Returns whether shader compilation and program linking have finished, without blocking.
     ///
-    /// See [`WebGlShaders::is_ready`] for the behavior without `KHR_parallel_shader_compile`.
+    /// Without `KHR_parallel_shader_compile`, completion cannot be queried without blocking, so
+    /// this returns `true` immediately and [`WebGlRendererInit::finish`] completes compilation
+    /// synchronously.
     pub fn is_ready(&self) -> bool {
         self.shaders.is_ready()
     }
@@ -1647,48 +1670,37 @@ impl WebGlShaders {
 
     /// Creates the canvas's WebGL2 context and starts compiling and linking all shader programs,
     /// returning without waiting for them to finish.
-    ///
-    /// When `use_depth_buffer` is true, the WebGL context allocates a depth buffer and the renderer
-    /// uses it for opaque-strip occlusion. Disabling it reduces GPU memory usage, but can increase
-    /// overdraw.
-    pub fn compile(canvas: &HtmlCanvasElement, use_depth_buffer: bool) -> Result<Self, WebGlError> {
+    fn compile(canvas: &HtmlCanvasElement, use_depth_buffer: bool) -> Result<Self, WebGlError> {
         let gl = create_context(canvas, use_depth_buffer)?;
         let (compilation_start_ms, programs) = compile_programs(&gl)?;
 
-        Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs, false)
+        Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs)
     }
 
-    /// Adopts the shader programs that the `compileVelloShaders` JavaScript function from
-    /// [`vello_gpu_shaders::webgl_bootstrap::JS_MODULE`] started compiling.
-    ///
-    /// Running that module before the WebAssembly module is downloaded and instantiated lets shader
-    /// compilation overlap with loading it. `precompiled` must be the value returned for `canvas`,
-    /// with a `depth` context attribute matching `use_depth_buffer`.
-    ///
-    /// If `precompiled` is `null` or `undefined`, this behaves like [`WebGlShaders::compile`].
-    /// If it can't be adopted, for example because the JavaScript module was generated from
-    /// different shader sources or for another canvas, a warning is logged and the shaders are
-    /// compiled from scratch.
-    pub fn from_precompiled(
-        canvas: &HtmlCanvasElement,
-        use_depth_buffer: bool,
-        precompiled: &JsValue,
-    ) -> Result<Self, WebGlError> {
-        if precompiled.is_null() || precompiled.is_undefined() {
-            return Self::compile(canvas, use_depth_buffer);
-        }
+    /// See [`WebGlRenderer::begin_with_precompiled`].
+    fn from_precompiled(precompiled: &JsValue) -> Result<Self, WebGlError> {
+        let not_a_result = || {
+            WebGlError::IncompatiblePrecompiledShaders(
+                IncompatiblePrecompiledShadersReason::NotCompileVelloShadersResult,
+            )
+        };
+        let context = precompiled_field(precompiled, "gl")
+            .ok()
+            .and_then(|gl| gl.dyn_into::<WebGl2RenderingContext>().ok())
+            .ok_or_else(not_a_result)?;
+        let canvas = context
+            .canvas()
+            .and_then(|canvas| canvas.dyn_into::<HtmlCanvasElement>().ok())
+            .ok_or_else(not_a_result)?;
+        let use_depth_buffer = context_attribute(&context, "depth")?;
 
-        let gl = create_context(canvas, use_depth_buffer)?;
-        match adopt_precompiled_programs(&gl, precompiled) {
-            Ok((compilation_start_ms, programs)) => {
-                Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs, true)
-            }
-            Err(reason) => {
-                log::warn!("Ignoring precompiled Vello shaders: {reason}");
-                let (compilation_start_ms, programs) = compile_programs(&gl)?;
-                Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs, false)
-            }
-        }
+        // The canvas already has the context `compileVelloShaders` created, so this validates and
+        // returns it rather than creating a new one.
+        let gl = create_context(&canvas, use_depth_buffer)?;
+        let (compilation_start_ms, programs) = adopt_precompiled_programs(&gl, precompiled)
+            .map_err(WebGlError::IncompatiblePrecompiledShaders)?;
+
+        Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs)
     }
 
     fn from_programs(
@@ -1696,7 +1708,6 @@ impl WebGlShaders {
         use_depth_buffer: bool,
         compilation_start_ms: f64,
         [strip_program, filter_program, blend_program, copy_program]: [PendingShaderProgram; 4],
-        precompiled: bool,
     ) -> Result<Self, WebGlError> {
         let parallel_shader_compile = gl
             .get_extension("KHR_parallel_shader_compile")
@@ -1707,7 +1718,6 @@ impl WebGlShaders {
             gl,
             use_depth_buffer,
             parallel_shader_compile,
-            precompiled,
             compilation_start_ms,
             poll_count: Cell::new(0),
             ready: Cell::new(false),
@@ -1718,18 +1728,8 @@ impl WebGlShaders {
         })
     }
 
-    /// Returns whether the programs were adopted by [`WebGlShaders::from_precompiled`] instead of
-    /// being compiled by Vello.
-    pub fn is_precompiled(&self) -> bool {
-        self.precompiled
-    }
-
-    /// Returns whether all shader programs have finished compiling and linking, without blocking.
-    ///
-    /// Without `KHR_parallel_shader_compile`, completion cannot be queried without blocking, so
-    /// this returns `true` immediately and finishing the renderer completes compilation
-    /// synchronously.
-    pub fn is_ready(&self) -> bool {
+    /// See [`WebGlRendererInit::is_ready`].
+    fn is_ready(&self) -> bool {
         if !self.ready.get() {
             self.poll_count.set(self.poll_count.get() + 1);
             let ready = [
@@ -1774,47 +1774,39 @@ fn compile_programs(
     Ok((compilation_start_ms, programs))
 }
 
-/// Takes ownership of the programs in a `compileVelloShaders` result, returning when compilation
-/// started and the programs in [`WebGlShaders`]' field order.
+/// Takes ownership of the programs in a `compileVelloShaders` result whose context is `gl`,
+/// returning when compilation started and the programs in [`WebGlShaders`]' field order.
 ///
 /// This avoids WebGL queries, which may block until compilation finishes.
 fn adopt_precompiled_programs(
     gl: &WebGl2RenderingContext,
     precompiled: &JsValue,
-) -> Result<(f64, [PendingShaderProgram; 4]), &'static str> {
-    let get = |object: &JsValue, key: &str| {
-        js_sys::Reflect::get(object, &key.into())
-            .ok()
-            .filter(|value| !value.is_undefined() && !value.is_null())
-    };
+) -> Result<(f64, [PendingShaderProgram; 4]), IncompatiblePrecompiledShadersReason> {
+    use IncompatiblePrecompiledShadersReason::{DifferentModule, NotCompileVelloShadersResult};
 
-    let sources_hash = get(precompiled, "sourcesHash")
-        .and_then(|hash| hash.as_string())
-        .ok_or("the value is not a `compileVelloShaders` result")?;
-    if sources_hash != vello_gpu_shaders::webgl_bootstrap::SOURCES_HASH {
-        return Err("they were compiled from different shader sources");
+    let module_hash = precompiled_field(precompiled, "moduleHash")?
+        .as_string()
+        .ok_or(NotCompileVelloShadersResult)?;
+    if module_hash != vello_gpu_shaders::webgl_bootstrap::MODULE_HASH {
+        return Err(DifferentModule);
     }
-    let context = get(precompiled, "gl").ok_or("the WebGL context is missing")?;
-    if !js_sys::Object::is(&context, gl) {
-        return Err("they belong to a different WebGL context");
-    }
-    let compilation_start_ms = get(precompiled, "startTime")
-        .and_then(|time| time.as_f64())
-        .ok_or("the compilation start time is missing")?;
-    let programs = get(precompiled, "programs").ok_or("the programs are missing")?;
+    let compilation_start_ms = precompiled_field(precompiled, "startTime")?
+        .as_f64()
+        .ok_or(NotCompileVelloShadersResult)?;
+    let programs = precompiled_field(precompiled, "programs")?;
 
     let adopt = |name: &str| {
-        let program = get(&programs, name).ok_or("a program is missing")?;
+        let program = precompiled_field(&programs, name)?;
         let shader = |key| {
-            get(&program, key)
-                .and_then(|shader| shader.dyn_into::<WebGlShader>().ok())
-                .ok_or("a shader is missing")
+            precompiled_field(&program, key)?
+                .dyn_into::<WebGlShader>()
+                .map_err(|_| NotCompileVelloShadersResult)
         };
         let vertex_shader = shader("vertexShader")?;
         let fragment_shader = shader("fragmentShader")?;
-        let program = get(&program, "program")
-            .and_then(|program| program.dyn_into::<WebGlProgram>().ok())
-            .ok_or("a program handle is missing")?;
+        let program = precompiled_field(&program, "program")?
+            .dyn_into::<WebGlProgram>()
+            .map_err(|_| NotCompileVelloShadersResult)?;
 
         Ok(PendingShaderProgram {
             vertex_shader: VertexShader::from_raw(gl, WebGlVertexShader(vertex_shader)),
@@ -1832,6 +1824,17 @@ fn adopt_precompiled_programs(
             adopt("copy")?,
         ],
     ))
+}
+
+/// Returns a field of a `compileVelloShaders` result, or of an object nested in it.
+fn precompiled_field(
+    object: &JsValue,
+    key: &str,
+) -> Result<JsValue, IncompatiblePrecompiledShadersReason> {
+    js_sys::Reflect::get(object, &key.into())
+        .ok()
+        .filter(|value| !value.is_undefined() && !value.is_null())
+        .ok_or(IncompatiblePrecompiledShadersReason::NotCompileVelloShadersResult)
 }
 
 impl WebGlPrograms {

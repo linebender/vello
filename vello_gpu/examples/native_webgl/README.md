@@ -15,7 +15,8 @@ writes `generated/bootstrap.js`, which combines the `compileVelloShaders` module
 `vello_gpu_shaders` with `src/bootstrap.js`. Because the `wasm-bindgen` glue imports that snippet
 before it fetches the binary, the snippet creates the canvas and starts compiling as soon as the
 page loads the glue. `run_interactive` then adopts the compiled programs with
-`WebGlShaders::from_precompiled`, and the console logs whether that succeeded.
+`WebGlRenderer::begin_with_precompiled`, falling back to compiling them from scratch with a console
+warning if they can't be adopted.
 
 ## Testing
 

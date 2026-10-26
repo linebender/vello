@@ -1,29 +1,31 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// The build script prepends `SOURCES_HASH` and `PROGRAMS` to this file to generate
-// `webgl_bootstrap::JS_MODULE`. The default context attributes and the program creation must
-// match `vello_gpu`'s WebGL backend.
+// The build script prepends `MODULE_HASH` and `PROGRAMS` to this file to generate
+// `webgl_bootstrap::JS_MODULE`. The context attributes Vello enforces and the program creation
+// must match `vello_gpu`'s WebGL backend; `webgl_contexts_created_by_javascript_and_rust_match` in
+// `vello_tests` checks the attributes.
 
 /**
  * Creates the canvas's WebGL2 context and starts compiling Vello's shader programs without
  * waiting for them to finish.
  *
  * The context keeps the attributes it is created with, so pass any attributes the application
- * needs in `contextAttributes`. They are merged over Vello's defaults: `antialias: false` and
- * `depth: true` are required by Vello (with `depth: false` only if the renderer is created without
- * a depth buffer), while `failIfMajorPerformanceCaveat: true` keeps Vello off slow software
- * renderers.
+ * needs in `contextAttributes`. `depth` defaults to `true`; with `depth: false` the renderer
+ * doesn't use a depth buffer, which reduces GPU memory usage but can increase overdraw. Vello
+ * always sets `antialias: false`, which it requires, and `failIfMajorPerformanceCaveat: true`,
+ * which keeps it off slow software renderers.
  *
- * Pass the result to `WebGlShaders::from_precompiled` with the same canvas, using a
- * `use_depth_buffer` that matches `depth`. Returns `null` if WebGL2 is unavailable.
+ * Pass the result to `WebGlRenderer::begin_with_precompiled` once; the renderer then owns its
+ * shaders and programs and deletes them when it's dropped. Returns `null` if WebGL2 is
+ * unavailable.
  */
 export function compileVelloShaders(canvas, contextAttributes = {}) {
   const gl = canvas.getContext("webgl2", {
-    antialias: false,
     depth: true,
-    failIfMajorPerformanceCaveat: true,
     ...contextAttributes,
+    antialias: false,
+    failIfMajorPerformanceCaveat: true,
   });
   if (!gl) {
     return null;
@@ -51,5 +53,5 @@ export function compileVelloShaders(canvas, contextAttributes = {}) {
   // until the page yields.
   gl.flush();
 
-  return { sourcesHash: SOURCES_HASH, startTime, gl, programs };
+  return { moduleHash: MODULE_HASH, startTime, gl, programs };
 }

@@ -54,20 +54,8 @@ async fn webgl_probe_succeeds_without_depth_buffer() {
 
 #[cfg(feature = "webgl")]
 async fn run_webgl_probe(use_depth_buffer: bool) {
-    use vello_gpu::WebGlProbeStatus;
     use wasm_bindgen::JsCast;
-    use wasm_bindgen_futures::JsFuture;
     use web_sys::HtmlCanvasElement;
-
-    async fn wait_for_animation_frame() {
-        let promise = web_sys::js_sys::Promise::new(&mut |resolve, _reject| {
-            web_sys::window()
-                .unwrap()
-                .request_animation_frame(&resolve)
-                .unwrap();
-        });
-        JsFuture::from(promise).await.unwrap();
-    }
 
     let document = web_sys::window().unwrap().document().unwrap();
     let canvas = document
@@ -84,6 +72,25 @@ async fn run_webgl_probe(use_depth_buffer: bool) {
         use_depth_buffer,
     )
     .unwrap();
+    assert_probe_succeeds(&mut renderer).await;
+}
+
+/// Renders all probe elements with `renderer` and asserts that the output matches the reference.
+#[cfg(feature = "webgl")]
+async fn assert_probe_succeeds(renderer: &mut vello_gpu::WebGlRenderer) {
+    use vello_gpu::WebGlProbeStatus;
+    use wasm_bindgen_futures::JsFuture;
+
+    async fn wait_for_animation_frame() {
+        let promise = web_sys::js_sys::Promise::new(&mut |resolve, _reject| {
+            web_sys::window()
+                .unwrap()
+                .request_animation_frame(&resolve)
+                .unwrap();
+        });
+        JsFuture::from(promise).await.unwrap();
+    }
+
     let mut pending = renderer
         .probe(vello_common::probe::ALL_PROBE_ELEMENTS)
         .unwrap_or_else(|error| panic!("WebGlRenderer::probe() failed to render: {error:?}"));
@@ -156,72 +163,6 @@ async fn webgl_pending_renderer_init_completes() {
     );
 }
 
-#[cfg(feature = "webgl")]
-#[wasm_bindgen_test]
-async fn webgl_shaders_compiled_ahead_create_renderer() {
-    use vello_gpu::{RenderSettings, WebGlRenderer, WebGlShaders};
-    use wasm_bindgen::JsCast;
-    use wasm_bindgen_futures::JsFuture;
-    use web_sys::HtmlCanvasElement;
-
-    async fn wait_for_animation_frame() {
-        let promise = web_sys::js_sys::Promise::new(&mut |resolve, _reject| {
-            web_sys::window()
-                .unwrap()
-                .request_animation_frame(&resolve)
-                .unwrap();
-        });
-        JsFuture::from(promise).await.unwrap();
-    }
-
-    let document = web_sys::window().unwrap().document().unwrap();
-    let canvas = document
-        .create_element("canvas")
-        .unwrap()
-        .dyn_into::<HtmlCanvasElement>()
-        .unwrap();
-    canvas.set_width(16);
-    canvas.set_height(16);
-
-    let shaders = WebGlShaders::compile(&canvas, true).unwrap();
-    const MAX_FRAMES: u32 = 600;
-    let mut frames = 0;
-    while !shaders.is_ready() {
-        assert!(
-            frames < MAX_FRAMES,
-            "shader compilation did not finish within {MAX_FRAMES} animation frames"
-        );
-        frames += 1;
-        wait_for_animation_frame().await;
-    }
-
-    let (init, mut resources) =
-        WebGlRenderer::begin_with_shaders(shaders, RenderSettings::default()).unwrap();
-    assert!(
-        init.is_ready(),
-        "readiness must persist after it is reached"
-    );
-    let mut renderer = init.finish().unwrap();
-    assert!(
-        renderer.shader_compilation_stats().poll_count >= 1,
-        "readiness checks must be counted as polls"
-    );
-
-    let scene = vello_gpu::Scene::new(16, 16);
-    renderer
-        .render(
-            &scene,
-            &mut resources,
-            &vello_gpu::RenderSize {
-                width: 16,
-                height: 16,
-            },
-            &vello_gpu::WebGlTextureBindings::new(),
-            vello_common::color::AlphaColor::TRANSPARENT,
-        )
-        .unwrap();
-}
-
 /// Loads `vello_gpu_shaders`' JavaScript module the way a page would before the WASM binary, then
 /// calls its `compileVelloShaders` on `canvas` with `context_attributes`.
 #[cfg(feature = "webgl")]
@@ -254,14 +195,18 @@ async fn compile_shaders_from_javascript(
         .unwrap()
 }
 
+/// Creates a renderer from `precompiled` and runs the probe with it.
 #[cfg(feature = "webgl")]
-async fn render_with_shaders(shaders: vello_gpu::WebGlShaders) {
+async fn render_with_precompiled(precompiled: &wasm_bindgen::JsValue) {
     use vello_gpu::{RenderSettings, WebGlRenderer};
     use wasm_bindgen_futures::JsFuture;
 
+    let (init, _) =
+        WebGlRenderer::begin_with_precompiled(precompiled, RenderSettings::default()).unwrap();
+
     const MAX_FRAMES: u32 = 600;
     let mut frames = 0;
-    while !shaders.is_ready() {
+    while !init.is_ready() {
         assert!(
             frames < MAX_FRAMES,
             "shader compilation did not finish within {MAX_FRAMES} animation frames"
@@ -275,22 +220,17 @@ async fn render_with_shaders(shaders: vello_gpu::WebGlShaders) {
         });
         JsFuture::from(promise).await.unwrap();
     }
+    assert!(
+        init.is_ready(),
+        "readiness must persist after it is reached"
+    );
 
-    let (init, mut resources) =
-        WebGlRenderer::begin_with_shaders(shaders, RenderSettings::default()).unwrap();
     let mut renderer = init.finish().unwrap();
-    renderer
-        .render(
-            &vello_gpu::Scene::new(16, 16),
-            &mut resources,
-            &vello_gpu::RenderSize {
-                width: 16,
-                height: 16,
-            },
-            &vello_gpu::WebGlTextureBindings::new(),
-            vello_common::color::AlphaColor::TRANSPARENT,
-        )
-        .unwrap();
+    assert!(
+        renderer.shader_compilation_stats().poll_count >= 1,
+        "readiness checks must be counted as polls"
+    );
+    assert_probe_succeeds(&mut renderer).await;
 }
 
 #[cfg(feature = "webgl")]
@@ -316,59 +256,126 @@ async fn webgl_shaders_precompiled_by_javascript_are_adopted() {
     use wasm_bindgen::{JsCast, JsValue};
     use web_sys::js_sys::{Object, Reflect};
 
-    let canvas = create_test_canvas();
     let context_attributes = Object::new();
     Reflect::set(&context_attributes, &"alpha".into(), &JsValue::FALSE).unwrap();
-    let precompiled = compile_shaders_from_javascript(&canvas, &context_attributes).await;
+    Reflect::set(&context_attributes, &"antialias".into(), &JsValue::TRUE).unwrap();
+    let precompiled =
+        compile_shaders_from_javascript(&create_test_canvas(), &context_attributes).await;
 
     let gl = Reflect::get(&precompiled, &"gl".into())
         .unwrap()
         .unchecked_into::<web_sys::WebGl2RenderingContext>();
-    let alpha = Reflect::get(&gl.get_context_attributes().unwrap(), &"alpha".into()).unwrap();
+    let created_attributes = gl.get_context_attributes().unwrap();
+    let created_attribute = |name: &str| Reflect::get(&created_attributes, &name.into()).unwrap();
     assert_eq!(
-        alpha,
+        created_attribute("alpha"),
         JsValue::FALSE,
         "application context attributes must reach the created context"
     );
-
-    let shaders = vello_gpu::WebGlShaders::from_precompiled(&canvas, true, &precompiled).unwrap();
-    assert!(
-        shaders.is_precompiled(),
-        "programs compiled by the generated JavaScript must be adopted"
+    assert_eq!(
+        created_attribute("antialias"),
+        JsValue::FALSE,
+        "applications must not be able to enable antialiasing"
     );
-    render_with_shaders(shaders).await;
+
+    render_with_precompiled(&precompiled).await;
 }
 
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
-async fn webgl_shaders_precompiled_for_another_canvas_are_recompiled() {
+async fn webgl_shaders_precompiled_without_depth_buffer_are_adopted() {
+    use wasm_bindgen::JsValue;
+    use web_sys::js_sys::{Object, Reflect};
+
+    let context_attributes = Object::new();
+    Reflect::set(&context_attributes, &"depth".into(), &JsValue::FALSE).unwrap();
     let precompiled =
-        compile_shaders_from_javascript(&create_test_canvas(), &wasm_bindgen::JsValue::UNDEFINED)
-            .await;
+        compile_shaders_from_javascript(&create_test_canvas(), &context_attributes).await;
+
+    render_with_precompiled(&precompiled).await;
+}
+
+#[cfg(feature = "webgl")]
+#[wasm_bindgen_test]
+async fn webgl_contexts_created_by_javascript_and_rust_match() {
+    use vello_gpu::{RenderSettings, WebGlRenderer};
+    use wasm_bindgen::{JsCast, JsValue};
+    use web_sys::WebGl2RenderingContext;
+    use web_sys::js_sys::{JSON, Object, Reflect};
+
+    /// Serializes all of `gl`'s context attributes with sorted keys, so they can be compared.
+    fn attributes_json(gl: &WebGl2RenderingContext) -> String {
+        let attributes = gl.get_context_attributes().unwrap();
+        let keys = Object::keys(&attributes).sort();
+        JSON::stringify_with_replacer(&attributes, &keys)
+            .unwrap()
+            .into()
+    }
+
+    let precompiled =
+        compile_shaders_from_javascript(&create_test_canvas(), &JsValue::UNDEFINED).await;
+    let javascript_gl = Reflect::get(&precompiled, &"gl".into())
+        .unwrap()
+        .unchecked_into::<WebGl2RenderingContext>();
 
     let canvas = create_test_canvas();
-    let shaders = vello_gpu::WebGlShaders::from_precompiled(&canvas, true, &precompiled).unwrap();
-    assert!(
-        !shaders.is_precompiled(),
-        "programs from another context must not be adopted"
+    let _renderer = WebGlRenderer::begin_with(&canvas, RenderSettings::default(), true).unwrap();
+    let rust_gl = canvas
+        .get_context("webgl2")
+        .unwrap()
+        .unwrap()
+        .unchecked_into::<WebGl2RenderingContext>();
+
+    assert_eq!(
+        attributes_json(&javascript_gl),
+        attributes_json(&rust_gl),
+        "`compileVelloShaders` and `WebGlRenderer` must create contexts with the same attributes"
     );
-    render_with_shaders(shaders).await;
+}
+
+/// Returns why creating a renderer from `precompiled` was rejected.
+#[cfg(feature = "webgl")]
+fn precompiled_rejection(
+    precompiled: &wasm_bindgen::JsValue,
+) -> vello_gpu::IncompatiblePrecompiledShadersReason {
+    use vello_gpu::{RenderSettings, WebGlError, WebGlRenderer};
+
+    match WebGlRenderer::begin_with_precompiled(precompiled, RenderSettings::default()) {
+        Err(WebGlError::IncompatiblePrecompiledShaders(reason)) => reason,
+        Err(error) => panic!("expected incompatible precompiled shaders, got {error:?}"),
+        Ok(_) => panic!("incompatible precompiled shaders must be rejected"),
+    }
 }
 
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
-async fn webgl_shaders_precompiled_from_other_sources_are_recompiled() {
+fn webgl_null_precompiled_shaders_are_rejected() {
+    assert_eq!(
+        precompiled_rejection(&wasm_bindgen::JsValue::NULL),
+        vello_gpu::IncompatiblePrecompiledShadersReason::NotCompileVelloShadersResult,
+        "the `null` that `compileVelloShaders` returns without WebGL2 must be rejected"
+    );
+}
+
+#[cfg(feature = "webgl")]
+#[wasm_bindgen_test]
+async fn webgl_shaders_precompiled_from_another_module_are_rejected() {
+    use vello_gpu::{RenderSettings, WebGlRenderer};
+
     let canvas = create_test_canvas();
     let precompiled =
         compile_shaders_from_javascript(&canvas, &wasm_bindgen::JsValue::UNDEFINED).await;
-    web_sys::js_sys::Reflect::set(&precompiled, &"sourcesHash".into(), &"stale".into()).unwrap();
+    web_sys::js_sys::Reflect::set(&precompiled, &"moduleHash".into(), &"stale".into()).unwrap();
 
-    let shaders = vello_gpu::WebGlShaders::from_precompiled(&canvas, true, &precompiled).unwrap();
-    assert!(
-        !shaders.is_precompiled(),
-        "programs compiled from different sources must not be adopted"
+    assert_eq!(
+        precompiled_rejection(&precompiled),
+        vello_gpu::IncompatiblePrecompiledShadersReason::DifferentModule,
+        "programs compiled by a different module build must be rejected"
     );
-    render_with_shaders(shaders).await;
+
+    // Falling back after a rejection must work on the canvas that already has a context.
+    let (init, _) = WebGlRenderer::begin_with(&canvas, RenderSettings::default(), true).unwrap();
+    assert_probe_succeeds(&mut init.finish().unwrap()).await;
 }
 
 // This test reproduces a bug where creating a renderer would leave a non-default framebuffer without

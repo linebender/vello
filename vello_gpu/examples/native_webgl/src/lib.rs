@@ -24,23 +24,20 @@ use vello_example_scenes::{
     AnyScene,
     performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
 };
-use vello_gpu::{RenderSettings, Scene, WebGlShaders};
+use vello_gpu::{RenderSettings, Resources, Scene, WebGlError, WebGlRendererInit};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 struct RendererWrapper {
     renderer: vello_gpu::WebGlRenderer,
-    resources: vello_gpu::Resources,
+    resources: Resources,
     gpu_timer: Option<WebGlGpuTimer>,
 }
 
 impl RendererWrapper {
-    /// Creates the renderer once `shaders`, which were compiled from `canvas`, are ready.
-    async fn new(canvas: HtmlCanvasElement, shaders: WebGlShaders) -> Self {
-        let settings = RenderSettings::default();
-        let (init, resources) = vello_gpu::WebGlRenderer::begin_with_shaders(shaders, settings)
-            .expect("failed to create WebGL renderer");
+    /// Finishes `init`, which was begun on `canvas`, once its shaders are ready.
+    async fn new(canvas: HtmlCanvasElement, init: WebGlRendererInit, resources: Resources) -> Self {
         while !init.is_ready() {
             next_animation_frame().await;
         }
@@ -92,14 +89,15 @@ struct AppState {
 impl AppState {
     async fn new(
         canvas: HtmlCanvasElement,
-        shaders: WebGlShaders,
+        init: WebGlRendererInit,
+        resources: Resources,
         scenes: Box<[AnyScene<Scene>]>,
     ) -> Self {
         let width = canvas.width();
         let height = canvas.height();
         let current_scene = initial_scene_index(scenes.len());
 
-        let mut renderer_wrapper = RendererWrapper::new(canvas.clone(), shaders).await;
+        let mut renderer_wrapper = RendererWrapper::new(canvas.clone(), init, resources).await;
         let probe_indicator = ProbeIndicator::new(&mut renderer_wrapper.renderer);
         let shader_compilation = renderer_wrapper.renderer.shader_compilation_stats();
         let timing_note = if renderer_wrapper.gpu_timer.is_some() {
@@ -458,12 +456,18 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     body.append_child(&canvas).unwrap();
 
     // The shaders keep compiling while the example scenes are built.
-    let shaders = WebGlShaders::from_precompiled(&canvas, true, &early_precompiled_shaders())
-        .expect("failed to create WebGL context");
-    log::info!(
-        "Shaders compiled before WebAssembly loaded: {}",
-        shaders.is_precompiled()
-    );
+    let settings = RenderSettings::default();
+    let (init, resources) = match vello_gpu::WebGlRenderer::begin_with_precompiled(
+        &early_precompiled_shaders(),
+        settings.clone(),
+    ) {
+        Err(WebGlError::IncompatiblePrecompiledShaders(reason)) => {
+            log::warn!("Compiling shaders from scratch: {reason}");
+            vello_gpu::WebGlRenderer::begin_with(&canvas, settings, true)
+        }
+        result => result,
+    }
+    .expect("failed to create WebGL renderer");
 
     let scenes = {
         let v = vello_example_scenes::get_example_scenes(
@@ -478,7 +482,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     };
 
     let app_state = Rc::new(RefCell::new(
-        AppState::new(canvas.clone(), shaders, scenes).await,
+        AppState::new(canvas.clone(), init, resources, scenes).await,
     ));
 
     // Set up animation frame loop
@@ -667,12 +671,14 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         .append_child(&canvas)
         .unwrap();
 
-    let shaders = WebGlShaders::compile(&canvas, true).expect("failed to create WebGL context");
+    let (init, resources) =
+        vello_gpu::WebGlRenderer::begin_with(&canvas, RenderSettings::default(), true)
+            .expect("failed to create WebGL renderer");
     let RendererWrapper {
         mut renderer,
         mut resources,
         ..
-    } = RendererWrapper::new(canvas, shaders).await;
+    } = RendererWrapper::new(canvas, init, resources).await;
 
     let render_size = vello_gpu::RenderSize { width, height };
     renderer

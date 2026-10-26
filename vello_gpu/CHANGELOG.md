@@ -15,8 +15,8 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - Renderer probing in the wgpu backend through `Renderer::probe`, with the `probe` feature. (by [@LaurenzV][])
-- `WebGlShaders` for starting WebGL shader compilation from just the canvas, before the renderer is created, with `WebGlRenderer::begin_with_shaders` and non-blocking `is_ready` checks. WebGL initialization now flushes compile commands immediately, so compilation starts even if the caller keeps the main thread busy.
-- `WebGlShaders::from_precompiled` adopts shader programs compiled by the JavaScript module in `vello_gpu_shaders::webgl_bootstrap::JS_MODULE`, so compilation can start before the WebAssembly module is downloaded and instantiated.
+- `WebGlRenderer::begin_with_precompiled` adopts the canvas, WebGL context, and shader programs set up by the JavaScript module in `vello_gpu_shaders::webgl_bootstrap::JS_MODULE`, so compilation can start before the WebAssembly module is downloaded and instantiated. Programs that can't be adopted are reported with `WebGlError::IncompatiblePrecompiledShaders`.
+- `WebGlRendererInit::is_ready` for non-blocking readiness checks. WebGL initialization now flushes compile commands immediately, so compilation starts even if the caller keeps the main thread busy.
 
 ### Fixed
 
