@@ -162,7 +162,6 @@ impl Renderer {
         self.render_scene(
             &scene,
             device,
-            queue,
             &mut encoder,
             &render_size,
             &target_view,
