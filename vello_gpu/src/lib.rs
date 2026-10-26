@@ -126,11 +126,11 @@ pub mod util;
 
 #[cfg(feature = "webgl")]
 pub use render::{
-    AtlasTextureInfo, IncompatibleContextReason, ShaderCompilationStats, WebGlAtlasWriter,
-    WebGlContextOperation, WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlRenderer,
-    WebGlRendererInit, WebGlRendererInitStatus, WebGlResourceKind, WebGlShaderInterfaceOperation,
-    WebGlShaderProgramOperation, WebGlShaderStage, WebGlTextureBindings,
-    WebGlTextureWithDimensions,
+    AtlasTextureInfo, IncompatibleContextReason, IncompatiblePrecompiledShadersReason,
+    ShaderCompilationStats, WebGlAtlasWriter, WebGlContextOperation, WebGlDataTransferOperation,
+    WebGlError, WebGlOperation, WebGlRenderer, WebGlRendererInit, WebGlRendererInitStatus,
+    WebGlResourceKind, WebGlShaderInterfaceOperation, WebGlShaderProgramOperation,
+    WebGlShaderStage, WebGlTextureBindings, WebGlTextureWithDimensions,
 };
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBinding, TextureBindings};
