@@ -13,9 +13,8 @@ use core::ops::Deref;
 use thiserror::Error;
 use vello_common::TextureId;
 use vello_common::color::palette::css;
-use vello_common::geometry::RectU16;
 use vello_common::image_cache::ImageCache;
-use vello_common::paint::ImageSource;
+use vello_common::paint::{ImageSource, TextureRegion};
 use vello_common::pixmap::Pixmap;
 use vello_common::probe::{Probe, ProbeFeature};
 use web_sys::WebGl2RenderingContext;
@@ -146,13 +145,18 @@ impl WebGlRenderer {
 
         let probe_texture_id = TextureId(0);
         let mut texture_bindings = WebGlTextureBindings::new();
-        texture_bindings.insert(probe_texture_id, probe_image_texture.deref().clone());
+        texture_bindings.insert(
+            probe_texture_id,
+            probe_image_texture.deref().clone(),
+            probe_image.width(),
+            probe_image.height(),
+        );
         let mut scene = Scene::new(width, height);
         vello_common::probe::draw_scene(
             &mut scene,
             ImageSource::external_texture(
                 probe_texture_id,
-                RectU16::new(0, 0, probe_image.width(), probe_image.height()),
+                TextureRegion::Full,
                 probe_image.may_have_transparency(),
             ),
             elements,

@@ -31,7 +31,7 @@ impl ProbeIndicator {
         let style = container.style();
         for (property, value) in [
             ("position", "fixed"),
-            ("top", "56px"),
+            ("top", "108px"),
             ("right", "12px"),
             ("z-index", "1000"),
             ("min-width", "210px"),

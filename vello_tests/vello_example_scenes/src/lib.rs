@@ -13,6 +13,8 @@ pub mod filter_elements;
 pub mod gradient;
 pub mod image;
 pub mod multi_image;
+#[cfg(target_arch = "wasm32")]
+pub mod navigation;
 pub mod path;
 #[cfg(target_arch = "wasm32")]
 pub mod performance;

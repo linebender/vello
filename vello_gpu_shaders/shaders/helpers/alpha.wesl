@@ -39,11 +39,11 @@ fn sample_strip_alpha(
 
 fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
     switch channel_index {
-        case 0u: { return rgba.x; }
-        case 1u: { return rgba.y; }
-        case 2u: { return rgba.z; }
-        case 3u: { return rgba.w; }
+        case 0u { return rgba.x; }
+        case 1u { return rgba.y; }
+        case 2u { return rgba.z; }
+        case 3u { return rgba.w; }
         // Fallback, should never happen
-        default: { return rgba.x; }
+        default { return rgba.x; }
     }
 }

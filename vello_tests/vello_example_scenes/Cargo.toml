@@ -39,6 +39,7 @@ log = { workspace = true }
 parley = { version = "0.11.0", default-features = false, features = ["std"] }
 wasm-bindgen = { workspace = true }
 web-sys = { workspace = true, features = [
+    "AddEventListenerOptions",
     "Window",
     "Performance",
     "Document",
@@ -46,6 +47,9 @@ web-sys = { workspace = true, features = [
     "Element",
     "HtmlElement",
     "CssStyleDeclaration",
+    "Touch",
+    "TouchEvent",
+    "TouchList",
 ] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

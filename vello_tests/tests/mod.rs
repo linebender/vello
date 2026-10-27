@@ -56,4 +56,9 @@ mod target;
 mod util;
 #[cfg(target_arch = "wasm32")]
 mod wasm_binary_invariants;
+// Plain `#[test]`s, which don't run in the browser.
+#[cfg(not(target_arch = "wasm32"))]
+mod wgpu_external_texture;
+#[cfg(not(target_arch = "wasm32"))]
+mod wgpu_probe;
 mod wide_tile;

@@ -22,15 +22,9 @@ fn rect_coverage(rect_size_packed: u32, rect_frac: u32, tex_coord: vec2<f32>) ->
 }
 
 fn quad_corner(vertex_index: u32) -> vec2<f32> {
-    return vec2<f32>(
-        f32(vertex_index & 1u),
-        f32(vertex_index >> 1u),
-    );
+    return vec2<f32>(f32(vertex_index & 1u), f32(vertex_index >> 1u));
 }
 
 fn pixel_to_ndc(pixel: vec2<f32>, target_size: vec2<f32>) -> vec2<f32> {
-    return vec2<f32>(
-        pixel.x * 2.0 / target_size.x - 1.0,
-        1.0 - pixel.y * 2.0 / target_size.y,
-    );
+    return vec2<f32>(pixel.x * 2.0 / target_size.x - 1.0, 1.0 - pixel.y * 2.0 / target_size.y);
 }

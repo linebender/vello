@@ -17,7 +17,9 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::mem::size_of;
 use vello_common::color::{AlphaColor, Srgb};
+use vello_common::encode::{EncodedImage, FocalKind, RadialKind};
 use vello_common::geometry::{RectU16, SizeU16};
+use vello_common::paint::TintMode;
 use vello_common::record::CommandRecorder;
 
 // TODO: If we want to use native bilinear sampling for uploaded images,
@@ -223,12 +225,468 @@ impl LayersConfig {
     }
 }
 
+/// Dimensions of the rendering target.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct RenderSize {
+    /// Width of the rendering target.
+    pub width: u16,
+    /// Height of the rendering target.
+    pub height: u16,
+}
+
+/// Configuration for the GPU renderer.
+#[repr(C, align(16))]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct Config {
+    /// Width of the rendering target.
+    pub width: u32,
+    /// Height of the rendering target.
+    pub height: u32,
+    /// Height of a strip in the rendering.
+    pub strip_height: u32,
+    /// Number of trailing zeros in `alphas_tex_width` (log2 of width).
+    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
+    pub alphas_tex_width_bits: u32,
+    /// Number of trailing zeros in the encoded paints texture width (log2 of width).
+    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
+    pub encoded_paints_tex_width_bits: u32,
+    /// A horizontal offset to apply to strips.
+    pub strip_offset_x: i32,
+    /// A vertical offset to apply to strips.
+    pub strip_offset_y: i32,
+    /// Whether to flip the y-component of the NDC position.
+    ///
+    /// When transpiling a shader with naga, it applies a y-flip transform when
+    /// compiling to GLSL to account for the difference between the y-down
+    /// coordinate of WebGPU and the y-up coordinate system of WebGL framebuffers.
+    ///
+    /// However, for the native WebGL backend, we want to _avoid_ this transform so that we
+    /// can write directly into the user-provided framebuffer, but still ensure that the scene
+    /// is correctly flipped. Otherwise, we would need to allocate another framebuffer,
+    /// render into that and then pay the cost for flipping it.
+    ///
+    /// Therefore, we optionally negate the coordinates in NDC.
+    /// (Note that naga provides a flag for disabling this behavior. However, the problem
+    /// is that many parts of Vello GPU's code (such as slot textures) also assume a
+    /// y-down coordinate system. Therefore, just disabling this flag causes complications in
+    /// other places. From my experiments, it's much easier to enable the flag by default
+    /// and just apply the second negation manually in case we render to the final output surface
+    /// in the WebGL backend.
+    pub negate_ndc: u32,
+}
+
+/// A GPU strip instance for rendering.
+///
+/// This struct corresponds to the `StripInstance` struct in the shader.
+/// See the `StripInstance` documentation in `render.wesl` for detailed field descriptions.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub struct GpuStrip {
+    /// See `StripInstance::xy` documentation in `render.wesl`.
+    pub x: u16,
+    /// See `StripInstance::xy` documentation in `render.wesl`.
+    pub y: u16,
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wesl`.
+    pub width: u16,
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wesl`.
+    pub dense_width_or_rect_height: u16,
+    /// See `StripInstance::col_idx_or_rect_frac` documentation in `render.wesl`.
+    pub col_idx_or_rect_frac: u32,
+    /// See `StripInstance::payload` documentation in `render.wesl`.
+    pub payload: u32,
+    /// See `StripInstance::paint_and_rect_flag` documentation in `render.wesl`.
+    pub paint_and_rect_flag: u32,
+    /// Painter's-order index used to compute z-depth for early-z rejection in shader.
+    /// In other words, the back-most draw has index 0 and every additional draw in front
+    /// has an incrementing index.
+    pub depth_index: u32,
+}
+
+/// Different types of GPU encoded paints.
+#[derive(Debug)]
+pub(crate) enum GpuEncodedPaint {
+    /// An encoded image.
+    Image(GpuEncodedImage),
+    /// A full external image sampled by the GPU sampler.
+    NativeImage(GpuNativeImage),
+    /// A full `wgpu::ExternalTexture` sampled by the GPU sampler with pad extend.
+    #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+    WgpuExternalTexture(GpuNativeImage),
+    /// An encoded linear gradient.
+    LinearGradient(GpuLinearGradient),
+    /// An encoded radial gradient.
+    RadialGradient(GpuRadialGradient),
+    /// An encoded sweep gradient.
+    SweepGradient(GpuSweepGradient),
+    /// An encoded blurred rounded rectangle.
+    BlurredRoundedRect(GpuBlurredRoundedRect),
+}
+
+const fn texels<T>() -> u32 {
+    let bytes = size_of::<T>();
+    assert!(
+        bytes.is_multiple_of(16),
+        "GPU paints must occupy whole RGBA32Uint texels"
+    );
+    (bytes / 16) as u32
+}
+
+impl GpuEncodedPaint {
+    const IMAGE_TEXELS: u32 = texels::<GpuEncodedImage>();
+    const NATIVE_IMAGE_TEXELS: u32 = texels::<GpuNativeImage>();
+    const LINEAR_TEXELS: u32 = texels::<GpuLinearGradient>();
+    const RADIAL_TEXELS: u32 = texels::<GpuRadialGradient>();
+    const SWEEP_TEXELS: u32 = texels::<GpuSweepGradient>();
+    const BLURRED_RECT_TEXELS: u32 = texels::<GpuBlurredRoundedRect>();
+
+    /// Returns the byte representation of this paint.
+    #[inline]
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Image(paint) => bytemuck::bytes_of(paint),
+            Self::NativeImage(paint) => bytemuck::bytes_of(paint),
+            #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+            Self::WgpuExternalTexture(paint) => bytemuck::bytes_of(paint),
+            Self::LinearGradient(paint) => bytemuck::bytes_of(paint),
+            Self::RadialGradient(paint) => bytemuck::bytes_of(paint),
+            Self::SweepGradient(paint) => bytemuck::bytes_of(paint),
+            Self::BlurredRoundedRect(paint) => bytemuck::bytes_of(paint),
+        }
+    }
+
+    /// Number of `RGBA32Uint` texels occupied by this paint.
+    pub(crate) fn size_texels(&self) -> u32 {
+        match self {
+            Self::Image(_) => Self::IMAGE_TEXELS,
+            Self::NativeImage(_) => Self::NATIVE_IMAGE_TEXELS,
+            #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+            Self::WgpuExternalTexture(_) => Self::NATIVE_IMAGE_TEXELS,
+            Self::LinearGradient(_) => Self::LINEAR_TEXELS,
+            Self::RadialGradient(_) => Self::RADIAL_TEXELS,
+            Self::SweepGradient(_) => Self::SWEEP_TEXELS,
+            Self::BlurredRoundedRect(_) => Self::BLURRED_RECT_TEXELS,
+        }
+    }
+
+    /// Serialize paint enums directly into the provided buffer. Returns the number of bytes written.
+    pub(crate) fn serialize_to_buffer(paints: &[Self], buffer: &mut [u8]) {
+        let mut offset = 0;
+        for paint in paints {
+            let paint_bytes = paint.as_bytes();
+            let end_offset = offset + paint_bytes.len();
+            buffer[offset..end_offset].copy_from_slice(paint_bytes);
+            offset = end_offset;
+        }
+    }
+}
+
+/// GPU data for a full external image using native texture sampling.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub(crate) struct GpuNativeImage {
+    /// Affine transform [a, b, c, d, tx, ty] from view pixels to normalized UVs.
+    pub transform: [f32; 6],
+    /// Opacity as an 8-bit unorm value in the low byte.
+    pub opacity: u32,
+    pub _padding: u32,
+}
+
+pub(crate) fn encode_native_image_paint(
+    image: &EncodedImage,
+    texture_width: u16,
+    texture_height: u16,
+) -> Option<GpuEncodedPaint> {
+    if !crate::paint::supports_native_image(&image.source, image.sampler.quality, image.tint) {
+        return None;
+    }
+
+    let mut transform = image.transform.as_coeffs();
+
+    for index in [0, 2, 4] {
+        transform[index] /= f64::from(texture_width);
+    }
+
+    for index in [1, 3, 5] {
+        transform[index] /= f64::from(texture_height);
+    }
+
+    Some(GpuEncodedPaint::NativeImage(GpuNativeImage {
+        transform: transform.map(|x| x as f32),
+        opacity: pack_tint(image.tint).0 >> 24,
+        _padding: 0,
+    }))
+}
+
+/// Encode an image paint that samples a `wgpu::ExternalTexture`.
+///
+/// Returns `None` if the paint can't be drawn from an external texture, which only supports
+/// sampling the full texture with pad extend, low or medium quality and opacity as the only tint.
+#[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+pub(crate) fn encode_wgpu_external_texture_paint(
+    image: &EncodedImage,
+    texture_width: u16,
+    texture_height: u16,
+) -> Option<GpuEncodedPaint> {
+    use vello_common::peniko::Extend;
+
+    if image.sampler.x_extend != Extend::Pad || image.sampler.y_extend != Extend::Pad {
+        return None;
+    }
+    let Some(GpuEncodedPaint::NativeImage(paint)) =
+        encode_native_image_paint(image, texture_width, texture_height)
+    else {
+        return None;
+    };
+
+    Some(GpuEncodedPaint::WgpuExternalTexture(paint))
+}
+
+/// GPU encoded image data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuEncodedImage {
+    /// Packed rendering quality and extend modes.
+    /// Bits 4-5: `extend_y` (2 bits)
+    /// Bits 2-3: `extend_x` (2 bits)  
+    /// Bits 0-1: `quality` (2 bits)
+    pub image_params: u32,
+    /// Packed image width and height.
+    pub image_size: u32,
+    /// The offset of the image in the atlas texture in pixels.
+    pub image_offset: u32,
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+    /// Premultiplied tint color packed as RGBA8 unorm (`pack4x8unorm` layout).
+    pub tint: u32,
+    /// GPU tint mode.
+    pub tint_mode: u32,
+    /// Number of transparent padding pixels around the image in the atlas.
+    pub image_padding: u32,
+}
+
+/// GPU encoded blurred rounded rectangle data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuBlurredRoundedRect {
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+    /// Premultiplied color packed as RGBA8 unorm (`pack4x8unorm` layout).
+    pub color: u32,
+    /// Whether to paint the inverse (`1 - alpha`) of the blur coverage
+    pub invert: u32,
+    /// Blur parameters: exponent, reciprocal exponent, scale, and inverse standard deviation.
+    pub params0: [f32; 4],
+    /// Blur parameters: minimum edge length, adjusted width, adjusted height, and outer radius.
+    pub params1: [f32; 4],
+    /// Blur parameters [width, height].
+    pub size: [f32; 2],
+    /// Padding for 16-byte alignment.
+    pub _padding1: [u32; 2],
+}
+
+/// GPU encoded linear gradient data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuLinearGradient {
+    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
+    pub texture_width_and_extend_mode: u32,
+    /// Start coordinate in the flat gradient texture.
+    pub gradient_start: u32,
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+}
+
+/// GPU encoded radial gradient data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuRadialGradient {
+    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
+    pub texture_width_and_extend_mode: u32,
+    /// Start coordinate in the flat gradient texture for dense packing.
+    pub gradient_start: u32,
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+    /// Packed kind (bits 0-1, see `RADIAL_KIND_*`) and whether to negate the
+    /// square root of `RADIAL_KIND_FOCAL` (bit 2).
+    pub kind_and_flags: u32,
+    /// `fp0` for focal gradients, `scaled_r0_squared` for strip gradients and 0 otherwise.
+    pub param: f32,
+    /// Scale applied to the computed gradient position.
+    pub scale: f32,
+    /// Bias added to the scaled gradient position.
+    pub bias: f32,
+}
+
+/// GPU encoded sweep gradient data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuSweepGradient {
+    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
+    pub texture_width_and_extend_mode: u32,
+    /// Start coordinate in the flat gradient texture for dense packing.
+    pub gradient_start: u32,
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+    /// Starting angle for sweep gradient.
+    pub start_angle: f32,
+    /// Inverse of angle delta for sweep gradient.
+    pub inv_angle_delta: f32,
+    /// Padding for 16-byte alignment.
+    pub _padding: [u32; 2],
+}
+
+// Constants for packing extend_mode and texture_width.
+const EXTEND_MODE_MASK: u32 = 1 << 30;
+const TEXTURE_WIDTH_MASK: u32 = !EXTEND_MODE_MASK;
+
+/// Pack `extend_mode` and `texture_width` into a single u32.
+/// `extend_mode`: 0=Pad, 1=Repeat, 2=Reflect (stored in bits 30 & 31)
+/// `texture_width`: stored in bits 0-29 (max value: 2^30-1)
+#[inline(always)]
+pub(crate) fn pack_texture_width_and_extend_mode(texture_width: u32, extend_mode: u32) -> u32 {
+    debug_assert!(extend_mode <= 2, "extend_mode must be less or equal to 2");
+    debug_assert!(
+        texture_width <= TEXTURE_WIDTH_MASK,
+        "texture_width {texture_width} exceeds maximum value {TEXTURE_WIDTH_MASK}"
+    );
+    (extend_mode << 30) | (texture_width & TEXTURE_WIDTH_MASK)
+}
+
+const RADIAL_KIND_WELL_BEHAVED: u32 = 0;
+const RADIAL_KIND_STRIP: u32 = 1;
+const RADIAL_KIND_FOCAL_ON_CIRCLE: u32 = 2;
+const RADIAL_KIND_FOCAL: u32 = 3;
+const RADIAL_NEGATE_ROOT_FLAG: u32 = 1 << 2;
+
+/// Encode a radial gradient.
+pub(crate) fn encode_radial_gradient(
+    texture_width_and_extend_mode: u32,
+    gradient_start: u32,
+    transform: [f32; 6],
+    radial: &RadialKind,
+) -> GpuRadialGradient {
+    let (kind_and_flags, param, scale, bias) = match radial {
+        RadialKind::Radial { bias, scale } => (RADIAL_KIND_WELL_BEHAVED, 0.0, *scale, *bias),
+        RadialKind::Strip { scaled_r0_squared } => {
+            (RADIAL_KIND_STRIP, *scaled_r0_squared, 1.0, 0.0)
+        }
+        RadialKind::Focal {
+            kind,
+            fp0,
+            scale,
+            bias,
+        } => {
+            let kind_and_flags = match kind {
+                FocalKind::OnCircle => RADIAL_KIND_FOCAL_ON_CIRCLE,
+                FocalKind::WellBehaved => RADIAL_KIND_WELL_BEHAVED,
+                FocalKind::General { negate_root: false } => RADIAL_KIND_FOCAL,
+                FocalKind::General { negate_root: true } => {
+                    RADIAL_KIND_FOCAL | RADIAL_NEGATE_ROOT_FLAG
+                }
+            };
+            (kind_and_flags, *fp0, *scale, *bias)
+        }
+    };
+
+    GpuRadialGradient {
+        texture_width_and_extend_mode,
+        gradient_start,
+        transform,
+        kind_and_flags,
+        param,
+        scale,
+        bias,
+    }
+}
+
+/// Pack image `width` and `height` into a single u32.
+/// `width`: stored in bits 16-31 (upper 16 bits)
+/// `height`: stored in bits 0-15 (lower 16 bits)
+#[inline(always)]
+pub(crate) fn pack_image_size(width: u16, height: u16) -> u32 {
+    ((width as u32) << 16) | (height as u32)
+}
+
+/// Pack image offset coordinates `x` and `y` into a single u32.
+/// `x`: stored in bits 16-31 (upper 16 bits)
+/// `y`: stored in bits 0-15 (lower 16 bits)
+#[inline(always)]
+pub(crate) fn pack_image_offset(x: u16, y: u16) -> u32 {
+    ((x as u32) << 16) | (y as u32)
+}
+
+/// Pack image `quality` and extend modes into a single u32.
+/// `extend_y`: stored in bits 4-5 (2 bits)
+/// `extend_x`: stored in bits 2-3 (2 bits)
+/// `quality`: stored in bits 0-1 (2 bits)
+#[inline(always)]
+pub(crate) fn pack_image_params(quality: u32, extend_x: u32, extend_y: u32) -> u32 {
+    debug_assert!(extend_x <= 3, "extend_x must be 0-3 (2 bits)");
+    debug_assert!(extend_y <= 3, "extend_y must be 0-3 (2 bits)");
+    debug_assert!(quality <= 3, "quality must be 0-3 (2 bits)");
+    (extend_y << 4) | (extend_x << 2) | quality
+}
+
+/// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.
+///
+/// The tint color is premultiplied before packing into a u32 in the same layout
+/// as WGSL `pack4x8unorm`.
+#[inline(always)]
+pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
+    match tint {
+        Some(t) => {
+            let color = t.color.premultiply().to_rgba8().to_u32();
+            (color, t.mode.as_u32())
+        }
+        // With no tint, use `u32::MAX` (which corresponds to 1.0 on all lanes).
+        // Since we use `Multiply` this will essentially just yield the original image
+        // sample, having the same effect as no tinting at all.
+        None => (u32::MAX, TintMode::Multiply.as_u32()),
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]
+pub(crate) fn maybe_warn_about_webgl_feature_conflict() {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    static HAS_WARNED: AtomicBool = AtomicBool::new(false);
+
+    if !HAS_WARNED.swap(true, Ordering::Release)
+        && wgpu::Backends::all().contains(wgpu::Backends::GL)
+    {
+        log::warn!(
+            r#"Both WebGL and wgpu with the "webgl" feature are enabled.
+For optimal performance and binary size on web targets, use only the dedicated WebGL renderer."#
+        );
+    }
+}
+
+#[cfg(all(
+    any(feature = "webgl", feature = "wgpu"),
+    not(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))
+))]
+pub(crate) fn maybe_warn_about_webgl_feature_conflict() {}
+
 #[cfg(test)]
 mod tests {
-    use super::DeviceLimits;
+    use super::{DeviceLimits, encode_native_image_paint};
     use crate::scene::RecordedDraw;
     use crate::{IntermediateTextureError, LayersConfig, MemorySettings, SizeU16};
+    use vello_common::TextureId;
+    use vello_common::encode::EncodedImage;
+    use vello_common::kurbo::{Affine, Vec2};
     use vello_common::multi_atlas::AtlasConfig;
+    use vello_common::paint::{ImageSource, TextureRegion, Tint, TintMode};
+    use vello_common::peniko::{Color, ImageQuality, ImageSampler};
     use vello_common::record::CommandRecorder;
 
     fn device_limits(max_texture_dimension_2d: u16) -> DeviceLimits {
@@ -378,352 +836,80 @@ mod tests {
             _ => panic!("expected TooLarge"),
         }
     }
-}
 
-/// Dimensions of the rendering target.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct RenderSize {
-    /// Width of the rendering target.
-    pub width: u16,
-    /// Height of the rendering target.
-    pub height: u16,
-}
+    #[test]
+    fn native_image_encoding_accepts_opacity_but_not_color_tint_or_bicubic() {
+        let mut image = EncodedImage {
+            source: ImageSource::external_texture(TextureId(1), TextureRegion::Full, true),
+            sampler: ImageSampler::default(),
+            may_have_transparency: true,
+            transform: Affine::IDENTITY,
+            x_advance: Vec2::new(1.0, 0.0),
+            y_advance: Vec2::new(0.0, 1.0),
+            tint: Some(Tint {
+                color: Color::new([1.0, 1.0, 1.0, 0.5]),
+                mode: TintMode::Multiply,
+            }),
+        };
+        assert!(encode_native_image_paint(&image, 2, 2).is_some());
 
-/// Configuration for the GPU renderer.
-#[repr(C, align(16))]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-pub struct Config {
-    /// Width of the rendering target.
-    pub width: u32,
-    /// Height of the rendering target.
-    pub height: u32,
-    /// Height of a strip in the rendering.
-    pub strip_height: u32,
-    /// Number of trailing zeros in `alphas_tex_width` (log2 of width).
-    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
-    pub alphas_tex_width_bits: u32,
-    /// Number of trailing zeros in the encoded paints texture width (log2 of width).
-    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
-    pub encoded_paints_tex_width_bits: u32,
-    /// A horizontal offset to apply to strips.
-    pub strip_offset_x: i32,
-    /// A vertical offset to apply to strips.
-    pub strip_offset_y: i32,
-    /// Whether to flip the y-component of the NDC position.
-    ///
-    /// When transpiling a shader with naga, it applies a y-flip transform when
-    /// compiling to GLSL to account for the difference between the y-down
-    /// coordinate of WebGPU and the y-up coordinate system of WebGL framebuffers.
-    ///
-    /// However, for the native WebGL backend, we want to _avoid_ this transform so that we
-    /// can write directly into the user-provided framebuffer, but still ensure that the scene
-    /// is correctly flipped. Otherwise, we would need to allocate another framebuffer,
-    /// render into that and then pay the cost for flipping it.
-    ///
-    /// Therefore, we optionally negate the coordinates in NDC.
-    /// (Note that naga provides a flag for disabling this behavior. However, the problem
-    /// is that many parts of Vello GPU's code (such as slot textures) also assume a
-    /// y-down coordinate system. Therefore, just disabling this flag causes complications in
-    /// other places. From my experiments, it's much easier to enable the flag by default
-    /// and just apply the second negation manually in case we render to the final output surface
-    /// in the WebGL backend.
-    pub negate_ndc: u32,
-}
+        image.tint = Some(Tint {
+            color: Color::new([0.5, 1.0, 1.0, 0.5]),
+            mode: TintMode::Multiply,
+        });
+        assert!(encode_native_image_paint(&image, 2, 2).is_none());
 
-/// A GPU strip instance for rendering.
-///
-/// This struct corresponds to the `StripInstance` struct in the shader.
-/// See the `StripInstance` documentation in `render.wesl` for detailed field descriptions.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
-pub struct GpuStrip {
-    /// See `StripInstance::xy` documentation in `render.wesl`.
-    pub x: u16,
-    /// See `StripInstance::xy` documentation in `render.wesl`.
-    pub y: u16,
-    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wesl`.
-    pub width: u16,
-    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wesl`.
-    pub dense_width_or_rect_height: u16,
-    /// See `StripInstance::col_idx_or_rect_frac` documentation in `render.wesl`.
-    pub col_idx_or_rect_frac: u32,
-    /// See `StripInstance::payload` documentation in `render.wesl`.
-    pub payload: u32,
-    /// See `StripInstance::paint_and_rect_flag` documentation in `render.wesl`.
-    pub paint_and_rect_flag: u32,
-    /// Painter's-order index used to compute z-depth for early-z rejection in shader.
-    /// In other words, the back-most draw has index 0 and every additional draw in front
-    /// has an incrementing index.
-    pub depth_index: u32,
-}
+        image.tint = Some(Tint {
+            color: Color::new([1.0, 1.0, 1.0, 0.5]),
+            mode: TintMode::AlphaMask,
+        });
+        assert!(encode_native_image_paint(&image, 2, 2).is_none());
 
-/// Different types of GPU encoded paints.
-#[derive(Debug)]
-pub(crate) enum GpuEncodedPaint {
-    /// An encoded image.
-    Image(GpuEncodedImage),
-    /// An encoded linear gradient.
-    LinearGradient(GpuLinearGradient),
-    /// An encoded radial gradient.
-    RadialGradient(GpuRadialGradient),
-    /// An encoded sweep gradient.
-    SweepGradient(GpuSweepGradient),
-    /// An encoded blurred rounded rectangle.
-    BlurredRoundedRect(GpuBlurredRoundedRect),
-}
-
-const fn texels<T>() -> u32 {
-    let bytes = size_of::<T>();
-    assert!(
-        bytes.is_multiple_of(16),
-        "GPU paints must occupy whole RGBA32Uint texels"
-    );
-    (bytes / 16) as u32
-}
-
-impl GpuEncodedPaint {
-    const IMAGE_TEXELS: u32 = texels::<GpuEncodedImage>();
-    const LINEAR_TEXELS: u32 = texels::<GpuLinearGradient>();
-    const RADIAL_TEXELS: u32 = texels::<GpuRadialGradient>();
-    const SWEEP_TEXELS: u32 = texels::<GpuSweepGradient>();
-    const BLURRED_RECT_TEXELS: u32 = texels::<GpuBlurredRoundedRect>();
-
-    /// Returns the byte representation of this paint.
-    #[inline]
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        match self {
-            Self::Image(paint) => bytemuck::bytes_of(paint),
-            Self::LinearGradient(paint) => bytemuck::bytes_of(paint),
-            Self::RadialGradient(paint) => bytemuck::bytes_of(paint),
-            Self::SweepGradient(paint) => bytemuck::bytes_of(paint),
-            Self::BlurredRoundedRect(paint) => bytemuck::bytes_of(paint),
-        }
+        image.tint = None;
+        image.sampler.quality = ImageQuality::High;
+        assert!(encode_native_image_paint(&image, 2, 2).is_none());
     }
 
-    /// Number of `RGBA32Uint` texels occupied by this paint.
-    pub(crate) fn size_texels(&self) -> u32 {
-        match self {
-            Self::Image(_) => Self::IMAGE_TEXELS,
-            Self::LinearGradient(_) => Self::LINEAR_TEXELS,
-            Self::RadialGradient(_) => Self::RADIAL_TEXELS,
-            Self::SweepGradient(_) => Self::SWEEP_TEXELS,
-            Self::BlurredRoundedRect(_) => Self::BLURRED_RECT_TEXELS,
-        }
-    }
+    #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+    #[test]
+    fn wgpu_external_texture_encoding_requires_full_pad_sampling() {
+        use super::{GpuEncodedPaint, encode_wgpu_external_texture_paint};
+        use vello_common::geometry::RectU16;
+        use vello_common::peniko::Extend;
 
-    /// Serialize paint enums directly into the provided buffer. Returns the number of bytes written.
-    pub(crate) fn serialize_to_buffer(paints: &[Self], buffer: &mut [u8]) {
-        let mut offset = 0;
-        for paint in paints {
-            let paint_bytes = paint.as_bytes();
-            let end_offset = offset + paint_bytes.len();
-            buffer[offset..end_offset].copy_from_slice(paint_bytes);
-            offset = end_offset;
-        }
-    }
-}
+        let encode = |modify: fn(&mut EncodedImage)| {
+            let mut image = EncodedImage {
+                source: ImageSource::external_texture(TextureId(1), TextureRegion::Full, false),
+                sampler: ImageSampler {
+                    quality: ImageQuality::Medium,
+                    ..ImageSampler::default()
+                },
+                may_have_transparency: false,
+                transform: Affine::IDENTITY,
+                x_advance: Vec2::new(1.0, 0.0),
+                y_advance: Vec2::new(0.0, 1.0),
+                tint: None,
+            };
+            modify(&mut image);
+            encode_wgpu_external_texture_paint(&image, 2, 2)
+        };
 
-/// GPU encoded image data.
-/// Align to 16 bytes for `RGBA32Uint` alignment.
-#[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
-#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
-pub(crate) struct GpuEncodedImage {
-    /// Packed rendering quality and extend modes.
-    /// Bits 4-5: `extend_y` (2 bits)
-    /// Bits 2-3: `extend_x` (2 bits)  
-    /// Bits 0-1: `quality` (2 bits)
-    pub image_params: u32,
-    /// Packed image width and height.
-    pub image_size: u32,
-    /// The offset of the image in the atlas texture in pixels.
-    pub image_offset: u32,
-    /// Transform matrix [a, b, c, d, tx, ty].
-    pub transform: [f32; 6],
-    /// Premultiplied tint color packed as RGBA8 unorm (`pack4x8unorm` layout).
-    pub tint: u32,
-    /// GPU tint mode.
-    pub tint_mode: u32,
-    /// Number of transparent padding pixels around the image in the atlas.
-    pub image_padding: u32,
-}
-
-/// GPU encoded blurred rounded rectangle data.
-/// Align to 16 bytes for `RGBA32Uint` alignment.
-#[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
-#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
-pub(crate) struct GpuBlurredRoundedRect {
-    /// Transform matrix [a, b, c, d, tx, ty].
-    pub transform: [f32; 6],
-    /// Premultiplied color packed as RGBA8 unorm (`pack4x8unorm` layout).
-    pub color: u32,
-    /// Whether to paint the inverse (`1 - alpha`) of the blur coverage
-    pub invert: u32,
-    /// Blur parameters: exponent, reciprocal exponent, scale, and inverse standard deviation.
-    pub params0: [f32; 4],
-    /// Blur parameters: minimum edge length, adjusted width, adjusted height, and outer radius.
-    pub params1: [f32; 4],
-    /// Blur parameters [width, height].
-    pub size: [f32; 2],
-    /// Padding for 16-byte alignment.
-    pub _padding1: [u32; 2],
-}
-
-/// GPU encoded linear gradient data.
-/// Align to 16 bytes for `RGBA32Uint` alignment.
-#[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
-#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
-pub(crate) struct GpuLinearGradient {
-    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
-    pub texture_width_and_extend_mode: u32,
-    /// Start coordinate in the flat gradient texture.
-    pub gradient_start: u32,
-    /// Transform matrix [a, b, c, d, tx, ty].
-    pub transform: [f32; 6],
-}
-
-/// GPU encoded radial gradient data.
-/// Align to 16 bytes for `RGBA32Uint` alignment.
-#[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
-#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
-pub(crate) struct GpuRadialGradient {
-    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
-    pub texture_width_and_extend_mode: u32,
-    /// Start coordinate in the flat gradient texture for dense packing.
-    pub gradient_start: u32,
-    /// Transform matrix [a, b, c, d, tx, ty].
-    pub transform: [f32; 6],
-    /// Packed kind (bits 0-1) and `f_is_swapped` (bit 2): 0=Radial, 1=Strip, 2=Focal; bit 2: swapped flag.
-    pub kind_and_f_is_swapped: u32,
-    /// Bias value for radial gradient calculation.
-    pub bias: f32,
-    /// Scale factor for radial gradient calculation.
-    pub scale: f32,
-    /// Focal point 0 parameter for radial gradient.
-    pub fp0: f32,
-    /// Focal point 1 parameter for radial gradient.
-    pub fp1: f32,
-    /// Focal radius 1 parameter for radial gradient.
-    pub fr1: f32,
-    /// Focal X coordinate for radial gradient.
-    pub f_focal_x: f32,
-    /// Scaled radius 0 squared parameter for radial gradient strip.
-    pub scaled_r0_squared: f32,
-}
-
-/// GPU encoded sweep gradient data.
-/// Align to 16 bytes for `RGBA32Uint` alignment.
-#[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
-#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
-pub(crate) struct GpuSweepGradient {
-    /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
-    pub texture_width_and_extend_mode: u32,
-    /// Start coordinate in the flat gradient texture for dense packing.
-    pub gradient_start: u32,
-    /// Transform matrix [a, b, c, d, tx, ty].
-    pub transform: [f32; 6],
-    /// Starting angle for sweep gradient.
-    pub start_angle: f32,
-    /// Inverse of angle delta for sweep gradient.
-    pub inv_angle_delta: f32,
-    /// Padding for 16-byte alignment.
-    pub _padding: [u32; 2],
-}
-
-// Constants for packing extend_mode and texture_width.
-const EXTEND_MODE_MASK: u32 = 1 << 30;
-const TEXTURE_WIDTH_MASK: u32 = !EXTEND_MODE_MASK;
-
-/// Pack `extend_mode` and `texture_width` into a single u32.
-/// `extend_mode`: 0=Pad, 1=Repeat, 2=Reflect (stored in bits 30 & 31)
-/// `texture_width`: stored in bits 0-29 (max value: 2^30-1)
-#[inline(always)]
-pub(crate) fn pack_texture_width_and_extend_mode(texture_width: u32, extend_mode: u32) -> u32 {
-    debug_assert!(extend_mode <= 2, "extend_mode must be less or equal to 2");
-    debug_assert!(
-        texture_width <= TEXTURE_WIDTH_MASK,
-        "texture_width {texture_width} exceeds maximum value {TEXTURE_WIDTH_MASK}"
-    );
-    (extend_mode << 30) | (texture_width & TEXTURE_WIDTH_MASK)
-}
-
-/// Pack radial gradient `kind` and `f_is_swapped` into a single u32.
-/// `kind`: 0=Radial, 1=Strip, 2=Focal (stored in bits 0-1)
-/// `f_is_swapped`: 0=false, 1=true (stored in bit 2)
-#[inline(always)]
-pub(crate) fn pack_radial_kind_and_swapped(kind: u32, f_is_swapped: u32) -> u32 {
-    debug_assert!(kind <= 2, "kind must be 0, 1, or 2");
-    debug_assert!(f_is_swapped <= 1, "f_is_swapped must be 0 or 1");
-    (f_is_swapped << 2) | (kind & 0x3)
-}
-
-/// Pack image `width` and `height` into a single u32.
-/// `width`: stored in bits 16-31 (upper 16 bits)
-/// `height`: stored in bits 0-15 (lower 16 bits)
-#[inline(always)]
-pub(crate) fn pack_image_size(width: u16, height: u16) -> u32 {
-    ((width as u32) << 16) | (height as u32)
-}
-
-/// Pack image offset coordinates `x` and `y` into a single u32.
-/// `x`: stored in bits 16-31 (upper 16 bits)
-/// `y`: stored in bits 0-15 (lower 16 bits)
-#[inline(always)]
-pub(crate) fn pack_image_offset(x: u16, y: u16) -> u32 {
-    ((x as u32) << 16) | (y as u32)
-}
-
-/// Pack image `quality` and extend modes into a single u32.
-/// `extend_y`: stored in bits 4-5 (2 bits)
-/// `extend_x`: stored in bits 2-3 (2 bits)
-/// `quality`: stored in bits 0-1 (2 bits)
-#[inline(always)]
-pub(crate) fn pack_image_params(quality: u32, extend_x: u32, extend_y: u32) -> u32 {
-    debug_assert!(extend_x <= 3, "extend_x must be 0-3 (2 bits)");
-    debug_assert!(extend_y <= 3, "extend_y must be 0-3 (2 bits)");
-    debug_assert!(quality <= 3, "quality must be 0-3 (2 bits)");
-    (extend_y << 4) | (extend_x << 2) | quality
-}
-
-/// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.
-///
-/// The tint color is premultiplied before packing into a u32 in the same layout
-/// as WGSL `pack4x8unorm`.
-#[inline(always)]
-pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
-    match tint {
-        Some(t) => {
-            let color = t.color.premultiply().to_rgba8().to_u32();
-            (color, t.mode.as_u32())
-        }
-        // With no tint, use `u32::MAX` (which corresponds to 1.0 on all lanes).
-        // Since we use `Multiply` this will essentially just yield the original image
-        // sample, having the same effect as no tinting at all.
-        None => (u32::MAX, vello_common::paint::TintMode::Multiply.as_u32()),
-    }
-}
-
-#[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]
-pub(crate) fn maybe_warn_about_webgl_feature_conflict() {
-    use core::sync::atomic::{AtomicBool, Ordering};
-    static HAS_WARNED: AtomicBool = AtomicBool::new(false);
-
-    if !HAS_WARNED.swap(true, Ordering::Release)
-        && wgpu::Backends::all().contains(wgpu::Backends::GL)
-    {
-        log::warn!(
-            r#"Both WebGL and wgpu with the "webgl" feature are enabled.
-For optimal performance and binary size on web targets, use only the dedicated WebGL renderer."#
+        assert!(matches!(
+            encode(|_| {}),
+            Some(GpuEncodedPaint::WgpuExternalTexture(_))
+        ));
+        assert!(encode(|image| image.sampler.x_extend = Extend::Repeat).is_none());
+        assert!(encode(|image| image.sampler.y_extend = Extend::Reflect).is_none());
+        assert!(encode(|image| image.sampler.quality = ImageQuality::High).is_none());
+        assert!(
+            encode(|image| {
+                image.source = ImageSource::external_texture(
+                    TextureId(1),
+                    TextureRegion::Rect(RectU16::new(0, 0, 1, 1)),
+                    false,
+                );
+            })
+            .is_none()
         );
     }
 }
-
-#[cfg(all(
-    any(feature = "webgl", feature = "wgpu"),
-    not(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))
-))]
-pub(crate) fn maybe_warn_about_webgl_feature_conflict() {}

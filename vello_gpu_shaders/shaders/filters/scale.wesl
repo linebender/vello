@@ -22,10 +22,30 @@ fn downscale(
     let lo = vec2<f32>(-0.25);
     let hi = vec2<f32>(1.25);
 
-    let s00 = textureSampleLevel(source_texture, linear_sampler, (source_texel + vec2(lo.x, lo.y) + 0.5) / source_texture_size, 0.0);
-    let s01 = textureSampleLevel(source_texture, linear_sampler, (source_texel + vec2(lo.x, hi.y) + 0.5) / source_texture_size, 0.0);
-    let s10 = textureSampleLevel(source_texture, linear_sampler, (source_texel + vec2(hi.x, lo.y) + 0.5) / source_texture_size, 0.0);
-    let s11 = textureSampleLevel(source_texture, linear_sampler, (source_texel + vec2(hi.x, hi.y) + 0.5) / source_texture_size, 0.0);
+    let s00 = textureSampleLevel(
+            source_texture,
+            linear_sampler,
+            (source_texel + vec2(lo.x, lo.y) + 0.5) / source_texture_size,
+            0.0,
+        );
+    let s01 = textureSampleLevel(
+            source_texture,
+            linear_sampler,
+            (source_texel + vec2(lo.x, hi.y) + 0.5) / source_texture_size,
+            0.0,
+        );
+    let s10 = textureSampleLevel(
+            source_texture,
+            linear_sampler,
+            (source_texel + vec2(hi.x, lo.y) + 0.5) / source_texture_size,
+            0.0,
+        );
+    let s11 = textureSampleLevel(
+            source_texture,
+            linear_sampler,
+            (source_texel + vec2(hi.x, hi.y) + 0.5) / source_texture_size,
+            0.0,
+        );
 
     return (s00 + s01 + s10 + s11) * 0.25;
 }
@@ -48,5 +68,10 @@ fn upscale(
     let sample_offset = select(vec2(-0.25), vec2(0.25), phase == vec2(1.0));
     let source_texel = vec2<f32>(source_origin) + source_base + sample_offset;
 
-    return textureSampleLevel(source_texture, linear_sampler, (source_texel + 0.5) / source_texture_size, 0.0);
+    return textureSampleLevel(
+            source_texture,
+            linear_sampler,
+            (source_texel + 0.5) / source_texture_size,
+            0.0,
+        );
 }

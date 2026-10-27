@@ -4,7 +4,7 @@
 //! Helpers for performing probing to verify the basic capabilities of the device we are
 //! running on.
 
-use crate::color::{AlphaColor, palette::css};
+use crate::color::palette::css;
 use crate::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
@@ -28,7 +28,7 @@ const ANTI_ALIASED_RECT_SIZE: f64 = RECT_SIZE - 1.0;
 const TRANSFORMED_RECT_SIZE: f64 = RECT_SIZE / core::f64::consts::SQRT_2;
 const CIRCLE_CENTER_OFFSET_X: f64 = 1.5;
 const CIRCLE_RADIUS: f64 = RECT_SIZE * 0.5 - CIRCLE_CENTER_OFFSET_X;
-const IMAGE_SOURCE_SIZE: f64 = 5.0;
+const IMAGE_SOURCE_SIZE: f64 = 4.0;
 const PATH_TOLERANCE: f64 = 0.1;
 
 /// All elements available for use in a probe.
@@ -320,13 +320,12 @@ pub fn probe_image_pixmap() -> Pixmap {
     let mut pixmap = Pixmap::new(IMAGE_SOURCE_SIZE as u16, IMAGE_SOURCE_SIZE as u16);
     for y in 0..pixmap.height() {
         for x in 0..pixmap.width() {
-            pixmap.set_pixel(
-                x,
-                y,
-                AlphaColor::from_rgba8(255, 0, 0, 255)
-                    .premultiply()
-                    .to_rgba8(),
-            );
+            let color = if (1..3).contains(&x) && (1..3).contains(&y) {
+                css::RED
+            } else {
+                css::BLUE
+            };
+            pixmap.set_pixel(x, y, color.premultiply().to_rgba8());
         }
     }
     pixmap.set_may_have_transparency(false);
@@ -407,11 +406,11 @@ fn draw_probe_element(
             ctx.set_paint(linear_gradient(&rect).into());
             ctx.fill_rect(&rect);
         }
-        ProbeFeature::ImageNearest => draw_centered_padded_image(ctx, cell, image_nearest),
+        ProbeFeature::ImageNearest => draw_centered_image(ctx, cell, image_nearest),
         ProbeFeature::Filter => {
             draw_blurred_rect(ctx, centered_rect(cell, 10.0, 10.0));
         }
-        ProbeFeature::ImageBilinear => draw_centered_padded_image(ctx, cell, image_bilinear),
+        ProbeFeature::ImageBilinear => draw_centered_image(ctx, cell, image_bilinear),
         ProbeFeature::OpacityLayer => {
             draw_opacity_layer_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE));
         }
@@ -459,14 +458,13 @@ fn centered_rect(cell: Rect, width: f64, height: f64) -> Rect {
     )
 }
 
-fn draw_centered_padded_image(ctx: &mut impl ProbeRenderer, cell: Rect, image_paint: &PaintType) {
+fn draw_centered_image(ctx: &mut impl ProbeRenderer, cell: Rect, image_paint: &PaintType) {
     let dst_rect = centered_rect(cell, RECT_SIZE, RECT_SIZE);
-    let image_origin = (
-        dst_rect.x0 + (RECT_SIZE - IMAGE_SOURCE_SIZE) * 0.5,
-        dst_rect.y0 + (RECT_SIZE - IMAGE_SOURCE_SIZE) * 0.5,
-    );
     ctx.set_paint(image_paint.clone());
-    ctx.set_paint_transform(Affine::translate(image_origin));
+    ctx.set_paint_transform(
+        Affine::translate((dst_rect.x0, dst_rect.y0))
+            * Affine::scale(RECT_SIZE / IMAGE_SOURCE_SIZE),
+    );
     ctx.fill_rect(&dst_rect);
     ctx.reset_paint_transform();
 }

@@ -40,7 +40,12 @@ const MIX_LUMINOSITY = 15u;
 // Apply color mixing and composition. Both input and output colors are premultiplied RGB.
 // Referenced from:
 //   <https://github.com/linebender/vello/blob/b0e2e598ac62c7b3d04d8660e7b1b7659b596970/vello_shaders/shader/shared/blend.wgsl#L288-L310>
-fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, compose_mode: u32, mix_mode: u32) -> vec4<f32> {
+fn blend_mix_compose(
+    backdrop: vec4<f32>,
+    src: vec4<f32>,
+    compose_mode: u32,
+    mix_mode: u32,
+) -> vec4<f32> {
     // Fast path for src_over
     let BLEND_DEFAULT = ((MIX_NORMAL << 8u) | COMPOSE_SRC_OVER);
     let mode = ((mix_mode << 8u) | compose_mode);
@@ -67,68 +72,60 @@ fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, compose_mode: u32, mix
 // Apply general compositing operation. Inputs are separated colors and alpha, output is
 // premultiplied. Referenced from:
 //   <https://github.com/linebender/vello/blob/b0e2e598ac62c7b3d04d8660e7b1b7659b596970/vello_shaders/shader/shared/blend.wgsl#L215>
-fn blend_compose_unpremul(
-    cb: vec3<f32>,
-    cs: vec3<f32>,
-    ab: f32,
-    as_: f32,
-    mode: u32
-) -> vec4<f32> {
+fn blend_compose_unpremul(cb: vec3<f32>, cs: vec3<f32>, ab: f32, as_: f32, mode: u32) -> vec4<f32> {
     var fa = 0.0;
     var fb = 0.0;
     switch mode {
-        case COMPOSE_COPY: {
+        case COMPOSE_COPY {
             fa = 1.0;
             fb = 0.0;
         }
-        case COMPOSE_DEST: {
+        case COMPOSE_DEST {
             fa = 0.0;
             fb = 1.0;
         }
-        case COMPOSE_SRC_OVER: {
+        case COMPOSE_SRC_OVER {
             fa = 1.0;
             fb = 1.0 - as_;
         }
-        case COMPOSE_DEST_OVER: {
+        case COMPOSE_DEST_OVER {
             fa = 1.0 - ab;
             fb = 1.0;
         }
-        case COMPOSE_SRC_IN: {
+        case COMPOSE_SRC_IN {
             fa = ab;
             fb = 0.0;
         }
-        case COMPOSE_DEST_IN: {
+        case COMPOSE_DEST_IN {
             fa = 0.0;
             fb = as_;
         }
-        case COMPOSE_SRC_OUT: {
+        case COMPOSE_SRC_OUT {
             fa = 1.0 - ab;
             fb = 0.0;
         }
-        case COMPOSE_DEST_OUT: {
+        case COMPOSE_DEST_OUT {
             fa = 0.0;
             fb = 1.0 - as_;
         }
-        case COMPOSE_SRC_ATOP: {
+        case COMPOSE_SRC_ATOP {
             fa = ab;
             fb = 1.0 - as_;
         }
-        case COMPOSE_DEST_ATOP: {
+        case COMPOSE_DEST_ATOP {
             fa = 1.0 - ab;
             fb = as_;
         }
-        case COMPOSE_XOR: {
+        case COMPOSE_XOR {
             fa = 1.0 - ab;
             fb = 1.0 - as_;
         }
-        case COMPOSE_PLUS: {
+        case COMPOSE_PLUS {
             fa = 1.0;
             fb = 1.0;
         }
-        case COMPOSE_PLUS_LIGHTER: {
-            return min(vec4(1.0), vec4(as_ * cs + ab * cb, as_ + ab));
-        }
-        default: {}
+        case COMPOSE_PLUS_LIGHTER { return min(vec4(1.0), vec4(as_ * cs + ab * cb, as_ + ab)); }
+        default {}
     }
     let as_fa = as_ * fa;
     let ab_fb = ab * fb;
@@ -162,24 +159,16 @@ fn color_burn(cb: f32, cs: f32) -> f32 {
 }
 
 fn hard_light(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
-    return select(
-        screen(cb, 2.0 * cs - 1.0),
-        cb * 2.0 * cs,
-        cs <= vec3(0.5)
-    );
+    return select(screen(cb, 2.0 * cs - 1.0), cb * 2.0 * cs, cs <= vec3(0.5));
 }
 
 fn soft_light(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
-    let d = select(
-        sqrt(cb),
-        ((16.0 * cb - 12.0) * cb + 4.0) * cb,
-        cb <= vec3(0.25)
-    );
+    let d = select(sqrt(cb), ((16.0 * cb - 12.0) * cb + 4.0) * cb, cb <= vec3(0.25));
     return select(
-        cb + (2.0 * cs - 1.0) * (d - cb),
-        cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb),
-        cs <= vec3(0.5)
-    );
+            cb + (2.0 * cs - 1.0) * (d - cb),
+            cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb),
+            cs <= vec3(0.5),
+        );
 }
 
 fn sat(c: vec3<f32>) -> f32 {
@@ -196,10 +185,10 @@ fn clip_color(c_in: vec3<f32>) -> vec3<f32> {
     let l = lum(c);
     let n = min(c.x, min(c.y, c.z));
     let x = max(c.x, max(c.y, c.z));
-    if n < 0.0 {
+    if n < 0.0 && l - n > 0.0 {
         c = l + (((c - l) * l) / (l - n));
     }
-    if x > 1.0 {
+    if x > 1.0 && x - l > 0.0 {
         c = l + (((c - l) * (1.0 - l)) / (x - l));
     }
     return c;
@@ -213,7 +202,7 @@ fn set_sat_inner(
     cmin: ptr<function, f32>,
     cmid: ptr<function, f32>,
     cmax: ptr<function, f32>,
-    s: f32
+    s: f32,
 ) {
     if *cmax > *cmin {
         *cmid = ((*cmid - *cmin) * s) / (*cmax - *cmin);
@@ -258,54 +247,26 @@ fn set_sat(c: vec3<f32>, s: f32) -> vec3<f32> {
 fn blend_mix(cb: vec3<f32>, cs: vec3<f32>, mode: u32) -> vec3<f32> {
     var b = vec3(0.0);
     switch mode {
-        case MIX_MULTIPLY: {
-            b = cb * cs;
-        }
-        case MIX_SCREEN: {
-            b = screen(cb, cs);
-        }
-        case MIX_OVERLAY: {
-            b = hard_light(cs, cb);
-        }
-        case MIX_DARKEN: {
-            b = min(cb, cs);
-        }
-        case MIX_LIGHTEN: {
-            b = max(cb, cs);
-        }
-        case MIX_COLOR_DODGE: {
+        case MIX_MULTIPLY { b = cb * cs; }
+        case MIX_SCREEN { b = screen(cb, cs); }
+        case MIX_OVERLAY { b = hard_light(cs, cb); }
+        case MIX_DARKEN { b = min(cb, cs); }
+        case MIX_LIGHTEN { b = max(cb, cs); }
+        case MIX_COLOR_DODGE {
             b = vec3(color_dodge(cb.x, cs.x), color_dodge(cb.y, cs.y), color_dodge(cb.z, cs.z));
         }
-        case MIX_COLOR_BURN: {
+        case MIX_COLOR_BURN {
             b = vec3(color_burn(cb.x, cs.x), color_burn(cb.y, cs.y), color_burn(cb.z, cs.z));
         }
-        case MIX_HARD_LIGHT: {
-            b = hard_light(cb, cs);
-        }
-        case MIX_SOFT_LIGHT: {
-            b = soft_light(cb, cs);
-        }
-        case MIX_DIFFERENCE: {
-            b = abs(cb - cs);
-        }
-        case MIX_EXCLUSION: {
-            b = cb + cs - 2.0 * cb * cs;
-        }
-        case MIX_HUE: {
-            b = set_lum(set_sat(cs, sat(cb)), lum(cb));
-        }
-        case MIX_SATURATION: {
-            b = set_lum(set_sat(cb, sat(cs)), lum(cb));
-        }
-        case MIX_COLOR: {
-            b = set_lum(cs, lum(cb));
-        }
-        case MIX_LUMINOSITY: {
-            b = set_lum(cb, lum(cs));
-        }
-        default: {
-            b = cs;
-        }
+        case MIX_HARD_LIGHT { b = hard_light(cb, cs); }
+        case MIX_SOFT_LIGHT { b = soft_light(cb, cs); }
+        case MIX_DIFFERENCE { b = abs(cb - cs); }
+        case MIX_EXCLUSION { b = cb + cs - 2.0 * cb * cs; }
+        case MIX_HUE { b = set_lum(set_sat(cs, sat(cb)), lum(cb)); }
+        case MIX_SATURATION { b = set_lum(set_sat(cb, sat(cs)), lum(cb)); }
+        case MIX_COLOR { b = set_lum(cs, lum(cb)); }
+        case MIX_LUMINOSITY { b = set_lum(cb, lum(cs)); }
+        default { b = cs; }
     }
     return b;
 }

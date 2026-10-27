@@ -23,7 +23,13 @@ required-features = ["force_support_fallback"]
 glifo = { workspace = true }
 vello_common = { workspace = true, features = ["std", "probe"] }
 vello_cpu = { workspace = true, features = ["multithreading", "std", "f32_pipeline"] }
-vello_gpu = { workspace = true, features = ["text", "wgpu", "wgpu_default", "all_shader_features"] }
+vello_gpu = { workspace = true, features = [
+    "text",
+    "wgpu",
+    "wgpu_default",
+    "all_shader_features",
+    "probe",
+] }
 fearless_simd = { workspace = true }
 wgpu = { workspace = true, default-features = true }
 pollster = { workspace = true }
@@ -49,6 +55,8 @@ web-sys = { workspace = true, features = [
 ] }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
+# Provides the JavaScript module that compiles WebGL shaders before the WASM binary loads.
+vello_gpu_shaders = { workspace = true, features = ["glsl"] }
 # Required for introspecting the built WASM binary.
 wasmparser = "0.235.0"
 

@@ -22,6 +22,11 @@ fn main() {
         output_dir.join("compiled_shaders.rs"),
     )
     .unwrap();
+    std::fs::write(
+        output_dir.join("vello_webgl_shaders.js"),
+        vello_gpu_shaders::webgl_bootstrap::JS_MODULE,
+    )
+    .unwrap();
 
     for &(name, wgsl_source) in vello_gpu_shaders::wgsl::ALL {
         let shader = compile::compile_wgsl_shader(

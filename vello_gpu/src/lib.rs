@@ -31,9 +31,17 @@
 //!   features.
 //! - `blurred_rounded_rect` (enabled by default): Enables rendering of blurred
 //!   rounded rectangles.
-//! - `image_bicubic` (enabled by default): Enables rendering of images with
-//!   `ImageQuality::High`
+//! - `full_image_support` (enabled by default): If this feature is disabled, only
+//!   external textures using `TextureRegion::Full` with nearest or bilinear
+//!   sampling and opacity are supported. Enabling this feature also adds support
+//!   for uploaded images, glyph atlas caching, bicubic sampling, cropped external
+//!   textures, and colored or alpha-mask tints.
 //! - `gradient_sweep` (enabled by default): Enables rendering of sweep gradients
+//! - `wgpu_external_texture` (enabled by default): Adds a WGSL `texture_external`
+//!   binding when the wgpu device has `wgpu::Features::EXTERNAL_TEXTURE` enabled,
+//!   so `wgpu::ExternalTexture`s (e.g. multi-planar YCbCr video frames) can be
+//!   bound with `TextureBindings::insert_wgpu_external_texture`. Other images are
+//!   not affected.
 //! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL
 //!   shaders for compatibility.
 //!
@@ -118,17 +126,19 @@ pub mod util;
 
 #[cfg(feature = "webgl")]
 pub use render::{
-    AtlasTextureInfo, IncompatibleContextReason, ShaderCompilationStats, WebGlAtlasWriter,
-    WebGlContextOperation, WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlRenderer,
-    WebGlRendererInit, WebGlRendererInitStatus, WebGlResourceKind, WebGlShaderInterfaceOperation,
-    WebGlShaderProgramOperation, WebGlShaderStage, WebGlTextureBindings,
-    WebGlTextureWithDimensions,
+    AtlasTextureInfo, IncompatibleContextReason, IncompatiblePrecompiledShadersReason,
+    ShaderCompilationStats, WebGlAtlasWriter, WebGlContextOperation, WebGlDataTransferOperation,
+    WebGlError, WebGlOperation, WebGlRenderer, WebGlRendererInit, WebGlRendererInitStatus,
+    WebGlResourceKind, WebGlShaderInterfaceOperation, WebGlShaderProgramOperation,
+    WebGlShaderStage, WebGlTextureBindings, WebGlTextureWithDimensions,
 };
 #[cfg(feature = "wgpu")]
-pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
+pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBinding, TextureBindings};
 pub use render::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeOperation, WebGlProbeStatus};
+#[cfg(all(feature = "wgpu", feature = "probe"))]
+pub use render::{WgpuPendingProbe, WgpuProbeError, WgpuProbeStatus};
 pub use resources::Resources;
 pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
 #[cfg(feature = "text")]
@@ -151,6 +161,12 @@ pub enum RenderError {
     /// A texture binding aliases the active render target.
     #[error("Texture binding {0:?} aliases the active render target")]
     TextureFeedbackLoop(TextureId),
+    /// An image paint sampled a `wgpu::ExternalTexture` binding in an unsupported way.
+    ///
+    /// External textures must be sampled in full with pad extend, low or medium quality, and no
+    /// tint other than opacity.
+    #[error("Unsupported sampling of external texture binding {0:?}")]
+    UnsupportedExternalTextureSampling(TextureId),
     /// An image paint referenced an image that has not been uploaded.
     #[error("Missing image cache entry for {0:?}")]
     MissingImage(ImageId),
