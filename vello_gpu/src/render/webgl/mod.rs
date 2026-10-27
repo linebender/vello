@@ -597,6 +597,7 @@ impl WebGlRenderer {
             }
         };
 
+        let before_render_start = crate::phase_start();
         #[cfg(feature = "text")]
         resources.before_render(
             self,
@@ -619,6 +620,7 @@ impl WebGlRenderer {
             },
         )?;
 
+        crate::phase_end!(before_render_ms, before_render_start);
         let target_init = TargetInit::Clear(ClearSettings::Viewport {
             color: options.clear_color,
         });
@@ -696,10 +698,12 @@ impl WebGlRenderer {
             }
         }
 
-        #[cfg(feature = "text")]
         // TODO: We should sort the rectangles once by atlas
         // page and then clear per atlas page instead of per rect.
+        let after_render_start = crate::phase_start();
+        #[cfg(feature = "text")]
         resources.after_render(self, clear_atlas_region)?;
+        crate::phase_end!(after_render_ms, after_render_start);
 
         Ok(())
     }
@@ -822,12 +826,15 @@ impl WebGlRenderer {
         let encoded_paints = &scene.encoded_paints;
         let use_depth_buffer = self.programs.resources.view_framebuffer.use_depth_buffer();
 
+        let phase = crate::phase_start();
         self.prepare_gpu_encoded_paints(
             encoded_paints,
             image_cache,
             texture_bindings,
             render_target_texture,
         )?;
+        crate::phase_end!(encode_paints_ms, phase);
+        let phase = crate::phase_start();
 
         let mut required_texture_size = self
             .layers_config
@@ -857,8 +864,14 @@ impl WebGlRenderer {
             current_allocations,
             self.layers_config.max_textures,
         )?;
+        crate::phase_end!(schedule_ms, phase);
+        let phase = crate::phase_start();
         self.programs
             .prepare_intermediate_textures(&self.gl, &schedule, required_texture_size)?;
+        crate::phase_end!(intermediate_textures_ms, phase);
+        let phase = crate::phase_start();
+        #[cfg(feature = "std")]
+        let alpha_bytes = scene.strip_storage.borrow().alphas.len() as u64;
 
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -874,6 +887,18 @@ impl WebGlRenderer {
             &self.schedule_storage.filter_context,
             root_output_target,
         )?;
+        crate::phase_end!(upload_ms, phase);
+        #[cfg(feature = "std")]
+        let strip_count = (self
+            .schedule_storage
+            .buffers
+            .draw_buffers
+            .opaque
+            .strips()
+            .len()
+            + self.schedule_storage.buffers.draw_buffers.strips.len())
+            as u64;
+        let phase = crate::phase_start();
         self.programs.resources.depth_cleared_this_frame = false;
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
@@ -891,6 +916,14 @@ impl WebGlRenderer {
             schedule,
             root_output_target,
         )?;
+        crate::phase_end!(execute_ms, phase);
+        #[cfg(feature = "std")]
+        crate::timings::record(|t| {
+            t.renders += 1;
+            t.strips += strip_count;
+            t.alpha_bytes += alpha_bytes;
+            t.encoded_paints += encoded_paints.len() as u64;
+        });
 
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,

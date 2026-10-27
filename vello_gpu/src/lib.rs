@@ -107,6 +107,29 @@
 
 extern crate alloc;
 
+#[cfg(feature = "std")]
+#[doc(hidden)]
+pub mod timings;
+
+/// The start of a rendering phase, for [`phase_end`].
+pub(crate) fn phase_start() -> f64 {
+    #[cfg(feature = "std")]
+    return timings::now_ms();
+    #[cfg(not(feature = "std"))]
+    0.0
+}
+
+/// Adds the time since `$start` to the given field of the render phase timings.
+macro_rules! phase_end {
+    ($field:ident, $start:expr) => {
+        #[cfg(feature = "std")]
+        crate::timings::record(|t| t.$field += crate::timings::now_ms() - $start);
+        #[cfg(not(feature = "std"))]
+        let _ = $start;
+    };
+}
+pub(crate) use phase_end;
+
 pub(crate) mod blend;
 pub(crate) mod copy;
 pub(crate) mod filter;

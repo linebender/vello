@@ -412,6 +412,7 @@ impl Renderer {
             }
         };
 
+        let before_render_start = crate::phase_start();
         #[cfg(feature = "text")]
         {
             resources.before_render(
@@ -439,6 +440,7 @@ impl Renderer {
             )?;
         }
 
+        crate::phase_end!(before_render_ms, before_render_start);
         let result = self.render_scene(
             scene,
             encoder,
@@ -453,12 +455,14 @@ impl Renderer {
             options.offset,
         );
 
+        let after_render_start = crate::phase_start();
         #[cfg(feature = "text")]
         resources.after_render(self, |renderer, rect| {
             clear_atlas_region(renderer, rect);
 
             Ok::<(), RenderError>(())
         })?;
+        crate::phase_end!(after_render_ms, after_render_start);
         result
     }
 
@@ -566,12 +570,15 @@ impl Renderer {
         scene_offset: (i32, i32),
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
+        let phase = crate::phase_start();
         self.prepare_gpu_encoded_paints(
             encoded_paints,
             image_cache,
             texture_bindings,
             view.texture(),
         )?;
+        crate::phase_end!(encode_paints_ms, phase);
+        let phase = crate::phase_start();
         let required_texture_size = self
             .layers_config
             .required_intermediate_texture_size(&scene.recorder)?;
@@ -597,8 +604,14 @@ impl Renderer {
             current_allocations,
             self.layers_config.max_textures,
         )?;
+        crate::phase_end!(schedule_ms, phase);
+        let phase = crate::phase_start();
         self.programs
             .prepare_intermediate_textures(&self.device, &schedule);
+        crate::phase_end!(intermediate_textures_ms, phase);
+        let phase = crate::phase_start();
+        #[cfg(feature = "std")]
+        let alpha_bytes = scene.strip_storage.borrow().alphas.len() as u64;
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -625,6 +638,8 @@ impl Renderer {
         self.programs
             .strips_arena
             .begin_frame(&self.device, (strip_count * size_of::<GpuStrip>()) as u64);
+        crate::phase_end!(upload_ms, phase);
+        let phase = crate::phase_start();
 
         let mut ctx = RendererContext {
             programs: &mut self.programs,
@@ -650,6 +665,14 @@ impl Renderer {
         .unwrap_or_else(|error| match error {});
 
         ctx.finish_root_clear();
+        crate::phase_end!(execute_ms, phase);
+        #[cfg(feature = "std")]
+        crate::timings::record(|t| {
+            t.renders += 1;
+            t.strips += strip_count as u64;
+            t.alpha_bytes += alpha_bytes;
+            t.encoded_paints += encoded_paints.len() as u64;
+        });
 
         self.gradient_cache.maintain();
 
