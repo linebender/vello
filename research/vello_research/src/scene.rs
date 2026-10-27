@@ -710,11 +710,10 @@ impl<'a> DrawGlyphs<'a> {
                                 continue;
                             }
                             let data: Box<[u8]> = data
-                                .chunks_exact(4)
-                                .flat_map(|bytes| {
-                                    let [b, g, r, a] = bytes.try_into().unwrap();
-                                    [r, g, b, a]
-                                })
+                                .as_chunks::<4>()
+                                .0
+                                .iter()
+                                .flat_map(|&[b, g, r, a]| [r, g, b, a])
                                 .collect();
                             ImageData {
                                 // TODO: The design of the Blob type forces the double boxing

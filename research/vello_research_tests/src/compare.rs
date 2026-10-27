@@ -90,7 +90,7 @@ impl GpuCpuComparison {
         eprintln!(
             "Wrote CPU result from test {} to {:?}\n\
             Wrote GPU result to {:?}\n",
-            self.params.name, &self.cpu_path, &self.gpu_path
+            self.params.name, self.cpu_path, self.gpu_path
         );
 
         bail!("{}", message);

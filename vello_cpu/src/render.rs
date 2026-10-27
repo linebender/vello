@@ -508,13 +508,7 @@ impl RenderContext {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
-        let mask = mask.and_then(|m| {
-            if m.width() != self.width || m.height() != self.height {
-                None
-            } else {
-                Some(m)
-            }
-        });
+        let mask = mask.filter(|m| !(m.width() != self.width || m.height() != self.height));
 
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0).clamp(0.0, 1.0);
@@ -871,7 +865,7 @@ impl RenderContext {
                 // TODO: Optimize with SIMD? Unfortunately we can't just cast to u32 and use
                 // `fill` because the user-provided slice might not have the correct alignment.
                 let color = color.to_ne_bytes();
-                for pixel in data.chunks_exact_mut(4) {
+                for pixel in data.as_chunks_mut::<4>().0 {
                     pixel.copy_from_slice(&color);
                 }
             }
@@ -1209,7 +1203,7 @@ mod tests {
         let ctx = red_rect_context(2, 1, Rect::new(0.0, 0.0, 2.0, 1.0));
         let mut resources = Resources::new();
         let mut buffer = vec![0; 3 * 2 * 4];
-        for pixel in buffer.chunks_exact_mut(4) {
+        for pixel in buffer.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&[GRAY.r, GRAY.g, GRAY.b, GRAY.a]);
         }
 
@@ -1233,7 +1227,7 @@ mod tests {
             red_pixel(),
             red_pixel(),
         ];
-        for (pixel, expected) in buffer.chunks_exact(4).zip(expected) {
+        for (&pixel, expected) in buffer.as_chunks::<4>().0.iter().zip(expected) {
             assert_eq!(pixel, [expected.r, expected.g, expected.b, expected.a]);
         }
     }

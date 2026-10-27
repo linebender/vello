@@ -868,7 +868,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         // Collect and merge exclusion zones from all glyphs.
         let exclusions = &mut self.underline_span_cache;
         // We `drain` this when creating the iterator, but just in case...
-        exclusions.truncate(0);
+        exclusions.clear();
 
         for glyph in self.glyph_iterator.clone() {
             // TODO: skip ink for color and bitmap glyphs

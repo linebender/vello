@@ -247,7 +247,7 @@ impl WgpuPendingProbe {
         self.buffer.unmap();
 
         if self.format == TextureFormat::Bgra8Unorm {
-            for pixel in pixmap.data_as_u8_slice_mut().chunks_exact_mut(4) {
+            for pixel in pixmap.data_as_u8_slice_mut().as_chunks_mut::<4>().0 {
                 pixel.swap(0, 2);
             }
         }

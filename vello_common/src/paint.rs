@@ -193,7 +193,7 @@ impl ImageSource {
             peniko::ImageFormat::Rgba8 => {}
             peniko::ImageFormat::Bgra8 => {
                 // TODO: SIMDify
-                for pixel in rgba.chunks_exact_mut(4) {
+                for pixel in rgba.as_chunks_mut::<4>().0 {
                     pixel.swap(0, 2);
                 }
             }
