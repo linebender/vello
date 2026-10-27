@@ -53,6 +53,9 @@ pub enum WebGlError {
     /// Shader programs compiled from JavaScript cannot be adopted by the renderer.
     #[error("incompatible precompiled shaders: {0}")]
     IncompatiblePrecompiledShaders(IncompatiblePrecompiledShadersReason),
+    /// A texture target cannot be rendered into.
+    #[error("invalid texture target: {0}")]
+    InvalidTextureTarget(InvalidTextureTargetReason),
 }
 
 /// A fallible operation performed by the WebGL backend.
@@ -180,6 +183,26 @@ pub enum IncompatibleContextReason {
     },
 }
 
+/// Reasons a texture target can be invalid.
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum InvalidTextureTargetReason {
+    /// WebGL rejects the attachments, e.g. because of an unsupported format or differing sizes.
+    #[error("incomplete framebuffer: {}", FramebufferStatus(*.status))]
+    IncompleteFramebuffer {
+        /// The status returned by `checkFramebufferStatus`.
+        status: u32,
+    },
+    /// The depth buffer does not have enough bits.
+    #[error("depth buffer has {actual_bits} bits, but {required_bits} are required")]
+    InsufficientDepthBuffer {
+        /// Number of depth bits provided by the depth buffer.
+        actual_bits: u32,
+        /// Minimum number of depth bits required by the renderer.
+        required_bits: u32,
+    },
+}
+
 /// Reasons shader programs compiled from JavaScript can be incompatible with the renderer.
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -208,6 +231,31 @@ impl<T> WebGlResultExt<T> for Result<T, JsValue> {
             operation,
             message: Some(value.as_string().unwrap_or_else(|| format!("{value:?}"))),
         })
+    }
+}
+
+struct FramebufferStatus(u32);
+
+impl fmt::Display for FramebufferStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use web_sys::WebGl2RenderingContext as Gl;
+
+        match self.0 {
+            Gl::FRAMEBUFFER_INCOMPLETE_ATTACHMENT => {
+                f.write_str("FRAMEBUFFER_INCOMPLETE_ATTACHMENT")
+            }
+            Gl::FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT => {
+                f.write_str("FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT")
+            }
+            Gl::FRAMEBUFFER_INCOMPLETE_DIMENSIONS => {
+                f.write_str("FRAMEBUFFER_INCOMPLETE_DIMENSIONS")
+            }
+            Gl::FRAMEBUFFER_UNSUPPORTED => f.write_str("FRAMEBUFFER_UNSUPPORTED"),
+            Gl::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => {
+                f.write_str("FRAMEBUFFER_INCOMPLETE_MULTISAMPLE")
+            }
+            status => write!(f, "{status:#x}"),
+        }
     }
 }
 

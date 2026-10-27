@@ -179,7 +179,7 @@ fn filter_offset_nested(ctx: &mut impl Renderer) {
 
 /// Test Gaussian blur with small radius (`std_deviation` = 2.0, no decimation).
 /// Uses direct separable convolution at full resolution.
-#[vello_test(skip_multithreaded)]
+#[vello_test(skip_multithreaded, webgl_texture)]
 fn filter_gaussian_blur_no_decimation(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,

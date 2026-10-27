@@ -19,7 +19,7 @@ fn opacity_on_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test]
+#[vello_test(webgl_texture)]
 fn opacity_nested_on_layer(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));

@@ -3,8 +3,8 @@
 
 use crate::render::webgl::resource::{Buffer, Framebuffer, Renderbuffer, SyncFence};
 use crate::render::webgl::{
-    ViewFramebuffer, WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlTextureBindings,
-    create_framebuffer_for_texture, create_texture_storage,
+    WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlTextureBindings,
+    create_texture_storage,
 };
 use crate::target::RootTarget;
 use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlError, WebGlRenderer};
@@ -86,7 +86,7 @@ impl WebGlRenderer {
         let render_size = RenderSize { width, height };
         // Check whether the canvas framebuffer was configured by the user to
         // hold a depth buffer, and apply the same to the probe.
-        let use_depth_buffer = self.programs.resources.view_framebuffer.use_depth_buffer();
+        let use_depth_buffer = self.programs.resources.drawing_buffer_uses_depth_buffer;
 
         let probe_texture = create_texture_storage(
             &self.gl,
@@ -96,9 +96,8 @@ impl WebGlRenderer {
             WebGl2RenderingContext::NEAREST,
             WebGl2RenderingContext::NEAREST,
         )?;
-        let probe_framebuffer = create_framebuffer_for_texture(&self.gl, &probe_texture)?;
         // We need to keep the renderbuffer around until we finished rendering!
-        let _probe_depth = if use_depth_buffer {
+        let probe_depth = if use_depth_buffer {
             let probe_depth = Renderbuffer::new(&self.gl)?;
             self.gl
                 .bind_renderbuffer(WebGl2RenderingContext::RENDERBUFFER, Some(&probe_depth));
@@ -108,16 +107,12 @@ impl WebGlRenderer {
                 i32::from(width),
                 i32::from(height),
             );
-            self.gl.framebuffer_renderbuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                WebGl2RenderingContext::DEPTH_ATTACHMENT,
-                WebGl2RenderingContext::RENDERBUFFER,
-                Some(&probe_depth),
-            );
             Some(probe_depth)
         } else {
             None
         };
+        let probe_target =
+            self.create_texture_target(&probe_texture, probe_depth.as_deref(), width, height)?;
 
         let probe_image = vello_common::probe::probe_image_pixmap();
         let probe_image_texture = create_texture_storage(
@@ -162,30 +157,19 @@ impl WebGlRenderer {
             elements,
         );
 
-        let previous_view_framebuffer = core::mem::replace(
-            &mut self.programs.resources.view_framebuffer,
-            ViewFramebuffer::offscreen(probe_framebuffer, use_depth_buffer),
-        );
-        let render_result = self.render_scene(
-            &scene,
-            &ImageCache::new_dummy(),
-            &render_size,
-            TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
-            RootTarget::UserSurface,
-            &texture_bindings,
-            Some(&probe_texture),
-        );
-        let probe_framebuffer = core::mem::replace(
-            &mut self.programs.resources.view_framebuffer,
-            previous_view_framebuffer,
-        )
-        .into_framebuffer()
-        .unwrap();
+        self.render_offscreen(&probe_target, |renderer| {
+            renderer.render_scene(
+                &scene,
+                &ImageCache::new_dummy(),
+                &render_size,
+                TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
+                RootTarget::UserSurface,
+                &texture_bindings,
+                Some(&probe_texture),
+            )
+        })?;
 
-        // Propagate render failures only after restoring the previous framebuffer.
-        render_result?;
-
-        let pending = launch_probe(&self.gl, &probe_framebuffer, width, height, elements)?;
+        let pending = launch_probe(&self.gl, &probe_target.framebuffer, width, height, elements)?;
 
         Ok(pending)
     }

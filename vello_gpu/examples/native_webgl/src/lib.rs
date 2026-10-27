@@ -166,11 +166,6 @@ impl AppState {
         );
         let scene_end = now();
 
-        let render_size = vello_gpu::RenderSize {
-            width: self.width.try_into().unwrap(),
-            height: self.height.try_into().unwrap(),
-        };
-
         if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
             gpu_timer.begin();
         }
@@ -179,7 +174,7 @@ impl AppState {
             .render(
                 &self.scene,
                 &mut self.renderer_wrapper.resources,
-                &render_size,
+                vello_gpu::WebGlRenderTarget::DrawingBuffer,
                 &vello_gpu::WebGlTextureBindings::new(),
                 vello_common::color::AlphaColor::TRANSPARENT,
             )
@@ -680,12 +675,11 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         ..
     } = RendererWrapper::new(canvas, init, resources).await;
 
-    let render_size = vello_gpu::RenderSize { width, height };
     renderer
         .render(
             &scene,
             &mut resources,
-            &render_size,
+            vello_gpu::WebGlRenderTarget::DrawingBuffer,
             &vello_gpu::WebGlTextureBindings::new(),
             vello_common::color::AlphaColor::TRANSPARENT,
         )

@@ -29,9 +29,10 @@ pub(crate) mod resource;
 pub use error::WebGlProbeOperation;
 pub(crate) use error::WebGlResultExt;
 pub use error::{
-    IncompatibleContextReason, IncompatiblePrecompiledShadersReason, WebGlContextOperation,
-    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResourceKind,
-    WebGlShaderInterfaceOperation, WebGlShaderProgramOperation, WebGlShaderStage,
+    IncompatibleContextReason, IncompatiblePrecompiledShadersReason, InvalidTextureTargetReason,
+    WebGlContextOperation, WebGlDataTransferOperation, WebGlError, WebGlOperation,
+    WebGlResourceKind, WebGlShaderInterfaceOperation, WebGlShaderProgramOperation,
+    WebGlShaderStage,
 };
 
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
@@ -63,6 +64,7 @@ use crate::{
         RootTarget, TextureParity,
     },
 };
+use alloc::rc::Rc;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -94,7 +96,8 @@ use vello_gpu_shaders::{blend, copy, filter as filter_shader, render};
 use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
-    WebGlSampler, WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
+    WebGlRenderbuffer, WebGlSampler, WebGlShader, WebGlTexture, WebGlUniformLocation,
+    WebGlVertexArrayObject,
 };
 
 #[wasm_bindgen]
@@ -261,6 +264,86 @@ impl WebGlTextureBindings {
         self.textures
             .remove(&texture_id)
             .map(|binding| binding.texture)
+    }
+}
+
+/// What [`WebGlRenderer::render`] renders into.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum WebGlRenderTarget<'a> {
+    /// The drawing buffer of the canvas.
+    #[default]
+    DrawingBuffer,
+    /// An offscreen texture.
+    Texture(&'a WebGlTextureTarget),
+}
+
+impl WebGlRenderTarget<'_> {
+    fn size(&self, gl: &WebGl2RenderingContext) -> RenderSize {
+        match self {
+            Self::DrawingBuffer => RenderSize {
+                width: gl.drawing_buffer_width().try_into().unwrap(),
+                height: gl.drawing_buffer_height().try_into().unwrap(),
+            },
+            Self::Texture(target) => target.size(),
+        }
+    }
+}
+
+/// A texture to render into, created with [`WebGlRenderer::create_texture_target`].
+///
+/// It is meant to be reused across renders.
+#[derive(Debug, Clone)]
+pub struct WebGlTextureTarget {
+    texture: WebGlTexture,
+    framebuffer: Rc<Framebuffer>,
+    width: u16,
+    height: u16,
+    use_depth_buffer: bool,
+}
+
+impl WebGlTextureTarget {
+    fn new(
+        gl: &WebGl2RenderingContext,
+        texture: &WebGlTexture,
+        depth: Option<&WebGlRenderbuffer>,
+        width: u16,
+        height: u16,
+    ) -> Result<Self, WebGlError> {
+        let framebuffer = create_framebuffer_for_texture(gl, texture)?;
+        gl.framebuffer_renderbuffer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            WebGl2RenderingContext::DEPTH_ATTACHMENT,
+            WebGl2RenderingContext::RENDERBUFFER,
+            depth,
+        );
+        let result = validate_bound_texture_target(gl, depth.is_some());
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+        result?;
+
+        Ok(Self {
+            texture: texture.clone(),
+            framebuffer: Rc::new(framebuffer),
+            width,
+            height,
+            use_depth_buffer: depth.is_some(),
+        })
+    }
+
+    /// The width of the texture.
+    pub fn width(&self) -> u16 {
+        self.width
+    }
+
+    /// The height of the texture.
+    pub fn height(&self) -> u16 {
+        self.height
+    }
+
+    fn size(&self) -> RenderSize {
+        RenderSize {
+            width: self.width,
+            height: self.height,
+        }
     }
 }
 
@@ -569,7 +652,23 @@ impl WebGlRenderer {
         self.programs.shader_compilation_stats
     }
 
-    /// Render `scene` using WebGL2
+    /// Create a target for rendering into `texture`.
+    ///
+    /// `texture` must be `RGBA8` and `depth` `DEPTH_COMPONENT24`, and `width` and `height` must
+    /// match the dimensions of both. The same `depth` can be used for any number of targets of
+    /// the same size. Like the drawing buffer, the first row of the texture is the bottom row of
+    /// the image.
+    pub fn create_texture_target(
+        &self,
+        texture: &WebGlTexture,
+        depth: Option<&WebGlRenderbuffer>,
+        width: u16,
+        height: u16,
+    ) -> Result<WebGlTextureTarget, WebGlError> {
+        WebGlTextureTarget::new(&self.gl, texture, depth, width, height)
+    }
+
+    /// Render `scene` into `target` using WebGL2
     ///
     /// This method creates GPU resources as needed and schedules potentially multiple draw calls.
     ///
@@ -582,7 +681,7 @@ impl WebGlRenderer {
         &mut self,
         scene: &Scene,
         resources: &mut Resources,
-        render_size: &RenderSize,
+        target: WebGlRenderTarget<'_>,
         texture_bindings: &WebGlTextureBindings,
         // Note that in WebGL, the contents of drawing buffers are not guaranteed to be preserved
         // unless `preserveDrawingBuffer` has been set to `true` (which is highly discouraged).
@@ -590,15 +689,6 @@ impl WebGlRenderer {
         // options.
         clear_color: AlphaColor<Srgb>,
     ) -> Result<(), WebGlError> {
-        debug_assert_eq!(
-            RenderSize {
-                width: self.gl.drawing_buffer_width().try_into().unwrap(),
-                height: self.gl.drawing_buffer_height().try_into().unwrap()
-            },
-            *render_size,
-            "Render size must match drawing buffer size"
-        );
-
         #[cfg(feature = "text")]
         resources.before_render(
             self,
@@ -621,15 +711,30 @@ impl WebGlRenderer {
             },
         )?;
 
-        self.render_scene(
-            scene,
-            &resources.image_cache,
-            render_size,
-            TargetInit::Clear(ClearSettings::Viewport { color: clear_color }),
-            RootTarget::UserSurface,
-            texture_bindings,
-            None,
-        )?;
+        let render_size = target.size(&self.gl);
+        let target_init = TargetInit::Clear(ClearSettings::Viewport { color: clear_color });
+        match target {
+            WebGlRenderTarget::DrawingBuffer => self.render_scene(
+                scene,
+                &resources.image_cache,
+                &render_size,
+                target_init,
+                RootTarget::UserSurface,
+                texture_bindings,
+                None,
+            )?,
+            WebGlRenderTarget::Texture(target) => self.render_offscreen(target, |renderer| {
+                renderer.render_scene(
+                    scene,
+                    &resources.image_cache,
+                    &render_size,
+                    target_init,
+                    RootTarget::UserSurface,
+                    texture_bindings,
+                    Some(&target.texture),
+                )
+            })?,
+        }
 
         #[cfg(feature = "text")]
         // TODO: We should sort the rectangles once by atlas
@@ -648,11 +753,6 @@ impl WebGlRenderer {
     /// The scene should be sized to the atlas layer dimensions
     /// ([`AtlasConfig::atlas_size`]), with content positioned at the allocated offset
     /// coordinates from `ImageCache::allocate`.
-    ///
-    /// This method creates its own command encoder and submits immediately,
-    /// ensuring atlas content is committed before any subsequent
-    /// [`render`](Self::render) call (the two methods share GPU resources that
-    /// are staged by `queue.write_*` and only applied on the next `queue.submit`).
     ///
     /// `texture_bindings` provides [externally bound textures](`WebGlTextureBindings`)
     /// referenced by the scene. Pass `&WebGlTextureBindings::new()` if the scene does
@@ -674,56 +774,37 @@ impl WebGlRenderer {
             width: atlas_width,
             height: atlas_height,
         };
-        let render_target_texture = self.atlas_texture(atlas_id).clone();
-
-        let atlas_framebuffer =
-            if let Some(framebuffer) = self.programs.resources.atlas_render_framebuffer.take() {
-                framebuffer
-            } else {
-                Framebuffer::new(&self.gl)?
-            };
-        self.gl.bind_framebuffer(
-            WebGl2RenderingContext::FRAMEBUFFER,
-            Some(&atlas_framebuffer),
-        );
-        self.gl.framebuffer_texture_2d(
-            WebGl2RenderingContext::FRAMEBUFFER,
-            WebGl2RenderingContext::COLOR_ATTACHMENT0,
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.atlas_textures[atlas_id.as_u32() as usize]),
-            0,
-        );
-
-        let previous_view_framebuffer = core::mem::replace(
-            &mut self.programs.resources.view_framebuffer,
-            ViewFramebuffer::offscreen(atlas_framebuffer, false),
-        );
-
+        let target = self.programs.resources.atlas_targets[atlas_id.as_u32() as usize].clone();
         // TODO: Explore using an option instead of a dummy image cache.
         let dummy_image_cache = self
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
-        let result = self.render_scene(
-            scene,
-            &dummy_image_cache,
-            &atlas_render_size,
-            TargetInit::SrcOver,
-            RootTarget::AtlasLayer,
-            texture_bindings,
-            Some(&render_target_texture),
-        );
+        let result = self.render_offscreen(&target, |renderer| {
+            renderer.render_scene(
+                scene,
+                &dummy_image_cache,
+                &atlas_render_size,
+                TargetInit::SrcOver,
+                RootTarget::AtlasLayer,
+                texture_bindings,
+                Some(&target.texture),
+            )
+        });
         self.dummy_image_cache = Some(dummy_image_cache);
 
-        // Restore the previous view framebuffer and cache the atlas FBO for reuse.
-        let atlas_framebuffer = core::mem::replace(
-            &mut self.programs.resources.view_framebuffer,
-            previous_view_framebuffer,
-        )
-        .into_framebuffer()
-        .unwrap();
-        self.programs.resources.atlas_render_framebuffer = Some(atlas_framebuffer);
+        result
+    }
 
+    /// Run `render` with `target` as the root target.
+    fn render_offscreen(
+        &mut self,
+        target: &WebGlTextureTarget,
+        render: impl FnOnce(&mut Self) -> Result<(), WebGlError>,
+    ) -> Result<(), WebGlError> {
+        let previous_target = self.programs.resources.root_target.replace(target.clone());
+        let result = render(self);
+        self.programs.resources.root_target = previous_target;
         result
     }
 
@@ -753,7 +834,7 @@ impl WebGlRenderer {
         render_target_texture: Option<&WebGlTexture>,
     ) -> Result<(), WebGlError> {
         let encoded_paints = &scene.encoded_paints;
-        let use_depth_buffer = self.programs.resources.view_framebuffer.use_depth_buffer();
+        let use_depth_buffer = self.programs.resources.root_uses_depth_buffer();
 
         self.prepare_gpu_encoded_paints(
             encoded_paints,
@@ -826,7 +907,7 @@ impl WebGlRenderer {
 
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            self.programs.resources.view_framebuffer.binding(),
+            self.programs.resources.root_framebuffer(),
         );
         if self.programs.resources.depth_cleared_this_frame {
             // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
@@ -835,7 +916,7 @@ impl WebGlRenderer {
             self.gl
                 .invalidate_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    if self.programs.resources.view_framebuffer.is_offscreen() {
+                    if self.programs.resources.root_target.is_some() {
                         &self.programs.resources.offscreen_depth_attachment_array
                     } else {
                         &self.programs.resources.default_depth_attachment_array
@@ -987,18 +1068,9 @@ impl WebGlRenderer {
         width: u16,
         height: u16,
     ) -> Result<(), WebGlError> {
-        let temp_framebuffer = Framebuffer::new(&self.gl)?;
-
-        // Bind our temporary framebuffer
-        self.gl
-            .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&temp_framebuffer));
-
-        self.gl.framebuffer_texture_2d(
+        self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            WebGl2RenderingContext::COLOR_ATTACHMENT0,
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.atlas_textures[atlas_id.as_u32() as usize]),
-            0,
+            Some(&self.programs.resources.atlas_targets[atlas_id.as_u32() as usize].framebuffer),
         );
 
         // Set viewport to match the atlas texture dimensions
@@ -1388,64 +1460,6 @@ struct StripUniforms {
     external_textures: [WebGlUniformLocation; EXTERNAL_TEXTURE_SLOT_COUNT],
 }
 
-/// The framebuffer used for root-target rendering.
-#[derive(Debug)]
-pub(crate) enum ViewFramebuffer {
-    /// The canvas framebuffer created with the WebGL context.
-    Default {
-        /// Whether the context's depth buffer is enabled and should be used.
-        use_depth_buffer: bool,
-    },
-    /// An offscreen framebuffer object.
-    Offscreen {
-        /// The framebuffer object to bind.
-        framebuffer: Framebuffer,
-        /// Whether the framebuffer has a usable depth attachment.
-        use_depth_buffer: bool,
-    },
-}
-
-impl ViewFramebuffer {
-    pub(crate) const fn default(use_depth_buffer: bool) -> Self {
-        Self::Default { use_depth_buffer }
-    }
-
-    /// If `use_depth_buffer` is true, the framebuffer must have a valid depth attachment!
-    pub(crate) fn offscreen(framebuffer: Framebuffer, use_depth_buffer: bool) -> Self {
-        Self::Offscreen {
-            framebuffer,
-            use_depth_buffer,
-        }
-    }
-
-    fn binding(&self) -> Option<&WebGlFramebuffer> {
-        match self {
-            Self::Default { .. } => None,
-            Self::Offscreen { framebuffer, .. } => Some(framebuffer),
-        }
-    }
-
-    const fn use_depth_buffer(&self) -> bool {
-        match self {
-            Self::Default { use_depth_buffer }
-            | Self::Offscreen {
-                use_depth_buffer, ..
-            } => *use_depth_buffer,
-        }
-    }
-
-    const fn is_offscreen(&self) -> bool {
-        matches!(self, Self::Offscreen { .. })
-    }
-
-    pub(crate) fn into_framebuffer(self) -> Option<Framebuffer> {
-        match self {
-            Self::Default { .. } => None,
-            Self::Offscreen { framebuffer, .. } => Some(framebuffer),
-        }
-    }
-}
-
 /// Contains all WebGL resources needed for rendering.
 #[derive(Debug)]
 pub(crate) struct WebGlResources {
@@ -1461,6 +1475,8 @@ pub(crate) struct WebGlResources {
     alpha_texture_height: u32,
     /// One 2D texture per image atlas.
     pub(crate) atlas_textures: Vec<Texture>,
+    /// The render target of each texture in `atlas_textures`.
+    atlas_targets: Vec<WebGlTextureTarget>,
     /// Configured atlas dimensions.
     pub(crate) atlas_size: (u16, u16),
     /// Encoded paints texture for image metadata.
@@ -1478,8 +1494,10 @@ pub(crate) struct WebGlResources {
 
     /// Config buffer for rendering strips into the root target.
     view_config_buffer: Buffer,
-    /// The root framebuffer and whether its depth buffer may be used.
-    pub(crate) view_framebuffer: ViewFramebuffer,
+    /// Whether the depth buffer of the drawing buffer is enabled and may be used.
+    drawing_buffer_uses_depth_buffer: bool,
+    /// The target that is rendered into, or `None` for the drawing buffer.
+    root_target: Option<WebGlTextureTarget>,
     /// Whether the depth buffer has been cleared this frame.
     depth_cleared_this_frame: bool,
     /// Pre-allocated depth attachment list for the default framebuffer.
@@ -1492,10 +1510,6 @@ pub(crate) struct WebGlResources {
 
     /// Dimensions of the intermediate layer and scratch textures.
     texture_size: SizeU16,
-
-    /// Cached framebuffer for rendering into an atlas texture in `render_to_atlas`.
-    /// Reused to avoid create/delete overhead on every call.
-    atlas_render_framebuffer: Option<Framebuffer>,
 
     /// RGBA32UI texture storing filter parameters.
     filter_data_texture: Texture,
@@ -1522,6 +1536,20 @@ pub(crate) struct WebGlResources {
 }
 
 impl WebGlResources {
+    fn root_framebuffer(&self) -> Option<&WebGlFramebuffer> {
+        self.root_target
+            .as_ref()
+            .map(|target| &**target.framebuffer)
+    }
+
+    fn root_uses_depth_buffer(&self) -> bool {
+        self.root_target
+            .as_ref()
+            .map_or(self.drawing_buffer_uses_depth_buffer, |target| {
+                target.use_depth_buffer
+            })
+    }
+
     fn layer_texture(&self, id: LayerTextureId) -> &Texture {
         self.layer_textures[id.texture_parity.get_parity()][usize::from(id.page_index)]
             .binding_texture()
@@ -1941,9 +1969,11 @@ impl WebGlPrograms {
     ) -> Result<(), WebGlError> {
         let (width, height) = self.resources.atlas_size;
         while self.resources.atlas_textures.len() < required_atlas_count as usize {
+            let texture = create_atlas_texture(gl, width, height)?;
             self.resources
-                .atlas_textures
-                .push(create_atlas_texture(gl, width, height)?);
+                .atlas_targets
+                .push(WebGlTextureTarget::new(gl, &texture, None, width, height)?);
+            self.resources.atlas_textures.push(texture);
         }
 
         Ok(())
@@ -2780,6 +2810,10 @@ fn create_webgl_resources(
     let atlas_textures = (0..initial_atlas_count)
         .map(|_| create_atlas_texture(gl, atlas_width, atlas_height))
         .collect::<Result<Vec<_>, _>>()?;
+    let atlas_targets = atlas_textures
+        .iter()
+        .map(|texture| WebGlTextureTarget::new(gl, texture, None, atlas_width, atlas_height))
+        .collect::<Result<Vec<_>, _>>()?;
 
     // Create and configure encoded paints texture.
     let encoded_paints_texture = create_placeholder_rgba32ui_texture(gl)?;
@@ -2800,6 +2834,7 @@ fn create_webgl_resources(
         alphas_texture,
         alpha_texture_height: 0,
         atlas_textures,
+        atlas_targets,
         atlas_size,
         encoded_paints_texture,
         encoded_paints_texture_height: 0,
@@ -2808,7 +2843,8 @@ fn create_webgl_resources(
         external_samplers,
         gradient_texture_height: 0,
         view_config_buffer,
-        view_framebuffer: ViewFramebuffer::default(use_depth_buffer),
+        drawing_buffer_uses_depth_buffer: use_depth_buffer,
+        root_target: None,
         depth_cleared_this_frame: false,
         default_depth_attachment_array: js_sys::Array::of1(&WebGl2RenderingContext::DEPTH.into()),
         offscreen_depth_attachment_array: js_sys::Array::of1(
@@ -2816,7 +2852,6 @@ fn create_webgl_resources(
         ),
         resource_texture_dimension_2d,
         texture_size,
-        atlas_render_framebuffer: None,
         filter_data_texture,
         filter_data_texture_height: 0,
         filter_instance_buffer,
@@ -2864,6 +2899,41 @@ pub(crate) fn create_atlas_texture(
         WebGl2RenderingContext::NEAREST,
         WebGl2RenderingContext::NEAREST,
     )
+}
+
+fn validate_bound_texture_target(
+    gl: &WebGl2RenderingContext,
+    use_depth_buffer: bool,
+) -> Result<(), WebGlError> {
+    let status = gl.check_framebuffer_status(WebGl2RenderingContext::FRAMEBUFFER);
+    if status != WebGl2RenderingContext::FRAMEBUFFER_COMPLETE {
+        return Err(WebGlError::InvalidTextureTarget(
+            InvalidTextureTargetReason::IncompleteFramebuffer { status },
+        ));
+    }
+
+    if use_depth_buffer {
+        let actual_bits = gl
+            .get_framebuffer_attachment_parameter(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                WebGl2RenderingContext::DEPTH_ATTACHMENT,
+                WebGl2RenderingContext::FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE,
+            )
+            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
+            .as_f64()
+            .unwrap() as u32;
+
+        if actual_bits < REQUIRED_DEPTH_BITS {
+            return Err(WebGlError::InvalidTextureTarget(
+                InvalidTextureTargetReason::InsufficientDepthBuffer {
+                    actual_bits,
+                    required_bits: REQUIRED_DEPTH_BITS,
+                },
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Create a framebuffer for a texture.
@@ -3084,7 +3154,7 @@ impl WebGlRendererContext<'_> {
             DrawPassTarget::Root(_) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    self.programs.resources.view_framebuffer.binding(),
+                    self.programs.resources.root_framebuffer(),
                 );
                 let width = self.programs.render_size.width;
                 let height = self.programs.render_size.height;
@@ -3498,7 +3568,7 @@ impl WebGlRendererContext<'_> {
             DrawPassTarget::Root(_) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    self.programs.resources.view_framebuffer.binding(),
+                    self.programs.resources.root_framebuffer(),
                 );
                 (
                     self.programs.render_size.width,
