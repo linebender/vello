@@ -172,6 +172,7 @@ impl Renderer {
             TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
             RootTarget::UserSurface,
             &texture_bindings,
+            (0, 0),
         )?;
 
         let padded_bytes_per_row =

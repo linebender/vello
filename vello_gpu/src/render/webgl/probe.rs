@@ -166,6 +166,7 @@ impl WebGlRenderer {
                 RootTarget::UserSurface,
                 &texture_bindings,
                 Some(&probe_texture),
+                (0, 0),
             )
         })?;
 

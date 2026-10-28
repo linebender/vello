@@ -384,6 +384,7 @@ pub struct GpuRenderer {
     wgpu_external_textures: HashMap<TextureId, (wgpu::ExternalTexture, u32, u32)>,
     next_external_texture_id: u64,
     target_init: GpuTargetInit<'static>,
+    offset: (i32, i32),
     gpu_test_guard: Option<std::sync::MutexGuard<'static, ()>>,
 }
 
@@ -451,6 +452,7 @@ impl GpuRenderer {
             wgpu_external_textures: HashMap::new(),
             next_external_texture_id: 1,
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
+            offset: (0, 0),
             gpu_test_guard: None,
         }
     }
@@ -675,8 +677,8 @@ impl Renderer for GpuRenderer {
         self.target_init = target_init;
     }
 
-    fn set_offset(&mut self, _: (i32, i32)) {
-        unimplemented!("rendering at an offset is not supported by vello_gpu yet")
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
     }
 
     fn render(&mut self) {
@@ -711,6 +713,7 @@ impl Renderer for GpuRenderer {
             });
         let mut options = vello_gpu::RenderOptions::default();
         options.target_init = self.target_init;
+        options.offset = self.offset;
         self.renderer
             .render(
                 &self.scene,
@@ -873,6 +876,7 @@ pub struct GpuRenderer {
     external_textures: vello_gpu::WebGlTextureBindings,
     next_external_texture_id: u64,
     clear_color: AlphaColor<Srgb>,
+    offset: (i32, i32),
     use_depth_buffer: bool,
     texture_target: Option<TestTextureTarget>,
 }
@@ -1073,6 +1077,7 @@ impl Renderer for GpuRenderer {
             external_textures: vello_gpu::WebGlTextureBindings::new(),
             next_external_texture_id: 1,
             clear_color: AlphaColor::TRANSPARENT,
+            offset: (0, 0),
             use_depth_buffer,
             texture_target: None,
         }
@@ -1213,8 +1218,8 @@ impl Renderer for GpuRenderer {
         };
     }
 
-    fn set_offset(&mut self, _: (i32, i32)) {
-        unimplemented!("rendering at an offset is not supported by vello_gpu yet")
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
     }
 
     fn render(&mut self) {
@@ -1224,6 +1229,7 @@ impl Renderer for GpuRenderer {
         };
         let mut options = vello_gpu::WebGlRenderOptions::default();
         options.clear_color = self.clear_color;
+        options.offset = self.offset;
         self.renderer
             .render(
                 &self.scene,

@@ -213,12 +213,15 @@ pub struct WebGlRenderOptions {
     // Therefore, for the WebGL backend we currently don't expose more configurable clear
     // options.
     pub clear_color: AlphaColor<Srgb>,
+    /// The position of the scene's origin in the target.
+    pub offset: (i32, i32),
 }
 
 impl Default for WebGlRenderOptions {
     fn default() -> Self {
         Self {
             clear_color: AlphaColor::TRANSPARENT,
+            offset: (0, 0),
         }
     }
 }
@@ -760,6 +763,7 @@ impl WebGlRenderer {
                 RootTarget::UserSurface,
                 texture_bindings,
                 None,
+                options.offset,
             )?,
             WebGlRenderTarget::Texture(target) => self.render_offscreen(target, |renderer| {
                 renderer.render_scene(
@@ -770,6 +774,7 @@ impl WebGlRenderer {
                     RootTarget::UserSurface,
                     texture_bindings,
                     Some(&target.texture),
+                    options.offset,
                 )
             })?,
         }
@@ -827,6 +832,7 @@ impl WebGlRenderer {
                 RootTarget::AtlasLayer,
                 texture_bindings,
                 Some(&target.texture),
+                (0, 0),
             )
         });
         self.dummy_image_cache = Some(dummy_image_cache);
@@ -872,6 +878,7 @@ impl WebGlRenderer {
         root_output_target: RootTarget,
         texture_bindings: &WebGlTextureBindings,
         render_target_texture: Option<&WebGlTexture>,
+        scene_offset: (i32, i32),
     ) -> Result<(), WebGlError> {
         let encoded_paints = &scene.encoded_paints;
         let use_depth_buffer = self.programs.resources.root_uses_depth_buffer();
@@ -905,6 +912,11 @@ impl WebGlRenderer {
             &mut self.schedule_storage,
             scene,
             root_output_target,
+            RectU16::visible_scene_bounds(
+                scene.recorder.scene_size,
+                SizeU16::from_wh(render_size.width, render_size.height),
+                scene_offset,
+            ),
             use_depth_buffer,
             paint_resolver,
             required_texture_size,
@@ -923,6 +935,7 @@ impl WebGlRenderer {
             &self.encoded_paints,
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
+            scene_offset,
             &self.paint_idxs,
             &self.schedule_storage.filter_context,
             root_output_target,
@@ -1392,6 +1405,7 @@ impl WebGlRendererInit {
                 height: 0,
             },
             negate_ndc: false,
+            scene_offset: (0, 0),
             encoded_paints_data,
             filter_data: Vec::new(),
         };
@@ -1454,6 +1468,8 @@ pub(crate) struct WebGlPrograms {
     render_size: RenderSize,
     /// Whether the last config buffer upload had NDC Y negation enabled.
     negate_ndc: bool,
+    /// Offset of the scene within the rendering target.
+    scene_offset: (i32, i32),
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
     /// Scratch buffer for staging filter data texture data.
@@ -1914,6 +1930,7 @@ impl WebGlPrograms {
         encoded_paints: &[GpuEncodedPaint],
         alphas: &mut Vec<u8>,
         render_size: &RenderSize,
+        scene_offset: (i32, i32),
         paint_idxs: &[u32],
         filter_context: &FilterContext,
         root_target: RootTarget,
@@ -1924,7 +1941,13 @@ impl WebGlPrograms {
         self.maybe_resize_encoded_paints_tex(gl, resource_texture_dimension_2d, paint_idxs)?;
         self.maybe_resize_filter_data_tex(gl, filter_context)?;
         let negate_ndc = DrawPassTarget::Root(root_target).negate_ndc();
-        self.maybe_update_config_buffer(gl, resource_texture_dimension_2d, render_size, negate_ndc);
+        self.maybe_update_config_buffer(
+            gl,
+            resource_texture_dimension_2d,
+            render_size,
+            scene_offset,
+            negate_ndc,
+        );
 
         self.upload_alpha_texture(gl, alphas)?;
         self.upload_encoded_paints_texture(gl, encoded_paints, paint_idxs)?;
@@ -2217,26 +2240,30 @@ impl WebGlPrograms {
         Ok(())
     }
 
-    /// Update config buffer if dimensions changed.
+    /// Update config buffer if dimensions, the scene offset or NDC negation changed.
     fn maybe_update_config_buffer(
         &mut self,
         gl: &WebGl2RenderingContext,
         resource_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
+        scene_offset: (i32, i32),
         negate_ndc: bool,
     ) {
         // TODO: Collect all attributes that influence the config buffer into a
         // single struct and compare that, such that we cannot forget to update the
         // condition in case we add new fields in the future.
-        if self.render_size != *new_render_size || self.negate_ndc != negate_ndc {
+        if self.render_size != *new_render_size
+            || self.scene_offset != scene_offset
+            || self.negate_ndc != negate_ndc
+        {
             let config = Config {
                 width: u32::from(new_render_size.width),
                 height: u32::from(new_render_size.height),
                 strip_height: u32::from(Tile::HEIGHT),
                 alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
                 encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
-                strip_offset_x: 0,
-                strip_offset_y: 0,
+                strip_offset_x: scene_offset.0,
+                strip_offset_y: scene_offset.1,
                 negate_ndc: u32::from(negate_ndc),
             };
 
@@ -2251,6 +2278,7 @@ impl WebGlPrograms {
             );
 
             self.render_size = *new_render_size;
+            self.scene_offset = scene_offset;
             self.negate_ndc = negate_ndc;
         }
     }

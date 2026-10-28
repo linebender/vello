@@ -7,7 +7,7 @@ use crate::filter::FILTER_ATLAS_PADDING;
 use crate::target::{RootTarget, TextureParity};
 use crate::{IntermediateTextureError, RenderError};
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
-use vello_common::geometry::SizeU16;
+use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
 #[cfg(all(feature = "probe", feature = "webgl"))]
@@ -942,4 +942,66 @@ fn blend_is_constrained_to_parent_clip_bbox() {
     assert_eq!(blend.blend_bbox, blend.parent_region.layer_bbox);
     // This must not panic.
     let _ = crate::blend::GpuBlendInstance::new(blend, None, SizeU16::new(64));
+}
+
+#[test]
+fn visible_area_cull_root_draws() {
+    let mut case = SceneCase::new(32, 8);
+    for x in [0.0, 8.0, 16.0, 24.0] {
+        case.draw_at(x, 0.5);
+    }
+    case.visible_scene_area = Some(RectU16::new(6, 0, 18, 8));
+
+    assert_eq!(case.schedule_root(true).views()[0].root.x, [8, 16]);
+}
+
+#[test]
+fn no_visible_area_schedules_nothing() {
+    let mut case = SceneCase::new(32, 8);
+    case.draw_at(0.0, 0.5);
+    case.layer(|case| case.draw_at(8.0, 0.5));
+    case.visible_scene_area = None;
+
+    let scheduled = case.schedule_root(true);
+
+    assert!(scheduled.views().is_empty());
+    assert_eq!(scheduled.page_counts(), [0, 0]);
+}
+
+#[test]
+fn visible_area_skip_hidden_layers() {
+    let mut case = SceneCase::new(32, 8);
+    case.draw_at(0.0, 0.5);
+    case.layer(|case| case.layer(|case| case.draw_at(24.0, 0.5)));
+    case.visible_scene_area = Some(RectU16::new(0, 0, 16, 8));
+
+    let scheduled = case.schedule_root(true);
+
+    assert_eq!(scheduled.page_counts(), [0, 0]);
+    assert_eq!(scheduled.views()[0].root.x, [0]);
+}
+
+#[test]
+fn visible_area_skip_hidden_filter_layers() {
+    let mut case = SceneCase::new(64, 8);
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+    case.layer_with(None, None, Some(filter), |case| case.draw_at(48.0, 0.5));
+    case.visible_scene_area = Some(RectU16::new(0, 0, 16, 8));
+
+    assert_eq!(case.schedule_root(true).page_counts(), [0, 0]);
+}
+
+#[test]
+fn visible_area_shrink_partially_visible_layers() {
+    let mut case = SceneCase::new(32, 8);
+    case.layer(|case| case.draw(Rect::new(0.0, 0.0, 32.0, 4.0), 0.5));
+    case.visible_scene_area = Some(RectU16::new(8, 0, 16, 8));
+
+    let scheduled = case.schedule_root(true);
+    let round = &scheduled.views()[0];
+
+    assert_eq!(round.root.x, [8]);
+    let clears = &round.clears[TextureParity::Odd.get_parity()];
+    assert_eq!(clears.len(), 1);
+    assert_eq!(clears[0].width(), 8);
 }

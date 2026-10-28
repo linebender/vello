@@ -39,14 +39,14 @@ fn fill_target(ctx: &mut impl Renderer, color: AlphaColor<Srgb>) {
     ctx.reset();
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test]
 fn offset_overflowing_shape_stays_clipped(ctx: &mut impl Renderer) {
     ctx.set_offset((50, 50));
     ctx.set_paint(LIME);
     ctx.fill_path(&Circle::new((0.0, 0.0), 45.0).to_path(0.1));
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test]
 fn offset_gradient(ctx: &mut impl Renderer) {
     ctx.set_offset((-49, -51));
     ctx.set_paint(Gradient {
@@ -61,7 +61,7 @@ fn offset_gradient(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(20.0, 20.0, 80.0, 80.0));
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test]
 fn offset_image(ctx: &mut impl Renderer) {
     ctx.set_offset((-49, -51));
     let image = ctx.get_image_source(load_image!("color_grid_16x16"));
@@ -86,27 +86,27 @@ fn fill_clipped_star(ctx: &mut impl Renderer, offset: (i32, i32)) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test(webgl_texture)]
 fn offset_up_left(ctx: &mut impl Renderer) {
     fill_clipped_star(ctx, (-49, -51));
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test(webgl_texture)]
 fn offset_up_right(ctx: &mut impl Renderer) {
     fill_clipped_star(ctx, (49, -51));
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test(webgl_texture)]
 fn offset_down_left(ctx: &mut impl Renderer) {
     fill_clipped_star(ctx, (-49, 51));
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test(webgl_texture)]
 fn offset_down_right(ctx: &mut impl Renderer) {
     fill_clipped_star(ctx, (49, 51));
 }
 
-#[vello_test(skip_multithreaded, skip_gpu)]
+#[vello_test(skip_multithreaded, gpu_tolerance = 2)]
 fn offset_filter_drop_shadow(ctx: &mut impl Renderer) {
     ctx.set_offset(OFFSET);
     ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::DropShadow {
@@ -121,7 +121,7 @@ fn offset_filter_drop_shadow(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(transparent, skip_gpu)]
+#[vello_test(transparent, gpu_tolerance = 2)]
 fn offset_clear_viewport(ctx: &mut impl Renderer) {
     ctx.set_target_init(TargetInit::Clear(ClearSettings::Viewport {
         color: AlphaColor::from_rgba8(18, 52, 86, 120),
@@ -132,7 +132,7 @@ fn offset_clear_viewport(ctx: &mut impl Renderer) {
     ctx.fill_path(&Circle::new(center, 35.0).to_path(0.1));
 }
 
-#[vello_test(transparent, skip_gpu)]
+#[vello_test(transparent)]
 fn offset_outside_target(ctx: &mut impl Renderer) {
     ctx.set_target_init(TargetInit::Clear(ClearSettings::Viewport {
         color: AlphaColor::from_rgba8(18, 52, 86, 120),
@@ -141,7 +141,7 @@ fn offset_outside_target(ctx: &mut impl Renderer) {
     fill_circle(ctx);
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test(skip_webgl)]
 fn offset_clear_rects(ctx: &mut impl Renderer) {
     fill_target(ctx, BLUE);
     ctx.set_target_init(TargetInit::Clear(ClearSettings::Rects {
@@ -151,7 +151,7 @@ fn offset_clear_rects(ctx: &mut impl Renderer) {
     ctx.set_offset(OFFSET);
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test(skip_webgl)]
 fn offset_src_over_isolates_root_blend(ctx: &mut impl Renderer) {
     for (color, quadrant) in [
         (RED, Rect::new(0.0, 0.0, 50.0, 50.0)),

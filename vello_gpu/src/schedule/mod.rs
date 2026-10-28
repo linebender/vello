@@ -150,6 +150,7 @@ use vello_common::record::{CommandRecorder, LayerProps, Node, RecordedLayer, Rec
 use vello_common::strip::visit_strip_fill_segments;
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
+use vello_common::util::RectExt;
 
 const REGULAR_LAYER_KIND: RecordedLayerKind = RecordedLayerKind::Regular;
 
@@ -167,6 +168,7 @@ impl Schedule {
         storage: &mut ScheduleStorage,
         scene: &Scene,
         root_output_target: RootTarget,
+        visible_scene_area: Option<RectU16>,
         use_depth_buffer: bool,
         paint_resolver: PaintResolver<'_>,
         texture_size: SizeU16,
@@ -176,13 +178,7 @@ impl Schedule {
         storage.clear();
 
         let strip_storage = scene.strip_storage.borrow();
-        let scene_bbox = RectU16::new(
-            0,
-            0,
-            // Scene size is already snapped to tile coordinates.
-            scene.recorder.scene_size.width(),
-            scene.recorder.scene_size.height(),
-        );
+        let scene_bbox = visible_scene_area.map(RectExt::snap_to_tile_coordinates);
 
         let scheduler = Scheduler::new(
             &scene.recorder,
@@ -273,8 +269,8 @@ impl IntermediateTextureRequirements {
 struct Scheduler<'a, 'p> {
     /// Recorded scene graph and draws being scheduled.
     recorder: &'a CommandRecorder<RecordedDraw>,
-    /// Bounds of the root target in scene coordinates.
-    scene_bbox: RectU16,
+    /// Tile-aligned bounds of the scene that are visible in the root target, if any.
+    scene_bbox: Option<RectU16>,
     /// Strip data referenced by recorded path draws and clips.
     strip_storage: &'a StripStorage,
     /// Destination used for root-level draws.
@@ -295,7 +291,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     /// Create a scheduler.
     fn new(
         recorder: &'a CommandRecorder<RecordedDraw>,
-        scene_bbox: RectU16,
+        scene_bbox: Option<RectU16>,
         strip_storage: &'a StripStorage,
         root_render_target: RootTarget,
         use_depth_buffer: bool,
@@ -342,12 +338,16 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
     /// Schedule the root command stream into the configured output target.
     fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
+        let Some(scene_bbox) = self.scene_bbox else {
+            return Ok(());
+        };
+
         let target = self.root_render_target;
 
         let mut state = TargetScheduleState::new(
             target,
             self.cursor.current_round(),
-            self.scene_bbox,
+            scene_bbox,
             self.use_depth_buffer,
         );
 
@@ -357,7 +357,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             // user-provided view. Therefore, we need to simulate a layer push, do all the rendering
             // there and then blit back into the main frame buffer.
 
-            let opened_layer = self.open_root_layer();
+            let opened_layer = self.open_root_layer(scene_bbox);
             let layer = self.schedule_layer(opened_layer, rounds)?;
 
             // Schedule the blit back into the main framebuffer.
@@ -408,7 +408,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             // First make sure that the child node is scheduled, in case it exists. Unlike for root
             // layers, we need to make sure to do this _before_ pushing any draws.
             // TODO: Similarly to Vello CPU, flatten this to avoid stack overflows for deep layers
-            let child = self.schedule_child_layer(cmd, layer.sample_placement.dest_bbox, rounds)?;
+            let child = self.schedule_child_layer(cmd, layer.bbox, rounds)?;
 
             // Keep this after `schedule_child_layer`: allocating lazily is what makes traversal
             // bottom-up with respect to memory, while still allowing compatible layers to batch.
@@ -485,7 +485,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     fn schedule_child_layer(
         &mut self,
         cmd: &Node,
-        parent_bounds: RectU16,
+        parent_bbox: RectU16,
         rounds: &mut Rounds,
     ) -> Result<Option<PreparedChild<'a>>, RenderError> {
         let Some(layer_id) = cmd.layer else {
@@ -499,7 +499,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             if layer.props.blend_mode.is_destructive() {
                 // Unlike in the non-destructive case, empty *destructive* layers are
                 // not a no-op, and we need to clear the whole parent region.
-                parent_bounds
+                parent_bbox
             } else {
                 return Ok(None);
             }
@@ -510,13 +510,23 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // We cannot do this for filter layers, because the filter needs to be applied to the whole
         // region _BEFORE_ applying clips. Instead, the clip is simply applied when sampling from
         // the filter layer. However, for non-filter layers, we can reduce the work to the clip
-        // bbox.
-        if matches!(layer.kind, RecordedLayerKind::Regular) {
-            bbox = layer
-                .props
-                .clip_path
-                .as_ref()
-                .map_or(bbox, |clip| bbox.intersect(clip.bbox));
+        // bbox and the part of the parent that is drawn to.
+        match &layer.kind {
+            RecordedLayerKind::Regular => {
+                bbox = layer
+                    .props
+                    .clip_path
+                    .as_ref()
+                    .map_or(bbox, |clip| bbox.intersect(clip.bbox))
+                    .intersect(parent_bbox);
+            }
+            RecordedLayerKind::Filter { placement, .. } => {
+                // TODO: Also constrain filter layers to the input region needed for the visible
+                // part of the parent.
+                if placement.dest_bbox().intersect(parent_bbox).is_empty() {
+                    return Ok(None);
+                }
+            }
         }
 
         if bbox.is_empty() {
@@ -550,13 +560,13 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     }
 
     /// Represent the root command stream as an intermediate layer that can be sampled.
-    fn open_root_layer(&self) -> OpenLayer<'a> {
+    fn open_root_layer(&self, scene_bbox: RectU16) -> OpenLayer<'a> {
         OpenLayer {
             cmds: &self.recorder.nodes,
             kind: &REGULAR_LAYER_KIND,
             texture_parity: TextureParity::Odd,
-            bbox: self.scene_bbox,
-            sample_placement: LayerSamplePlacement::regular(self.scene_bbox),
+            bbox: scene_bbox,
+            sample_placement: LayerSamplePlacement::regular(scene_bbox),
             target: None,
         }
     }
