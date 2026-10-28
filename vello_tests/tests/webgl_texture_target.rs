@@ -44,7 +44,11 @@ fn nested_rects(colors: &[AlphaColor<Srgb>]) -> Scene {
 fn assert_all(pixels: &[u8], color: AlphaColor<Srgb>) {
     let expected = color.to_rgba8().to_u8_array();
     assert!(
-        pixels.chunks_exact(4).all(|pixel| pixel == expected),
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == expected),
         "expected every pixel to be {expected:?}, got {pixels:?}"
     );
 }
