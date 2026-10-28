@@ -99,6 +99,7 @@ impl RendererWrapper {
             RenderSettings::default().with_level(Level::try_detect().unwrap_or(Level::baseline()));
         let (renderer, resources) = Renderer::new_with(
             &device,
+            &queue,
             &RenderTargetConfig {
                 format: surface_format,
                 width: width.try_into().unwrap(),
@@ -273,14 +274,14 @@ impl AppState {
             .render(
                 &self.scene,
                 &mut self.renderer_wrapper.resources,
-                &self.renderer_wrapper.device,
-                &self.renderer_wrapper.queue,
                 &mut encoder,
-                &render_size,
-                &surface_texture_view,
-                Some(&self.renderer_wrapper.depth_texture_view),
+                vello_gpu::RenderTarget {
+                    view: &surface_texture_view,
+                    depth_view: Some(&self.renderer_wrapper.depth_texture_view),
+                    size: render_size,
+                },
                 &vello_gpu::TextureBindings::new(),
-                vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
+                vello_gpu::RenderOptions::default(),
             )
             .unwrap();
         let render_end = now();
@@ -440,8 +441,6 @@ impl AppState {
         let pixmap1 = ImageScene::read_flower_image();
         self.renderer_wrapper.renderer.upload_image(
             &mut self.renderer_wrapper.resources,
-            &self.renderer_wrapper.device,
-            &self.renderer_wrapper.queue,
             &mut encoder,
             &pixmap1,
         );
@@ -455,8 +454,6 @@ impl AppState {
         );
         self.renderer_wrapper.renderer.upload_image(
             &mut self.renderer_wrapper.resources,
-            &self.renderer_wrapper.device,
-            &self.renderer_wrapper.queue,
             &mut encoder,
             &texture2,
         );
@@ -762,14 +759,14 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         .render(
             &scene,
             &mut resources,
-            &device,
-            &queue,
             &mut encoder,
-            &render_size,
-            &surface_texture_view,
-            Some(&depth_texture_view),
+            vello_gpu::RenderTarget {
+                view: &surface_texture_view,
+                depth_view: Some(&depth_texture_view),
+                size: render_size,
+            },
             &vello_gpu::TextureBindings::new(),
-            vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
+            vello_gpu::RenderOptions::default(),
         )
         .unwrap();
 

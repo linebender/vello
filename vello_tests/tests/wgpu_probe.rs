@@ -31,14 +31,14 @@ fn run_wgpu_probe(use_depth_buffer: bool) {
         width,
         height,
     };
-    let (mut renderer, _) = Renderer::new(&device, &config);
+    let (mut renderer, _) = Renderer::new(&device, &queue, &config);
     let mut pending = renderer
-        .probe(&device, &queue, probe::ALL_PROBE_ELEMENTS, use_depth_buffer)
+        .probe(probe::ALL_PROBE_ELEMENTS, use_depth_buffer)
         .unwrap_or_else(|error| panic!("Renderer::probe() failed to render: {error:?}"));
 
     loop {
         device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        match pending.try_finish(&device) {
+        match pending.try_finish() {
             Ok(WgpuProbeStatus::Complete(result)) => {
                 assert!(result.is_success(), "probe failed unexpectedly");
                 return;

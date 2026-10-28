@@ -78,6 +78,7 @@ async fn run() {
     // Create renderer and render the scene to the texture
     let (mut renderer, mut resources) = vello_gpu::Renderer::new(
         &device,
+        &queue,
         &vello_gpu::RenderTargetConfig {
             format: texture.format(),
             width,
@@ -94,14 +95,14 @@ async fn run() {
         .render(
             &scene,
             &mut resources,
-            &device,
-            &queue,
             &mut encoder,
-            &render_size,
-            &texture_view,
-            Some(&depth_texture_view),
+            vello_gpu::RenderTarget {
+                view: &texture_view,
+                depth_view: Some(&depth_texture_view),
+                size: render_size,
+            },
             &vello_gpu::TextureBindings::new(),
-            vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
+            vello_gpu::RenderOptions::default(),
         )
         .unwrap();
 

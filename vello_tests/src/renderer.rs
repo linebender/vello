@@ -426,6 +426,7 @@ impl GpuRenderer {
         // Create renderer and render the scene to the texture
         let (renderer, resources) = vello_gpu::Renderer::new_with(
             &device,
+            &queue,
             &vello_gpu::RenderTargetConfig {
                 format: texture.format(),
                 width,
@@ -494,13 +495,9 @@ impl GpuRenderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
-        let image_id = self.renderer.upload_image(
-            &mut self.resources,
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            pixmap,
-        );
+        let image_id = self
+            .renderer
+            .upload_image(&mut self.resources, &mut encoder, pixmap);
         self.queue.submit([encoder.finish()]);
         image_id
     }
@@ -712,18 +709,20 @@ impl Renderer for GpuRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Vello Render"),
             });
+        let mut options = vello_gpu::RenderOptions::default();
+        options.target_init = self.target_init;
         self.renderer
             .render(
                 &self.scene,
                 &mut self.resources,
-                &self.device,
-                &self.queue,
                 &mut encoder,
-                &render_size,
-                &self.texture_view,
-                self.depth_texture_view.as_ref(),
+                vello_gpu::RenderTarget {
+                    view: &self.texture_view,
+                    depth_view: self.depth_texture_view.as_ref(),
+                    size: render_size,
+                },
                 &texture_bindings,
-                self.target_init,
+                options,
             )
             .unwrap();
 
@@ -1223,13 +1222,15 @@ impl Renderer for GpuRenderer {
             Some(texture_target) => texture_target.render_target(),
             None => vello_gpu::WebGlRenderTarget::DrawingBuffer,
         };
+        let mut options = vello_gpu::WebGlRenderOptions::default();
+        options.clear_color = self.clear_color;
         self.renderer
             .render(
                 &self.scene,
                 &mut self.resources,
                 target,
                 &self.external_textures,
-                self.clear_color,
+                options,
             )
             .unwrap();
     }

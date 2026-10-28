@@ -386,7 +386,7 @@ impl ApplicationHandler for App<'_> {
                 let (renderer, resources, depth_render_size, depth_texture_view) =
                     self.renderers[surface.dev_id].as_mut().unwrap();
                 if *depth_render_size != render_size {
-                    *depth_render_size = render_size.clone();
+                    *depth_render_size = render_size;
                     *depth_texture_view =
                         Renderer::create_depth_texture_view(&device_handle.device, &render_size);
                 }
@@ -394,14 +394,14 @@ impl ApplicationHandler for App<'_> {
                     .render(
                         &self.scene,
                         resources,
-                        &device_handle.device,
-                        &device_handle.queue,
                         &mut encoder,
-                        &render_size,
-                        &texture_view,
-                        Some(depth_texture_view),
+                        vello_gpu::RenderTarget {
+                            view: &texture_view,
+                            depth_view: Some(depth_texture_view),
+                            size: render_size,
+                        },
                         &texture_bindings,
-                        vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
+                        vello_gpu::RenderOptions::default(),
                     )
                     .unwrap();
 
@@ -437,26 +437,14 @@ impl App<'_> {
         // 1st example — uploading pixmap directly
         let pixmap1 = ImageScene::read_flower_image();
         let (renderer, resources, ..) = self.renderers[device_id].as_mut().unwrap();
-        renderer.upload_image(
-            resources,
-            &device_handle.device,
-            &device_handle.queue,
-            &mut encoder,
-            &pixmap1,
-        );
+        renderer.upload_image(resources, &mut encoder, &pixmap1);
 
         // 2nd example — uploading from a texture (for cases where you already have a texture)
         let pixmap2 = ImageScene::read_cowboy_image();
         let texture2 =
             self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &pixmap2);
         let (renderer, resources, ..) = self.renderers[device_id].as_mut().unwrap();
-        renderer.upload_image(
-            resources,
-            &device_handle.device,
-            &device_handle.queue,
-            &mut encoder,
-            &texture2,
-        );
+        renderer.upload_image(resources, &mut encoder, &texture2);
 
         device_handle.queue.submit([encoder.finish()]);
         self.uploaded_images[device_id] = true;

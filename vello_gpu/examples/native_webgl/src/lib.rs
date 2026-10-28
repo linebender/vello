@@ -176,7 +176,7 @@ impl AppState {
                 &mut self.renderer_wrapper.resources,
                 vello_gpu::WebGlRenderTarget::DrawingBuffer,
                 &vello_gpu::WebGlTextureBindings::new(),
-                vello_common::color::AlphaColor::TRANSPARENT,
+                vello_gpu::WebGlRenderOptions::default(),
             )
             .unwrap();
         if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
@@ -681,7 +681,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             &mut resources,
             vello_gpu::WebGlRenderTarget::DrawingBuffer,
             &vello_gpu::WebGlTextureBindings::new(),
-            vello_common::color::AlphaColor::TRANSPARENT,
+            vello_gpu::WebGlRenderOptions::default(),
         )
         .unwrap();
 }

@@ -128,13 +128,16 @@ pub mod util;
 pub use render::{
     AtlasTextureInfo, IncompatibleContextReason, IncompatiblePrecompiledShadersReason,
     InvalidTextureTargetReason, ShaderCompilationStats, WebGlAtlasWriter, WebGlContextOperation,
-    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlRenderTarget, WebGlRenderer,
-    WebGlRendererInit, WebGlRendererInitStatus, WebGlResourceKind, WebGlShaderInterfaceOperation,
-    WebGlShaderProgramOperation, WebGlShaderStage, WebGlTextureBindings, WebGlTextureTarget,
-    WebGlTextureWithDimensions,
+    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlRenderOptions, WebGlRenderTarget,
+    WebGlRenderer, WebGlRendererInit, WebGlRendererInitStatus, WebGlResourceKind,
+    WebGlShaderInterfaceOperation, WebGlShaderProgramOperation, WebGlShaderStage,
+    WebGlTextureBindings, WebGlTextureTarget, WebGlTextureWithDimensions,
 };
 #[cfg(feature = "wgpu")]
-pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBinding, TextureBindings};
+pub use render::{
+    AtlasWriter, RenderOptions, RenderTarget, RenderTargetConfig, Renderer, TextureBinding,
+    TextureBindings,
+};
 pub use render::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeOperation, WebGlProbeStatus};

@@ -15,7 +15,7 @@ use vello_common::paint::{ImageSource, TextureRegion};
 use vello_common::pixmap::Pixmap;
 use vello_common::probe::{Probe, ProbeFeature};
 use wgpu::util::DeviceExt;
-use wgpu::{Buffer, Device, Queue, TextureFormat};
+use wgpu::{Buffer, Device, TextureFormat};
 
 const PENDING: u8 = 0;
 const MAPPED: u8 = 1;
@@ -24,6 +24,7 @@ const FAILED: u8 = 2;
 /// A wgpu probe whose pixel readback has been submitted but not completed.
 #[derive(Debug)]
 pub struct WgpuPendingProbe {
+    device: Device,
     buffer: Buffer,
     map_state: Arc<AtomicU8>,
     format: TextureFormat,
@@ -74,18 +75,19 @@ impl Renderer {
     /// against a reference image. Pass `use_depth_buffer` to match whether your renders use a depth
     /// buffer.
     ///
-    /// The probe scene is submitted to `queue` immediately. The returned handle allows inspecting
-    /// the result once it has been read back from the GPU, see [`WgpuPendingProbe::try_finish`].
+    /// The probe scene is submitted to the renderer's queue immediately. The returned handle allows
+    /// inspecting the result once it has been read back from the GPU, see
+    /// [`WgpuPendingProbe::try_finish`].
     ///
     /// Call this before [`render`](Self::render), or submit any encoder passed to `render` first;
     /// otherwise that render will draw with the probe's data.
     pub fn probe(
         &mut self,
-        device: &Device,
-        queue: &Queue,
         elements: &[ProbeFeature],
         use_depth_buffer: bool,
     ) -> Result<WgpuPendingProbe, WgpuProbeError> {
+        let device = self.device.clone();
+        let queue = self.queue.clone();
         if elements.is_empty() {
             return Err(WgpuProbeError::NoElements);
         }
@@ -116,11 +118,11 @@ impl Renderer {
         });
         let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
         let depth_view =
-            use_depth_buffer.then(|| Self::create_depth_texture_view(device, &render_size));
+            use_depth_buffer.then(|| Self::create_depth_texture_view(&device, &render_size));
 
         let probe_image = vello_common::probe::probe_image_pixmap();
         let probe_image_texture = device.create_texture_with_data(
-            queue,
+            &queue,
             &wgpu::TextureDescriptor {
                 label: Some("Probe Image"),
                 size: wgpu::Extent3d {
@@ -161,7 +163,6 @@ impl Renderer {
         });
         self.render_scene(
             &scene,
-            device,
             &mut encoder,
             &render_size,
             &target_view,
@@ -202,6 +203,7 @@ impl Renderer {
         queue.submit([encoder.finish()]);
 
         Ok(WgpuPendingProbe {
+            device,
             buffer,
             map_state,
             format,
@@ -216,11 +218,11 @@ impl Renderer {
 impl WgpuPendingProbe {
     /// Try to finish the probe.
     ///
-    /// This polls `device` without blocking. In case the result is not available yet, the pending
-    /// probe is returned so that it can be checked again later. Otherwise, the probe result or an
-    /// error is returned.
-    pub fn try_finish(self, device: &Device) -> Result<WgpuProbeStatus, WgpuProbeError> {
-        let _ = device.poll(wgpu::PollType::Poll);
+    /// This polls the renderer's device without blocking. In case the result is not available yet,
+    /// the pending probe is returned so that it can be checked again later. Otherwise, the probe
+    /// result or an error is returned.
+    pub fn try_finish(self) -> Result<WgpuProbeStatus, WgpuProbeError> {
+        let _ = self.device.poll(wgpu::PollType::Poll);
 
         match self.map_state.load(Ordering::Acquire) {
             PENDING => Ok(WgpuProbeStatus::Pending(self)),

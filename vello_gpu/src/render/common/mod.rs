@@ -228,7 +228,7 @@ impl LayersConfig {
 }
 
 /// Dimensions of the rendering target.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct RenderSize {
     /// Width of the rendering target.
     pub width: u16,

@@ -8,7 +8,8 @@ use vello_common::color::palette::css::{BLUE, RED};
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::Rect;
 use vello_gpu::{
-    RenderSettings, Resources, Scene, WebGlRenderTarget, WebGlRenderer, WebGlTextureBindings,
+    RenderSettings, Resources, Scene, WebGlRenderOptions, WebGlRenderTarget, WebGlRenderer,
+    WebGlTextureBindings,
 };
 use vello_tests::renderer::{TestTextureTarget, create_webgl_depth_buffer, read_webgl_pixels};
 use wasm_bindgen::JsCast;
@@ -66,7 +67,7 @@ fn texture_target_restores_drawing_buffer() {
             &mut resources,
             target.render_target(),
             &bindings,
-            AlphaColor::TRANSPARENT,
+            WebGlRenderOptions::default(),
         )
         .unwrap();
     renderer
@@ -75,7 +76,7 @@ fn texture_target_restores_drawing_buffer() {
             &mut resources,
             WebGlRenderTarget::DrawingBuffer,
             &bindings,
-            AlphaColor::TRANSPARENT,
+            WebGlRenderOptions::default(),
         )
         .unwrap();
 
@@ -101,7 +102,7 @@ fn texture_target_clears_shared_depth_buffer() {
                 &mut resources,
                 target.render_target(),
                 &bindings,
-                AlphaColor::TRANSPARENT,
+                WebGlRenderOptions::default(),
             )
             .unwrap();
     }

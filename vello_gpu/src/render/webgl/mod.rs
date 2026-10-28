@@ -203,6 +203,26 @@ struct WebGlShaders {
     copy_program: PendingShaderProgram,
 }
 
+/// Options for [`WebGlRenderer::render`].
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct WebGlRenderOptions {
+    /// The color that the target is cleared to before drawing.
+    // Note that in WebGL, the contents of drawing buffers are not guaranteed to be preserved
+    // unless `preserveDrawingBuffer` has been set to `true` (which is highly discouraged).
+    // Therefore, for the WebGL backend we currently don't expose more configurable clear
+    // options.
+    pub clear_color: AlphaColor<Srgb>,
+}
+
+impl Default for WebGlRenderOptions {
+    fn default() -> Self {
+        Self {
+            clear_color: AlphaColor::TRANSPARENT,
+        }
+    }
+}
+
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct WebGlTextureBindings {
@@ -703,11 +723,7 @@ impl WebGlRenderer {
         resources: &mut Resources,
         target: WebGlRenderTarget<'_>,
         texture_bindings: &WebGlTextureBindings,
-        // Note that in WebGL, the contents of drawing buffers are not guaranteed to be preserved
-        // unless `preserveDrawingBuffer` has been set to `true` (which is highly discouraged).
-        // Therefore, for the WebGL backend we currently don't expose more configurable clear
-        // options.
-        clear_color: AlphaColor<Srgb>,
+        options: WebGlRenderOptions,
     ) -> Result<(), WebGlError> {
         #[cfg(feature = "text")]
         resources.before_render(
@@ -732,7 +748,9 @@ impl WebGlRenderer {
         )?;
 
         let render_size = target.size(&self.gl);
-        let target_init = TargetInit::Clear(ClearSettings::Viewport { color: clear_color });
+        let target_init = TargetInit::Clear(ClearSettings::Viewport {
+            color: options.clear_color,
+        });
         match target {
             WebGlRenderTarget::DrawingBuffer => self.render_scene(
                 scene,
@@ -2232,7 +2250,7 @@ impl WebGlPrograms {
                 WebGl2RenderingContext::STATIC_DRAW,
             );
 
-            self.render_size = new_render_size.clone();
+            self.render_size = *new_render_size;
             self.negate_ndc = negate_ndc;
         }
     }
