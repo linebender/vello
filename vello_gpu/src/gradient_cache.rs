@@ -107,6 +107,18 @@ impl GradientRampCache {
         self.luts.len()
     }
 
+    /// Get the packed luts.
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn luts(&self) -> &[u8] {
+        &self.luts
+    }
+
+    /// Get the packed luts mutably, e.g. for padding before an upload.
+    #[cfg(feature = "webgl")]
+    pub(crate) fn luts_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.luts
+    }
+
     /// Check if the packed luts is empty.
     pub(crate) fn is_empty(&self) -> bool {
         self.luts.is_empty()
@@ -120,16 +132,6 @@ impl GradientRampCache {
     /// Mark the luts as synced.
     pub(crate) fn mark_synced(&mut self) {
         self.has_changed = false;
-    }
-
-    /// Take ownership of the luts, leaving an empty vector in its place.
-    pub(crate) fn take_luts(&mut self) -> Vec<u8> {
-        core::mem::take(&mut self.luts)
-    }
-
-    /// Restore the luts. The restored luts should have the same logical content as the original.
-    pub(crate) fn restore_luts(&mut self, luts: Vec<u8>) {
-        self.luts = luts;
     }
 
     /// Remove multiple LRU entries and compact the LUTs vector.
@@ -495,39 +497,6 @@ mod tests {
             cache.cache.contains_key(&encoded_gradient4.cache_key),
             "Gradient4 should be cached"
         );
-    }
-
-    #[test]
-    fn test_take_and_restore_luts() {
-        let mut cache = GradientRampCache::new(5, Level::baseline());
-
-        let gradient1 = create_gradient(0.1);
-        let gradient2 = create_gradient(0.2);
-        let gradient3 = create_gradient(0.3);
-        insert_entry(&mut cache, gradient1.clone());
-        insert_entry(&mut cache, gradient2.clone());
-        insert_entry(&mut cache, gradient3.clone());
-        cache.maintain();
-        let original_size = cache.luts_size();
-        let original_cache_size = cache.cache.len();
-
-        let luts = cache.take_luts();
-        assert_eq!(luts.len(), original_size);
-        assert_eq!(cache.luts_size(), 0);
-        assert!(cache.is_empty());
-
-        cache.restore_luts(luts);
-
-        assert_eq!(cache.luts_size(), original_size);
-        assert_eq!(cache.cache.len(), original_cache_size);
-        assert!(!cache.is_empty());
-
-        let encoded_gradient1 = create_encoded_gradient(gradient1.clone());
-        let encoded_gradient2 = create_encoded_gradient(gradient2.clone());
-        let encoded_gradient3 = create_encoded_gradient(gradient3.clone());
-        assert!(cache.cache.contains_key(&encoded_gradient1.cache_key));
-        assert!(cache.cache.contains_key(&encoded_gradient2.cache_key));
-        assert!(cache.cache.contains_key(&encoded_gradient3.cache_key));
     }
 
     #[test]
