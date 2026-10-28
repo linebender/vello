@@ -329,6 +329,26 @@ impl WebGlTextureTarget {
         })
     }
 
+    fn for_atlas(
+        gl: &WebGl2RenderingContext,
+        texture: &WebGlTexture,
+        width: u16,
+        height: u16,
+    ) -> Result<Self, WebGlError> {
+        // Unlike `new`, we don't do validation here since we know our atlas framebuffers
+        // are valid.
+        let framebuffer = create_framebuffer_for_texture(gl, texture)?;
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+
+        Ok(Self {
+            texture: texture.clone(),
+            framebuffer: Rc::new(framebuffer),
+            width,
+            height,
+            use_depth_buffer: false,
+        })
+    }
+
     /// The width of the texture.
     pub fn width(&self) -> u16 {
         self.width
@@ -1974,7 +1994,7 @@ impl WebGlPrograms {
             let texture = create_atlas_texture(gl, width, height)?;
             self.resources
                 .atlas_targets
-                .push(WebGlTextureTarget::new(gl, &texture, None, width, height)?);
+                .push(WebGlTextureTarget::for_atlas(gl, &texture, width, height)?);
             self.resources.atlas_textures.push(texture);
         }
 
@@ -2814,7 +2834,7 @@ fn create_webgl_resources(
         .collect::<Result<Vec<_>, _>>()?;
     let atlas_targets = atlas_textures
         .iter()
-        .map(|texture| WebGlTextureTarget::new(gl, texture, None, atlas_width, atlas_height))
+        .map(|texture| WebGlTextureTarget::for_atlas(gl, texture, atlas_width, atlas_height))
         .collect::<Result<Vec<_>, _>>()?;
 
     // Create and configure encoded paints texture.
