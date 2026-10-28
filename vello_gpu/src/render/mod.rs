@@ -19,10 +19,11 @@ pub use common::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(feature = "webgl")]
 pub use webgl::{
     AtlasTextureInfo, IncompatibleContextReason, IncompatiblePrecompiledShadersReason,
-    ShaderCompilationStats, WebGlAtlasWriter, WebGlContextOperation, WebGlDataTransferOperation,
-    WebGlError, WebGlOperation, WebGlRenderer, WebGlRendererInit, WebGlRendererInitStatus,
-    WebGlResourceKind, WebGlShaderInterfaceOperation, WebGlShaderProgramOperation,
-    WebGlShaderStage, WebGlTextureBindings, WebGlTextureWithDimensions,
+    InvalidTextureTargetReason, ShaderCompilationStats, WebGlAtlasWriter, WebGlContextOperation,
+    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlRenderTarget, WebGlRenderer,
+    WebGlRendererInit, WebGlRendererInitStatus, WebGlResourceKind, WebGlShaderInterfaceOperation,
+    WebGlShaderProgramOperation, WebGlShaderStage, WebGlTextureBindings, WebGlTextureTarget,
+    WebGlTextureWithDimensions,
 };
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use webgl::{

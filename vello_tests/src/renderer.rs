@@ -862,10 +862,133 @@ pub struct GpuRenderer {
     external_textures: vello_gpu::WebGlTextureBindings,
     next_external_texture_id: u64,
     clear_color: AlphaColor<Srgb>,
+    use_depth_buffer: bool,
+    texture_target: Option<TestTextureTarget>,
+}
+
+/// A `width` × `height` texture that is rendered into and read back.
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+#[derive(Debug)]
+pub struct TestTextureTarget {
+    target: vello_gpu::WebGlTextureTarget,
+    framebuffer: web_sys::WebGlFramebuffer,
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+impl TestTextureTarget {
+    /// Create a target that renders with the optional `depth` buffer.
+    pub fn new(
+        renderer: &vello_gpu::WebGlRenderer,
+        width: u16,
+        height: u16,
+        depth: Option<&web_sys::WebGlRenderbuffer>,
+    ) -> Self {
+        let gl = renderer.gl_context();
+        let texture = gl.create_texture().unwrap();
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
+        gl.tex_storage_2d(
+            WebGl2RenderingContext::TEXTURE_2D,
+            1,
+            WebGl2RenderingContext::RGBA8,
+            width.into(),
+            height.into(),
+        );
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
+
+        let framebuffer = gl.create_framebuffer().unwrap();
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
+        gl.framebuffer_texture_2d(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            WebGl2RenderingContext::COLOR_ATTACHMENT0,
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&texture),
+            0,
+        );
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+
+        Self {
+            target: renderer
+                .create_texture_target(&texture, depth, width, height)
+                .unwrap(),
+            framebuffer,
+        }
+    }
+
+    /// The render target.
+    pub fn render_target(&self) -> vello_gpu::WebGlRenderTarget<'_> {
+        vello_gpu::WebGlRenderTarget::Texture(&self.target)
+    }
+
+    /// Read back the bottom-up pixels of the rendered area.
+    pub fn read_pixels(&self, gl: &WebGl2RenderingContext) -> Vec<u8> {
+        read_webgl_pixels(
+            gl,
+            Some(&self.framebuffer),
+            self.target.width(),
+            self.target.height(),
+        )
+    }
+}
+
+/// Create a `width` × `height` `DEPTH_COMPONENT24` renderbuffer for a [`TestTextureTarget`].
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+pub fn create_webgl_depth_buffer(
+    gl: &WebGl2RenderingContext,
+    width: u16,
+    height: u16,
+) -> web_sys::WebGlRenderbuffer {
+    let depth = gl.create_renderbuffer().unwrap();
+    gl.bind_renderbuffer(WebGl2RenderingContext::RENDERBUFFER, Some(&depth));
+    gl.renderbuffer_storage(
+        WebGl2RenderingContext::RENDERBUFFER,
+        WebGl2RenderingContext::DEPTH_COMPONENT24,
+        width.into(),
+        height.into(),
+    );
+    gl.bind_renderbuffer(WebGl2RenderingContext::RENDERBUFFER, None);
+    depth
+}
+
+/// Read back the bottom-up pixels of `framebuffer`, or of the drawing buffer if `None`.
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+pub fn read_webgl_pixels(
+    gl: &WebGl2RenderingContext,
+    framebuffer: Option<&web_sys::WebGlFramebuffer>,
+    width: u16,
+    height: u16,
+) -> Vec<u8> {
+    let mut pixels = vec![0_u8; usize::from(width) * usize::from(height) * 4];
+    gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, framebuffer);
+    gl.read_pixels_with_opt_u8_array(
+        0,
+        0,
+        width.into(),
+        height.into(),
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(&mut pixels),
+    )
+    .unwrap();
+    gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+    pixels
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl GpuRenderer {
+    /// Render into a texture instead of the drawing buffer.
+    pub fn use_texture_target(&mut self) {
+        let (width, height) = (self.scene.width(), self.scene.height());
+        let depth = self
+            .use_depth_buffer
+            .then(|| create_webgl_depth_buffer(&self.gl, width, height));
+        self.texture_target = Some(TestTextureTarget::new(
+            &self.renderer,
+            width,
+            height,
+            depth.as_ref(),
+        ));
+    }
+
     fn upload_image(&mut self, pixmap: &Arc<Pixmap>) -> ImageId {
         self.renderer
             .upload_image(&mut self.resources, pixmap)
@@ -939,6 +1062,8 @@ impl Renderer for GpuRenderer {
             external_textures: vello_gpu::WebGlTextureBindings::new(),
             next_external_texture_id: 1,
             clear_color: AlphaColor::TRANSPARENT,
+            use_depth_buffer,
+            texture_target: None,
         }
     }
 
@@ -1078,15 +1203,15 @@ impl Renderer for GpuRenderer {
     }
 
     fn render(&mut self) {
-        let width = self.scene.width();
-        let height = self.scene.height();
-
-        let render_size = vello_gpu::RenderSize { width, height };
+        let target = match &self.texture_target {
+            Some(texture_target) => texture_target.render_target(),
+            None => vello_gpu::WebGlRenderTarget::DrawingBuffer,
+        };
         self.renderer
             .render(
                 &self.scene,
                 &mut self.resources,
-                &render_size,
+                target,
                 &self.external_textures,
                 self.clear_color,
             )
@@ -1096,22 +1221,13 @@ impl Renderer for GpuRenderer {
     fn snapshot(&mut self) -> Pixmap {
         use vello_common::peniko::ImageAlphaType;
         use vello_common::pixmap::PixelMetadata;
-        use web_sys::WebGl2RenderingContext;
 
         let width = self.scene.width();
         let height = self.scene.height();
-        let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
-        self.gl
-            .read_pixels_with_opt_u8_array(
-                0,
-                0,
-                width.into(),
-                height.into(),
-                WebGl2RenderingContext::RGBA,
-                WebGl2RenderingContext::UNSIGNED_BYTE,
-                Some(&mut pixels),
-            )
-            .unwrap();
+        let mut pixels = match &self.texture_target {
+            Some(texture_target) => texture_target.read_pixels(&self.gl),
+            None => read_webgl_pixels(&self.gl, None, width, height),
+        };
 
         // WebGL framebuffers are y-up, so we need to invert the rows.
         let row_bytes = usize::from(width) * 4;

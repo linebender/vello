@@ -38,6 +38,8 @@ struct Arguments {
     gpu_only: bool,
     /// Whether to additionally run `vello_gpu` with depth buffering disabled.
     gpu_no_depth: bool,
+    /// Whether to additionally run the WebGL backend rendering into a texture.
+    webgl_texture: bool,
     /// The maximum number of pixels that are allowed to completely deviate from the reference
     /// images. This attribute mainly exists because there are some test cases (like gradients),
     /// where, due to floating point inaccuracies, some pixels might land on a different color
@@ -70,6 +72,7 @@ impl Default for Arguments {
             skip_webgl: false,
             gpu_only: false,
             gpu_no_depth: false,
+            webgl_texture: false,
             no_ref: false,
             glyph: false,
             diff_pixels: 0,
@@ -287,6 +290,7 @@ struct GpuVariant {
     backend: GpuBackend,
     cached: bool,
     no_depth: bool,
+    texture: bool,
 }
 
 enum Renderer {
@@ -361,6 +365,7 @@ impl GpuVariant {
             backend: GpuBackend::Wgpu,
             cached: false,
             no_depth: false,
+            texture: false,
         }
     }
 
@@ -369,6 +374,7 @@ impl GpuVariant {
             backend: GpuBackend::WebGl,
             cached: false,
             no_depth: false,
+            texture: false,
         }
     }
 
@@ -382,6 +388,11 @@ impl GpuVariant {
         self
     }
 
+    fn with_texture(mut self) -> Self {
+        self.texture = true;
+        self
+    }
+
     fn is_webgl(self) -> bool {
         matches!(self.backend, GpuBackend::WebGl)
     }
@@ -389,6 +400,9 @@ impl GpuVariant {
     fn resolve(self, args: &Arguments, tolerance: u8) -> TestCase {
         let webgl = self.is_webgl();
         let mut suffix = if webgl { "gpu_webgl" } else { "gpu" }.to_owned();
+        if self.texture {
+            suffix.push_str("_texture");
+        }
         if self.no_depth {
             suffix.push_str("_no_depth");
         }
@@ -476,6 +490,10 @@ impl TestContext<'_> {
         };
         let invoke_input = self.invocation(cached);
         let ignore_attribute = self.ignore_attribute(ignore);
+        let use_texture_target = match &renderer {
+            Renderer::Gpu(variant) if variant.texture => quote! { ctx.use_texture_target(); },
+            _ => quote! {},
+        };
         let (cfg_attribute, test_attribute, asyncness, create_ctx) = match renderer {
             Renderer::Cpu(variant) => {
                 let (pipeline, level, num_threads) = variant.config();
@@ -572,6 +590,7 @@ impl TestContext<'_> {
                 use crate::util::check_ref;
 
                 let mut ctx = #create_ctx;
+                #use_texture_target
                 #invoke_input
                 ctx.flush();
                 if !#no_ref {
@@ -691,6 +710,12 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         if args.gpu_no_depth {
             gpu_variants.push(variant.without_depth());
         }
+        if args.webgl_texture && variant.is_webgl() {
+            gpu_variants.push(variant.with_texture());
+            if args.gpu_no_depth {
+                gpu_variants.push(variant.with_texture().without_depth());
+            }
+        }
     }
     let gpu_tests = gpu_variants
         .into_iter()
@@ -742,6 +767,8 @@ fn parse_args(attr: TokenStream) -> syn::Result<Arguments> {
             args.gpu_only = true;
         } else if meta.path.is_ident("gpu_no_depth") {
             args.gpu_no_depth = true;
+        } else if meta.path.is_ident("webgl_texture") {
+            args.webgl_texture = true;
         } else if meta.path.is_ident("no_ref") {
             args.no_ref = true;
         } else if meta.path.is_ident("glyph") {

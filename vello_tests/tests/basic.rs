@@ -76,7 +76,7 @@ fn stroked_triangle(ctx: &mut impl Renderer) {
     ctx.stroke_path(&path);
 }
 
-#[vello_test]
+#[vello_test(webgl_texture)]
 fn filled_circle(ctx: &mut impl Renderer) {
     let circle = Circle::new((50.0, 50.0), 45.0);
     ctx.set_paint(LIME);
