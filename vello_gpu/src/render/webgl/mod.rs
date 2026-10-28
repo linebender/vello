@@ -797,6 +797,8 @@ impl WebGlRenderer {
     }
 
     /// Run `render` with `target` as the root target.
+    ///
+    /// Note that the method might update the currently bound framebuffer.
     fn render_offscreen(
         &mut self,
         target: &WebGlTextureTarget,
