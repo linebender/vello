@@ -107,13 +107,10 @@ impl RendererWrapper {
             },
             settings,
         );
-        let depth_texture_view = Renderer::create_depth_texture_view(
-            &device,
-            &vello_gpu::RenderSize {
-                width: width.try_into().unwrap(),
-                height: height.try_into().unwrap(),
-            },
-        );
+        let depth_texture_view = renderer.create_depth_texture_view(&vello_gpu::RenderSize {
+            width: width.try_into().unwrap(),
+            height: height.try_into().unwrap(),
+        });
 
         Self {
             renderer,
@@ -139,13 +136,12 @@ impl RendererWrapper {
             view_formats: vec![],
         };
         self.surface.configure(&self.device, &surface_config);
-        self.depth_texture_view = Renderer::create_depth_texture_view(
-            &self.device,
-            &vello_gpu::RenderSize {
+        self.depth_texture_view = self
+            .renderer
+            .create_depth_texture_view(&vello_gpu::RenderSize {
                 width: width.try_into().unwrap(),
                 height: height.try_into().unwrap(),
-            },
-        );
+            });
         if let Some(gpu_timer) = &mut self.gpu_timer {
             gpu_timer.reset();
         }

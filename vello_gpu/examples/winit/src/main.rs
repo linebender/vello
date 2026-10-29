@@ -387,8 +387,7 @@ impl ApplicationHandler for App<'_> {
                     self.renderers[surface.dev_id].as_mut().unwrap();
                 if *depth_render_size != render_size {
                     *depth_render_size = render_size;
-                    *depth_texture_view =
-                        Renderer::create_depth_texture_view(&device_handle.device, &render_size);
+                    *depth_texture_view = renderer.create_depth_texture_view(&render_size);
                 }
                 renderer
                     .render(

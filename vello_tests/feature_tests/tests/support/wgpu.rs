@@ -92,7 +92,7 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
 
     let mut options = RenderOptions::default();
     options.target_init = TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE });
-    let depth = Renderer::create_depth_texture_view(&device, &size);
+    let depth = renderer.create_depth_texture_view(&size);
     renderer
         .render(
             &scene,

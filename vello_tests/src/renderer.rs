@@ -436,8 +436,8 @@ impl GpuRenderer {
             settings,
         );
         let render_size = vello_gpu::RenderSize { width, height };
-        let depth_texture_view = use_depth_buffer
-            .then(|| vello_gpu::Renderer::create_depth_texture_view(&device, &render_size));
+        let depth_texture_view =
+            use_depth_buffer.then(|| renderer.create_depth_texture_view(&render_size));
 
         Self {
             scene,

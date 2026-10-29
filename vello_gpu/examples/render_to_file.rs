@@ -86,7 +86,7 @@ async fn run() {
         },
     );
     let render_size = vello_gpu::RenderSize { width, height };
-    let depth_texture_view = vello_gpu::Renderer::create_depth_texture_view(&device, &render_size);
+    let depth_texture_view = renderer.create_depth_texture_view(&render_size);
     // Copy texture to buffer
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),

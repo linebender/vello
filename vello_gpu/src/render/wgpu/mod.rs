@@ -366,8 +366,8 @@ impl Renderer {
     /// The returned view has the same dimensions as `render_size`, uses
     /// [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), and can be used as a
     /// render attachment.
-    pub fn create_depth_texture_view(device: &Device, render_size: &RenderSize) -> TextureView {
-        device
+    pub fn create_depth_texture_view(&self, render_size: &RenderSize) -> TextureView {
+        self.device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some("Vello GPU Depth Texture"),
                 size: Extent3d {

@@ -86,8 +86,6 @@ impl Renderer {
         elements: &[ProbeFeature],
         use_depth_buffer: bool,
     ) -> Result<WgpuPendingProbe, WgpuProbeError> {
-        let device = self.device.clone();
-        let queue = self.queue.clone();
         if elements.is_empty() {
             return Err(WgpuProbeError::NoElements);
         }
@@ -106,7 +104,7 @@ impl Renderer {
             height: u32::from(height),
             depth_or_array_layers: 1,
         };
-        let target = device.create_texture(&wgpu::TextureDescriptor {
+        let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Probe Target"),
             size,
             mip_level_count: 1,
@@ -117,12 +115,11 @@ impl Renderer {
             view_formats: &[],
         });
         let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let depth_view =
-            use_depth_buffer.then(|| Self::create_depth_texture_view(&device, &render_size));
+        let depth_view = use_depth_buffer.then(|| self.create_depth_texture_view(&render_size));
 
         let probe_image = vello_common::probe::probe_image_pixmap();
-        let probe_image_texture = device.create_texture_with_data(
-            &queue,
+        let probe_image_texture = self.device.create_texture_with_data(
+            &self.queue,
             &wgpu::TextureDescriptor {
                 label: Some("Probe Image"),
                 size: wgpu::Extent3d {
@@ -158,9 +155,11 @@ impl Renderer {
             elements,
         );
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Probe Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Probe Encoder"),
+            });
         self.render_scene(
             &scene,
             &mut encoder,
@@ -177,7 +176,7 @@ impl Renderer {
 
         let padded_bytes_per_row =
             (u32::from(width) * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Probe Readback"),
             size: u64::from(padded_bytes_per_row) * u64::from(height),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
@@ -201,10 +200,10 @@ impl Renderer {
             let state = if result.is_ok() { MAPPED } else { FAILED };
             callback_state.store(state, Ordering::Release);
         });
-        queue.submit([encoder.finish()]);
+        self.queue.submit([encoder.finish()]);
 
         Ok(WgpuPendingProbe {
-            device,
+            device: self.device.clone(),
             buffer,
             map_state,
             format,

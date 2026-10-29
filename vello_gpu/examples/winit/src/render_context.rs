@@ -51,7 +51,7 @@ pub(crate) fn create_vello_renderer(
             height: render_size.height,
         },
     );
-    let depth_texture_view = Renderer::create_depth_texture_view(device, &render_size);
+    let depth_texture_view = renderer.create_depth_texture_view(&render_size);
     (renderer, resources, render_size, depth_texture_view)
 }
 
