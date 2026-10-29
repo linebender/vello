@@ -536,13 +536,12 @@ mod alpha_fill {
     //! This module handles compositing when each pixel has an additional mask value
     //! (e.g., from anti-aliasing or clip masks) that modulates the source alpha.
 
-    use crate::fine::Splat4thExt;
     use crate::fine::lowp::compose::ComposeExt;
-    use crate::fine::lowp::{blend, extract_masks};
+    use crate::fine::lowp::{blend, expand_alphas, extract_masks};
     use crate::peniko::{BlendMode, Mix};
     use fearless_simd_macros::simd;
     use vello_common::fearless_simd::*;
-    use vello_common::util::{Div255Ext, narrow, normalized_mul_u8, widen};
+    use vello_common::util::{Div255Ext, narrow, widen};
 
     /// Applies blend mode compositing with per-pixel alpha masks.
     #[simd]
@@ -582,12 +581,11 @@ mod alpha_fill {
         src: [u8; 4],
         alphas: impl Iterator<Item = [u8; 8]>,
     ) {
-        let src_a = u8x32::splat(s, src[3]);
+        let src_a = u8x16::splat(s, src[3]);
         let src_c = u32x8::splat(s, u32::from_ne_bytes(src)).to_bytes();
-        let one = u8x32::splat(s, 255);
 
         for (next_bg, next_mask) in dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas) {
-            alpha_composite_inner(s, next_bg, &next_mask, src_c, src_a, one);
+            alpha_composite_inner(s, next_bg, &next_mask, src_c, src_a);
         }
     }
 
@@ -602,13 +600,13 @@ mod alpha_fill {
         src: T,
         alphas: impl Iterator<Item = [u8; 8]>,
     ) {
-        let one = u8x32::splat(simd, 255);
-
         for ((next_dest, next_mask), next_src) in
             dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas).zip(src)
         {
-            let src_a = next_src.splat_4th();
-            alpha_composite_inner(simd, next_dest, &next_mask, next_src, src_a, one);
+            let (lo, hi) = simd.split_u8x32(next_src);
+            let odd = lo.unzip_high(hi);
+            let src_a = odd.unzip_high(odd);
+            alpha_composite_inner(simd, next_dest, &next_mask, next_src, src_a);
         }
     }
 
@@ -616,6 +614,10 @@ mod alpha_fill {
     ///
     /// Formula: `result = src * mask + bg * (1 - src_alpha * mask)`
     /// The mask value modulates both the source contribution and the inverse alpha.
+    ///
+    /// `src_a` contains the source alpha of each of the 8 pixels in its lower half.
+    /// `src_alpha * mask` is rounded down, so that the weights of the alpha channel never
+    /// sum up to less than 255, which would turn opaque destinations into transparent ones.
     #[inline(always)]
     #[simd]
     fn alpha_composite_inner<S: Simd>(
@@ -623,23 +625,38 @@ mod alpha_fill {
         dest: &mut [u8],
         masks: &[u8; 8],
         src_c: u8x32<S>,
-        src_a: u8x32<S>,
-        one: u8x32<S>,
+        src_a: u8x16<S>,
     ) {
         let bg_v = u8x32::from_slice(s, dest);
+        let mask_v = u64x2::splat(s, u64::from_ne_bytes(*masks)).to_bytes();
 
-        let mask_v = extract_masks(s, masks);
-        let inv_src_a_mask_a = one - narrow(normalized_mul_u8(src_a, mask_v));
+        let product = src_a.widen().0 * mask_v.widen().0;
+        let src_a_mask_a = (product + (product >> 8) + 1) >> 8;
+        let inv_src_a_mask_a = !s.narrow_u16x8(src_a_mask_a, u16x8::splat(s, 0));
 
         let bg = widen(bg_v);
-        let inv = widen(inv_src_a_mask_a);
+        let inv = widen(expand_alphas(s, inv_src_a_mask_a));
         let src = widen(src_c);
-        let mask = widen(mask_v);
+        let mask = widen(expand_alphas(s, mask_v));
         let result = (bg * inv + src * mask).div_255();
         let res = narrow(result);
 
         res.store_slice(dest);
     }
+}
+
+/// Expands the 8 bytes in the lower half of a vector into a 32-byte SIMD vector where
+/// each pixel's 4 components share the same value.
+///
+/// Input: [m0, m1, m2, m3, m4, m5, m6, m7, ...]
+/// Output: [m0, m0, m0, m0, m1, m1, m1, m1, ..., m7, m7, m7, m7]
+#[inline(always)]
+fn expand_alphas<S: Simd>(simd: S, alphas: u8x16<S>) -> u8x32<S> {
+    const INDICES: [u8; 32] = [
+        0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7,
+        7, 7,
+    ];
+    u8x32::block_splat(alphas).swizzle_dyn_within_blocks(u8x32::from_slice(simd, &INDICES))
 }
 
 /// Expands 8 mask bytes into a 32-byte SIMD vector where each pixel's 4 components
@@ -666,6 +683,7 @@ mod tests {
     use super::*;
     use alloc::vec;
     use alloc::vec::Vec;
+    use core::array;
     use vello_common::fearless_simd::{Level, dispatch};
     use vello_common::geometry::RectU16;
 
@@ -723,6 +741,83 @@ mod tests {
                     simd.vectorize(|| unpack(simd, region, usize::from(width), scratch));
                 },
             );
+        });
+    }
+
+    fn masked_composite_reference(bg: [u8; 4], src: [u8; 4], mask: u8) -> [u8; 4] {
+        let mask = u16::from(mask);
+        let inv = 255 - u16::from(src[3]) * mask / 255;
+        array::from_fn(|i| div_255(u16::from(bg[i]) * inv + u16::from(src[i]) * mask) as u8)
+    }
+
+    /// Composites with all mask values onto opaque and semi-transparent backgrounds, once with
+    /// a solid color of each alpha value and once with a buffer of varying colors.
+    fn for_each_masked_composite(mut check: impl FnMut(&[[u8; 4]], &[[u8; 4]], &[u8], &[u8])) {
+        let masks = (0..=255).collect::<Vec<u8>>();
+        let bg = (0..256)
+            .map(|i| {
+                let a = if i % 2 == 0 { 255 } else { (i * 7 % 256) as u8 };
+                [a / 2, a / 3, a, a]
+            })
+            .collect::<Vec<_>>();
+        let premul = |a: u8| [a / 4, a / 2, a, a];
+
+        dispatch!(Level::try_detect().unwrap_or(Level::baseline()), simd => {
+            for src_a in 0..=255 {
+                let src = [premul(src_a); 256];
+                let mut dest = bg.concat();
+                simd.vectorize(|| {
+                    alpha_fill::alpha_composite_solid(
+                        simd,
+                        &mut dest,
+                        src[0],
+                        masks.as_chunks::<8>().0.iter().copied(),
+                    );
+                });
+                check(&bg, &src, &masks, &dest);
+            }
+
+            for offset in 0..256 {
+                let src = (0..256)
+                    .map(|i| premul(((i * 37 + offset) % 256) as u8))
+                    .collect::<Vec<_>>();
+                let src_bytes = src.concat();
+                let mut dest = bg.concat();
+                simd.vectorize(|| {
+                    alpha_fill::alpha_composite(
+                        simd,
+                        &mut dest,
+                        src_bytes
+                            .as_chunks::<32>()
+                            .0
+                            .iter()
+                            .map(|chunk| u8x32::from_slice(simd, chunk)),
+                        masks.as_chunks::<8>().0.iter().copied(),
+                    );
+                });
+                check(&bg, &src, &masks, &dest);
+            }
+        });
+    }
+
+    #[test]
+    fn masked_alpha_composite_matches_reference() {
+        for_each_masked_composite(|bg, src, masks, dest| {
+            for (i, pixel) in dest.as_chunks::<4>().0.iter().enumerate() {
+                assert_eq!(*pixel, masked_composite_reference(bg[i], src[i], masks[i]));
+            }
+        });
+    }
+
+    // See <https://github.com/linebender/vello/issues/2026>.
+    #[test]
+    fn masked_alpha_composite_keeps_opaque_background_opaque() {
+        for_each_masked_composite(|bg, _, _, dest| {
+            for (i, pixel) in dest.as_chunks::<4>().0.iter().enumerate() {
+                if bg[i][3] == 255 {
+                    assert_eq!(pixel[3], 255);
+                }
+            }
         });
     }
 }
