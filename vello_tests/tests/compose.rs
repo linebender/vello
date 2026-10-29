@@ -3,6 +3,7 @@
 
 use crate::renderer::Renderer;
 use vello_common::color::palette::css::{BLUE, GREEN, LIME, PURPLE, RED, YELLOW};
+use vello_common::filter_effects::{Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
 use vello_dev_macros::vello_test;
@@ -466,4 +467,35 @@ fn compose_non_isolated_dest_atop(ctx: &mut impl Renderer) {
 #[vello_test]
 fn compose_non_isolated_plus(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Plus);
+}
+
+#[vello_test]
+fn compose_copy_outside_parent_clip_clears_parent(ctx: &mut impl Renderer) {
+    ctx.push_clip_layer(&Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1));
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Copy));
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(60.0, 60.0, 90.0, 90.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
+fn compose_clear_empty_filter_layer(ctx: &mut impl Renderer) {
+    ctx.push_layer(None, None, None, None, None);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+    ctx.push_layer(
+        None,
+        Some(BlendMode::new(Mix::Normal, Compose::Clear)),
+        None,
+        None,
+        Some(Filter::from_primitive(FilterPrimitive::Offset {
+            dx: 0.0,
+            dy: 0.0,
+        })),
+    );
+    ctx.pop_layer();
+    ctx.pop_layer();
 }

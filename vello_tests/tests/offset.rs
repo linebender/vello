@@ -183,3 +183,23 @@ fn offset_src_over_isolates_root_blend(ctx: &mut impl Renderer) {
     ctx.fill_path(&hole);
     ctx.pop_layer();
 }
+
+#[vello_test(skip_multithreaded)]
+fn offset_destructive_filter_layer_outside_target(ctx: &mut impl Renderer) {
+    ctx.set_offset((-50, 0));
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.push_layer(
+        None,
+        Some(BlendMode::new(Mix::Normal, Compose::Copy)),
+        None,
+        None,
+        Some(Filter::from_primitive(FilterPrimitive::GaussianBlur {
+            std_deviation: 2.0,
+            edge_mode: EdgeMode::None,
+        })),
+    );
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(5.0, 5.0, 25.0, 25.0));
+    ctx.pop_layer();
+}

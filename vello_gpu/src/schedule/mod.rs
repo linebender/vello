@@ -494,18 +494,9 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
         let layer = &self.recorder.layers[layer_id as usize];
 
-        // TODO: Change recording so layers with empty bboxes are not emitted in the first place.
-        let mut bbox = if layer.bbox.is_empty() {
-            if layer.props.blend_mode.is_destructive() {
-                // Unlike in the non-destructive case, empty *destructive* layers are
-                // not a no-op, and we need to clear the whole parent region.
-                parent_bbox
-            } else {
-                return Ok(None);
-            }
-        } else {
-            layer.bbox
-        };
+        let clip_bbox = layer.props.clip_path.as_ref().map(|clip| clip.bbox);
+        let is_destructive = layer.props.blend_mode.is_destructive();
+        let mut bbox = layer.bbox;
 
         // We cannot do this for filter layers, because the filter needs to be applied to the whole
         // region _BEFORE_ applying clips. Instead, the clip is simply applied when sampling from
@@ -513,22 +504,26 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // bbox and the part of the parent that is drawn to.
         match &layer.kind {
             RecordedLayerKind::Regular => {
-                bbox = layer
-                    .props
-                    .clip_path
-                    .as_ref()
-                    .map_or(bbox, |clip| bbox.intersect(clip.bbox))
+                bbox = clip_bbox
+                    .map_or(bbox, |clip| bbox.intersect(clip))
                     .intersect(parent_bbox);
             }
             RecordedLayerKind::Filter { placement, .. } => {
                 // TODO: Also constrain filter layers to the input region needed for the visible
                 // part of the parent.
-                if placement.dest_bbox().intersect(parent_bbox).is_empty() {
+                if !is_destructive && placement.dest_bbox().intersect(parent_bbox).is_empty() {
                     return Ok(None);
                 }
             }
         }
 
+        // Unlike in the non-destructive case, empty *destructive* layers are not a no-op, and we
+        // need to clear the parent region within the clip.
+        if bbox.is_empty() && is_destructive {
+            bbox = clip_bbox.map_or(parent_bbox, |clip| parent_bbox.intersect(clip));
+        }
+
+        // TODO: Change recording so layers with empty bboxes are not emitted in the first place.
         if bbox.is_empty() {
             return Ok(None);
         }
