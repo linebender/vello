@@ -175,6 +175,29 @@ impl RectU16 {
         Self { x0, y0, x1, y1 }
     }
 
+    /// Return the part of a scene of size `scene_size` that is visible in a target of size
+    /// `target_size` when the scene's origin is placed at `offset` in the target, or `None` if no
+    /// part of it is visible.
+    pub fn visible_scene_bounds(
+        scene_size: SizeU16,
+        target_size: SizeU16,
+        offset: (i32, i32),
+    ) -> Option<Self> {
+        let range = |offset: i32, target: u16, scene: u16| {
+            let start = offset.saturating_neg().clamp(0, scene as i32);
+            let end = (target as i32)
+                .saturating_sub(offset)
+                .clamp(start, scene as i32);
+            (start as u16, end as u16)
+        };
+
+        let (x0, x1) = range(offset.0, target_size.width(), scene_size.width());
+        let (y0, y1) = range(offset.1, target_size.height(), scene_size.height());
+        let visible = Self::new(x0, y0, x1, y1);
+
+        (!visible.is_empty()).then_some(visible)
+    }
+
     /// The width of the rectangle (`x1 - x0`), saturating at zero.
     #[inline(always)]
     pub const fn width(self) -> u16 {

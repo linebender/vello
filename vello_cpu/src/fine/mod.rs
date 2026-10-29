@@ -464,9 +464,10 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
 ) {
     let scene_y = region.row_idx as u16 * Tile::HEIGHT;
     let row = &bucketer.rows()[region.row_idx];
-    let span = Span::new(0, region.width()).tile_aligned();
+    let span = region.span().tile_aligned();
 
     fine.set_row_y(scene_y);
+    fine.buffer_span = span;
     depth.clear();
 
     let has_cmds = !row.depth_cmds.is_empty() || !row.render_cmds.is_empty();
@@ -488,8 +489,9 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
         let attrs = &bucketer.paint_fill_attrs[cmd.attrs_idx as usize];
 
         depth.for_each_unset_run_and_write(cmd.bucket_range(), attrs.draw_id, |bucket_range| {
-            let span = bucket_range.span();
-            fine.paint_fill(span, attrs, resources, None);
+            if let Some(span) = bucket_range.span().intersect(fine.buffer_span) {
+                fine.paint_fill(span, attrs, resources, None);
+            }
         });
     }
 
@@ -516,8 +518,7 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
 pub struct Fine<S: Simd, T: FineKernel<S>> {
     /// The SIMD context used for vectorized operations.
     simd: S,
-    // TODO: If we make sure that strips never exceed the viewport, we can delete this.
-    /// Pixel span covered by the blend buffers.
+    /// The tile-aligned span of the region being rasterized, which commands are clipped to.
     buffer_span: TileAlignedSpan,
     /// Stack of blend buffers for managing layers and composition.
     ///
@@ -595,10 +596,16 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             // The pixmap we load from does not necessarily have a width that is
                             // a multiple of the tile width! We therefore clamp and leave any
                             // tail in the blend buffer uninitialized.
-                            .intersect(Span::new(0, region.width()))
+                            .intersect(region.span())
                         {
-                            let mut region = region.sub_span(span.pixel_x(), span.pixel_width());
-                            self.unpack(span.pixel_x(), &mut region);
+                            let mut region = region.sub_span(
+                                // Spans are in scene coordinates, but `sub_span` takes an index into
+                                // the region's rows, whose index 0 is the region's first scene column
+                                // (e.g. 4 for an x offset of -4).
+                                span.pixel_x() - region.span().pixel_x(),
+                                span.pixel_width(),
+                            );
+                            self.unpack(&mut region);
                         }
                     },
                 );
@@ -656,17 +663,23 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[doc(hidden)]
     pub fn pack(&self, region: &mut Region<'_>) {
         let width = usize::from(region.width());
+        let scene_x0 = usize::from(region.span().pixel_x());
         let scratch = self.blend_buffers.last().unwrap();
 
-        T::pack(self.simd, scratch, width, region);
+        T::pack(
+            self.simd,
+            &scratch[scene_x0 * TILE_HEIGHT_COMPONENTS..],
+            width,
+            region,
+        );
     }
 
     /// Reads the pixels of the target back into the buffer.
     ///
     /// This does the opposite of [`Fine::pack`].
     #[doc(hidden)]
-    pub fn unpack(&mut self, scratch_x_start: u16, region: &mut Region<'_>) {
-        let scratch_x = usize::from(scratch_x_start);
+    pub fn unpack(&mut self, region: &mut Region<'_>) {
+        let scene_x0 = usize::from(region.span().pixel_x());
         let width = usize::from(region.width());
         let scratch = self.blend_buffers.last_mut().unwrap();
 
@@ -674,7 +687,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             self.simd,
             region,
             width,
-            &mut scratch[scratch_x * TILE_HEIGHT_COMPONENTS..],
+            &mut scratch[scene_x0 * TILE_HEIGHT_COMPONENTS..],
         );
     }
 
@@ -1163,7 +1176,7 @@ pub(crate) struct FineRenderParams {
     /// Scene/filter dimensions before clipping to the destination pixmap.
     pub(crate) scene_size: (u16, u16),
     /// Destination offset in the target pixmap.
-    pub(crate) target_offset: (u16, u16),
+    pub(crate) target_offset: (i32, i32),
 }
 
 /// A trait for objects that can render pixel data into buffers.

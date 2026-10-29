@@ -89,6 +89,7 @@ pub trait Renderer: Sized {
     fn reset_filter_effect(&mut self);
     fn reset(&mut self);
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>);
+    fn set_offset(&mut self, offset: (i32, i32));
     fn render(&mut self);
     fn snapshot(&mut self) -> Pixmap;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
@@ -104,6 +105,7 @@ pub struct CpuRenderer {
     render_mode: RenderMode,
     target: Pixmap,
     target_init: GpuTargetInit<'static>,
+    offset: (i32, i32),
 }
 
 impl Renderer for CpuRenderer {
@@ -125,6 +127,7 @@ impl Renderer for CpuRenderer {
             render_mode,
             target: Pixmap::new(width, height),
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
+            offset: (0, 0),
         }
     }
 
@@ -293,6 +296,10 @@ impl Renderer for CpuRenderer {
         self.target_init = target_init;
     }
 
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
+    }
+
     fn render(&mut self) {
         let target_init = match self.target_init {
             GpuTargetInit::SrcOver => CpuTargetInit::SrcOver,
@@ -310,6 +317,7 @@ impl Renderer for CpuRenderer {
             RasterizerSettings {
                 render_mode: self.render_mode,
                 target_init,
+                offset: self.offset,
                 ..Default::default()
             },
         );
@@ -668,6 +676,10 @@ impl Renderer for GpuRenderer {
 
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>) {
         self.target_init = target_init;
+    }
+
+    fn set_offset(&mut self, _: (i32, i32)) {
+        unimplemented!("rendering at an offset is not supported by vello_gpu yet")
     }
 
     fn render(&mut self) {
@@ -1200,6 +1212,10 @@ impl Renderer for GpuRenderer {
                 panic!("WebGL only supports clearing the complete viewport")
             }
         };
+    }
+
+    fn set_offset(&mut self, _: (i32, i32)) {
+        unimplemented!("rendering at an offset is not supported by vello_gpu yet")
     }
 
     fn render(&mut self) {
