@@ -3,10 +3,15 @@
 
 //! Backend agnostic renderer module.
 
-#![allow(
-    clippy::cast_possible_truncation,
-    reason = "GPU paint structures have small, fixed sizes that fit in u32"
-)]
+mod paint;
+
+#[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
+pub(crate) use paint::encode_wgpu_external_texture_paint;
+pub(crate) use paint::{
+    GpuBlurredRoundedRect, GpuEncodedImage, GpuEncodedPaint, GpuLinearGradient, GpuSweepGradient,
+    encode_native_image_paint, encode_radial_gradient, pack_image_offset, pack_image_params,
+    pack_image_size, pack_texture_width_and_extend_mode, pack_tint,
+};
 
 use crate::IntermediateTextureError;
 use crate::blend::GpuBlendInstance;
@@ -15,11 +20,8 @@ use crate::filter::FILTER_ATLAS_PADDING;
 use crate::scene::{LayersConfig, MemorySettings, RecordedDraw};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use core::mem::size_of;
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::encode::{EncodedImage, FocalKind, RadialKind};
 use vello_common::geometry::{RectU16, SizeU16};
-use vello_common::paint::TintMode;
 use vello_common::record::CommandRecorder;
 
 // TODO: If we want to use native bilinear sampling for uploaded images,
@@ -325,15 +327,10 @@ pub(crate) fn maybe_warn_about_webgl_feature_conflict() {}
 
 #[cfg(test)]
 mod tests {
-    use super::{DeviceLimits, encode_native_image_paint};
+    use super::DeviceLimits;
     use crate::scene::RecordedDraw;
     use crate::{IntermediateTextureError, LayersConfig, MemorySettings, SizeU16};
-    use vello_common::TextureId;
-    use vello_common::encode::EncodedImage;
-    use vello_common::kurbo::{Affine, Vec2};
     use vello_common::multi_atlas::AtlasConfig;
-    use vello_common::paint::{ImageSource, TextureRegion, Tint, TintMode};
-    use vello_common::peniko::{Color, ImageQuality, ImageSampler};
     use vello_common::record::CommandRecorder;
 
     fn device_limits(max_texture_dimension_2d: u16) -> DeviceLimits {

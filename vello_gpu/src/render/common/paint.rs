@@ -1,3 +1,18 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! GPU encodings of paints.
+
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "GPU paint structures have small, fixed sizes that fit in u32"
+)]
+
+use bytemuck::{Pod, Zeroable};
+use core::mem::size_of;
+use vello_common::encode::{EncodedImage, FocalKind, RadialKind};
+use vello_common::paint::TintMode;
+
 /// Different types of GPU encoded paints.
 #[derive(Debug)]
 pub(crate) enum GpuEncodedPaint {
@@ -351,6 +366,14 @@ pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::encode_native_image_paint;
+    use vello_common::TextureId;
+    use vello_common::encode::EncodedImage;
+    use vello_common::kurbo::{Affine, Vec2};
+    use vello_common::paint::{ImageSource, TextureRegion, Tint, TintMode};
+    use vello_common::peniko::{Color, ImageQuality, ImageSampler};
 
     #[test]
     fn native_image_encoding_accepts_opacity_but_not_color_tint_or_bicubic() {
@@ -427,3 +450,4 @@ pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
             .is_none()
         );
     }
+}
