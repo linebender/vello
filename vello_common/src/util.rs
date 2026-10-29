@@ -58,11 +58,12 @@ pub trait Div255Ext: private::Sealed {
 }
 
 mod private {
-    use fearless_simd::{Simd, u16x16, u16x32};
+    use fearless_simd::{Simd, u16x8, u16x16, u16x32};
 
     #[expect(unnameable_types, reason = "Sealed trait pattern.")]
     pub trait Sealed {}
 
+    impl<S: Simd> Sealed for u16x8<S> {}
     impl<S: Simd> Sealed for u16x16<S> {}
     impl<S: Simd> Sealed for u16x32<S> {}
 }
