@@ -101,7 +101,6 @@ pub(crate) fn render(elements: &[ProbeFeature]) -> Pixmap {
             RenderTarget {
                 view: &texture.create_view(&wgpu::TextureViewDescriptor::default()),
                 depth_view: Some(&depth),
-                size,
             },
             &texture_bindings,
             options,

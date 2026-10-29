@@ -689,11 +689,6 @@ impl Renderer for GpuRenderer {
         // stability by serializing the GPU portion of otherwise parallel tests.
         self.lock_gpu_test();
 
-        let width = self.scene.width();
-        let height = self.scene.height();
-
-        let render_size = vello_gpu::RenderSize { width, height };
-
         let mut texture_bindings = vello_gpu::TextureBindings::new();
         for (texture_id, texture) in &self.external_textures {
             texture_bindings.insert(*texture_id, texture.clone());
@@ -722,7 +717,6 @@ impl Renderer for GpuRenderer {
                 vello_gpu::RenderTarget {
                     view: &self.texture_view,
                     depth_view: self.depth_texture_view.as_ref(),
-                    size: render_size,
                 },
                 &texture_bindings,
                 options,

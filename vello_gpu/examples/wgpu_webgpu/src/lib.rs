@@ -234,11 +234,6 @@ impl AppState {
         );
         let scene_end = now();
 
-        let render_size = vello_gpu::RenderSize {
-            width: self.width.try_into().unwrap(),
-            height: self.height.try_into().unwrap(),
-        };
-
         let surface_texture = match self.renderer_wrapper.surface.get_current_texture() {
             CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
             CurrentSurfaceTexture::Occluded
@@ -270,7 +265,6 @@ impl AppState {
                 vello_gpu::RenderTarget {
                     view: &surface_texture_view,
                     depth_view: Some(&self.renderer_wrapper.depth_texture_view),
-                    size: render_size,
                 },
                 &vello_gpu::TextureBindings::new(),
                 vello_gpu::RenderOptions::default(),
@@ -743,7 +737,6 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         ..
     } = RendererWrapper::new(canvas).await;
 
-    let render_size = vello_gpu::RenderSize { width, height };
     let surface_texture = match surface.get_current_texture() {
         CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
         e => panic!("Error getting initial surface: {e:?}"),
@@ -763,7 +756,6 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             vello_gpu::RenderTarget {
                 view: &surface_texture_view,
                 depth_view: Some(&depth_texture_view),
-                size: render_size,
             },
             &vello_gpu::TextureBindings::new(),
             vello_gpu::RenderOptions::default(),

@@ -45,9 +45,7 @@ mod macos {
         Blob, Extend, FontData, ImageAlphaType, ImageQuality, ImageSampler,
     };
     use vello_common::pixmap::{PixelMetadata, Pixmap};
-    use vello_gpu::{
-        RenderOptions, RenderSize, RenderTarget, Resources, Scene, TextureBindings, TextureId,
-    };
+    use vello_gpu::{RenderOptions, RenderTarget, Resources, Scene, TextureBindings, TextureId};
     use winit::application::ApplicationHandler;
     use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
     use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -421,11 +419,6 @@ mod macos {
                 },
             );
 
-            let render_size = RenderSize {
-                width: u16::try_from(self.render_context.surface_config.width).unwrap_or(u16::MAX),
-                height: u16::try_from(self.render_context.surface_config.height)
-                    .unwrap_or(u16::MAX),
-            };
             self.render_context
                 .renderer
                 .render(
@@ -435,7 +428,6 @@ mod macos {
                     RenderTarget {
                         view: &surface_view,
                         depth_view: Some(&self.render_context.depth_texture_view),
-                        size: render_size,
                     },
                     &bindings,
                     RenderOptions::default(),

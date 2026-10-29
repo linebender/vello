@@ -99,7 +99,6 @@ async fn run() {
             vello_gpu::RenderTarget {
                 view: &texture_view,
                 depth_view: Some(&depth_texture_view),
-                size: render_size,
             },
             &vello_gpu::TextureBindings::new(),
             vello_gpu::RenderOptions::default(),

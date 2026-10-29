@@ -97,12 +97,14 @@ pub struct RenderTargetConfig {
 #[derive(Debug, Clone, Copy)]
 pub struct RenderTarget<'a> {
     /// The color attachment to render into.
+    ///
+    /// The view must cover mip level 0 of its texture.
     pub view: &'a TextureView,
     /// The optional depth attachment.
     ///
     /// Passing `Some(depth_view)` enables depth buffering to reduce overdraw. The depth view must
     /// use [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), have the same
-    /// dimensions as `size`, have a sample count of one, and support
+    /// dimensions as `view`, have a sample count of one, and support
     /// [`TextureUsages::RENDER_ATTACHMENT`](wgpu::TextureUsages::RENDER_ATTACHMENT). Pass `None`
     /// to render without a depth buffer.
     ///
@@ -111,8 +113,16 @@ pub struct RenderTarget<'a> {
     ///
     /// [WebGPU render pass validation rules]: https://gpuweb.github.io/gpuweb/#abstract-opdef-gpurenderpassdescriptor-valid-usage
     pub depth_view: Option<&'a TextureView>,
-    /// The dimensions of `view`.
-    pub size: RenderSize,
+}
+
+impl RenderTarget<'_> {
+    fn size(&self) -> RenderSize {
+        let texture = self.view.texture();
+        RenderSize {
+            width: texture.width().try_into().unwrap(),
+            height: texture.height().try_into().unwrap(),
+        }
+    }
 }
 
 /// Options for [`Renderer::render`].
@@ -434,7 +444,7 @@ impl Renderer {
         let result = self.render_scene(
             scene,
             encoder,
-            &target.size,
+            &target.size(),
             target.view,
             target.depth_view,
             &resources.image_cache,

@@ -397,7 +397,6 @@ impl ApplicationHandler for App<'_> {
                         vello_gpu::RenderTarget {
                             view: &texture_view,
                             depth_view: Some(depth_texture_view),
-                            size: render_size,
                         },
                         &texture_bindings,
                         vello_gpu::RenderOptions::default(),
