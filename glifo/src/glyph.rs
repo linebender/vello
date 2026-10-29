@@ -2596,4 +2596,47 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn atlas_command_recorder_tracks_dirty_rect_on_insert() {
+        let font = test_font(TestGlyphKind::Outline);
+        let glyph = test_glyph(&font, TestGlyphKind::Outline);
+        let mut resources = TestResources::default();
+
+        draw_test_glyph(&font, glyph, true, Style::Fill, &mut resources);
+
+        let mut replay_count = 0;
+        let mut observed_dirty_rect = None;
+
+        resources
+            .glyph_atlas
+            .replay_pending_atlas_commands(|recorder| {
+                replay_count += 1;
+                observed_dirty_rect = recorder.dirty_rect;
+                Ok::<(), core::convert::Infallible>(())
+            })
+            .unwrap();
+
+        assert_eq!(
+            replay_count, 1,
+            "exactly one atlas page should have pending commands"
+        );
+        let dirty = observed_dirty_rect.expect("dirty_rect should be recorded on atlas miss");
+        assert!(
+            !dirty.is_empty(),
+            "dirty_rect should have positive dimensions"
+        );
+
+        // Verify recorder dirty_rect is reset after replay
+        resources
+            .glyph_atlas
+            .replay_pending_atlas_commands(|recorder| {
+                assert!(
+                    recorder.dirty_rect.is_none(),
+                    "dirty_rect should be None after clear"
+                );
+                Ok::<(), core::convert::Infallible>(())
+            })
+            .unwrap();
+    }
 }
