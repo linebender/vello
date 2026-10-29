@@ -146,6 +146,13 @@ pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene};
 pub use text::{GlyphRunBuilder, GpuGlyphRunBackend};
 pub use util::DimensionConstraints;
 pub use vello_common::reexports::gpu::*;
+/// The JavaScript that starts compiling the WebGL shaders before the WebAssembly module loads, for
+/// [`WebGlRenderer::begin_with_precompiled`].
+///
+/// Generating it from a `vello_gpu` dependency with the same features as the renderer's yields the
+/// same shaders, so its programs can be adopted.
+#[cfg(feature = "webgl")]
+pub use vello_gpu_shaders::webgl_bootstrap;
 
 use thiserror::Error;
 
