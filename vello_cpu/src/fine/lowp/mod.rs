@@ -542,7 +542,7 @@ mod alpha_fill {
     use crate::peniko::{BlendMode, Mix};
     use fearless_simd_macros::simd;
     use vello_common::fearless_simd::*;
-    use vello_common::util::{Div255Ext, narrow, normalized_mul_u8, widen};
+    use vello_common::util::{Div255Ext, narrow, widen};
 
     /// Applies blend mode compositing with per-pixel alpha masks.
     #[simd]
@@ -629,7 +629,7 @@ mod alpha_fill {
         let bg_v = u8x32::from_slice(s, dest);
 
         let mask_v = extract_masks(s, masks);
-        let inv_src_a_mask_a = one - narrow(normalized_mul_u8(src_a, mask_v));
+        let inv_src_a_mask_a = one - narrow((widen(src_a) * widen(mask_v)).div_255_exact());
 
         let bg = widen(bg_v);
         let inv = widen(inv_src_a_mask_a);

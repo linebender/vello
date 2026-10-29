@@ -18,7 +18,7 @@ pub(crate) mod scalar {
     ///    implementation.
     /// 3) There are two options for performing the division: One is to perform the division
     ///    in a way that completely preserves the rounding semantics of a integer division by
-    ///    255. This could be achieved using the implementation `(val + 1 + (val >> 8)) >> 8`.
+    ///    255. This could be achieved using [`div_255_exact`].
     ///    The second approach (used here) has slightly different rounding behavior to a
     ///    normal division by 255, but is much faster (see <https://github.com/linebender/vello/issues/904>)
     ///    and therefore preferable for the high-performance pipeline.
@@ -37,9 +37,24 @@ pub(crate) mod scalar {
         (val + 255) >> 8
     }
 
+    /// Perform an exact division by 255.
+    ///
+    /// This yields the same result as `val / 255`, but is slower than [`div_255`].
+    /// This holds for values of `val` up to and including `65279`. You should not call this
+    /// function with higher values.
+    #[allow(dead_code, reason = "documents the scalar version of `div_255_exact`")]
+    #[inline(always)]
+    pub(crate) const fn div_255_exact(val: u16) -> u16 {
+        debug_assert!(
+            val < 65280,
+            "`div_255_exact` overflows for values of `65280` or greater"
+        );
+        (val + (val >> 8) + 1) >> 8
+    }
+
     #[cfg(test)]
     mod tests {
-        use crate::util::scalar::div_255;
+        use crate::util::scalar::{div_255, div_255_exact};
 
         #[test]
         fn div_255_properties() {
@@ -58,6 +73,13 @@ pub(crate) mod scalar {
                 if i % 255 == 0 {
                     assert_eq!(diff, 0, "Division should be accurate for multiples of 255.");
                 }
+            }
+        }
+
+        #[test]
+        fn div_255_exact_matches_integer_division() {
+            for i in 0_u16..256 * 255 {
+                assert_eq!(div_255_exact(i), i / 255);
             }
         }
     }
