@@ -1,3 +1,19 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Runtime bindings for externally owned textures.
+
+use crate::RenderError;
+#[cfg(feature = "wgpu_external_texture")]
+use crate::render::common::encode_wgpu_external_texture_paint;
+use crate::render::common::{GpuEncodedPaint, encode_external_texture_paint};
+use core::fmt::Debug;
+use hashbrown::HashMap;
+use vello_common::TextureId;
+use vello_common::encode::EncodedImage;
+use vello_common::paint::TextureRegion;
+use wgpu::{Texture, TextureView};
+
 /// A runtime binding for a [`TextureId`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -18,7 +34,7 @@ pub enum TextureBinding {
 
 impl TextureBinding {
     /// Width and height of the texture space that image paints sample from.
-    fn size(&self) -> (u32, u32) {
+    pub(crate) fn size(&self) -> (u32, u32) {
         match self {
             Self::TextureView(view) => {
                 let texture = view.texture();
@@ -114,7 +130,7 @@ impl TextureBindings {
     }
 
     /// Encodes an image paint that samples the binding of `texture_id`.
-    fn encode_paint(
+    pub(crate) fn encode_paint(
         &self,
         texture_id: TextureId,
         image: &EncodedImage,
@@ -150,7 +166,7 @@ impl TextureBindings {
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&TextureBinding> {
+    pub(crate) fn get(&self, texture_id: TextureId) -> Option<&TextureBinding> {
         self.bindings.get(&texture_id)
     }
 
@@ -162,4 +178,3 @@ impl TextureBindings {
         self.bindings.remove(&texture_id)
     }
 }
-

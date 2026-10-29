@@ -1,3 +1,12 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Writing image data into atlas textures.
+
+use alloc::sync::Arc;
+use vello_common::pixmap::Pixmap;
+use wgpu::{CommandEncoder, Device, Extent3d, Queue, Texture};
+
 /// Trait for types that can write image data directly to the atlas texture.
 ///
 /// This allows efficient uploading from different sources:
@@ -141,4 +150,3 @@ impl AtlasWriter for Arc<Pixmap> {
             .write_to_atlas(device, queue, encoder, atlas_texture, offset, width, height);
     }
 }
-

@@ -1,4 +1,17 @@
-    fn create_copy_bind_group(
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The copy pass.
+
+use crate::copy::GpuCopyInstance;
+use crate::render::wgpu::passes::Programs;
+use wgpu::{
+    BindGroup, BindGroupLayout, CommandEncoder, Device, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipeline, TextureView, util::DeviceExt,
+};
+
+impl Programs {
+    pub(crate) fn create_copy_bind_group(
         device: &Device,
         layout: &BindGroupLayout,
         source_texture_view: &TextureView,
@@ -12,8 +25,9 @@
             }],
         })
     }
+}
 
-fn encode_copy_pass(
+pub(crate) fn encode_copy_pass(
     device: &Device,
     encoder: &mut CommandEncoder,
     copy_pipeline: &RenderPipeline,
@@ -48,4 +62,3 @@ fn encode_copy_pass(
     render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
     render_pass.draw(0..4, 0..u32::try_from(instances.len()).unwrap());
 }
-

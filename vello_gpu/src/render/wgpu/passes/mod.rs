@@ -1,6 +1,53 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Pipeline creation and execution of the scheduled render passes.
+
+pub(crate) mod blend;
+pub(crate) mod clear;
+pub(crate) mod copy;
+pub(crate) mod filter;
+pub(crate) mod strip;
+
+use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
+use crate::render::wgpu::RenderTargetConfig;
+use crate::render::wgpu::bindings::TextureBindings;
+use crate::render::wgpu::passes::clear::clear_color;
+use crate::render::wgpu::passes::filter::{
+    FilterPairBindGroups, create_filter_original_texture_bind_group,
+};
+use crate::render::wgpu::passes::strip::StripTargetKind;
+use crate::render::wgpu::resources::{GpuResources, StripBufferArena, UploadStagingBelt};
+use crate::util::RangedSlice;
+use crate::{
+    ClearSettings, GpuStrip, LayersConfig, RenderSize, TargetInit,
+    blend::{BlendStrip, GpuBlendInstance},
+    copy::GpuCopyInstance,
+    filter::{FilterInstanceData, FilterPassPlan},
+    paint::ExternalSampler,
+    render::common::{GpuClearInstance, ScratchBuffers},
+    schedule::{Backend, round::BlendOp},
+    target::{
+        BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
+        RootTarget,
+    },
+};
+use alloc::vec;
+use alloc::vec::Vec;
+use core::fmt::Debug;
+use hashbrown::HashMap;
+use vello_common::color::AlphaColor;
+use vello_common::geometry::{RectU16, SizeU16};
+use vello_common::image_cache::ImageCache;
+use vello_common::multi_atlas::AtlasConfig;
+use wgpu::{
+    BindGroup, BindGroupLayout, BlendState, ColorTargetState, ColorWrites, CommandEncoder, Device,
+    PipelineCompilationOptions, RenderPipeline, Sampler, TextureView, TextureViewDescriptor,
+};
+
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
-struct Programs {
+pub(crate) struct Programs {
     /// Intermediate strip pipeline.
     intermediate_strip_pipeline: RenderPipeline,
     /// Root alpha-strip pipeline.
@@ -10,19 +57,19 @@ struct Programs {
     /// Root opaque-strip pipeline.
     opaque_strip_pipeline: RenderPipeline,
     /// Whether the depth buffer has been cleared this frame.
-    depth_cleared_this_frame: bool,
+    pub(crate) depth_cleared_this_frame: bool,
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
     /// Bind group layout for encoded paints
-    encoded_paints_bind_group_layout: BindGroupLayout,
+    pub(crate) encoded_paints_bind_group_layout: BindGroupLayout,
     /// Bind group layout for gradient texture
-    gradient_bind_group_layout: BindGroupLayout,
+    pub(crate) gradient_bind_group_layout: BindGroupLayout,
     /// Bind group layout for external textures.
     external_texture_bind_group_layout: BindGroupLayout,
     /// Bind group layout for filter data texture.
     filter_bind_group_layout: BindGroupLayout,
     /// Filter input layouts.
-    filter_input_bind_group_layouts: [BindGroupLayout; 2],
+    pub(crate) filter_input_bind_group_layouts: [BindGroupLayout; 2],
     /// Filter sampler.
     filter_sampler: Sampler,
     /// Native image samplers shared by external texture slots.
@@ -30,13 +77,14 @@ struct Programs {
     /// Blend bind group layout.
     blend_layer_bind_group_layout: BindGroupLayout,
     /// Copy bind group layout.
-    copy_bind_group_layout: BindGroupLayout,
+    pub(crate) copy_bind_group_layout: BindGroupLayout,
     /// Strip bind group cache.
-    strip_layer_bind_groups: HashMap<(StripTargetKind, Option<LayerTextureId>), BindGroup>,
+    pub(crate) strip_layer_bind_groups:
+        HashMap<(StripTargetKind, Option<LayerTextureId>), BindGroup>,
     /// Blend bind group cache.
-    blend_layer_bind_groups: HashMap<BlendPassBindings, BindGroup>,
+    pub(crate) blend_layer_bind_groups: HashMap<BlendPassBindings, BindGroup>,
     /// Filter bind group cache.
-    filter_pair_bind_groups: HashMap<FilterPassBindings, FilterPairBindGroups>,
+    pub(crate) filter_pair_bind_groups: HashMap<FilterPassBindings, FilterPairBindGroups>,
     /// Pipeline for applying filter effects.
     filter_pipeline: RenderPipeline,
     /// Layer-clear pipeline.
@@ -44,31 +92,31 @@ struct Programs {
     /// User-target rectangle-clear pipeline.
     root_clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
-    atlas_clear_pipeline: RenderPipeline,
+    pub(crate) atlas_clear_pipeline: RenderPipeline,
     /// Blend pipeline.
     blend_pipeline: RenderPipeline,
     /// Copy pipeline.
     copy_pipeline: RenderPipeline,
     /// GPU resources for rendering (created during prepare)
-    resources: GpuResources,
+    pub(crate) resources: GpuResources,
     /// Arena holding all [`GpuStrip`] data.
-    strips_arena: StripBufferArena,
+    pub(crate) strips_arena: StripBufferArena,
     /// Whether the external texture bind group has a `texture_external` binding.
     wgpu_external_textures: bool,
     /// Shared staging memory for buffer and texture uploads.
-    staging_belt: UploadStagingBelt,
+    pub(crate) staging_belt: UploadStagingBelt,
     /// Dimensions of the rendering target
-    render_size: RenderSize,
+    pub(crate) render_size: RenderSize,
     /// Offset of the scene within the rendering target.
-    scene_offset: (i32, i32),
+    pub(crate) scene_offset: (i32, i32),
     /// Scratch buffer for staging encoded paints texture data.
-    encoded_paints_data: Vec<u8>,
+    pub(crate) encoded_paints_data: Vec<u8>,
     /// Scratch buffer for staging filter data texture data.
     filter_data: Vec<u8>,
 }
 
 impl Programs {
-    fn new(
+    pub(crate) fn new(
         device: &Device,
         image_cache: &ImageCache,
         render_target_config: &RenderTargetConfig,
@@ -799,25 +847,24 @@ impl Programs {
             filter_pair_bind_groups: HashMap::new(),
         }
     }
-
 }
 
 /// A struct containing references to the many objects needed to get work
 /// scheduled onto the GPU.
-struct RendererContext<'a> {
-    programs: &'a mut Programs,
-    device: &'a Device,
-    encoder: &'a mut CommandEncoder,
-    view: &'a TextureView,
-    depth_view: Option<&'a TextureView>,
-    texture_bindings: &'a TextureBindings,
-    external_texture_bind_groups: HashMap<ExternalTextureBindings, BindGroup>,
-    scratch_buffers: &'a mut ScratchBuffers,
-    root_load_op: wgpu::LoadOp<wgpu::Color>,
+pub(crate) struct RendererContext<'a> {
+    pub(crate) programs: &'a mut Programs,
+    pub(crate) device: &'a Device,
+    pub(crate) encoder: &'a mut CommandEncoder,
+    pub(crate) view: &'a TextureView,
+    pub(crate) depth_view: Option<&'a TextureView>,
+    pub(crate) texture_bindings: &'a TextureBindings,
+    pub(crate) external_texture_bind_groups: HashMap<ExternalTextureBindings, BindGroup>,
+    pub(crate) scratch_buffers: &'a mut ScratchBuffers,
+    pub(crate) root_load_op: wgpu::LoadOp<wgpu::Color>,
 }
 
 impl RendererContext<'_> {
-    fn init_root_clear(&mut self, target_init: TargetInit<'_>, root_target: RootTarget) {
+    pub(crate) fn init_root_clear(&mut self, target_init: TargetInit<'_>, root_target: RootTarget) {
         self.root_load_op = match target_init {
             TargetInit::SrcOver => wgpu::LoadOp::Load,
             TargetInit::Clear(ClearSettings::Viewport { color }) => {
@@ -831,7 +878,7 @@ impl RendererContext<'_> {
         };
     }
 
-    fn finish_root_clear(&mut self) {
+    pub(crate) fn finish_root_clear(&mut self) {
         // If the load mode was set to clear but no actual drawing instructions were
         // emitted, we still need to start a pass to clear the output.
         if let wgpu::LoadOp::Clear(color) = self.take_root_load_op() {
@@ -846,7 +893,6 @@ impl RendererContext<'_> {
     fn texture_size(&self) -> SizeU16 {
         self.programs.resources.texture_size
     }
-
 }
 
 impl Backend for RendererContext<'_> {
@@ -918,4 +964,3 @@ impl Backend for RendererContext<'_> {
         Ok(())
     }
 }
-

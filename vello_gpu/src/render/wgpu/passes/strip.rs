@@ -1,5 +1,27 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The strip pass.
+
+use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
+use crate::render::wgpu::bindings::TextureBinding;
+use crate::render::wgpu::passes::{Programs, RendererContext};
+use crate::util::RangedSlice;
+use crate::{
+    GpuStrip,
+    paint::{ExternalSampler, TextureSourceId},
+    target::{DrawPassTarget, LayerTextureId, RootTarget},
+};
+use alloc::vec;
+use core::{fmt::Debug, num::NonZeroU64, ops::Range};
+use hashbrown::hash_map::Entry;
+use wgpu::{
+    BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, RenderPassColorAttachment,
+    RenderPassDescriptor, Sampler, TextureView, TextureViewDescriptor,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum StripTargetKind {
+pub(crate) enum StripTargetKind {
     Root,
     Layer,
 }
@@ -18,9 +40,10 @@ impl GpuStrip {
     }
 }
 
+impl Programs {
     /// `wgpu_external_texture` must be `Some` exactly if the layout has a `texture_external`
     /// binding.
-    fn create_external_texture_bind_group(
+    pub(crate) fn create_external_texture_bind_group(
         device: &Device,
         external_texture_bind_group_layout: &BindGroupLayout,
         texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
@@ -142,6 +165,8 @@ impl GpuStrip {
 
         offset..offset + total_len
     }
+}
+impl RendererContext<'_> {
     fn external_texture_bind_group_for_textures(
         &mut self,
         bindings: ExternalTextureBindings,
@@ -185,7 +210,7 @@ impl GpuStrip {
     }
 
     /// Render the strips to the specified render target.
-    fn strip_pass_inner(
+    pub(crate) fn strip_pass_inner(
         &mut self,
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
@@ -362,4 +387,4 @@ impl GpuStrip {
             draw_strip_runs(&mut render_pass, opaque_count, alpha_count);
         }
     }
-
+}

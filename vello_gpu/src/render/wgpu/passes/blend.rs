@@ -1,3 +1,23 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The blend pass.
+
+use crate::render::wgpu::passes::copy::encode_copy_pass;
+use crate::render::wgpu::passes::{Programs, RendererContext};
+use crate::util::RangedSlice;
+use crate::{
+    blend::{BlendStrip, GpuBlendInstance},
+    schedule::round::BlendOp,
+    target::{BlendPassBindings, TextureParity},
+};
+use hashbrown::hash_map::Entry;
+use wgpu::{
+    BindGroup, BindGroupLayout, Device, RenderPassColorAttachment, RenderPassDescriptor,
+    TextureView, TextureViewDescriptor, util::DeviceExt,
+};
+
+impl Programs {
     fn create_blend_layer_bind_group(
         device: &Device,
         layout: &BindGroupLayout,
@@ -23,8 +43,10 @@
             ],
         })
     }
+}
 
-    fn blend_pass_inner(
+impl RendererContext<'_> {
+    pub(crate) fn blend_pass_inner(
         &mut self,
         blends: RangedSlice<'_, BlendOp>,
         blend_strips: &[BlendStrip],
@@ -118,4 +140,4 @@
             "Copy Blend Scratch To Layer",
         );
     }
-
+}

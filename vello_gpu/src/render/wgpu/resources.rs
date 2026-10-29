@@ -1,19 +1,47 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Creation and growth of the renderer's GPU resources.
+
+use crate::render::wgpu::passes::Programs;
+use crate::render::wgpu::passes::filter::create_filter_original_texture_bind_group;
+use crate::{
+    RenderSize,
+    filter::FilterContext,
+    gradient_cache::GradientRampCache,
+    paint::{ExternalSampler, SamplerAddress, SamplerFilter},
+    render::{
+        Config,
+        common::{GpuEncodedPaint, ScratchTexture},
+    },
+    schedule::Schedule,
+    target::LayerTextureId,
+};
+use alloc::vec::Vec;
+use core::{fmt::Debug, num::NonZeroU64};
+use vello_common::{geometry::SizeU16, tile::Tile};
+use wgpu::{
+    BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferViewMut, COPY_BUFFER_ALIGNMENT,
+    CommandEncoder, Device, Extent3d, Sampler, Texture, TextureView, TextureViewDescriptor,
+    util::{DeviceExt, StagingBelt},
+};
+
 #[derive(Debug)]
-struct StripBufferArena {
-    buffer: Buffer,
+pub(crate) struct StripBufferArena {
+    pub(crate) buffer: Buffer,
     capacity: u64,
     cursor: u64,
 }
 
 #[derive(Debug)]
-struct UploadStagingBelt {
-    belt: StagingBelt,
+pub(crate) struct UploadStagingBelt {
+    pub(crate) belt: StagingBelt,
     capacity: u64,
     frame_allocated: u64,
 }
 
 impl UploadStagingBelt {
-    fn new(device: &Device) -> Self {
+    pub(crate) fn new(device: &Device) -> Self {
         Self {
             belt: StagingBelt::new(device.clone(), COPY_BUFFER_ALIGNMENT),
             capacity: COPY_BUFFER_ALIGNMENT,
@@ -30,7 +58,7 @@ impl UploadStagingBelt {
         self.frame_allocated = 0;
     }
 
-    fn write_buffer(
+    pub(crate) fn write_buffer(
         &mut self,
         encoder: &mut CommandEncoder,
         target: &Buffer,
@@ -41,7 +69,7 @@ impl UploadStagingBelt {
         self.belt.write_buffer(encoder, target, offset, size)
     }
 
-    fn upload_texture(
+    pub(crate) fn upload_texture(
         &mut self,
         encoder: &mut CommandEncoder,
         texture: &Texture,
@@ -88,7 +116,7 @@ impl UploadStagingBelt {
     }
 }
 
-fn create_arena_buffer(device: &Device, size: u64) -> Buffer {
+pub(crate) fn create_arena_buffer(device: &Device, size: u64) -> Buffer {
     device.create_buffer(&BufferDescriptor {
         label: Some("Strips Arena"),
         size,
@@ -98,7 +126,7 @@ fn create_arena_buffer(device: &Device, size: u64) -> Buffer {
 }
 
 impl StripBufferArena {
-    fn new(device: &Device) -> Self {
+    pub(crate) fn new(device: &Device) -> Self {
         Self {
             buffer: create_arena_buffer(device, 0),
             capacity: 0,
@@ -106,7 +134,7 @@ impl StripBufferArena {
         }
     }
 
-    fn begin_frame(&mut self, device: &Device, frame_size: u64) {
+    pub(crate) fn begin_frame(&mut self, device: &Device, frame_size: u64) {
         self.cursor = 0;
         if frame_size > self.capacity {
             let new_capacity = frame_size
@@ -117,7 +145,7 @@ impl StripBufferArena {
         }
     }
 
-    fn alloc(&mut self, len: u64) -> u64 {
+    pub(crate) fn alloc(&mut self, len: u64) -> u64 {
         let offset = self.cursor.next_multiple_of(COPY_BUFFER_ALIGNMENT);
         self.cursor = offset + len;
         offset
@@ -126,68 +154,69 @@ impl StripBufferArena {
 
 /// Contains all GPU resources needed for rendering
 #[derive(Debug)]
-struct GpuResources {
+pub(crate) struct GpuResources {
     /// Alpha texture.
-    alphas_texture: Texture,
+    pub(crate) alphas_texture: Texture,
     /// Maximum width or height of packed resource textures.
-    resource_texture_dimension_2d: u32,
+    pub(crate) resource_texture_dimension_2d: u32,
     /// One 2D texture per image atlas.
-    atlas_textures: Vec<Texture>,
+    pub(crate) atlas_textures: Vec<Texture>,
     /// Default view corresponding to each image atlas texture.
-    atlas_texture_views: Vec<TextureView>,
+    pub(crate) atlas_texture_views: Vec<TextureView>,
     /// Configured atlas dimensions.
-    atlas_size: (u16, u16),
+    pub(crate) atlas_size: (u16, u16),
     /// Transparent 1x1 placeholder used for unoccupied external texture slots.
-    placeholder_external_texture_view: TextureView,
+    pub(crate) placeholder_external_texture_view: TextureView,
     /// Bind group used when a draw does not sample an external texture.
-    empty_external_texture_bind_group: BindGroup,
+    pub(crate) empty_external_texture_bind_group: BindGroup,
     /// Texture for encoded paints
-    encoded_paints_texture: Texture,
+    pub(crate) encoded_paints_texture: Texture,
     /// Bind group for encoded paints
-    encoded_paints_bind_group: BindGroup,
+    pub(crate) encoded_paints_bind_group: BindGroup,
     /// Texture for gradient lookup table
-    gradient_texture: Texture,
+    pub(crate) gradient_texture: Texture,
     /// Bind group for gradient texture
-    gradient_bind_group: BindGroup,
+    pub(crate) gradient_bind_group: BindGroup,
     /// Texture holding serialized `GpuFilterData` for all filter layers.
-    filter_data_texture: Texture,
+    pub(crate) filter_data_texture: Texture,
     /// Bind group for the filter data texture.
-    filter_base_bind_group: BindGroup,
+    pub(crate) filter_base_bind_group: BindGroup,
     /// Intermediate texture size.
-    texture_size: SizeU16,
+    pub(crate) texture_size: SizeU16,
     /// Root config buffer.
-    view_config_buffer: Buffer,
+    pub(crate) view_config_buffer: Buffer,
     /// Layer config buffer.
-    layer_config_buffer: Buffer,
+    pub(crate) layer_config_buffer: Buffer,
 
     /// Layer textures by parity.
-    layer_textures: [Vec<TextureView>; 2],
+    pub(crate) layer_textures: [Vec<TextureView>; 2],
     /// Scratch texture.
-    scratch_texture: Option<ScratchTexture<TextureView>>,
+    pub(crate) scratch_texture: Option<ScratchTexture<TextureView>>,
     /// Filter bind group.
-    filter_original_bind_group: BindGroup,
+    pub(crate) filter_original_bind_group: BindGroup,
     /// Copy bind group.
-    scratch_copy_bind_group: BindGroup,
+    pub(crate) scratch_copy_bind_group: BindGroup,
 }
 
 impl GpuResources {
-    fn layer_views(&self, layer_ids: [LayerTextureId; 2]) -> [&TextureView; 2] {
+    pub(crate) fn layer_views(&self, layer_ids: [LayerTextureId; 2]) -> [&TextureView; 2] {
         layer_ids.map(|id| self.layer_view(id))
     }
 
-    fn layer_view(&self, id: LayerTextureId) -> &TextureView {
+    pub(crate) fn layer_view(&self, id: LayerTextureId) -> &TextureView {
         self.layer_textures[id.texture_parity.get_parity()]
             .get(usize::from(id.page_index))
             .unwrap()
     }
 
-    fn scratch_view(&self) -> &TextureView {
+    pub(crate) fn scratch_view(&self) -> &TextureView {
         self.scratch_texture.as_ref().unwrap().get()
     }
 }
 
-const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
+pub(crate) const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
 
+impl Programs {
     fn create_intermediate_texture(
         device: &Device,
         size: SizeU16,
@@ -211,7 +240,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
         texture.create_view(&TextureViewDescriptor::default())
     }
 
-    fn prepare_intermediate_textures(&mut self, device: &Device, schedule: &Schedule) {
+    pub(crate) fn prepare_intermediate_textures(&mut self, device: &Device, schedule: &Schedule) {
         let requirements = schedule.intermediate_texture_requirements();
         let texture_size = requirements.size;
         let current_size = self.resources.texture_size;
@@ -290,7 +319,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
         self.resources.scratch_copy_bind_group = scratch_copy_bind_group;
     }
 
-    fn create_config_buffer(
+    pub(crate) fn create_config_buffer(
         device: &Device,
         width: u32,
         height: u32,
@@ -312,7 +341,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
         })
     }
 
-    fn create_alphas_texture(device: &Device, width: u32, height: u32) -> Texture {
+    pub(crate) fn create_alphas_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Alpha Texture"),
             size: Extent3d {
@@ -329,7 +358,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
         })
     }
 
-    fn create_atlas_texture(device: &Device, width: u16, height: u16) -> Texture {
+    pub(crate) fn create_atlas_texture(device: &Device, width: u16, height: u16) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture"),
             size: Extent3d {
@@ -351,7 +380,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
 
     /// 1×1 placeholder bound to the external-texture slot when no real external texture is in
     /// use. `Rgba8Unorm` is accepted by both the `Texture` and `ExternalTexture` binding types.
-    fn create_placeholder_external_texture(device: &Device) -> TextureView {
+    pub(crate) fn create_placeholder_external_texture(device: &Device) -> TextureView {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Placeholder External Texture"),
             size: Extent3d {
@@ -369,7 +398,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
         texture.create_view(&TextureViewDescriptor::default())
     }
 
-    fn create_external_sampler(device: &Device, key: ExternalSampler) -> Sampler {
+    pub(crate) fn create_external_sampler(device: &Device, key: ExternalSampler) -> Sampler {
         let address_mode = |address| match address {
             SamplerAddress::Pad => wgpu::AddressMode::ClampToEdge,
             SamplerAddress::Repeat => wgpu::AddressMode::Repeat,
@@ -389,7 +418,11 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
         })
     }
 
-    fn create_encoded_paints_texture(device: &Device, width: u32, height: u32) -> Texture {
+    pub(crate) fn create_encoded_paints_texture(
+        device: &Device,
+        width: u32,
+        height: u32,
+    ) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Encoded Paints Texture"),
             size: Extent3d {
@@ -406,7 +439,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
         })
     }
 
-    fn create_encoded_paints_bind_group(
+    pub(crate) fn create_encoded_paints_bind_group(
         device: &Device,
         encoded_paints_bind_group_layout: &BindGroupLayout,
         encoded_paints_texture_view: &TextureView,
@@ -421,7 +454,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
         })
     }
 
-    fn create_gradient_texture(device: &Device, width: u32, height: u32) -> Texture {
+    pub(crate) fn create_gradient_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Gradient Texture"),
             size: Extent3d {
@@ -438,7 +471,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
         })
     }
 
-    fn create_gradient_bind_group(
+    pub(crate) fn create_gradient_bind_group(
         device: &Device,
         gradient_bind_group_layout: &BindGroupLayout,
         gradient_texture_view: &TextureView,
@@ -457,7 +490,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
     ///
     /// Specifically, updates the alpha texture with `alphas` and the config buffer when
     /// the rendering size changes.
-    fn prepare(
+    pub(crate) fn prepare(
         &mut self,
         device: &Device,
         encoder: &mut CommandEncoder,
@@ -641,7 +674,7 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
     }
 
     /// Create any newly allocated atlas textures.
-    fn maybe_create_atlas_textures(
+    pub(crate) fn maybe_create_atlas_textures(
         device: &Device,
         resources: &mut GpuResources,
         required_atlas_count: u32,
@@ -703,4 +736,4 @@ const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).u
             4,
         );
     }
-
+}

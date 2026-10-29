@@ -1,10 +1,30 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The filter pass.
+
+use crate::render::wgpu::passes::copy::encode_copy_pass;
+use crate::render::wgpu::passes::{Programs, RendererContext};
+use crate::render::wgpu::resources::GpuResources;
+use crate::{
+    filter::{FilterContext, FilterInstanceData, FilterPassPlan},
+    target::{FilterPassBindings, LayerTextureId, TextureParity},
+};
+use core::fmt::Debug;
+use wgpu::{
+    BindGroup, BindGroupLayout, CommandEncoder, Device, Extent3d, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipeline, Sampler, Texture, TextureView, TextureViewDescriptor,
+    util::DeviceExt,
+};
+
 #[derive(Debug)]
-struct FilterPairBindGroups {
+pub(crate) struct FilterPairBindGroups {
     inputs: [BindGroup; 2],
     copy_source: BindGroup,
 }
 
-    fn create_filter_data_texture(device: &Device, width: u32, height: u32) -> Texture {
+impl Programs {
+    pub(crate) fn create_filter_data_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Filter Data Texture"),
             size: Extent3d {
@@ -21,7 +41,7 @@ struct FilterPairBindGroups {
         })
     }
 
-    fn create_filter_base_bind_group(
+    pub(crate) fn create_filter_base_bind_group(
         device: &Device,
         filter_bind_group_layout: &BindGroupLayout,
         filter_texture_view: &TextureView,
@@ -36,7 +56,7 @@ struct FilterPairBindGroups {
         })
     }
 
-    fn maybe_resize_filter_tex(
+    pub(crate) fn maybe_resize_filter_tex(
         &mut self,
         device: &Device,
         resource_texture_dimension_2d: u32,
@@ -74,7 +94,7 @@ struct FilterPairBindGroups {
         }
     }
 
-    fn upload_filter_texture(
+    pub(crate) fn upload_filter_texture(
         &mut self,
         encoder: &mut CommandEncoder,
         filter_context: &FilterContext,
@@ -90,8 +110,14 @@ struct FilterPairBindGroups {
 
         self.staging_belt.upload_texture(encoder, texture, data, 16);
     }
+}
 
-    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings) {
+impl RendererContext<'_> {
+    pub(crate) fn filter_pass_inner(
+        &mut self,
+        plan: &FilterPassPlan,
+        bindings: FilterPassBindings,
+    ) {
         let resources = &self.programs.resources;
         if !self
             .programs
@@ -155,8 +181,9 @@ struct FilterPairBindGroups {
             );
         }
     }
+}
 
-fn encode_filter_pass(
+pub(crate) fn encode_filter_pass(
     device: &Device,
     encoder: &mut CommandEncoder,
     resources: &GpuResources,
@@ -198,7 +225,7 @@ fn encode_filter_pass(
     render_pass.draw(0..4, 0..instance_count);
 }
 
-fn create_filter_input_bind_group(
+pub(crate) fn create_filter_input_bind_group(
     device: &Device,
     layout: &BindGroupLayout,
     sampler: &Sampler,
@@ -220,7 +247,7 @@ fn create_filter_input_bind_group(
     })
 }
 
-fn create_filter_original_texture_bind_group(
+pub(crate) fn create_filter_original_texture_bind_group(
     device: &Device,
     layout: &BindGroupLayout,
     layer_texture_view: &TextureView,
@@ -234,4 +261,3 @@ fn create_filter_original_texture_bind_group(
         }],
     })
 }
-

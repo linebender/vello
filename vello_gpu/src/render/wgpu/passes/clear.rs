@@ -1,4 +1,22 @@
-    fn clear_full_target(encoder: &mut CommandEncoder, view: &TextureView, color: wgpu::Color) {
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The clear pass.
+
+use crate::render::wgpu::passes::RendererContext;
+use crate::{ClearSettings, render::common::GpuClearInstance, target::DrawPassTarget};
+use vello_common::color::{AlphaColor, Srgb};
+use vello_common::geometry::RectU16;
+use wgpu::{
+    CommandEncoder, RenderPassColorAttachment, RenderPassDescriptor, TextureView, util::DeviceExt,
+};
+
+impl RendererContext<'_> {
+    pub(crate) fn clear_full_target(
+        encoder: &mut CommandEncoder,
+        view: &TextureView,
+        color: wgpu::Color,
+    ) {
         encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear Target"),
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -17,7 +35,7 @@
         });
     }
 
-    fn clear_pass_inner(&mut self, target: DrawPassTarget, settings: ClearSettings<'_>) {
+    pub(crate) fn clear_pass_inner(&mut self, target: DrawPassTarget, settings: ClearSettings<'_>) {
         let color = settings.clear_color();
 
         let view = match target {
@@ -100,7 +118,8 @@
             0..u32::try_from(self.scratch_buffers.clear_instances.len()).unwrap(),
         );
     }
-fn clear_color(color: AlphaColor<Srgb>) -> wgpu::Color {
+}
+pub(crate) fn clear_color(color: AlphaColor<Srgb>) -> wgpu::Color {
     let [r, g, b, a] = color.premultiply().components;
     wgpu::Color {
         r: f64::from(r),

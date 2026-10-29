@@ -9,60 +9,36 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+mod atlas;
+mod bindings;
+mod passes;
 #[cfg(feature = "probe")]
 mod probe;
+mod resources;
 
+pub use atlas::AtlasWriter;
+pub use bindings::{TextureBinding, TextureBindings};
 #[cfg(feature = "probe")]
 pub use probe::{WgpuPendingProbe, WgpuProbeError, WgpuProbeStatus};
 
-use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
-use crate::render::common::IMAGE_PADDING;
-#[cfg(feature = "wgpu_external_texture")]
-use crate::render::common::encode_wgpu_external_texture_paint;
-use crate::render::common::{SharedCore, encode_external_texture_paint};
-use crate::util::RangedSlice;
+use crate::render::common::{IMAGE_PADDING, SharedCore};
 use crate::{
-    ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
-    TargetInit,
-    blend::{BlendStrip, GpuBlendInstance},
-    copy::GpuCopyInstance,
-    filter::{FilterContext, FilterInstanceData, FilterPassPlan},
-    gradient_cache::GradientRampCache,
-    paint::{ExternalSampler, SamplerAddress, SamplerFilter, TextureSourceId},
-    render::{
-        Config,
-        common::{DeviceLimits, GpuClearInstance, GpuEncodedPaint, ScratchBuffers, ScratchTexture},
-    },
-    scene::Scene,
-    schedule::{Backend, IntermediateTextureAllocations, Schedule, round::BlendOp},
-    target::{
-        BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
-        RootTarget, TextureParity,
-    },
+    ClearSettings, GpuStrip, RenderError, RenderSettings, RenderSize, Resources, TargetInit,
+    render::common::DeviceLimits, scene::Scene, schedule::IntermediateTextureAllocations,
+    target::RootTarget,
 };
 use alloc::vec::Vec;
-use alloc::{sync::Arc, vec};
-use core::{fmt::Debug, num::NonZeroU64, ops::Range};
+use core::fmt::Debug;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
-use hashbrown::{HashMap, hash_map::Entry};
-use vello_common::color::{AlphaColor, Srgb};
-use vello_common::encode::EncodedImage;
+use hashbrown::HashMap;
+use passes::{Programs, RendererContext};
+use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
-use vello_common::{
-    TextureId,
-    geometry::{RectU16, SizeU16},
-    paint::TextureRegion,
-    pixmap::Pixmap,
-    tile::Tile,
-};
 use wgpu::{
-    BindGroup, BindGroupLayout, BlendState, Buffer, BufferDescriptor, BufferViewMut,
-    COPY_BUFFER_ALIGNMENT, ColorTargetState, ColorWrites, CommandEncoder, Device, Extent3d,
-    PipelineCompilationOptions, Queue, RenderPassColorAttachment, RenderPassDescriptor,
-    RenderPipeline, Sampler, Texture, TextureView, TextureViewDescriptor,
-    util::{DeviceExt, StagingBelt},
+    CommandEncoder, Device, Extent3d, Queue, RenderPassColorAttachment, RenderPassDescriptor,
+    Texture, TextureView, TextureViewDescriptor,
 };
 
 /// Options for the renderer
@@ -237,6 +213,8 @@ impl Renderer {
     ///
     /// The commands are recorded into `encoder`, which must be submitted to the renderer's queue.
     /// If this is not done, subsequent calls to `render` might produce invalid rendering.
+    ///
+    /// [`TextureId`]: vello_common::TextureId
     pub fn render(
         &mut self,
         scene: &Scene,
@@ -656,4 +634,3 @@ fn clear_atlas_region(renderer: &mut Renderer, rect: &PendingClearRect) {
         },
     );
 }
-
