@@ -37,6 +37,7 @@ pub use error::{
 
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
+use crate::render::common::{Core, encode_external_texture_paint};
 use crate::util::RangedSlice;
 use crate::{
     ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
@@ -45,20 +46,13 @@ use crate::{
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
     gradient_cache::GradientRampCache,
-    paint::{ExternalSampler, PaintResolver, SamplerAddress, SamplerFilter, TextureSourceId},
+    paint::{ExternalSampler, SamplerAddress, SamplerFilter, TextureSourceId},
     render::{
         Config,
-        common::{
-            DeviceLimits, GpuBlurredRoundedRect, GpuEncodedImage, GpuEncodedPaint,
-            GpuLinearGradient, GpuSweepGradient, ScratchBuffers, ScratchTexture,
-            encode_native_image_paint, encode_radial_gradient, pack_image_offset,
-            pack_image_params, pack_image_size, pack_texture_width_and_extend_mode, pack_tint,
-        },
+        common::{DeviceLimits, GpuEncodedPaint, ScratchBuffers, ScratchTexture},
     },
     scene::Scene,
-    schedule::{
-        Backend, IntermediateTextureAllocations, Schedule, ScheduleStorage, round::BlendOp,
-    },
+    schedule::{Backend, IntermediateTextureAllocations, Schedule, round::BlendOp},
     target::{
         BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
         RootTarget, TextureParity,
@@ -78,17 +72,12 @@ use resource::{
     WebGlFragmentShader, WebGlVertexShader,
 };
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::image_cache::{ImageCache, ImageResource};
+use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
     TextureId,
-    encode::{
-        EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
-        MAX_GRADIENT_LUT_SIZE,
-    },
     geometry::{RectU16, SizeU16},
-    paint::{ImageId, ImageSource, TextureRegion},
-    peniko::{self},
+    paint::{ImageId, TextureRegion},
     pixmap::Pixmap,
     tile::Tile,
 };
@@ -105,13 +94,6 @@ extern "C" {
     #[wasm_bindgen(js_namespace = performance, js_name = now)]
     fn performance_now() -> f64;
 }
-
-/// Placeholder value for uninitialized GPU encoded paints.
-const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
-    texture_width_and_extend_mode: 0,
-    gradient_start: 0,
-    transform: [0.0; 6],
-});
 
 /// First texture unit from which the strip program samples external textures.
 const EXTERNAL_TEXTURE_UNIT_START: u32 = 4;
@@ -130,7 +112,7 @@ fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> Result<u32, WebG
 
 /// Result of polling WebGL renderer initialization.
 #[derive(Debug)]
-#[expect(
+#[allow(
     clippy::large_enum_variant,
     reason = "both variants are one-shot ownership transfers; boxing would add unnecessary allocation"
 )]
@@ -158,16 +140,8 @@ pub struct WebGlRenderer {
     pub(super) programs: WebGlPrograms,
     /// WebGL context.
     pub(crate) gl: WebGl2RenderingContext,
-    /// Encoded paints for storing encoded paints.
-    encoded_paints: Vec<GpuEncodedPaint>,
-    /// Stores the index (offset) of the encoded paints in the encoded paints texture.
-    paint_idxs: Vec<u32>,
-    /// Gradient cache for storing gradient ramps.
-    gradient_cache: GradientRampCache,
-    dummy_image_cache: Option<ImageCache>,
-    schedule_storage: ScheduleStorage,
-    scratch_buffers: ScratchBuffers,
-    layers_config: LayersConfig,
+    /// Backend-independent renderer state.
+    core: Core,
 }
 
 /// WebGL renderer initialization that may still be compiling shader programs.
@@ -182,8 +156,7 @@ pub struct WebGlRendererInit {
     shaders: WebGlShaders,
     resources: WebGlResources,
     encoded_paints_data: Vec<u8>,
-    gradient_cache: GradientRampCache,
-    layers_config: LayersConfig,
+    core: Core,
 }
 
 /// Vello's WebGL shader programs, whose compilation and linking may still be in progress.
@@ -271,6 +244,28 @@ impl WebGlTextureBindings {
                 height,
             },
         );
+    }
+
+    /// Encodes an image paint that samples the binding of `texture_id`.
+    fn encode_paint(
+        &self,
+        texture_id: TextureId,
+        image: &vello_common::encode::EncodedImage,
+        source_region: TextureRegion,
+        render_target: Option<&WebGlTexture>,
+    ) -> Result<GpuEncodedPaint, RenderError> {
+        let binding = self
+            .get(texture_id)
+            .ok_or(RenderError::MissingTextureBinding(texture_id))?;
+        if render_target.is_some_and(|target| *target == binding.texture) {
+            return Err(RenderError::TextureFeedbackLoop(texture_id));
+        }
+        Ok(encode_external_texture_paint(
+            image,
+            source_region,
+            binding.width,
+            binding.height,
+        ))
     }
 
     /// Get a texture binding.
@@ -504,21 +499,13 @@ impl WebGlRenderer {
             max_texture_dimension_2d: u16::try_from(get_max_texture_dimension_2d(gl)?)
                 .unwrap_or(u16::MAX),
         };
-        settings.memory_settings.normalize(&device_limits);
-        let resources = Resources::new(settings.memory_settings.image_atlas_config);
+        let (core, resources) = Core::new(&mut settings, &device_limits);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
-
-        // Estimate the maximum number of gradient cache entries based on the resource texture
-        // dimension and the maximum gradient LUT size - worst case scenario.
-        let max_gradient_cache_size = resource_texture_dimension_2d * resource_texture_dimension_2d
-            / MAX_GRADIENT_LUT_SIZE as u32;
-        let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
-        let layers_config = settings.memory_settings.layers_config;
 
         let webgl_resources = create_webgl_resources(
             gl,
             &resources.image_cache,
-            layers_config,
+            core.layers_config,
             resource_texture_dimension_2d,
             shaders.use_depth_buffer,
         )?;
@@ -532,8 +519,7 @@ impl WebGlRenderer {
             shaders,
             resources: webgl_resources,
             encoded_paints_data,
-            gradient_cache,
-            layers_config,
+            core,
         };
 
         Ok((init, resources))
@@ -820,6 +806,7 @@ impl WebGlRenderer {
         let target = self.programs.resources.atlas_targets[atlas_id.as_u32() as usize].clone();
         // TODO: Explore using an option instead of a dummy image cache.
         let dummy_image_cache = self
+            .core
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
@@ -835,7 +822,7 @@ impl WebGlRenderer {
                 (0, 0),
             )
         });
-        self.dummy_image_cache = Some(dummy_image_cache);
+        self.core.dummy_image_cache = Some(dummy_image_cache);
 
         result
     }
@@ -880,37 +867,16 @@ impl WebGlRenderer {
         render_target_texture: Option<&WebGlTexture>,
         scene_offset: (i32, i32),
     ) -> Result<(), WebGlError> {
-        let encoded_paints = &scene.encoded_paints;
         let use_depth_buffer = self.programs.resources.root_uses_depth_buffer();
 
-        self.prepare_gpu_encoded_paints(
-            encoded_paints,
-            image_cache,
-            texture_bindings,
-            render_target_texture,
-        )?;
-
-        let mut required_texture_size = self
-            .layers_config
-            .required_intermediate_texture_size(&scene.recorder)
-            .map_err(RenderError::IntermediateTexture)?;
-
-        // We currently only grow and never shrink textures, so max it with whatever
-        // we had in the previous run.
-        required_texture_size = self
-            .programs
-            .resources
-            .texture_size
-            .max(required_texture_size);
-
+        self.core
+            .prepare_paints(&scene.encoded_paints, image_cache, |image, id, region| {
+                texture_bindings.encode_paint(id, image, region, render_target_texture)
+            })?;
         let current_allocations = self.current_allocations();
-
-        let paint_resolver =
-            PaintResolver::new(encoded_paints, &self.paint_idxs, &self.encoded_paints)
-                .with_image_cache(image_cache);
-        let schedule = Schedule::try_new(
-            &mut self.schedule_storage,
+        let schedule = self.core.schedule(
             scene,
+            image_cache,
             root_output_target,
             RectU16::visible_scene_bounds(
                 scene.recorder.scene_size,
@@ -918,26 +884,24 @@ impl WebGlRenderer {
                 scene_offset,
             ),
             use_depth_buffer,
-            paint_resolver,
-            required_texture_size,
+            self.programs.resources.texture_size,
             current_allocations,
-            self.layers_config.max_textures,
         )?;
         self.programs
-            .prepare_intermediate_textures(&self.gl, &schedule, required_texture_size)?;
+            .prepare_intermediate_textures(&self.gl, &schedule)?;
 
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
         self.programs.prepare(
             &self.gl,
-            &mut self.gradient_cache,
-            &self.encoded_paints,
+            &mut self.core.gradient_cache,
+            &self.core.encoded_paints,
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
             scene_offset,
-            &self.paint_idxs,
-            &self.schedule_storage.filter_context,
+            &self.core.paint_idxs,
+            &self.core.schedule_storage.filter_context,
             root_output_target,
         )?;
         self.programs.resources.depth_cleared_this_frame = false;
@@ -945,7 +909,7 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
             texture_bindings,
-            scratch_buffers: &mut self.scratch_buffers,
+            scratch_buffers: &mut self.core.scratch_buffers,
             use_depth_buffer,
         };
         if let TargetInit::Clear(clear) = target_init {
@@ -953,7 +917,7 @@ impl WebGlRenderer {
         }
         crate::schedule::execute(
             &mut ctx,
-            &mut self.schedule_storage,
+            &mut self.core.schedule_storage,
             schedule,
             root_output_target,
         )?;
@@ -980,7 +944,7 @@ impl WebGlRenderer {
                 ))?;
         }
 
-        self.gradient_cache.maintain();
+        self.core.gradient_cache.maintain();
 
         Ok(())
     }
@@ -1146,181 +1110,6 @@ impl WebGlRenderer {
 
         Ok(())
     }
-
-    fn prepare_gpu_encoded_paints(
-        &mut self,
-        encoded_paints: &[EncodedPaint],
-        image_cache: &ImageCache,
-        texture_bindings: &WebGlTextureBindings,
-        render_target_texture: Option<&WebGlTexture>,
-    ) -> Result<(), WebGlError> {
-        self.encoded_paints
-            .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
-        self.paint_idxs.resize(encoded_paints.len() + 1, 0);
-
-        let mut current_idx = 0;
-        for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
-            self.paint_idxs[encoded_paint_idx] = current_idx;
-            let gpu_paint = match paint {
-                EncodedPaint::Image(img) => match &img.source {
-                    ImageSource::OpaqueId { id, .. } => {
-                        let image_resource =
-                            image_cache.get(*id).ok_or(RenderError::MissingImage(*id))?;
-                        self.encode_image_paint(img, image_resource)
-                    }
-                    ImageSource::ExternalTexture {
-                        id, source_region, ..
-                    } => {
-                        let binding = texture_bindings
-                            .get(*id)
-                            .ok_or(RenderError::MissingTextureBinding(*id))?;
-                        if render_target_texture.is_some_and(|target| *target == binding.texture) {
-                            return Err(WebGlError::Render(RenderError::TextureFeedbackLoop(*id)));
-                        }
-                        Self::encode_external_texture_paint(
-                            img,
-                            *source_region,
-                            binding.width,
-                            binding.height,
-                        )
-                    }
-                    ImageSource::Pixmap(_) => {
-                        panic!("pixmap image sources are not supported by Vello GPU")
-                    }
-                },
-                EncodedPaint::Gradient(gradient) => {
-                    let (gradient_start, gradient_width) =
-                        self.gradient_cache.get_or_create_ramp(gradient);
-                    self.encode_gradient_paint(gradient, gradient_width, gradient_start)
-                }
-                EncodedPaint::BlurredRoundedRect(blurred_rect) => {
-                    Self::encode_blurred_rounded_rect_paint(blurred_rect)
-                }
-            };
-
-            current_idx += gpu_paint.size_texels();
-            self.encoded_paints[encoded_paint_idx] = gpu_paint;
-        }
-        self.paint_idxs[encoded_paints.len()] = current_idx;
-        Ok(())
-    }
-
-    fn encode_image_paint(
-        &self,
-        image: &vello_common::encode::EncodedImage,
-        image_resource: &ImageResource,
-    ) -> GpuEncodedPaint {
-        let transform = image.transform.as_coeffs().map(|x| x as f32);
-        let image_size = pack_image_size(image_resource.width, image_resource.height);
-        let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
-        let image_params = pack_image_params(
-            image.sampler.quality as u32,
-            image.sampler.x_extend as u32,
-            image.sampler.y_extend as u32,
-        );
-        let (tint, tint_mode) = pack_tint(image.tint);
-
-        GpuEncodedPaint::Image(GpuEncodedImage {
-            image_params,
-            image_size,
-            image_offset,
-            transform,
-            tint,
-            tint_mode,
-            image_padding: image_resource.padding as u32,
-        })
-    }
-
-    fn encode_external_texture_paint(
-        image: &vello_common::encode::EncodedImage,
-        source_region: TextureRegion,
-        texture_width: u16,
-        texture_height: u16,
-    ) -> GpuEncodedPaint {
-        if let Some(native_paint) = encode_native_image_paint(image, texture_width, texture_height)
-        {
-            return native_paint;
-        }
-
-        let region = match source_region {
-            TextureRegion::Full => RectU16::new(0, 0, texture_width, texture_height),
-            TextureRegion::Rect(rect) => rect,
-        };
-        let transform = image.transform.as_coeffs().map(|x| x as f32);
-        let image_size = pack_image_size(region.width(), region.height());
-        let image_offset = pack_image_offset(region.x0, region.y0);
-        let image_params = pack_image_params(
-            image.sampler.quality as u32,
-            image.sampler.x_extend as u32,
-            image.sampler.y_extend as u32,
-        );
-        let (tint, tint_mode) = pack_tint(image.tint);
-
-        GpuEncodedPaint::Image(GpuEncodedImage {
-            image_params,
-            image_size,
-            image_offset,
-            transform,
-            tint,
-            tint_mode,
-            image_padding: 0,
-        })
-    }
-
-    fn encode_gradient_paint(
-        &self,
-        gradient: &EncodedGradient,
-        gradient_width: u32,
-        gradient_start: u32,
-    ) -> GpuEncodedPaint {
-        let transform = gradient.transform.as_coeffs().map(|x| x as f32);
-        let extend_mode = match gradient.extend {
-            peniko::Extend::Pad => 0,
-            peniko::Extend::Repeat => 1,
-            peniko::Extend::Reflect => 2,
-        };
-        let texture_width_and_extend_mode =
-            pack_texture_width_and_extend_mode(gradient_width, extend_mode);
-
-        match &gradient.kind {
-            EncodedKind::Linear(_) => GpuEncodedPaint::LinearGradient(GpuLinearGradient {
-                texture_width_and_extend_mode,
-                gradient_start,
-                transform,
-            }),
-            EncodedKind::Radial(radial) => GpuEncodedPaint::RadialGradient(encode_radial_gradient(
-                texture_width_and_extend_mode,
-                gradient_start,
-                transform,
-                radial,
-            )),
-            EncodedKind::Sweep(sweep) => GpuEncodedPaint::SweepGradient(GpuSweepGradient {
-                texture_width_and_extend_mode,
-                gradient_start,
-                transform,
-                start_angle: sweep.start_angle,
-                inv_angle_delta: sweep.inv_angle_delta,
-                _padding: [0, 0],
-            }),
-        }
-    }
-
-    fn encode_blurred_rounded_rect_paint(rect: &EncodedBlurredRoundedRectangle) -> GpuEncodedPaint {
-        GpuEncodedPaint::BlurredRoundedRect(GpuBlurredRoundedRect {
-            transform: rect.transform.as_coeffs().map(|x| x as f32),
-            color: rect.color.as_premul_rgba8().to_u32(),
-            invert: u32::from(rect.invert),
-            params0: [
-                rect.exponent,
-                rect.recip_exponent,
-                rect.scale,
-                rect.std_dev_inv,
-            ],
-            params1: [rect.min_edge, rect.w, rect.h, rect.r1],
-            size: [rect.width, rect.height],
-            _padding1: [0, 0],
-        })
-    }
 }
 
 impl WebGlRendererInit {
@@ -1354,8 +1143,7 @@ impl WebGlRendererInit {
             shaders,
             resources,
             encoded_paints_data,
-            gradient_cache,
-            layers_config,
+            core,
         } = self;
         let WebGlShaders {
             gl,
@@ -1410,17 +1198,7 @@ impl WebGlRendererInit {
             filter_data: Vec::new(),
         };
 
-        Ok(WebGlRenderer {
-            programs,
-            gl,
-            encoded_paints: Vec::new(),
-            paint_idxs: Vec::new(),
-            gradient_cache,
-            dummy_image_cache: Some(ImageCache::new_dummy()),
-            schedule_storage: ScheduleStorage::default(),
-            scratch_buffers: ScratchBuffers::default(),
-            layers_config,
-        })
+        Ok(WebGlRenderer { programs, gl, core })
     }
 }
 
@@ -1966,10 +1744,11 @@ impl WebGlPrograms {
         &mut self,
         gl: &WebGl2RenderingContext,
         schedule: &Schedule,
-        texture_size: SizeU16,
     ) -> Result<(), WebGlError> {
         let current_size = self.resources.texture_size;
-        let allocations = schedule.intermediate_texture_requirements().allocations;
+        let requirements = schedule.intermediate_texture_requirements();
+        let texture_size = requirements.size;
+        let allocations = requirements.allocations;
         let layer_pages = allocations.layer_pages;
         let scratch_required = allocations.scratch;
         let size_changed = current_size != texture_size;

@@ -581,7 +581,9 @@ mod tests {
         EXTERNAL_TEXTURE_SLOT_SHIFT, ExternalSampler, PaintResolver, SamplerAddress, SamplerFilter,
         TextureSourceId,
     };
-    use crate::render::common::{GpuEncodedImage, GpuEncodedPaint, encode_native_image_paint};
+    use crate::render::common::paint::{
+        GpuEncodedImage, GpuEncodedPaint, encode_native_image_paint,
+    };
     use crate::scene::{RecordedDraw, RecordedRect};
     use crate::target::{
         DrawTarget, LayerTextureId, LayerTextureRegion, RootTarget, TextureParity, TextureRegion,

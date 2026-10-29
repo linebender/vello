@@ -10,8 +10,14 @@
 
 use bytemuck::{Pod, Zeroable};
 use core::mem::size_of;
-use vello_common::encode::{EncodedImage, FocalKind, RadialKind};
-use vello_common::paint::TintMode;
+use vello_common::encode::{
+    EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, FocalKind,
+    RadialKind,
+};
+use vello_common::geometry::RectU16;
+use vello_common::image_cache::ImageResource;
+use vello_common::paint::{TextureRegion, TintMode};
+use vello_common::peniko;
 
 /// Different types of GPU encoded paints.
 #[derive(Debug)]
@@ -364,6 +370,122 @@ pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
         // sample, having the same effect as no tinting at all.
         None => (u32::MAX, TintMode::Multiply.as_u32()),
     }
+}
+
+pub(crate) fn encode_image_paint(
+    image: &EncodedImage,
+    image_resource: &ImageResource,
+) -> GpuEncodedPaint {
+    let transform = image.transform.as_coeffs().map(|x| x as f32);
+    let image_size = pack_image_size(image_resource.width, image_resource.height);
+    let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
+    let image_params = pack_image_params(
+        image.sampler.quality as u32,
+        image.sampler.x_extend as u32,
+        image.sampler.y_extend as u32,
+    );
+    let (tint, tint_mode) = pack_tint(image.tint);
+
+    GpuEncodedPaint::Image(GpuEncodedImage {
+        image_params,
+        image_size,
+        image_offset,
+        transform,
+        tint,
+        tint_mode,
+        image_padding: image_resource.padding as u32,
+    })
+}
+
+pub(crate) fn encode_external_texture_paint(
+    image: &EncodedImage,
+    source_region: TextureRegion,
+    texture_width: u16,
+    texture_height: u16,
+) -> GpuEncodedPaint {
+    if let Some(native_paint) = encode_native_image_paint(image, texture_width, texture_height) {
+        return native_paint;
+    }
+
+    let region = match source_region {
+        TextureRegion::Full => RectU16::new(0, 0, texture_width, texture_height),
+        TextureRegion::Rect(rect) => rect,
+    };
+    let transform = image.transform.as_coeffs().map(|x| x as f32);
+    let image_size = pack_image_size(region.width(), region.height());
+    let image_offset = pack_image_offset(region.x0, region.y0);
+    let image_params = pack_image_params(
+        image.sampler.quality as u32,
+        image.sampler.x_extend as u32,
+        image.sampler.y_extend as u32,
+    );
+    let (tint, tint_mode) = pack_tint(image.tint);
+
+    GpuEncodedPaint::Image(GpuEncodedImage {
+        image_params,
+        image_size,
+        image_offset,
+        transform,
+        tint,
+        tint_mode,
+        image_padding: 0,
+    })
+}
+
+pub(crate) fn encode_gradient_paint(
+    gradient: &EncodedGradient,
+    gradient_width: u32,
+    gradient_start: u32,
+) -> GpuEncodedPaint {
+    let transform = gradient.transform.as_coeffs().map(|x| x as f32);
+    let extend_mode = match gradient.extend {
+        peniko::Extend::Pad => 0,
+        peniko::Extend::Repeat => 1,
+        peniko::Extend::Reflect => 2,
+    };
+    let texture_width_and_extend_mode =
+        pack_texture_width_and_extend_mode(gradient_width, extend_mode);
+
+    match &gradient.kind {
+        EncodedKind::Linear(_) => GpuEncodedPaint::LinearGradient(GpuLinearGradient {
+            texture_width_and_extend_mode,
+            gradient_start,
+            transform,
+        }),
+        EncodedKind::Radial(radial) => GpuEncodedPaint::RadialGradient(encode_radial_gradient(
+            texture_width_and_extend_mode,
+            gradient_start,
+            transform,
+            radial,
+        )),
+        EncodedKind::Sweep(sweep) => GpuEncodedPaint::SweepGradient(GpuSweepGradient {
+            texture_width_and_extend_mode,
+            gradient_start,
+            transform,
+            start_angle: sweep.start_angle,
+            inv_angle_delta: sweep.inv_angle_delta,
+            _padding: [0, 0],
+        }),
+    }
+}
+
+pub(crate) fn encode_blurred_rounded_rect_paint(
+    rect: &EncodedBlurredRoundedRectangle,
+) -> GpuEncodedPaint {
+    GpuEncodedPaint::BlurredRoundedRect(GpuBlurredRoundedRect {
+        transform: rect.transform.as_coeffs().map(|x| x as f32),
+        color: rect.color.as_premul_rgba8().to_u32(),
+        invert: u32::from(rect.invert),
+        params0: [
+            rect.exponent,
+            rect.recip_exponent,
+            rect.scale,
+            rect.std_dev_inv,
+        ],
+        params1: [rect.min_edge, rect.w, rect.h, rect.r1],
+        size: [rect.width, rect.height],
+        _padding1: [0, 0],
+    })
 }
 
 #[cfg(test)]

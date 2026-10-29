@@ -3,14 +3,15 @@
 
 //! Backend agnostic renderer module.
 
-mod paint;
+mod core;
+pub(crate) mod paint;
 
+pub(crate) use self::core::Core;
 #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
 pub(crate) use paint::encode_wgpu_external_texture_paint;
 pub(crate) use paint::{
-    GpuBlurredRoundedRect, GpuEncodedImage, GpuEncodedPaint, GpuLinearGradient, GpuSweepGradient,
-    encode_native_image_paint, encode_radial_gradient, pack_image_offset, pack_image_params,
-    pack_image_size, pack_texture_width_and_extend_mode, pack_tint,
+    GpuEncodedPaint, GpuLinearGradient, encode_blurred_rounded_rect_paint,
+    encode_external_texture_paint, encode_gradient_paint, encode_image_paint,
 };
 
 use crate::IntermediateTextureError;
@@ -306,7 +307,7 @@ pub struct GpuStrip {
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]
 pub(crate) fn maybe_warn_about_webgl_feature_conflict() {
-    use core::sync::atomic::{AtomicBool, Ordering};
+    use ::core::sync::atomic::{AtomicBool, Ordering};
     static HAS_WARNED: AtomicBool = AtomicBool::new(false);
 
     if !HAS_WARNED.swap(true, Ordering::Release)

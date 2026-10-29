@@ -20,6 +20,7 @@ This release has an [MSRV][] of 1.89.
 
 ### Fixed
 
+- The wgpu renderer returns `RenderError::MissingImage` instead of panicking when a scene references an image that isn't in the image cache. (by [@LaurenzV][])
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
 
 ## [0.3.0][] - 2026-10-02
