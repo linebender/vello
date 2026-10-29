@@ -72,6 +72,7 @@ use resource::{
     WebGlFragmentShader, WebGlVertexShader,
 };
 use vello_common::color::{AlphaColor, Srgb};
+use vello_common::encode::EncodedImage;
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
@@ -112,10 +113,6 @@ fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> Result<u32, WebG
 
 /// Result of polling WebGL renderer initialization.
 #[derive(Debug)]
-#[allow(
-    clippy::large_enum_variant,
-    reason = "both variants are one-shot ownership transfers; boxing would add unnecessary allocation"
-)]
 pub enum WebGlRendererInitStatus {
     /// Shader compilation or program linking is still in progress.
     Pending(WebGlRendererInit),
@@ -250,7 +247,7 @@ impl WebGlTextureBindings {
     fn encode_paint(
         &self,
         texture_id: TextureId,
-        image: &vello_common::encode::EncodedImage,
+        image: &EncodedImage,
         source_region: TextureRegion,
         render_target: Option<&WebGlTexture>,
     ) -> Result<GpuEncodedPaint, RenderError> {
@@ -870,7 +867,7 @@ impl WebGlRenderer {
         let use_depth_buffer = self.programs.resources.root_uses_depth_buffer();
 
         self.core
-            .prepare_paints(&scene.encoded_paints, image_cache, |image, id, region| {
+            .prepare_paints(&scene.encoded_paints, image_cache, |id, image, region| {
                 texture_bindings.encode_paint(id, image, region, render_target_texture)
             })?;
         let current_allocations = self.current_allocations();

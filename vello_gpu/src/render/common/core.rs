@@ -3,10 +3,10 @@
 
 //! Renderer state and steps shared by all backends.
 
-use super::{
-    DeviceLimits, GpuEncodedPaint, GpuLinearGradient, ScratchBuffers,
-    encode_blurred_rounded_rect_paint, encode_gradient_paint, encode_image_paint,
+use super::paint::{
+    GpuEncodedPaint, encode_blurred_rounded_rect_paint, encode_gradient_paint, encode_image_paint,
 };
+use super::{DeviceLimits, ScratchBuffers};
 use crate::{
     LayersConfig, RenderError, RenderSettings, Resources,
     gradient_cache::GradientRampCache,
@@ -22,17 +22,10 @@ use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::image_cache::ImageCache;
 use vello_common::paint::{ImageSource, TextureRegion};
 
-/// Placeholder value for uninitialized GPU encoded paints.
-const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
-    texture_width_and_extend_mode: 0,
-    gradient_start: 0,
-    transform: [0.0; 6],
-});
-
 /// Renderer state that doesn't depend on the backend.
 #[derive(Debug)]
 pub(crate) struct Core {
-    /// Encoded paints for storing encoded paints.
+    /// GPU encodings of the scene's encoded paints, in the same order.
     pub(crate) encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
     pub(crate) paint_idxs: Vec<u32>,
@@ -75,19 +68,19 @@ impl Core {
     /// Encodes `encoded_paints` for the GPU.
     ///
     /// `encode_external_texture` encodes image paints that sample an external texture, given the
-    /// image, the texture and the sampled region of it.
+    /// texture, the image and the sampled region of the texture.
     pub(crate) fn prepare_paints(
         &mut self,
         encoded_paints: &[EncodedPaint],
         image_cache: &ImageCache,
         mut encode_external_texture: impl FnMut(
-            &EncodedImage,
             TextureId,
+            &EncodedImage,
             TextureRegion,
         ) -> Result<GpuEncodedPaint, RenderError>,
     ) -> Result<(), RenderError> {
         self.encoded_paints
-            .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
+            .resize_with(encoded_paints.len(), || GpuEncodedPaint::PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
 
         let mut current_idx = 0;
@@ -102,7 +95,7 @@ impl Core {
                     }
                     ImageSource::ExternalTexture {
                         id, source_region, ..
-                    } => encode_external_texture(img, *id, *source_region)?,
+                    } => encode_external_texture(*id, img, *source_region)?,
                     ImageSource::Pixmap(_) => {
                         panic!("pixmap image sources are not supported by Vello GPU")
                     }

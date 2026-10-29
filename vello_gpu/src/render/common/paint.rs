@@ -49,6 +49,13 @@ const fn texels<T>() -> u32 {
 }
 
 impl GpuEncodedPaint {
+    /// Placeholder value for uninitialized GPU encoded paints.
+    pub(crate) const PLACEHOLDER: Self = Self::LinearGradient(GpuLinearGradient {
+        texture_width_and_extend_mode: 0,
+        gradient_start: 0,
+        transform: [0.0; 6],
+    });
+
     const IMAGE_TEXELS: u32 = texels::<GpuEncodedImage>();
     const NATIVE_IMAGE_TEXELS: u32 = texels::<GpuNativeImage>();
     const LINEAR_TEXELS: u32 = texels::<GpuLinearGradient>();

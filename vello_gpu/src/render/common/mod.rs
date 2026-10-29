@@ -9,10 +9,7 @@ pub(crate) mod paint;
 pub(crate) use self::core::Core;
 #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
 pub(crate) use paint::encode_wgpu_external_texture_paint;
-pub(crate) use paint::{
-    GpuEncodedPaint, GpuLinearGradient, encode_blurred_rounded_rect_paint,
-    encode_external_texture_paint, encode_gradient_paint, encode_image_paint,
-};
+pub(crate) use paint::{GpuEncodedPaint, encode_external_texture_paint};
 
 use crate::IntermediateTextureError;
 use crate::blend::GpuBlendInstance;

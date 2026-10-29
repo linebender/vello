@@ -47,6 +47,7 @@ use core::{fmt::Debug, num::NonZeroU64, ops::Range};
 use glifo::PendingClearRect;
 use hashbrown::{HashMap, hash_map::Entry};
 use vello_common::color::{AlphaColor, Srgb};
+use vello_common::encode::EncodedImage;
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
@@ -247,7 +248,7 @@ impl TextureBindings {
     fn encode_paint(
         &self,
         texture_id: TextureId,
-        image: &vello_common::encode::EncodedImage,
+        image: &EncodedImage,
         source_region: TextureRegion,
         render_target: &Texture,
     ) -> Result<GpuEncodedPaint, RenderError> {
@@ -561,7 +562,7 @@ impl Renderer {
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
         self.core
-            .prepare_paints(&scene.encoded_paints, image_cache, |image, id, region| {
+            .prepare_paints(&scene.encoded_paints, image_cache, |id, image, region| {
                 texture_bindings.encode_paint(id, image, region, view.texture())
             })?;
         let current_allocations = self.current_allocations();
