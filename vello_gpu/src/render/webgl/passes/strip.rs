@@ -1,9 +1,31 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The strip pass.
+
+use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
+use crate::render::webgl::gl::resource::Program;
+use crate::render::webgl::passes::{
+    WebGlPrograms, WebGlRendererContext, checked_instance_count, required_uniform_location,
+};
+use crate::render::webgl::resources::{WebGlResources, create_external_sampler};
+use crate::render::webgl::{WebGlError, WebGlOperation, WebGlShaderInterfaceOperation};
+use crate::util::RangedSlice;
+use crate::{
+    GpuStrip, RenderError,
+    paint::{ExternalSampler, TextureSourceId},
+    target::{DrawPassTarget, LayerTextureId},
+};
+use hashbrown::hash_map::Entry;
+use vello_gpu_shaders::render;
+use web_sys::{WebGl2RenderingContext, WebGlTexture, WebGlUniformLocation};
+
 /// First texture unit from which the strip program samples external textures.
-const EXTERNAL_TEXTURE_UNIT_START: u32 = 4;
+pub(crate) const EXTERNAL_TEXTURE_UNIT_START: u32 = 4;
 
 /// Uniform locations for `strip_program`.
 #[derive(Debug)]
-struct StripUniforms {
+pub(crate) struct StripUniforms {
     /// Config uniform block index for vertex shader.
     config_vs_block_index: u32,
     /// Config uniform block index for fragment shader.
@@ -22,6 +44,7 @@ struct StripUniforms {
     external_textures: [WebGlUniformLocation; EXTERNAL_TEXTURE_SLOT_COUNT],
 }
 
+impl WebGlPrograms {
     /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
     fn upload_strip_pair(
         &mut self,
@@ -70,8 +93,9 @@ struct StripUniforms {
             offset += bytes.len();
         }
     }
+}
 /// Get the  uniform locations for the `render_strips` program.
-fn get_strip_uniforms(
+pub(crate) fn get_strip_uniforms(
     gl: &WebGl2RenderingContext,
     program: &Program,
 ) -> Result<StripUniforms, WebGlError> {
@@ -132,15 +156,15 @@ fn get_strip_uniforms(
     })
 }
 
-const STRIP_STRIDE: i32 = size_of::<GpuStrip>() as i32;
-const STRIP_ATTR_COUNT: i32 = STRIP_STRIDE / 4;
+pub(crate) const STRIP_STRIDE: i32 = size_of::<GpuStrip>() as i32;
+pub(crate) const STRIP_ATTR_COUNT: i32 = STRIP_STRIDE / 4;
 const _: () = assert!(
     STRIP_STRIDE == 24,
     "GpuStrip layout must match strip vertex stride"
 );
 
 /// Initialize strip VAO.
-fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
+pub(crate) fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.strip_vao));
     gl.bind_buffer(
         WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
@@ -170,6 +194,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
     gl.bind_vertex_array(None);
 }
 
+impl WebGlRendererContext<'_> {
     /// Draw `count` strip instances starting at `first_instance`, split into one draw per
     /// external texture run.
     ///
@@ -283,7 +308,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
     }
 
     /// Render strips to the specified render target.
-    fn strip_pass_inner(
+    pub(crate) fn strip_pass_inner(
         &mut self,
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
@@ -471,4 +496,4 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 
         Ok(())
     }
-
+}

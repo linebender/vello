@@ -1,13 +1,44 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Context creation, shader compilation and renderer initialization.
+
+use crate::render::webgl::WebGlRenderer;
+use crate::render::webgl::gl::resource::{
+    FragmentShader, Program, VertexShader, WebGlFragmentShader, WebGlVertexShader,
+};
+use crate::render::webgl::passes::WebGlPrograms;
+use crate::render::webgl::passes::blend::{get_blend_uniforms, initialize_blend_vao};
+use crate::render::webgl::passes::copy::{get_copy_uniforms, initialize_copy_vao};
+use crate::render::webgl::passes::filter::{get_filter_pass_uniforms, initialize_filter_vao};
+use crate::render::webgl::passes::strip::{get_strip_uniforms, initialize_strip_vao};
+use crate::render::webgl::resources::{WebGlResources, create_webgl_resources};
+use crate::render::webgl::{
+    IncompatibleContextReason, IncompatiblePrecompiledShadersReason, WebGlContextOperation,
+    WebGlError, WebGlOperation, WebGlResultExt, WebGlShaderProgramOperation, WebGlShaderStage,
+};
+use crate::{
+    RenderSettings, RenderSize, Resources,
+    render::common::{DeviceLimits, SharedCore},
+};
+use alloc::vec;
+use alloc::vec::Vec;
+use core::cell::Cell;
+use core::time::Duration;
+use vello_gpu_shaders::{blend, copy, filter as filter_shader, render};
+use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
+use web_sys::{HtmlCanvasElement, WebGl2RenderingContext, WebGlProgram, WebGlShader};
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = performance, js_name = now)]
     fn performance_now() -> f64;
 }
 /// Depth precision required to preserve painter order during opaque-strip rendering.
-const REQUIRED_DEPTH_BITS: u32 = 24;
+pub(crate) const REQUIRED_DEPTH_BITS: u32 = 24;
 
 /// Query the WebGL context for the max texture size.
-fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> Result<u32, WebGlError> {
+pub(crate) fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> Result<u32, WebGlError> {
     Ok(gl
         .get_parameter(WebGl2RenderingContext::MAX_TEXTURE_SIZE)
         .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
@@ -43,7 +74,7 @@ pub struct WebGlRendererInit {
 ///
 /// The programs belong to the canvas's WebGL context and cannot be used with any other context.
 #[derive(Debug)]
-struct WebGlShaders {
+pub(crate) struct WebGlShaders {
     gl: WebGl2RenderingContext,
     use_depth_buffer: bool,
     parallel_shader_compile: bool,
@@ -193,7 +224,7 @@ impl WebGlRenderer {
 /// the defaults of `compileVelloShaders` in `vello_gpu_shaders/src/webgl_bootstrap.js`, which
 /// creates the context when shaders are compiled from JavaScript;
 /// `webgl_contexts_created_by_javascript_and_rust_match` in `vello_tests` checks this.
-fn create_context(
+pub(crate) fn create_context(
     canvas: &HtmlCanvasElement,
     use_depth_buffer: bool,
 ) -> Result<WebGl2RenderingContext, WebGlError> {
@@ -207,7 +238,7 @@ fn create_context(
             "`WebGlRenderer` can only be constructed when targeting `wasm32`",
         );
     }
-    super::common::maybe_warn_about_webgl_feature_conflict();
+    crate::render::common::maybe_warn_about_webgl_feature_conflict();
 
     // We do our own anti-aliasing, so no need to enable it in the WebGL
     // context.
@@ -317,7 +348,10 @@ fn create_context(
 }
 
 /// Returns a boolean attribute that `gl` was actually created with.
-fn context_attribute(gl: &WebGl2RenderingContext, name: &str) -> Result<bool, WebGlError> {
+pub(crate) fn context_attribute(
+    gl: &WebGl2RenderingContext,
+    name: &str,
+) -> Result<bool, WebGlError> {
     let context_attributes = gl
         .get_context_attributes()
         .ok_or(WebGlError::OperationFailed {
@@ -422,7 +456,7 @@ impl WebGlRendererInit {
 }
 
 #[derive(Debug)]
-struct PendingShaderProgram {
+pub(crate) struct PendingShaderProgram {
     vertex_shader: VertexShader,
     fragment_shader: FragmentShader,
     program: Program,
@@ -608,7 +642,7 @@ impl WebGlShaders {
 
 /// Starts compiling all programs, returning when compilation started and the programs in
 /// [`WebGlShaders`]' field order.
-fn compile_programs(
+pub(crate) fn compile_programs(
     gl: &WebGl2RenderingContext,
 ) -> Result<(f64, [PendingShaderProgram; 4]), WebGlError> {
     // Must be enabled before compiling: besides the completion status polled by
@@ -638,7 +672,7 @@ fn compile_programs(
 /// returning when compilation started and the programs in [`WebGlShaders`]' field order.
 ///
 /// This avoids WebGL queries, which may block until compilation finishes.
-fn adopt_precompiled_programs(
+pub(crate) fn adopt_precompiled_programs(
     gl: &WebGl2RenderingContext,
     precompiled: &JsValue,
 ) -> Result<(f64, [PendingShaderProgram; 4]), IncompatiblePrecompiledShadersReason> {
@@ -687,7 +721,7 @@ fn adopt_precompiled_programs(
 }
 
 /// Returns a field of a `compileVelloShaders` result, or of an object nested in it.
-fn precompiled_field(
+pub(crate) fn precompiled_field(
     object: &JsValue,
     key: &str,
 ) -> Result<JsValue, IncompatiblePrecompiledShadersReason> {
@@ -696,4 +730,3 @@ fn precompiled_field(
         .filter(|value| !value.is_undefined() && !value.is_null())
         .ok_or(IncompatiblePrecompiledShadersReason::NotCompileVelloShadersResult)
 }
-

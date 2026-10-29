@@ -1,10 +1,32 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The blend pass.
+
+use crate::render::webgl::WebGlError;
+use crate::render::webgl::gl::resource::Program;
+use crate::render::webgl::passes::{
+    WebGlPrograms, WebGlRendererContext, checked_instance_count, initialize_packed_u32_attribs,
+    required_uniform_location,
+};
+use crate::render::webgl::resources::WebGlResources;
+use crate::util::RangedSlice;
+use crate::{
+    blend::{BlendStrip, GpuBlendInstance},
+    schedule::round::BlendOp,
+    target::{BlendPassBindings, TextureParity},
+};
+use vello_gpu_shaders::blend;
+use web_sys::{WebGl2RenderingContext, WebGlUniformLocation};
+
 #[derive(Debug)]
-struct BlendUniforms {
+pub(crate) struct BlendUniforms {
     layer_texture_0: WebGlUniformLocation,
     layer_texture_1: WebGlUniformLocation,
     alphas_texture: WebGlUniformLocation,
 }
 
+impl WebGlPrograms {
     fn upload_blend_instances(&self, gl: &WebGl2RenderingContext, instances: &[GpuBlendInstance]) {
         gl.bind_buffer(
             WebGl2RenderingContext::ARRAY_BUFFER,
@@ -16,8 +38,9 @@ struct BlendUniforms {
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
     }
+}
 
-fn get_blend_uniforms(
+pub(crate) fn get_blend_uniforms(
     gl: &WebGl2RenderingContext,
     program: &Program,
 ) -> Result<BlendUniforms, WebGlError> {
@@ -29,10 +52,10 @@ fn get_blend_uniforms(
 }
 
 /// Derive this from the number of fields on [`GpuBlendInstance`].
-const BLEND_ATTRIB_COUNT: u32 = 8;
-const BLEND_INSTANCE_STRIDE: i32 = size_of::<GpuBlendInstance>() as i32;
+pub(crate) const BLEND_ATTRIB_COUNT: u32 = 8;
+pub(crate) const BLEND_INSTANCE_STRIDE: i32 = size_of::<GpuBlendInstance>() as i32;
 
-fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
+pub(crate) fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.blend_vao));
     gl.bind_buffer(
         WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
@@ -48,7 +71,8 @@ fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
     gl.bind_vertex_array(None);
 }
 
-    fn blend_pass_inner(
+impl WebGlRendererContext<'_> {
+    pub(crate) fn blend_pass_inner(
         &mut self,
         blends: RangedSlice<'_, BlendOp>,
         blend_strips: &[BlendStrip],
@@ -171,4 +195,4 @@ fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 
         Ok(())
     }
-
+}

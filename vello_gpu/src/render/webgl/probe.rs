@@ -1,10 +1,10 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::render::webgl::resource::{Buffer, Framebuffer, Renderbuffer, SyncFence};
+use crate::render::webgl::gl::resource::{Buffer, Framebuffer, Renderbuffer, SyncFence};
+use crate::render::webgl::resources::create_texture_storage;
 use crate::render::webgl::{
     WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlTextureBindings,
-    create_texture_storage,
 };
 use crate::target::RootTarget;
 use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlError, WebGlRenderer};

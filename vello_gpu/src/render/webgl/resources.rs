@@ -1,86 +1,116 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Creation and growth of the renderer's GPU resources.
+
+use crate::render::webgl::gl::resource::{Buffer, Framebuffer, Sampler, Texture, VertexArray};
+use crate::render::webgl::passes::WebGlPrograms;
+use crate::render::webgl::target::WebGlTextureTarget;
+use crate::render::webgl::{
+    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResultExt,
+};
+use crate::{
+    LayersConfig, RenderSize,
+    filter::FilterContext,
+    gradient_cache::GradientRampCache,
+    paint::{ExternalSampler, SamplerAddress, SamplerFilter},
+    render::{
+        Config,
+        common::{GpuEncodedPaint, ScratchTexture},
+    },
+    schedule::Schedule,
+    target::{DrawPassTarget, LayerTextureId, RootTarget},
+};
+use alloc::vec::Vec;
+use hashbrown::HashMap;
+use vello_common::image_cache::ImageCache;
+use vello_common::multi_atlas::AtlasConfig;
+use vello_common::{geometry::SizeU16, tile::Tile};
+use web_sys::{WebGl2RenderingContext, WebGlFramebuffer, WebGlTexture};
+
 /// Contains all WebGL resources needed for rendering.
 #[derive(Debug)]
 pub(crate) struct WebGlResources {
     /// Shared indices for four-vertex triangle-strip draws.
-    quad_index_buffer: Buffer,
+    pub(crate) quad_index_buffer: Buffer,
     /// VAO for strip rendering.
-    strip_vao: VertexArray,
-    /// Buffer for [`GpuStrip`] data.
-    strips_buffer: Buffer,
+    pub(crate) strip_vao: VertexArray,
+    /// Buffer for [`GpuStrip`](crate::GpuStrip) data.
+    pub(crate) strips_buffer: Buffer,
     /// Texture for alpha values.
-    alphas_texture: Texture,
+    pub(crate) alphas_texture: Texture,
     /// Height of alpha texture.
     alpha_texture_height: u32,
     /// One 2D texture per image atlas.
     pub(crate) atlas_textures: Vec<Texture>,
     /// The render target of each texture in `atlas_textures`.
-    atlas_targets: Vec<WebGlTextureTarget>,
+    pub(crate) atlas_targets: Vec<WebGlTextureTarget>,
     /// Configured atlas dimensions.
     pub(crate) atlas_size: (u16, u16),
     /// Encoded paints texture for image metadata.
-    encoded_paints_texture: Texture,
+    pub(crate) encoded_paints_texture: Texture,
     /// Height of encoded paints texture.
     encoded_paints_texture_height: u32,
     /// Gradient texture for gradient ramp data.
-    gradient_texture: Texture,
+    pub(crate) gradient_texture: Texture,
     /// Placeholder texture bound to unoccupied external texture slots.
-    placeholder_external_texture: Texture,
+    pub(crate) placeholder_external_texture: Texture,
     /// Native image samplers shared by external texture slots.
-    external_samplers: HashMap<ExternalSampler, Sampler>,
+    pub(crate) external_samplers: HashMap<ExternalSampler, Sampler>,
     /// Height of gradient texture.
     gradient_texture_height: u32,
 
     /// Config buffer for rendering strips into the root target.
-    view_config_buffer: Buffer,
+    pub(crate) view_config_buffer: Buffer,
     /// Whether the depth buffer of the drawing buffer is enabled and may be used.
-    drawing_buffer_uses_depth_buffer: bool,
+    pub(crate) drawing_buffer_uses_depth_buffer: bool,
     /// The target that is rendered into, or `None` for the drawing buffer.
-    root_target: Option<WebGlTextureTarget>,
+    pub(crate) root_target: Option<WebGlTextureTarget>,
     /// Whether the depth buffer has been cleared this frame.
-    depth_cleared_this_frame: bool,
+    pub(crate) depth_cleared_this_frame: bool,
     /// Pre-allocated depth attachment list for the default framebuffer.
-    default_depth_attachment_array: js_sys::Array,
+    pub(crate) default_depth_attachment_array: js_sys::Array,
     /// Pre-allocated depth attachment list for offscreen framebuffers.
-    offscreen_depth_attachment_array: js_sys::Array,
+    pub(crate) offscreen_depth_attachment_array: js_sys::Array,
 
     /// Maximum width or height of packed resource textures.
-    resource_texture_dimension_2d: u32,
+    pub(crate) resource_texture_dimension_2d: u32,
 
     /// Dimensions of the intermediate layer and scratch textures.
-    texture_size: SizeU16,
+    pub(crate) texture_size: SizeU16,
 
     /// RGBA32UI texture storing filter parameters.
-    filter_data_texture: Texture,
+    pub(crate) filter_data_texture: Texture,
     /// Current height of filter data texture.
-    filter_data_texture_height: u32,
+    pub(crate) filter_data_texture_height: u32,
     /// Per-instance vertex data buffer for filter draws.
-    filter_instance_buffer: Buffer,
+    pub(crate) filter_instance_buffer: Buffer,
     /// VAO for filter rendering.
-    filter_vao: VertexArray,
+    pub(crate) filter_vao: VertexArray,
     /// Per-instance vertex data buffer for blend draws.
-    blend_instance_buffer: Buffer,
+    pub(crate) blend_instance_buffer: Buffer,
     /// VAO for blend rendering.
-    blend_vao: VertexArray,
+    pub(crate) blend_vao: VertexArray,
     /// Per-instance vertex data buffer for copy draws.
-    copy_instance_buffer: Buffer,
+    pub(crate) copy_instance_buffer: Buffer,
     /// VAO for copy rendering.
-    copy_vao: VertexArray,
+    pub(crate) copy_vao: VertexArray,
     /// Scratch texture.
-    scratch_texture: Option<ScratchTexture<WebGlIntermediateTexture>>,
+    pub(crate) scratch_texture: Option<ScratchTexture<WebGlIntermediateTexture>>,
     /// Config buffer for rendering strips into a layer texture.
-    layer_config_buffer: Buffer,
+    pub(crate) layer_config_buffer: Buffer,
     /// Layer texture pages grouped by parity.
-    layer_textures: [Vec<WebGlIntermediateTexture>; 2],
+    pub(crate) layer_textures: [Vec<WebGlIntermediateTexture>; 2],
 }
 
 impl WebGlResources {
-    fn root_framebuffer(&self) -> Option<&WebGlFramebuffer> {
+    pub(crate) fn root_framebuffer(&self) -> Option<&WebGlFramebuffer> {
         self.root_target
             .as_ref()
             .map(|target| &**target.framebuffer)
     }
 
-    fn root_uses_depth_buffer(&self) -> bool {
+    pub(crate) fn root_uses_depth_buffer(&self) -> bool {
         self.root_target
             .as_ref()
             .map_or(self.drawing_buffer_uses_depth_buffer, |target| {
@@ -88,17 +118,17 @@ impl WebGlResources {
             })
     }
 
-    fn layer_texture(&self, id: LayerTextureId) -> &Texture {
+    pub(crate) fn layer_texture(&self, id: LayerTextureId) -> &Texture {
         self.layer_textures[id.texture_parity.get_parity()][usize::from(id.page_index)]
             .binding_texture()
     }
 
-    fn layer_framebuffer(&self, id: LayerTextureId) -> &Framebuffer {
+    pub(crate) fn layer_framebuffer(&self, id: LayerTextureId) -> &Framebuffer {
         self.layer_textures[id.texture_parity.get_parity()][usize::from(id.page_index)]
             .framebuffer()
     }
 
-    fn scratch_binding_texture(&self) -> &Texture {
+    pub(crate) fn scratch_binding_texture(&self) -> &Texture {
         self.scratch_texture
             .as_ref()
             .map_or(&self.placeholder_external_texture, |texture| {
@@ -106,13 +136,13 @@ impl WebGlResources {
             })
     }
 
-    fn scratch_framebuffer(&self) -> &Framebuffer {
+    pub(crate) fn scratch_framebuffer(&self) -> &Framebuffer {
         self.scratch_texture.as_ref().unwrap().get().framebuffer()
     }
 }
 
 #[derive(Debug)]
-struct WebGlIntermediateTexture {
+pub(crate) struct WebGlIntermediateTexture {
     texture: Texture,
     framebuffer: Framebuffer,
 }
@@ -129,7 +159,7 @@ impl WebGlIntermediateTexture {
 
 impl WebGlPrograms {
     /// Prepare resources for rendering.
-    fn prepare(
+    pub(crate) fn prepare(
         &mut self,
         gl: &WebGl2RenderingContext,
         gradient_cache: &mut GradientRampCache,
@@ -168,7 +198,7 @@ impl WebGlPrograms {
         Ok(())
     }
 
-    fn prepare_intermediate_textures(
+    pub(crate) fn prepare_intermediate_textures(
         &mut self,
         gl: &WebGl2RenderingContext,
         schedule: &Schedule,
@@ -232,7 +262,7 @@ impl WebGlPrograms {
     }
 
     /// Create any newly allocated atlas textures.
-    fn maybe_create_atlas_textures(
+    pub(crate) fn maybe_create_atlas_textures(
         &mut self,
         gl: &WebGl2RenderingContext,
         required_atlas_count: u32,
@@ -501,7 +531,6 @@ impl WebGlPrograms {
         luts.truncate(old_luts_len);
         result
     }
-
 }
 /// Create a texture with the requested filtering and clamp-to-edge wrapping.
 pub(crate) fn create_texture(
@@ -517,7 +546,7 @@ pub(crate) fn create_texture(
     )
 }
 
-fn create_texture_inner(
+pub(crate) fn create_texture_inner(
     gl: &WebGl2RenderingContext,
     target: u32,
     min_filter: u32,
@@ -581,7 +610,7 @@ pub(crate) fn create_texture_storage(
 }
 
 /// Validate that a resource texture fits within its configured dimension limit.
-fn validate_resource_texture_size(
+pub(crate) fn validate_resource_texture_size(
     width: u32,
     height: u32,
     max_dimension: u32,
@@ -598,7 +627,7 @@ fn validate_resource_texture_size(
 }
 
 /// Create a zero-initialized data texture backed by immutable storage (`texStorage2D`).
-fn create_data_texture_storage(
+pub(crate) fn create_data_texture_storage(
     gl: &WebGl2RenderingContext,
     internal_format: u32,
     width: u32,
@@ -615,7 +644,9 @@ fn create_data_texture_storage(
 }
 
 /// Create a 1x1 RGBA32UI placeholder texture.
-fn create_placeholder_rgba32ui_texture(gl: &WebGl2RenderingContext) -> Result<Texture, WebGlError> {
+pub(crate) fn create_placeholder_rgba32ui_texture(
+    gl: &WebGl2RenderingContext,
+) -> Result<Texture, WebGlError> {
     // Allocated storage keeps the placeholder texture complete when no data is available.
     create_data_texture_storage(gl, WebGl2RenderingContext::RGBA32UI, 1, 1)
 }
@@ -627,11 +658,13 @@ fn create_placeholder_rgba32ui_texture(gl: &WebGl2RenderingContext) -> Result<Te
 /// browsers log a render warning for each one. Data textures are only uploaded when a scene has
 /// data for them, so allocate a minimal level 0 up front to keep them complete for scenes that
 /// don't.
-fn create_placeholder_rgba8_texture(gl: &WebGl2RenderingContext) -> Result<Texture, WebGlError> {
+pub(crate) fn create_placeholder_rgba8_texture(
+    gl: &WebGl2RenderingContext,
+) -> Result<Texture, WebGlError> {
     create_data_texture_storage(gl, WebGl2RenderingContext::RGBA8, 1, 1)
 }
 
-fn upload_layer_config_buffer(
+pub(crate) fn upload_layer_config_buffer(
     gl: &WebGl2RenderingContext,
     buffer: &Buffer,
     size: SizeU16,
@@ -657,7 +690,7 @@ fn upload_layer_config_buffer(
 }
 
 /// Create all WebGL resources needed for rendering.
-fn create_external_sampler(
+pub(crate) fn create_external_sampler(
     gl: &WebGl2RenderingContext,
     key: ExternalSampler,
 ) -> Result<Sampler, WebGlError> {
@@ -690,7 +723,7 @@ fn create_external_sampler(
     Ok(sampler)
 }
 
-fn create_webgl_resources(
+pub(crate) fn create_webgl_resources(
     gl: &WebGl2RenderingContext,
     image_cache: &ImageCache,
     layer_config: LayersConfig,
@@ -808,7 +841,7 @@ fn create_webgl_resources(
     })
 }
 
-fn create_intermediate_texture(
+pub(crate) fn create_intermediate_texture(
     gl: &WebGl2RenderingContext,
     size: SizeU16,
 ) -> Result<WebGlIntermediateTexture, WebGlError> {
@@ -866,7 +899,7 @@ pub(crate) fn create_framebuffer_for_texture(
 ///
 /// `data` must contain exactly `width * rows * 4` `u32` values.
 /// Texels outside the uploaded rows remain unchanged.
-fn upload_rgba32ui_rows(
+pub(crate) fn upload_rgba32ui_rows(
     gl: &WebGl2RenderingContext,
     texture: &WebGlTexture,
     data: &[u32],

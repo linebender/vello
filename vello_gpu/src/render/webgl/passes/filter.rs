@@ -1,12 +1,34 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The filter pass.
+
+use crate::render::webgl::WebGlError;
+use crate::render::webgl::gl::resource::Program;
+use crate::render::webgl::passes::{
+    WebGlPrograms, WebGlRendererContext, checked_instance_count, initialize_packed_u32_attribs,
+    required_uniform_location,
+};
+use crate::render::webgl::resources::{
+    WebGlResources, create_data_texture_storage, upload_rgba32ui_rows,
+};
+use crate::{
+    filter::{FilterContext, FilterInstanceData, FilterPassPlan},
+    target::{FilterPassBindings, LayerTextureId},
+};
+use vello_gpu_shaders::filter as filter_shader;
+use web_sys::{WebGl2RenderingContext, WebGlUniformLocation};
+
 #[derive(Debug)]
-struct FilterPassUniforms {
+pub(crate) struct FilterPassUniforms {
     filter_data: WebGlUniformLocation,
     source_texture: WebGlUniformLocation,
     original_texture: WebGlUniformLocation,
 }
 
+impl WebGlPrograms {
     /// Grow the filter data texture if needed.
-    fn maybe_resize_filter_data_tex(
+    pub(crate) fn maybe_resize_filter_data_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
         filter_context: &FilterContext,
@@ -35,7 +57,7 @@ struct FilterPassUniforms {
     }
 
     /// Upload filter data to the texture.
-    fn upload_filter_data_texture(
+    pub(crate) fn upload_filter_data_texture(
         &mut self,
         gl: &WebGl2RenderingContext,
         filter_context: &FilterContext,
@@ -76,8 +98,9 @@ struct FilterPassUniforms {
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
     }
+}
 
-fn get_filter_pass_uniforms(
+pub(crate) fn get_filter_pass_uniforms(
     gl: &WebGl2RenderingContext,
     program: &Program,
 ) -> Result<FilterPassUniforms, WebGlError> {
@@ -94,10 +117,10 @@ fn get_filter_pass_uniforms(
 }
 
 /// Derive this from the number of fields on [`FilterInstanceData`].
-const FILTER_ATTRIB_COUNT: u32 = 9;
-const FILTER_INSTANCE_STRIDE: i32 = size_of::<FilterInstanceData>() as i32;
+pub(crate) const FILTER_ATTRIB_COUNT: u32 = 9;
+pub(crate) const FILTER_INSTANCE_STRIDE: i32 = size_of::<FilterInstanceData>() as i32;
 
-fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
+pub(crate) fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.filter_vao));
     gl.bind_buffer(
         WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
@@ -113,7 +136,8 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
     gl.bind_vertex_array(None);
 }
 
-    fn filter_pass_inner(
+impl WebGlRendererContext<'_> {
+    pub(crate) fn filter_pass_inner(
         &mut self,
         plan: &FilterPassPlan,
         bindings: FilterPassBindings,
@@ -218,4 +242,4 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
 
         Ok(())
     }
-
+}

@@ -20,11 +20,19 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+mod atlas;
+mod bindings;
 mod error;
+mod gl;
+mod init;
+mod passes;
 #[cfg(feature = "probe")]
 pub(crate) mod probe;
-pub(crate) mod resource;
+mod resources;
+mod target;
 
+pub use atlas::WebGlAtlasWriter;
+pub use bindings::{WebGlTextureBindings, WebGlTextureWithDimensions};
 #[cfg(feature = "probe")]
 pub use error::WebGlProbeOperation;
 pub(crate) use error::WebGlResultExt;
@@ -34,62 +42,28 @@ pub use error::{
     WebGlResourceKind, WebGlShaderInterfaceOperation, WebGlShaderProgramOperation,
     WebGlShaderStage,
 };
+pub use init::{ShaderCompilationStats, WebGlRendererInit, WebGlRendererInitStatus};
+pub use target::{WebGlRenderTarget, WebGlTextureTarget};
 
-use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
-use crate::render::common::IMAGE_PADDING;
-use crate::render::common::{SharedCore, encode_external_texture_paint};
-use crate::util::RangedSlice;
+use crate::render::common::{IMAGE_PADDING, SharedCore};
 use crate::{
-    ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
-    TargetInit,
-    blend::{BlendStrip, GpuBlendInstance},
-    copy::GpuCopyInstance,
-    filter::{FilterContext, FilterInstanceData, FilterPassPlan},
-    gradient_cache::GradientRampCache,
-    paint::{ExternalSampler, SamplerAddress, SamplerFilter, TextureSourceId},
-    render::{
-        Config,
-        common::{DeviceLimits, GpuEncodedPaint, ScratchBuffers, ScratchTexture},
-    },
+    ClearSettings, RenderError, RenderSize, Resources, TargetInit,
     scene::Scene,
-    schedule::{Backend, IntermediateTextureAllocations, Schedule, round::BlendOp},
-    target::{
-        BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
-        RootTarget, TextureParity,
-    },
+    schedule::IntermediateTextureAllocations,
+    target::{DrawPassTarget, RootTarget},
 };
-use alloc::rc::Rc;
-use alloc::sync::Arc;
-use alloc::vec;
 use alloc::vec::Vec;
-use core::cell::Cell;
-use core::time::Duration;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
-use hashbrown::{HashMap, hash_map::Entry};
-use resource::{
-    Buffer, FragmentShader, Framebuffer, Program, Sampler, Texture, VertexArray, VertexShader,
-    WebGlFragmentShader, WebGlVertexShader,
-};
+use passes::{WebGlPrograms, WebGlRendererContext};
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::encode::EncodedImage;
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
-    TextureId,
     geometry::{RectU16, SizeU16},
-    paint::{ImageId, TextureRegion},
-    pixmap::Pixmap,
-    tile::Tile,
+    paint::ImageId,
 };
-use vello_gpu_shaders::{blend, copy, filter as filter_shader, render};
-use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
-use web_sys::{
-    HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
-    WebGlRenderbuffer, WebGlSampler, WebGlShader, WebGlTexture, WebGlUniformLocation,
-    WebGlVertexArrayObject,
-};
-
+use web_sys::{WebGl2RenderingContext, WebGlRenderbuffer, WebGlTexture};
 
 /// Vello GPU's WebGL2 renderer.
 ///
@@ -181,6 +155,8 @@ impl WebGlRenderer {
     /// [`WebGlTextureBindings::insert`] for the requirements on the bound textures.
     ///
     /// To render without any texture bindings, you can pass an empty [`WebGlTextureBindings`].
+    ///
+    /// [`TextureId`]: vello_common::TextureId
     pub fn render(
         &mut self,
         scene: &Scene,
@@ -602,4 +578,3 @@ fn clear_atlas_region(
 
     Ok(())
 }
-

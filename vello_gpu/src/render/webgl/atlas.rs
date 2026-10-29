@@ -1,3 +1,17 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Writing image data into atlas textures.
+
+use crate::render::webgl::bindings::WebGlTextureWithDimensions;
+use crate::render::webgl::gl::resource::Framebuffer;
+use crate::render::webgl::{
+    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResultExt,
+};
+use alloc::sync::Arc;
+use vello_common::pixmap::Pixmap;
+use web_sys::{WebGl2RenderingContext, WebGlTexture};
+
 /// Trait for types that can write image data directly to the atlas texture in WebGL.
 ///
 /// This allows efficient uploading from different sources:
@@ -153,7 +167,7 @@ impl WebGlAtlasWriter for WebGlTextureWithDimensions {
 }
 
 /// Copy from a source texture/framebuffer to an atlas texture.
-fn copy_to_texture(
+pub(crate) fn copy_to_texture(
     gl: &WebGl2RenderingContext,
     source_setup: impl FnOnce(&WebGl2RenderingContext),
     dest_texture: &WebGlTexture,
@@ -186,4 +200,3 @@ fn copy_to_texture(
 
     Ok(())
 }
-

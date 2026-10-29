@@ -1,3 +1,16 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Runtime bindings for externally owned textures.
+
+use crate::RenderError;
+use crate::render::common::{GpuEncodedPaint, encode_external_texture_paint};
+use hashbrown::HashMap;
+use vello_common::TextureId;
+use vello_common::encode::EncodedImage;
+use vello_common::paint::TextureRegion;
+use web_sys::WebGlTexture;
+
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct WebGlTextureBindings {
@@ -46,7 +59,7 @@ impl WebGlTextureBindings {
     }
 
     /// Encodes an image paint that samples the binding of `texture_id`.
-    fn encode_paint(
+    pub(crate) fn encode_paint(
         &self,
         texture_id: TextureId,
         image: &EncodedImage,
@@ -69,7 +82,7 @@ impl WebGlTextureBindings {
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&WebGlTextureWithDimensions> {
+    pub(crate) fn get(&self, texture_id: TextureId) -> Option<&WebGlTextureWithDimensions> {
         self.textures.get(&texture_id)
     }
 
@@ -94,4 +107,3 @@ pub struct WebGlTextureWithDimensions {
     /// The height of the texture.
     pub height: u16,
 }
-

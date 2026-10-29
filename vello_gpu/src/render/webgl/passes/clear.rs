@@ -1,4 +1,15 @@
-    fn clear_pass_inner(&self, target: DrawPassTarget, settings: ClearSettings<'_>) {
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The clear pass.
+
+use crate::render::webgl::passes::WebGlRendererContext;
+use crate::{ClearSettings, target::DrawPassTarget};
+use vello_common::geometry::RectU16;
+use web_sys::WebGl2RenderingContext;
+
+impl WebGlRendererContext<'_> {
+    pub(crate) fn clear_pass_inner(&self, target: DrawPassTarget, settings: ClearSettings<'_>) {
         let color = settings.clear_color();
 
         let negate_ndc = target.negate_ndc();
@@ -61,3 +72,4 @@
             }
         }
     }
+}

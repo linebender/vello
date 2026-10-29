@@ -1,4 +1,21 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Render targets.
+
+use crate::RenderSize;
+use crate::render::webgl::gl::resource::Framebuffer;
+use crate::render::webgl::init::REQUIRED_DEPTH_BITS;
+use crate::render::webgl::resources::create_framebuffer_for_texture;
+use crate::render::webgl::{
+    InvalidTextureTargetReason, WebGlContextOperation, WebGlError, WebGlOperation, WebGlResultExt,
+};
+use alloc::rc::Rc;
+use web_sys::{WebGl2RenderingContext, WebGlRenderbuffer, WebGlTexture};
+
 /// What [`WebGlRenderer::render`] renders into.
+///
+/// [`WebGlRenderer::render`]: crate::WebGlRenderer::render
 #[derive(Debug, Clone, Copy, Default)]
 pub enum WebGlRenderTarget<'a> {
     /// The drawing buffer of the canvas.
@@ -9,7 +26,7 @@ pub enum WebGlRenderTarget<'a> {
 }
 
 impl WebGlRenderTarget<'_> {
-    fn size(&self, gl: &WebGl2RenderingContext) -> RenderSize {
+    pub(crate) fn size(&self, gl: &WebGl2RenderingContext) -> RenderSize {
         match self {
             Self::DrawingBuffer => RenderSize {
                 width: gl.drawing_buffer_width().try_into().unwrap(),
@@ -23,17 +40,19 @@ impl WebGlRenderTarget<'_> {
 /// A texture to render into, created with [`WebGlRenderer::create_texture_target`].
 ///
 /// It is meant to be reused across renders.
+///
+/// [`WebGlRenderer::create_texture_target`]: crate::WebGlRenderer::create_texture_target
 #[derive(Debug, Clone)]
 pub struct WebGlTextureTarget {
-    texture: WebGlTexture,
-    framebuffer: Rc<Framebuffer>,
+    pub(crate) texture: WebGlTexture,
+    pub(crate) framebuffer: Rc<Framebuffer>,
     width: u16,
     height: u16,
-    use_depth_buffer: bool,
+    pub(crate) use_depth_buffer: bool,
 }
 
 impl WebGlTextureTarget {
-    fn new(
+    pub(crate) fn new(
         gl: &WebGl2RenderingContext,
         texture: &WebGlTexture,
         depth: Option<&WebGlRenderbuffer>,
@@ -60,7 +79,7 @@ impl WebGlTextureTarget {
         })
     }
 
-    fn for_atlas(
+    pub(crate) fn for_atlas(
         gl: &WebGl2RenderingContext,
         texture: &WebGlTexture,
         width: u16,
@@ -98,7 +117,7 @@ impl WebGlTextureTarget {
     }
 }
 
-fn validate_bound_texture_target(
+pub(crate) fn validate_bound_texture_target(
     gl: &WebGl2RenderingContext,
     use_depth_buffer: bool,
 ) -> Result<(), WebGlError> {
@@ -132,4 +151,3 @@ fn validate_bound_texture_target(
 
     Ok(())
 }
-
