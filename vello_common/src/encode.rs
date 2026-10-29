@@ -13,6 +13,7 @@ use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind, Image
 use crate::util::f32_to_u8;
 use alloc::borrow::Cow;
 use alloc::fmt::Debug;
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::Pod;
@@ -820,8 +821,8 @@ pub struct EncodedGradient {
     pub extend: Extend,
     /// Whether the gradient requires `source_over` compositing.
     pub may_have_transparency: bool,
-    u8_lut: OnceCell<GradientLut<u8>>,
-    f32_lut: OnceCell<GradientLut<f32>>,
+    u8_lut: OnceCell<Arc<GradientLut<u8>>>,
+    f32_lut: OnceCell<Arc<GradientLut<f32>>>,
 }
 
 impl EncodedGradient {
@@ -829,14 +830,33 @@ impl EncodedGradient {
     // No need to vectorize here, as vectorization happens in the constructor.
     pub fn u8_lut<S: Simd>(&self, simd: S) -> &GradientLut<u8> {
         self.u8_lut
-            .get_or_init(|| GradientLut::new(simd, &self.ranges))
+            .get_or_init(|| Arc::new(GradientLut::new(simd, &self.ranges)))
     }
 
     /// Get the lookup table for sampling f32-based gradient values.
     // No need to vectorize here, as vectorization happens in the constructor.
     pub fn f32_lut<S: Simd>(&self, simd: S) -> &GradientLut<f32> {
         self.f32_lut
-            .get_or_init(|| GradientLut::new(simd, &self.ranges))
+            .get_or_init(|| Arc::new(GradientLut::new(simd, &self.ranges)))
+    }
+
+    /// Reuse the lookup tables that `other` has already built, instead of building them again.
+    ///
+    /// `other` must have the same cache key as this gradient, so that their lookup tables are
+    /// the same. Lookup tables that `other` has not built yet are still built lazily.
+    pub fn share_luts(&mut self, other: &Self) {
+        debug_assert!(
+            self.cache_key == other.cache_key,
+            "gradients with different cache keys can't share lookup tables"
+        );
+
+        if let Some(lut) = other.u8_lut.get() {
+            self.u8_lut = OnceCell::from(lut.clone());
+        }
+
+        if let Some(lut) = other.f32_lut.get() {
+            self.f32_lut = OnceCell::from(lut.clone());
+        }
     }
 }
 
