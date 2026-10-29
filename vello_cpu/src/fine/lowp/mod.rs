@@ -455,7 +455,7 @@ mod fill {
     use crate::peniko::{BlendMode, Mix};
     use fearless_simd_macros::simd;
     use vello_common::fearless_simd::*;
-    use vello_common::util::{narrow, normalized_mul_u8};
+    use vello_common::util::{narrow, normalized_mul_u8, widen};
 
     /// Applies blend mode compositing to a buffer without per-pixel masks.
     #[simd]
@@ -483,16 +483,20 @@ mod fill {
     /// Uses the "over" operator: `result = src + bg * (1 - src_alpha)`
     #[simd]
     pub(super) fn alpha_composite_solid<S: Simd>(s: S, dest: &mut [u8], src: [u8; 4]) {
-        let one_minus_alpha = 255 - u8x32::splat(s, src[3]);
+        let one_minus_alpha = widen(255 - u8x32::splat(s, src[3]));
         let src_c = u32x8::splat(s, u32::from_ne_bytes(src)).to_bytes();
+        // `src + div_255(bg * (255 - src_alpha))` is `(bg * (255 - src_alpha) + 255 + 256 * src) >> 8`,
+        // which saves adding the source separately. This cannot overflow, since the product is at
+        // most `255 * (255 - src_alpha)` and `src <= src_alpha`.
+        let src_bias = (widen(src_c) << 8) | 255;
 
         for next_dest in dest.as_chunks_mut::<64>().0 {
             // We process in batches of 64 because loading/storing is much faster this way (at least on NEON),
             // but since we widen to u16, we can only work with 256 bits, so we split it up.
             let bg_v = u8x64::from_slice(s, next_dest);
             let (bg_1, bg_2) = s.split_u8x64(bg_v);
-            let res_1 = alpha_composite_inner(s, bg_1, src_c, one_minus_alpha);
-            let res_2 = alpha_composite_inner(s, bg_2, src_c, one_minus_alpha);
+            let res_1 = narrow((widen(bg_1) * one_minus_alpha + src_bias) >> 8);
+            let res_2 = narrow((widen(bg_2) * one_minus_alpha + src_bias) >> 8);
             let combined = s.combine_u8x32(res_1, res_2);
             combined.store_slice(next_dest);
         }
@@ -741,6 +745,28 @@ mod tests {
                     simd.vectorize(|| unpack(simd, region, usize::from(width), scratch));
                 },
             );
+        });
+    }
+
+    #[test]
+    fn alpha_composite_solid_matches_reference() {
+        let bg = (0..=255)
+            .map(|a| [a / 2, a / 3, a, a])
+            .collect::<Vec<[u8; 4]>>();
+
+        dispatch!(Level::try_detect().unwrap_or(Level::baseline()), simd => {
+            for src_a in 0..=255 {
+                let src = [src_a / 4, src_a / 2, src_a, src_a];
+                let mut dest = bg.concat();
+                simd.vectorize(|| fill::alpha_composite_solid(simd, &mut dest, src));
+
+                for (bg, pixel) in bg.iter().zip(dest.as_chunks::<4>().0) {
+                    let expected: [u8; 4] = array::from_fn(|i| {
+                        src[i] + div_255(u16::from(bg[i]) * u16::from(255 - src_a)) as u8
+                    });
+                    assert_eq!(*pixel, expected);
+                }
+            }
         });
     }
 
