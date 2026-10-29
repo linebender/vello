@@ -12,10 +12,142 @@ use crate::{
 };
 use core::fmt::Debug;
 use wgpu::{
-    BindGroup, BindGroupLayout, CommandEncoder, Device, Extent3d, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, Sampler, Texture, TextureView, TextureViewDescriptor,
-    util::DeviceExt,
+    BindGroup, BindGroupLayout, ColorTargetState, ColorWrites, CommandEncoder, Device, Extent3d,
+    PipelineCompilationOptions, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
+    Sampler, Texture, TextureView, TextureViewDescriptor, util::DeviceExt,
 };
+
+/// Bind group layouts, sampler and pipeline of the filter pass.
+#[derive(Debug)]
+pub(crate) struct FilterPipeline {
+    /// Bind group layout for filter data texture.
+    pub(crate) bind_group_layout: BindGroupLayout,
+    /// Filter input layouts.
+    pub(crate) input_bind_group_layouts: [BindGroupLayout; 2],
+    /// Filter sampler.
+    pub(crate) sampler: Sampler,
+    /// Pipeline for applying filter effects.
+    pub(crate) pipeline: RenderPipeline,
+}
+
+impl FilterPipeline {
+    pub(crate) fn new(device: &Device, pipeline_cache: Option<&wgpu::PipelineCache>) -> Self {
+        let filter_texture_entry = wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let filter_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Filter Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+        let filter_input_bind_group_layouts = [
+            // Input texture and linear sampler.
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Filter Input Bind Group Layout"),
+                entries: &[
+                    filter_texture_entry,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            }),
+            // The original layer texture.
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Filter Original Texture Bind Group Layout"),
+                entries: &[filter_texture_entry],
+            }),
+        ];
+
+        let filter_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Filter Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::FILTER.into()),
+        });
+        let filter_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Filter Pipeline Layout"),
+                bind_group_layouts: &[
+                    Some(&filter_bind_group_layout),
+                    Some(&filter_input_bind_group_layouts[0]),
+                    Some(&filter_input_bind_group_layouts[1]),
+                ],
+                immediate_size: 0,
+            });
+        let filter_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Filter Pipeline"),
+            layout: Some(&filter_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &filter_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: size_of::<FilterInstanceData>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Uint32,
+                        1 => Uint32,
+                        2 => Uint32,
+                        3 => Uint32,
+                        4 => Uint32,
+                        5 => Uint32,
+                        6 => Uint32,
+                        7 => Uint32,
+                        8 => Uint32,
+                    ],
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &filter_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            cache: pipeline_cache,
+            multiview_mask: None,
+        });
+        let filter_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Filter Linear Sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self {
+            bind_group_layout: filter_bind_group_layout,
+            input_bind_group_layouts: filter_input_bind_group_layouts,
+            sampler: filter_sampler,
+            pipeline: filter_pipeline,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct FilterPairBindGroups {
@@ -85,7 +217,7 @@ impl Programs {
             self.resources.filter_data_texture = filter_texture;
             self.resources.filter_base_bind_group = Self::create_filter_base_bind_group(
                 device,
-                &self.filter_bind_group_layout,
+                &self.filter.bind_group_layout,
                 &self
                     .resources
                     .filter_data_texture
@@ -134,14 +266,14 @@ impl RendererContext<'_> {
             let inputs = layer_views.map(|view| {
                 create_filter_input_bind_group(
                     self.device,
-                    &self.programs.filter_input_bind_group_layouts[0],
-                    &self.programs.filter_sampler,
+                    &self.programs.filter.input_bind_group_layouts[0],
+                    &self.programs.filter.sampler,
                     view,
                 )
             });
             let copy_source = Programs::create_copy_bind_group(
                 self.device,
-                &self.programs.copy_bind_group_layout,
+                &self.programs.copy.bind_group_layout,
                 resources.layer_view(target),
             );
             self.programs.filter_pair_bind_groups.insert(
@@ -158,7 +290,7 @@ impl RendererContext<'_> {
             encode_copy_pass(
                 self.device,
                 self.encoder,
-                &self.programs.copy_pipeline,
+                &self.programs.copy.pipeline,
                 copy_pass,
                 &filter_pair_bind_groups.copy_source,
                 resources.scratch_view(),
@@ -173,7 +305,7 @@ impl RendererContext<'_> {
                 self.device,
                 self.encoder,
                 resources,
-                &self.programs.filter_pipeline,
+                &self.programs.filter.pipeline,
                 instances,
                 &filter_pair_bind_groups.inputs[input.texture_parity.get_parity()],
                 &resources.filter_original_bind_group,

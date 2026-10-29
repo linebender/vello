@@ -5,10 +5,71 @@
 
 use crate::copy::GpuCopyInstance;
 use crate::render::wgpu::passes::Programs;
+use crate::render::wgpu::passes::create_texture_op_pipeline;
 use wgpu::{
     BindGroup, BindGroupLayout, CommandEncoder, Device, RenderPassColorAttachment,
     RenderPassDescriptor, RenderPipeline, TextureView, util::DeviceExt,
 };
+
+/// Bind group layout and pipeline of the copy pass.
+#[derive(Debug)]
+pub(crate) struct CopyPipeline {
+    /// Copy bind group layout.
+    pub(crate) bind_group_layout: BindGroupLayout,
+    /// Copy pipeline.
+    pub(crate) pipeline: RenderPipeline,
+}
+
+impl CopyPipeline {
+    pub(crate) fn new(device: &Device, pipeline_cache: Option<&wgpu::PipelineCache>) -> Self {
+        let copy_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Copy Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+        let copy_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Copy Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::COPY.into()),
+        });
+        let copy_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Copy Pipeline Layout"),
+            bind_group_layouts: &[Some(&copy_bind_group_layout)],
+            immediate_size: 0,
+        });
+        let copy_vertex_state = wgpu::VertexBufferLayout {
+            array_stride: size_of::<GpuCopyInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Uint32,
+                1 => Uint32,
+                2 => Uint32,
+                3 => Uint32,
+            ],
+        };
+        let copy_pipeline = create_texture_op_pipeline(
+            device,
+            "Copy Pipeline",
+            &copy_shader,
+            &copy_pipeline_layout,
+            &copy_vertex_state,
+            pipeline_cache,
+        );
+
+        Self {
+            bind_group_layout: copy_bind_group_layout,
+            pipeline: copy_pipeline,
+        }
+    }
+}
 
 impl Programs {
     pub(crate) fn create_copy_bind_group(

@@ -3,13 +3,135 @@
 
 //! The clear pass.
 
+use crate::render::wgpu::RenderTargetConfig;
 use crate::render::wgpu::passes::RendererContext;
 use crate::{ClearSettings, render::common::GpuClearInstance, target::DrawPassTarget};
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::geometry::RectU16;
 use wgpu::{
-    CommandEncoder, RenderPassColorAttachment, RenderPassDescriptor, TextureView, util::DeviceExt,
+    ColorTargetState, ColorWrites, CommandEncoder, Device, PipelineCompilationOptions,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, TextureView, util::DeviceExt,
 };
+
+/// Pipelines for clearing rectangles of layer textures, the root target and atlas regions.
+#[derive(Debug)]
+pub(crate) struct ClearPipelines {
+    /// Layer-clear pipeline.
+    pub(crate) layer: RenderPipeline,
+    /// User-target rectangle-clear pipeline.
+    pub(crate) root: RenderPipeline,
+    /// Pipeline for clearing atlas regions.
+    pub(crate) atlas: RenderPipeline,
+}
+
+impl ClearPipelines {
+    pub(crate) fn new(
+        device: &Device,
+        render_target_config: &RenderTargetConfig,
+        pipeline_cache: Option<&wgpu::PipelineCache>,
+    ) -> Self {
+        let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Clear Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::CLEAR.into()),
+        });
+
+        let clear_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Clear Pipeline Layout"),
+                bind_group_layouts: &[],
+                immediate_size: 0,
+            });
+
+        let clear_vertex_state = wgpu::VertexBufferLayout {
+            array_stride: size_of::<GpuClearInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Uint32x2,
+                1 => Uint32x2,
+                2 => Uint32x2,
+                3 => Uint32,
+            ],
+        };
+        let create_clear_pipeline = |label, format| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&clear_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &clear_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[Some(clear_vertex_state.clone())],
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &clear_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format,
+                        blend: None,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: pipeline_cache,
+            })
+        };
+        let clear_pipeline =
+            create_clear_pipeline("Clear Pipeline", wgpu::TextureFormat::Rgba8Unorm);
+        let root_clear_pipeline =
+            create_clear_pipeline("Root Clear Pipeline", render_target_config.format);
+
+        // Create atlas clear pipeline
+        let atlas_clear_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Atlas Clear Pipeline Layout"),
+                bind_group_layouts: &[],
+                immediate_size: 0,
+            });
+        // TODO: Change the atlas clear pipeline to use the existing layer clear mechanism.
+        let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Atlas Clear Pipeline"),
+            layout: Some(&atlas_clear_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &clear_shader,
+                // Use a different vertex shader entry point
+                entry_point: Some("vs_main_fullscreen"),
+                buffers: &[],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &clear_shader,
+                entry_point: Some("fs_transparent"),
+                targets: &[Some(ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: pipeline_cache,
+        });
+
+        Self {
+            layer: clear_pipeline,
+            root: root_clear_pipeline,
+            atlas: atlas_clear_pipeline,
+        }
+    }
+}
 
 impl RendererContext<'_> {
     pub(crate) fn clear_full_target(
@@ -57,13 +179,13 @@ impl RendererContext<'_> {
                     self.programs.render_size.width,
                     self.programs.render_size.height,
                 ],
-                &self.programs.root_clear_pipeline,
+                &self.programs.clear.root,
             ),
             DrawPassTarget::Layer(_) => {
                 let texture_size = self.texture_size();
                 (
                     [texture_size.width(), texture_size.height()],
-                    &self.programs.clear_pipeline,
+                    &self.programs.clear.layer,
                 )
             }
         };

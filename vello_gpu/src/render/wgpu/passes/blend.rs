@@ -4,6 +4,7 @@
 //! The blend pass.
 
 use crate::render::wgpu::passes::copy::encode_copy_pass;
+use crate::render::wgpu::passes::create_texture_op_pipeline;
 use crate::render::wgpu::passes::{Programs, RendererContext};
 use crate::util::RangedSlice;
 use crate::{
@@ -14,8 +15,95 @@ use crate::{
 use hashbrown::hash_map::Entry;
 use wgpu::{
     BindGroup, BindGroupLayout, Device, RenderPassColorAttachment, RenderPassDescriptor,
-    TextureView, TextureViewDescriptor, util::DeviceExt,
+    RenderPipeline, TextureView, TextureViewDescriptor, util::DeviceExt,
 };
+
+/// Bind group layout and pipeline of the blend pass.
+#[derive(Debug)]
+pub(crate) struct BlendPipeline {
+    /// Blend bind group layout.
+    pub(crate) bind_group_layout: BindGroupLayout,
+    /// Blend pipeline.
+    pub(crate) pipeline: RenderPipeline,
+}
+
+impl BlendPipeline {
+    pub(crate) fn new(device: &Device, pipeline_cache: Option<&wgpu::PipelineCache>) -> Self {
+        let blend_layer_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Blend Layer Textures Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Uint,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+        let blend_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Blend Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::BLEND.into()),
+        });
+        let blend_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Blend Pipeline Layout"),
+                bind_group_layouts: &[Some(&blend_layer_bind_group_layout)],
+                immediate_size: 0,
+            });
+        let blend_vertex_state = wgpu::VertexBufferLayout {
+            array_stride: size_of::<GpuBlendInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Uint32,
+                1 => Uint32,
+                2 => Uint32,
+                3 => Uint32,
+                4 => Uint32,
+                5 => Uint32,
+                6 => Uint32,
+                7 => Uint32,
+            ],
+        };
+        let blend_pipeline = create_texture_op_pipeline(
+            device,
+            "Blend Pipeline",
+            &blend_shader,
+            &blend_pipeline_layout,
+            &blend_vertex_state,
+            pipeline_cache,
+        );
+
+        Self {
+            bind_group_layout: blend_layer_bind_group_layout,
+            pipeline: blend_pipeline,
+        }
+    }
+}
 
 impl Programs {
     fn create_blend_layer_bind_group(
@@ -62,7 +150,7 @@ impl RendererContext<'_> {
                     .create_view(&TextureViewDescriptor::default());
                 entry.insert(Programs::create_blend_layer_bind_group(
                     self.device,
-                    &self.programs.blend_layer_bind_group_layout,
+                    &self.programs.blend.bind_group_layout,
                     resources.layer_views([
                         bindings.layer_id(TextureParity::Even),
                         bindings.layer_id(TextureParity::Odd),
@@ -116,7 +204,7 @@ impl RendererContext<'_> {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
-            render_pass.set_pipeline(&self.programs.blend_pipeline);
+            render_pass.set_pipeline(&self.programs.blend.pipeline);
             render_pass.set_bind_group(0, &*blend_layer_bind_group, &[]);
             render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
             render_pass.draw(0..4, 0..instance_count);
@@ -133,7 +221,7 @@ impl RendererContext<'_> {
         encode_copy_pass(
             self.device,
             self.encoder,
-            &self.programs.copy_pipeline,
+            &self.programs.copy.pipeline,
             &self.scratch_buffers.copy_instances,
             &self.programs.resources.scratch_copy_bind_group,
             self.programs.resources.layer_view(bindings.target()),

@@ -4,6 +4,7 @@
 //! The strip pass.
 
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
+use crate::render::wgpu::RenderTargetConfig;
 use crate::render::wgpu::bindings::TextureBinding;
 use crate::render::wgpu::passes::{Programs, RendererContext};
 use crate::util::RangedSlice;
@@ -16,9 +17,225 @@ use alloc::vec;
 use core::{fmt::Debug, num::NonZeroU64, ops::Range};
 use hashbrown::hash_map::Entry;
 use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, RenderPassColorAttachment,
-    RenderPassDescriptor, Sampler, TextureView, TextureViewDescriptor,
+    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
+    Device, PipelineCompilationOptions, RenderPassColorAttachment, RenderPassDescriptor,
+    RenderPipeline, Sampler, TextureView, TextureViewDescriptor,
 };
+
+/// Bind group layouts and pipelines of the strip pass.
+#[derive(Debug)]
+pub(crate) struct StripPipelines {
+    /// Bind group layout for strip draws
+    pub(crate) bind_group_layout: BindGroupLayout,
+    /// Bind group layout for external textures.
+    pub(crate) external_texture_bind_group_layout: BindGroupLayout,
+    /// Whether the external texture bind group has a `texture_external` binding.
+    pub(crate) wgpu_external_textures: bool,
+    /// Intermediate strip pipeline.
+    pub(crate) intermediate: RenderPipeline,
+    /// Root alpha-strip pipeline.
+    pub(crate) alpha: RenderPipeline,
+    /// Root alpha-strip pipeline with depth testing.
+    pub(crate) depth_alpha: RenderPipeline,
+    /// Root opaque-strip pipeline.
+    pub(crate) opaque: RenderPipeline,
+}
+
+impl StripPipelines {
+    pub(crate) fn new(
+        device: &Device,
+        render_target_config: &RenderTargetConfig,
+        encoded_paints_bind_group_layout: &BindGroupLayout,
+        gradient_bind_group_layout: &BindGroupLayout,
+        pipeline_cache: Option<&wgpu::PipelineCache>,
+    ) -> Self {
+        let strip_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Strip Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Uint,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        #[cfg(feature = "wgpu_external_texture")]
+        let wgpu_external_textures = device.features().contains(wgpu::Features::EXTERNAL_TEXTURE);
+        #[cfg(not(feature = "wgpu_external_texture"))]
+        let wgpu_external_textures = false;
+        let external_texture_layout_entry = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let external_sampler_layout_entry = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        };
+        let mut external_texture_layout_entries = vec![
+            external_texture_layout_entry(0),
+            external_sampler_layout_entry(1),
+        ];
+        if wgpu_external_textures {
+            external_texture_layout_entries.push(wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::ExternalTexture,
+                count: None,
+            });
+        }
+        let external_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("External Texture Bind Group Layout"),
+                entries: &external_texture_layout_entries,
+            });
+
+        #[cfg(feature = "wgpu_external_texture")]
+        let strip_shader_source = if wgpu_external_textures {
+            vello_gpu_shaders::wgsl::RENDER_TEXTURE_EXTERNAL
+        } else {
+            vello_gpu_shaders::wgsl::RENDER
+        };
+        #[cfg(not(feature = "wgpu_external_texture"))]
+        let strip_shader_source = vello_gpu_shaders::wgsl::RENDER;
+        let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Strip Shader"),
+            source: wgpu::ShaderSource::Wgsl(strip_shader_source.into()),
+        });
+
+        let strip_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Strip Pipeline Layout"),
+                bind_group_layouts: &[
+                    Some(&strip_bind_group_layout),
+                    Some(&external_texture_bind_group_layout),
+                    Some(encoded_paints_bind_group_layout),
+                    Some(gradient_bind_group_layout),
+                ],
+                immediate_size: 0,
+            });
+
+        let depth_format = wgpu::TextureFormat::Depth24Plus;
+
+        let strip_vertex_state = wgpu::VertexBufferLayout {
+            array_stride: size_of::<GpuStrip>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &GpuStrip::vertex_attributes(),
+        };
+
+        let create_strip_pipeline =
+            |label, format, blend, depth_stencil: Option<wgpu::DepthStencilState>| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&strip_pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &strip_shader,
+                        entry_point: Some("vs_main"),
+                        buffers: &[Some(strip_vertex_state.clone())],
+                        compilation_options: PipelineCompilationOptions::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &strip_shader,
+                        entry_point: Some("fs_main"),
+                        targets: &[Some(ColorTargetState {
+                            format,
+                            blend,
+                            write_mask: ColorWrites::ALL,
+                        })],
+                        compilation_options: PipelineCompilationOptions::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        ..Default::default()
+                    },
+                    depth_stencil,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: pipeline_cache,
+                })
+            };
+
+        let depth_stencil = |depth_write_enabled| wgpu::DepthStencilState {
+            format: depth_format,
+            depth_write_enabled: Some(depth_write_enabled),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        };
+
+        let intermediate_strip_pipeline = create_strip_pipeline(
+            "Strip Intermediate Pipeline",
+            wgpu::TextureFormat::Rgba8Unorm,
+            Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            None,
+        );
+
+        let alpha_strip_pipeline = create_strip_pipeline(
+            "Strip Alpha Pipeline",
+            render_target_config.format,
+            Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            None,
+        );
+
+        let depth_alpha_strip_pipeline = create_strip_pipeline(
+            "Strip Depth Alpha Pipeline",
+            render_target_config.format,
+            Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            Some(depth_stencil(false)),
+        );
+
+        let opaque_strip_pipeline = create_strip_pipeline(
+            "Strip Opaque Pipeline",
+            render_target_config.format,
+            None,
+            Some(depth_stencil(true)),
+        );
+
+        Self {
+            bind_group_layout: strip_bind_group_layout,
+            external_texture_bind_group_layout,
+            wgpu_external_textures,
+            intermediate: intermediate_strip_pipeline,
+            alpha: alpha_strip_pipeline,
+            depth_alpha: depth_alpha_strip_pipeline,
+            opaque: opaque_strip_pipeline,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum StripTargetKind {
@@ -113,7 +330,8 @@ impl Programs {
         let (texture_view, wgpu_external_texture) = match binding {
             TextureBinding::TextureView(view) => (
                 view,
-                self.wgpu_external_textures
+                self.strip
+                    .wgpu_external_textures
                     .then_some(wgpu::BindingResource::TextureView(placeholder)),
             ),
             #[cfg(feature = "wgpu_external_texture")]
@@ -124,7 +342,7 @@ impl Programs {
         };
         Self::create_external_texture_bind_group(
             device,
-            &self.external_texture_bind_group_layout,
+            &self.strip.external_texture_bind_group_layout,
             [texture_view],
             samplers,
             wgpu_external_texture,
@@ -270,7 +488,7 @@ impl RendererContext<'_> {
                 .create_view(&TextureViewDescriptor::default());
             let bind_group = Programs::create_strip_bind_group(
                 self.device,
-                &self.programs.strip_bind_group_layout,
+                &self.programs.strip.bind_group_layout,
                 &alphas_texture_view,
                 config_buffer,
                 child_layer_view,
@@ -367,7 +585,7 @@ impl RendererContext<'_> {
                 enable_opaque,
                 "opaque strips require the final view depth attachment"
             );
-            render_pass.set_pipeline(&self.programs.opaque_strip_pipeline);
+            render_pass.set_pipeline(&self.programs.strip.opaque);
             draw_strip_runs(&mut render_pass, 0, opaque_count);
         }
 
@@ -375,13 +593,13 @@ impl RendererContext<'_> {
             // Alpha pass
             if matches!(target, DrawPassTarget::Root(RootTarget::UserSurface)) {
                 let pipeline = if enable_opaque {
-                    &self.programs.depth_alpha_strip_pipeline
+                    &self.programs.strip.depth_alpha
                 } else {
-                    &self.programs.alpha_strip_pipeline
+                    &self.programs.strip.alpha
                 };
                 render_pass.set_pipeline(pipeline);
             } else {
-                render_pass.set_pipeline(&self.programs.intermediate_strip_pipeline);
+                render_pass.set_pipeline(&self.programs.strip.intermediate);
             }
 
             draw_strip_runs(&mut render_pass, opaque_count, alpha_count);

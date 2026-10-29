@@ -309,11 +309,11 @@ impl Programs {
         let scratch_view = self.resources.scratch_view();
         let filter_original_bind_group = create_filter_original_texture_bind_group(
             device,
-            &self.filter_input_bind_group_layouts[1],
+            &self.filter.input_bind_group_layouts[1],
             scratch_view,
         );
         let scratch_copy_bind_group =
-            Self::create_copy_bind_group(device, &self.copy_bind_group_layout, scratch_view);
+            Self::create_copy_bind_group(device, &self.copy.bind_group_layout, scratch_view);
 
         self.resources.filter_original_bind_group = filter_original_bind_group;
         self.resources.scratch_copy_bind_group = scratch_copy_bind_group;
@@ -415,6 +415,38 @@ impl Programs {
             mag_filter: filter,
             min_filter: filter,
             ..Default::default()
+        })
+    }
+
+    pub(crate) fn create_encoded_paints_bind_group_layout(device: &Device) -> BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Encoded Paints Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Uint,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        })
+    }
+
+    pub(crate) fn create_gradient_bind_group_layout(device: &Device) -> BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Gradient Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
         })
     }
 

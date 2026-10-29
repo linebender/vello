@@ -599,7 +599,7 @@ impl Renderer {
             u32::from(height),
         );
         // Use atlas clear pipeline to render transparent pixels
-        render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
+        render_pass.set_pipeline(&self.programs.clear.atlas);
         // Draw fullscreen quad
         render_pass.draw(0..4, 0..1);
     }
