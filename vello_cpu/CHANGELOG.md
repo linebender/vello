@@ -19,6 +19,7 @@ This release has an [MSRV][] of 1.89.
 ### Changed
 
 - Breaking change: `RenderContext::reset_and_resize` and `RenderContext::reset_and_shrink` have been removed in favor of `RenderContext::reset_with`. (by [@LaurenzV][])
+- Gradients with the same colors now share one lookup table per render context. ([#2038][] by [@josefguenther][])
 
 ## [0.4.0][] - 2026-11-11
 
@@ -286,6 +287,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@grebmeg]: https://github.com/grebmeg
+[@josefguenther]: https://github.com/josefguenther
 [@jrmoulton]: https://github.com/jrmoulton
 [@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
@@ -383,6 +385,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#2003]: https://github.com/linebender/vello/pull/2003
 [#2028]: https://github.com/linebender/vello/pull/2028
 [#2032]: https://github.com/linebender/vello/pull/2032
+[#2038]: https://github.com/linebender/vello/pull/2038
 [#2061]: https://github.com/linebender/vello/pull/2061
 [#2073]: https://github.com/linebender/vello/pull/2073
 [#2075]: https://github.com/linebender/vello/pull/2075
