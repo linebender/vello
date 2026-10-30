@@ -85,12 +85,13 @@ pub(crate) fn flatten<S: Simd>(
     let right = cull_bbox.x1 as f64;
     let bottom = cull_bbox.y1 as f64;
 
-    // A segment whose points all lie to the right of, above, or below the culling bbox impacts
-    // neither pixel coverage nor winding inside it.
-    let is_culled = |pts: &[Point]| {
-        pts.iter().all(|p| p.x > right)
-            || pts.iter().all(|p| p.y < top)
-            || pts.iter().all(|p| p.y > bottom)
+    let is_culled = {
+        #[inline(always)]
+        |pts: &[Point]| {
+            pts.iter().all(|p| p.x > right)
+                || pts.iter().all(|p| p.y < top)
+                || pts.iter().all(|p| p.y > bottom)
+        }
     };
 
     let mut path = path.into_iter();
