@@ -92,9 +92,8 @@ pub(crate) fn apply_blur(
 
     // Upsample back to original resolution (each step doubles resolution by 2×)
     for _ in 0..n_decimations {
-        let (w, h) = sizer.current();
+        let (w, h) = sizer.upscale();
         upscale(pixmap, w, h, edge_mode);
-        sizer.upscale();
     }
 
     debug_assert_eq!(
@@ -325,26 +324,32 @@ fn downscale_y(
 ///   → weights: 0.75×pixel\[k\] + 0.25×pixel\[k-1\]
 /// - Position `2k+1`: distance 0.5 from center at `2k+0.5`, distance 1.5 from center at `2k+2.5`
 ///   → weights: 0.75×pixel\[k\] + 0.25×pixel\[k+1\]
-pub(crate) fn upscale(
-    src: &mut Pixmap,
-    src_width: u16,
-    src_height: u16,
-    edge_mode: EdgeMode,
-) -> (u16, u16) {
-    let dst_width = src_width * 2;
-    let dst_height = src_height * 2;
-    upscale_x(src, src_width, src_height, edge_mode);
-    upscale_y(src, dst_width, src_height, edge_mode);
-    (dst_width, dst_height)
+///
+/// `dst_width` and `dst_height` are the dimensions before the matching downscale (see
+/// [`DecimationSizer::upscale`]). The source is the top-left `ceil(dst_width/2)` ×
+/// `ceil(dst_height/2)` region. Where an odd dimension was rounded up when halving, doubling
+/// it overshoots by one; that last column or row is not written, as it may lie past the edge
+/// of the pixmap or wrap into the next row.
+pub(crate) fn upscale(src: &mut Pixmap, dst_width: u16, dst_height: u16, edge_mode: EdgeMode) {
+    let src_width = dst_width.div_ceil(2);
+    let src_height = dst_height.div_ceil(2);
+    upscale_x(src, src_width, src_height, dst_width, edge_mode);
+    upscale_y(src, dst_width, src_height, dst_height, edge_mode);
 }
 
 /// Horizontal upsampling pass using [0.75, 0.25] interpolation with logical dimensions.
 ///
-/// Doubles the logical width using phase-aligned interpolation. Each input pixel
-/// generates two output pixels with different weights based on their distance from
-/// the downsampled pixel's center position.
+/// Doubles the logical width using phase-aligned interpolation, stopping at `dst_width`.
+/// Each input pixel generates two output pixels with different weights based on their
+/// distance from the downsampled pixel's center position.
 /// Operates in-place by processing backwards to avoid overwriting source data.
-fn upscale_x(src: &mut Pixmap, src_width: u16, src_height: u16, edge_mode: EdgeMode) {
+fn upscale_x(
+    src: &mut Pixmap,
+    src_width: u16,
+    src_height: u16,
+    dst_width: u16,
+    edge_mode: EdgeMode,
+) {
     // Process backwards (right to left) to avoid overwriting source data
     for y in 0..src_height {
         // Maintain sliding window of three pixels: prev, current, next
@@ -361,7 +366,9 @@ fn upscale_x(src: &mut Pixmap, src_width: u16, src_height: u16, edge_mode: EdgeM
             // output[2x+1] = 0.75×p1 + 0.25×p0  (position 2x+1 is 0.5 from center at 2x+0.5)
             let dst_x = x * 2;
             src.set_pixel(dst_x, y, interpolate_25_75(p2, p1));
-            src.set_pixel(dst_x + 1, y, interpolate_75_25(p1, p0));
+            if dst_x + 1 < dst_width {
+                src.set_pixel(dst_x + 1, y, interpolate_75_25(p1, p0));
+            }
 
             // Advance sliding window for next iteration
             p0 = p1;
@@ -372,11 +379,17 @@ fn upscale_x(src: &mut Pixmap, src_width: u16, src_height: u16, edge_mode: EdgeM
 
 /// Vertical upsampling pass using [0.75, 0.25] interpolation with logical dimensions.
 ///
-/// Doubles the logical height using phase-aligned interpolation. Each input pixel
-/// generates two output pixels with different weights based on their distance from
-/// the downsampled pixel's center position.
+/// Doubles the logical height using phase-aligned interpolation, stopping at `dst_height`.
+/// Each input pixel generates two output pixels with different weights based on their
+/// distance from the downsampled pixel's center position.
 /// Operates in-place by processing backwards to avoid overwriting source data.
-fn upscale_y(src: &mut Pixmap, src_width: u16, src_height: u16, edge_mode: EdgeMode) {
+fn upscale_y(
+    src: &mut Pixmap,
+    src_width: u16,
+    src_height: u16,
+    dst_height: u16,
+    edge_mode: EdgeMode,
+) {
     // Process backwards (bottom to top) to avoid overwriting source data
     for x in 0..src_width {
         // Maintain sliding window of three pixels: prev, current, next
@@ -393,7 +406,9 @@ fn upscale_y(src: &mut Pixmap, src_width: u16, src_height: u16, edge_mode: EdgeM
             // output[2y+1] = 0.75×p1 + 0.25×p0  (position 2y+1 is 0.5 from center at 2y+0.5)
             let dst_y = y * 2;
             src.set_pixel(x, dst_y, interpolate_25_75(p2, p1));
-            src.set_pixel(x, dst_y + 1, interpolate_75_25(p1, p0));
+            if dst_y + 1 < dst_height {
+                src.set_pixel(x, dst_y + 1, interpolate_75_25(p1, p0));
+            }
 
             // Advance sliding window for next iteration
             p0 = p1;
@@ -780,14 +795,78 @@ mod tests {
         assert_eq!(new_height, 3);
     }
 
-    /// Test upscale dimensions.
+    /// Blurring a pixmap with odd dimensions must not write past its edges when upscaling.
+    ///
+    /// An overshooting column would wrap into the first pixel of the next row, and an
+    /// overshooting row past the end of the pixmap. The image varies along one axis only, so
+    /// every line along the other axis must come out the same.
     #[test]
-    fn test_upscale_dimensions() {
-        let mut pixmap = Pixmap::new(6, 6);
-        let (new_width, new_height) = upscale(&mut pixmap, 3, 3, EdgeMode::Duplicate);
-        // 3 * 2 = 6
-        assert_eq!(new_width, 6);
-        assert_eq!(new_height, 6);
+    fn test_blur_odd_dimensions() {
+        for (width, height, along_x) in [(37, 20, true), (20, 37, false), (37, 21, true)] {
+            let value = |x: u16, y: u16| {
+                let i = if along_x { x } else { y };
+                PremulRgba8 {
+                    r: (i * 7) as u8,
+                    g: 255 - (i * 5) as u8,
+                    b: (i * 3) as u8,
+                    a: 255,
+                }
+            };
+            let mut pixmap = Pixmap::new(width, height);
+            for y in 0..height {
+                for x in 0..width {
+                    pixmap.set_pixel(x, y, value(x, y));
+                }
+            }
+            let mut scratch = Pixmap::new(width, height);
+            let (n_decimations, kernel, kernel_size) = plan_decimated_blur(12.0);
+            assert!(n_decimations > 0);
+            apply_blur(
+                &mut pixmap,
+                &mut scratch,
+                n_decimations,
+                &kernel[..usize::from(kernel_size)],
+                EdgeMode::Duplicate,
+            );
+
+            for y in 0..height {
+                for x in 0..width {
+                    let first = if along_x {
+                        pixmap.sample(x, 0)
+                    } else {
+                        pixmap.sample(0, y)
+                    };
+                    assert_eq!(
+                        pixmap.sample(x, y),
+                        first,
+                        "{width}x{height} differs at ({x}, {y})"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Test upscale with odd dimensions.
+    ///
+    /// 5 was rounded up to 3 when halving. Doubling 3 gives 6, so the upscale must stop at 5
+    /// instead of writing past the end of the pixmap.
+    #[test]
+    fn test_upscale_odd_dimensions() {
+        let white = PremulRgba8 {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        let mut pixmap = Pixmap::new(5, 5);
+        for y in 0..3 {
+            for x in 0..3 {
+                pixmap.set_pixel(x, y, white);
+            }
+        }
+
+        upscale(&mut pixmap, 5, 5, EdgeMode::Duplicate);
+        assert!(pixmap.data().iter().all(|&p| p == white));
     }
 
     /// Test that horizontal convolution preserves uniform colors.
@@ -1027,25 +1106,24 @@ mod tests {
         }
     }
 
-    /// Test that downscale → upscale preserves dimensions.
+    /// Test that downscale → upscale preserves dimensions and a uniform color.
     #[test]
     fn test_downscale_upscale_roundtrip() {
-        let mut pixmap = Pixmap::new(8, 8);
-        // Fill with a pattern
-        pixmap.data_mut().fill(PremulRgba8 {
+        let gray = PremulRgba8 {
             r: 128,
             g: 128,
             b: 128,
             a: 255,
-        });
+        };
+        let mut pixmap = Pixmap::new(8, 8);
+        pixmap.data_mut().fill(gray);
 
         let (w1, h1) = downscale(&mut pixmap, 8, 8, EdgeMode::Duplicate);
         assert_eq!(w1, 4);
         assert_eq!(h1, 4);
 
-        let (w2, h2) = upscale(&mut pixmap, w1, h1, EdgeMode::Duplicate);
-        assert_eq!(w2, 8);
-        assert_eq!(h2, 8);
+        upscale(&mut pixmap, 8, 8, EdgeMode::Duplicate);
+        assert!(pixmap.data().iter().all(|&p| p == gray));
     }
 
     fn pixmap_from_red(width: u16, height: u16, values: &[&[u8]]) -> Pixmap {
@@ -1119,7 +1197,7 @@ mod tests {
     fn test_upscale_x_non_uniform() {
         let mut pixmap = pixmap_from_red(4, 2, &[&[34, 104], &[46, 116]]);
 
-        upscale_x(&mut pixmap, 2, 2, EdgeMode::Duplicate);
+        upscale_x(&mut pixmap, 2, 2, 4, EdgeMode::Duplicate);
 
         // Row 0 [34, 104]:
         //   x=0: interp25_75(34,34)=34,  interp75_25(34,104)=(34*3+104+2)>>2 = 52
@@ -1134,7 +1212,7 @@ mod tests {
     fn test_upscale_y_non_uniform() {
         let mut pixmap = pixmap_from_red(4, 4, &[&[34, 52, 87, 104], &[46, 64, 99, 116]]);
 
-        upscale_y(&mut pixmap, 4, 2, EdgeMode::Duplicate);
+        upscale_y(&mut pixmap, 4, 2, 4, EdgeMode::Duplicate);
 
         #[rustfmt::skip]
         assert_red_values(&pixmap, [
