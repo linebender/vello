@@ -19,7 +19,7 @@ use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, External
 use crate::render::common::IMAGE_PADDING;
 #[cfg(feature = "wgpu_external_texture")]
 use crate::render::common::encode_wgpu_external_texture_paint;
-use crate::render::common::{Core, encode_external_texture_paint};
+use crate::render::common::{SharedCore, encode_external_texture_paint};
 use crate::util::RangedSlice;
 use crate::{
     ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
@@ -304,7 +304,7 @@ pub struct Renderer {
     /// Programs for rendering.
     programs: Programs,
     /// Backend-independent renderer state.
-    core: Core,
+    core: SharedCore,
     /// Format of the render target that the pipelines are created for.
     #[cfg_attr(
         not(feature = "probe"),
@@ -345,7 +345,7 @@ impl Renderer {
             max_texture_dimension_2d: u16::try_from(limits.max_texture_dimension_2d)
                 .unwrap_or(u16::MAX),
         };
-        let (core, resources) = Core::new(&mut settings, &device_limits);
+        let (core, resources) = SharedCore::new(&mut settings, &device_limits);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
 
         let renderer = Self {

@@ -6,7 +6,7 @@
 mod core;
 pub(crate) mod paint;
 
-pub(crate) use self::core::Core;
+pub(crate) use self::core::SharedCore;
 #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
 pub(crate) use paint::encode_wgpu_external_texture_paint;
 pub(crate) use paint::{GpuEncodedPaint, encode_external_texture_paint};

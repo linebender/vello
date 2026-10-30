@@ -37,7 +37,7 @@ pub use error::{
 
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
-use crate::render::common::{Core, encode_external_texture_paint};
+use crate::render::common::{SharedCore, encode_external_texture_paint};
 use crate::util::RangedSlice;
 use crate::{
     ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
@@ -138,7 +138,7 @@ pub struct WebGlRenderer {
     /// WebGL context.
     pub(crate) gl: WebGl2RenderingContext,
     /// Backend-independent renderer state.
-    core: Core,
+    core: SharedCore,
 }
 
 /// WebGL renderer initialization that may still be compiling shader programs.
@@ -153,7 +153,7 @@ pub struct WebGlRendererInit {
     shaders: WebGlShaders,
     resources: WebGlResources,
     encoded_paints_data: Vec<u8>,
-    core: Core,
+    core: SharedCore,
 }
 
 /// Vello's WebGL shader programs, whose compilation and linking may still be in progress.
@@ -496,7 +496,7 @@ impl WebGlRenderer {
             max_texture_dimension_2d: u16::try_from(get_max_texture_dimension_2d(gl)?)
                 .unwrap_or(u16::MAX),
         };
-        let (core, resources) = Core::new(&mut settings, &device_limits);
+        let (core, resources) = SharedCore::new(&mut settings, &device_limits);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
 
         let webgl_resources = create_webgl_resources(

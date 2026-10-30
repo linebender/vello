@@ -24,7 +24,7 @@ use vello_common::paint::{ImageSource, TextureRegion};
 
 /// Renderer state that doesn't depend on the backend.
 #[derive(Debug)]
-pub(crate) struct Core {
+pub(crate) struct SharedCore {
     /// GPU encodings of the scene's encoded paints, in the same order.
     pub(crate) encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
@@ -37,7 +37,7 @@ pub(crate) struct Core {
     pub(crate) layers_config: LayersConfig,
 }
 
-impl Core {
+impl SharedCore {
     /// Normalizes the memory settings in `settings` to `device_limits`, then creates the renderer
     /// state and the persistent resources.
     pub(crate) fn new(
