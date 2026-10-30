@@ -472,10 +472,6 @@ fn insert_and_render_bitmap(
     CacheResult::CachedAndRendered
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "f64→i16 truncation is acceptable for pixel coordinates"
-)]
 fn insert_and_render_colr(
     renderer: &mut impl GlyphRenderer,
     glyph: &GlyphColr<'_>,
