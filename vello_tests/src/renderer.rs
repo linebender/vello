@@ -384,6 +384,7 @@ pub struct GpuRenderer {
     wgpu_external_textures: HashMap<TextureId, (wgpu::ExternalTexture, u32, u32)>,
     next_external_texture_id: u64,
     target_init: GpuTargetInit<'static>,
+    offset: (i32, i32),
     gpu_test_guard: Option<std::sync::MutexGuard<'static, ()>>,
 }
 
@@ -426,6 +427,7 @@ impl GpuRenderer {
         // Create renderer and render the scene to the texture
         let (renderer, resources) = vello_gpu::Renderer::new_with(
             &device,
+            &queue,
             &vello_gpu::RenderTargetConfig {
                 format: texture.format(),
                 width,
@@ -434,8 +436,8 @@ impl GpuRenderer {
             settings,
         );
         let render_size = vello_gpu::RenderSize { width, height };
-        let depth_texture_view = use_depth_buffer
-            .then(|| vello_gpu::Renderer::create_depth_texture_view(&device, &render_size));
+        let depth_texture_view =
+            use_depth_buffer.then(|| renderer.create_depth_texture_view(&render_size));
 
         Self {
             scene,
@@ -450,6 +452,7 @@ impl GpuRenderer {
             wgpu_external_textures: HashMap::new(),
             next_external_texture_id: 1,
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
+            offset: (0, 0),
             gpu_test_guard: None,
         }
     }
@@ -494,13 +497,9 @@ impl GpuRenderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
-        let image_id = self.renderer.upload_image(
-            &mut self.resources,
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            pixmap,
-        );
+        let image_id = self
+            .renderer
+            .upload_image(&mut self.resources, &mut encoder, pixmap);
         self.queue.submit([encoder.finish()]);
         image_id
     }
@@ -678,8 +677,8 @@ impl Renderer for GpuRenderer {
         self.target_init = target_init;
     }
 
-    fn set_offset(&mut self, _: (i32, i32)) {
-        unimplemented!("rendering at an offset is not supported by vello_gpu yet")
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
     }
 
     fn render(&mut self) {
@@ -689,11 +688,6 @@ impl Renderer for GpuRenderer {
         // readback. CI uses `cargo test`, so this intentionally trades some throughput for
         // stability by serializing the GPU portion of otherwise parallel tests.
         self.lock_gpu_test();
-
-        let width = self.scene.width();
-        let height = self.scene.height();
-
-        let render_size = vello_gpu::RenderSize { width, height };
 
         let mut texture_bindings = vello_gpu::TextureBindings::new();
         for (texture_id, texture) in &self.external_textures {
@@ -712,18 +706,20 @@ impl Renderer for GpuRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Vello Render"),
             });
+        let mut options = vello_gpu::RenderOptions::default();
+        options.target_init = self.target_init;
+        options.offset = self.offset;
         self.renderer
             .render(
                 &self.scene,
                 &mut self.resources,
-                &self.device,
-                &self.queue,
                 &mut encoder,
-                &render_size,
-                &self.texture_view,
-                self.depth_texture_view.as_ref(),
+                vello_gpu::RenderTarget {
+                    view: &self.texture_view,
+                    depth_view: self.depth_texture_view.as_ref(),
+                },
                 &texture_bindings,
-                self.target_init,
+                options,
             )
             .unwrap();
 
@@ -874,6 +870,7 @@ pub struct GpuRenderer {
     external_textures: vello_gpu::WebGlTextureBindings,
     next_external_texture_id: u64,
     clear_color: AlphaColor<Srgb>,
+    offset: (i32, i32),
     use_depth_buffer: bool,
     texture_target: Option<TestTextureTarget>,
 }
@@ -1074,6 +1071,7 @@ impl Renderer for GpuRenderer {
             external_textures: vello_gpu::WebGlTextureBindings::new(),
             next_external_texture_id: 1,
             clear_color: AlphaColor::TRANSPARENT,
+            offset: (0, 0),
             use_depth_buffer,
             texture_target: None,
         }
@@ -1214,8 +1212,8 @@ impl Renderer for GpuRenderer {
         };
     }
 
-    fn set_offset(&mut self, _: (i32, i32)) {
-        unimplemented!("rendering at an offset is not supported by vello_gpu yet")
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
     }
 
     fn render(&mut self) {
@@ -1223,13 +1221,16 @@ impl Renderer for GpuRenderer {
             Some(texture_target) => texture_target.render_target(),
             None => vello_gpu::WebGlRenderTarget::DrawingBuffer,
         };
+        let mut options = vello_gpu::WebGlRenderOptions::default();
+        options.clear_color = self.clear_color;
+        options.offset = self.offset;
         self.renderer
             .render(
                 &self.scene,
                 &mut self.resources,
                 target,
                 &self.external_textures,
-                self.clear_color,
+                options,
             )
             .unwrap();
     }

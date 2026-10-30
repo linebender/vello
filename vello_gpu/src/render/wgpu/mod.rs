@@ -93,6 +93,59 @@ pub struct RenderTargetConfig {
     pub height: u16,
 }
 
+/// The target that a scene is rendered into.
+#[derive(Debug, Clone, Copy)]
+pub struct RenderTarget<'a> {
+    /// The color attachment to render into.
+    ///
+    /// The view must cover mip level 0 of its texture.
+    pub view: &'a TextureView,
+    /// The optional depth attachment.
+    ///
+    /// Passing `Some(depth_view)` enables depth buffering to reduce overdraw. The depth view must
+    /// use [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), have the same
+    /// dimensions as `view`, have a sample count of one, and support
+    /// [`TextureUsages::RENDER_ATTACHMENT`](wgpu::TextureUsages::RENDER_ATTACHMENT). Pass `None`
+    /// to render without a depth buffer.
+    ///
+    /// The [WebGPU render pass validation rules] require every color and depth attachment view in
+    /// a render pass to have matching render extents.
+    ///
+    /// [WebGPU render pass validation rules]: https://gpuweb.github.io/gpuweb/#abstract-opdef-gpurenderpassdescriptor-valid-usage
+    pub depth_view: Option<&'a TextureView>,
+}
+
+impl RenderTarget<'_> {
+    fn size(&self) -> RenderSize {
+        let texture = self.view.texture();
+        RenderSize {
+            width: texture.width().try_into().unwrap(),
+            height: texture.height().try_into().unwrap(),
+        }
+    }
+}
+
+/// Options for [`Renderer::render`].
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct RenderOptions<'a> {
+    /// How existing target contents are handled before drawing.
+    pub target_init: TargetInit<'a>,
+    /// The position of the scene's origin in the target.
+    ///
+    /// Clear rectangles are not offset.
+    pub offset: (i32, i32),
+}
+
+impl Default for RenderOptions<'_> {
+    fn default() -> Self {
+        Self {
+            target_init: TargetInit::Clear(ClearSettings::default()),
+            offset: (0, 0),
+        }
+    }
+}
+
 /// A runtime binding for a [`TextureId`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -226,6 +279,10 @@ impl TextureBindings {
 /// Vello GPU's renderer.
 #[derive(Debug)]
 pub struct Renderer {
+    /// The device that all GPU resources of the renderer are created on.
+    device: Device,
+    /// The queue of `device`.
+    queue: Queue,
     /// Programs for rendering.
     programs: Programs,
     /// Encoded paints for storing encoded paints.
@@ -250,13 +307,23 @@ pub struct Renderer {
 
 impl Renderer {
     /// Creates a new renderer and its persistent resources.
-    pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> (Self, Resources) {
-        Self::new_with(device, render_target_config, RenderSettings::default())
+    pub fn new(
+        device: &Device,
+        queue: &Queue,
+        render_target_config: &RenderTargetConfig,
+    ) -> (Self, Resources) {
+        Self::new_with(
+            device,
+            queue,
+            render_target_config,
+            RenderSettings::default(),
+        )
     }
 
     /// Creates a new renderer and its persistent resources with specific settings.
     pub fn new_with(
         device: &Device,
+        queue: &Queue,
         render_target_config: &RenderTargetConfig,
         settings: RenderSettings,
     ) -> (Self, Resources) {
@@ -279,6 +346,8 @@ impl Renderer {
         let layer_config = settings.memory_settings.layers_config;
 
         let renderer = Self {
+            device: device.clone(),
+            queue: queue.clone(),
             programs: Programs::new(
                 device,
                 &resources.image_cache,
@@ -307,8 +376,8 @@ impl Renderer {
     /// The returned view has the same dimensions as `render_size`, uses
     /// [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), and can be used as a
     /// render attachment.
-    pub fn create_depth_texture_view(device: &Device, render_size: &RenderSize) -> TextureView {
-        device
+    pub fn create_depth_texture_view(&self, render_size: &RenderSize) -> TextureView {
+        self.device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some("Vello GPU Depth Texture"),
                 size: Extent3d {
@@ -326,7 +395,7 @@ impl Renderer {
             .create_view(&TextureViewDescriptor::default())
     }
 
-    /// Render `scene`.
+    /// Render `scene` into `target`, recording the GPU commands into `encoder`.
     ///
     /// Every [`TextureId`] referenced by the scene must have a binding; this returns
     /// [`RenderError::MissingTextureBinding`] otherwise. See [`TextureBindings::insert`] for the
@@ -334,35 +403,17 @@ impl Renderer {
     ///
     /// To render without any texture bindings, you can pass an empty [`TextureBindings`].
     ///
-    /// Passing `Some(depth_view)` enables depth buffering to reduce overdraw. The depth view must
-    /// use [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), have the same
-    /// dimensions as `render_size`, have a sample count of one, and support
-    /// [`TextureUsages::RENDER_ATTACHMENT`](wgpu::TextureUsages::RENDER_ATTACHMENT). Pass `None`
-    /// to render without a depth buffer.
-    ///
-    /// The [WebGPU render pass validation rules] require every color and depth attachment view in
-    /// a render pass to have matching render extents.
-    ///
-    /// The commands are recorded into `encoder`, which must be submitted to `queue`. If this is not
-    /// done, subsequent calls to `render` might produce invalid rendering.
-    ///
-    /// [WebGPU render pass validation rules]: https://gpuweb.github.io/gpuweb/#abstract-opdef-gpurenderpassdescriptor-valid-usage
+    /// The commands are recorded into `encoder`, which must be submitted to the renderer's queue.
+    /// If this is not done, subsequent calls to `render` might produce invalid rendering.
     pub fn render(
         &mut self,
         scene: &Scene,
         resources: &mut Resources,
-        device: &Device,
-        queue: &Queue,
         encoder: &mut CommandEncoder,
-        render_size: &RenderSize,
-        view: &TextureView,
-        depth_view: Option<&TextureView>,
+        target: RenderTarget<'_>,
         texture_bindings: &TextureBindings,
-        target_init: TargetInit<'_>,
+        options: RenderOptions<'_>,
     ) -> Result<(), RenderError> {
-        #[cfg(not(feature = "text"))]
-        let _ = queue;
-
         #[cfg(feature = "text")]
         {
             resources.before_render(
@@ -372,8 +423,6 @@ impl Renderer {
                         glyph_renderer,
                         atlas_count,
                         atlas_config,
-                        device,
-                        queue,
                         atlas_id,
                         texture_bindings,
                     )
@@ -381,8 +430,6 @@ impl Renderer {
                 |renderer, image_cache, upload, dst_x, dst_y| {
                     renderer.write_to_atlas(
                         image_cache,
-                        device,
-                        queue,
                         encoder,
                         upload.image_id,
                         &upload.pixmap,
@@ -396,21 +443,21 @@ impl Renderer {
 
         let result = self.render_scene(
             scene,
-            device,
             encoder,
-            render_size,
-            view,
-            depth_view,
+            &target.size(),
+            target.view,
+            target.depth_view,
             &resources.image_cache,
             &scene.encoded_paints,
-            target_init,
+            options.target_init,
             RootTarget::UserSurface,
             texture_bindings,
+            options.offset,
         );
 
         #[cfg(feature = "text")]
         resources.after_render(self, |renderer, rect| {
-            clear_atlas_region(queue, renderer, rect);
+            clear_atlas_region(renderer, rect);
 
             Ok::<(), RenderError>(())
         })?;
@@ -440,16 +487,20 @@ impl Renderer {
         scene: &Scene,
         atlas_count: u32,
         atlas_config: AtlasConfig,
-        device: &Device,
-        queue: &Queue,
         atlas_id: AtlasId,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render to Atlas Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render to Atlas Encoder"),
+            });
 
-        Programs::maybe_create_atlas_textures(device, &mut self.programs.resources, atlas_count);
+        Programs::maybe_create_atlas_textures(
+            &self.device,
+            &mut self.programs.resources,
+            atlas_count,
+        );
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
@@ -467,7 +518,6 @@ impl Renderer {
             .expect("dummy image cache must exist");
         let result = self.render_scene(
             scene,
-            device,
             &mut encoder,
             &atlas_render_size,
             &layer_view,
@@ -477,12 +527,13 @@ impl Renderer {
             TargetInit::SrcOver,
             RootTarget::AtlasLayer,
             texture_bindings,
+            (0, 0),
         );
         self.dummy_image_cache = Some(dummy_image_cache);
 
         // Submit immediately so the atlas content is committed before subsequent
         // render() calls overwrite the shared alpha/config/paint resources.
-        queue.submit(Some(encoder.finish()));
+        self.queue.submit(Some(encoder.finish()));
 
         result
     }
@@ -504,7 +555,6 @@ impl Renderer {
     fn render_scene(
         &mut self,
         scene: &Scene,
-        device: &Device,
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
@@ -514,6 +564,7 @@ impl Renderer {
         target_init: TargetInit<'_>,
         root_output_target: RootTarget,
         texture_bindings: &TextureBindings,
+        scene_offset: (i32, i32),
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
         self.prepare_gpu_encoded_paints(
@@ -541,6 +592,11 @@ impl Renderer {
             &mut self.schedule_storage,
             scene,
             root_output_target,
+            RectU16::visible_scene_bounds(
+                scene.recorder.scene_size,
+                SizeU16::from_wh(render_size.width, render_size.height),
+                scene_offset,
+            ),
             depth_view.is_some(),
             paint_resolver,
             texture_size,
@@ -548,7 +604,7 @@ impl Renderer {
             self.layers_config.max_textures,
         )?;
         self.programs
-            .prepare_intermediate_textures(device, &schedule);
+            .prepare_intermediate_textures(&self.device, &schedule);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -562,21 +618,24 @@ impl Renderer {
             + self.schedule_storage.buffers.draw_buffers.strips.len();
         let strip_bytes = (strip_count * size_of::<GpuStrip>()) as u64;
         self.programs.prepare(
-            device,
+            &self.device,
             encoder,
             &mut self.gradient_cache,
             &self.encoded_paints,
             &scene.strip_storage.borrow().alphas,
             render_size,
+            scene_offset,
             &self.paint_idxs,
             &self.schedule_storage.filter_context,
         );
 
-        self.programs.strips_arena.begin_frame(device, strip_bytes);
+        self.programs
+            .strips_arena
+            .begin_frame(&self.device, strip_bytes);
 
         let mut ctx = RendererContext {
             programs: &mut self.programs,
-            device,
+            device: &self.device,
             encoder,
             view,
             depth_view,
@@ -620,27 +679,16 @@ impl Renderer {
     pub fn upload_image<T: AtlasWriter>(
         &mut self,
         resources: &mut Resources,
-        device: &Device,
-        queue: &Queue,
         encoder: &mut CommandEncoder,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        self.upload_image_with(
-            &mut resources.image_cache,
-            device,
-            queue,
-            encoder,
-            writer,
-            IMAGE_PADDING,
-        )
+        self.upload_image_with(&mut resources.image_cache, encoder, writer, IMAGE_PADDING)
     }
 
     #[track_caller]
     pub(crate) fn upload_image_with<T: AtlasWriter>(
         &mut self,
         image_cache: &mut ImageCache,
-        device: &Device,
-        queue: &Queue,
         encoder: &mut CommandEncoder,
         writer: &T,
         padding: u16,
@@ -652,7 +700,7 @@ impl Renderer {
         let width = writer.width();
         let height = writer.height();
         let image_id = image_cache.allocate(width, height, padding).unwrap();
-        self.write_to_atlas(image_cache, device, queue, encoder, image_id, writer, None);
+        self.write_to_atlas(image_cache, encoder, image_id, writer, None);
         image_id
     }
 
@@ -668,8 +716,6 @@ impl Renderer {
     pub(crate) fn write_to_atlas<T: AtlasWriter>(
         &mut self,
         image_cache: &ImageCache,
-        device: &Device,
-        queue: &Queue,
         encoder: &mut CommandEncoder,
         image_id: vello_common::paint::ImageId,
         writer: &T,
@@ -678,7 +724,7 @@ impl Renderer {
         let image_resource = image_cache.get(image_id).expect("Image resource not found");
 
         Programs::maybe_create_atlas_textures(
-            device,
+            &self.device,
             &mut self.programs.resources,
             image_cache.atlas_count() as u32,
         );
@@ -686,8 +732,8 @@ impl Renderer {
         let atlas_texture =
             &self.programs.resources.atlas_textures[image_resource.atlas_id.as_u32() as usize];
         writer.write_to_atlas(
-            device,
-            queue,
+            &self.device,
+            &self.queue,
             encoder,
             atlas_texture,
             offset,
@@ -965,11 +1011,11 @@ impl Renderer {
 }
 
 #[cfg(feature = "text")]
-fn clear_atlas_region(queue: &Queue, renderer: &mut Renderer, rect: &PendingClearRect) {
+fn clear_atlas_region(renderer: &mut Renderer, rect: &PendingClearRect) {
     // TODO: Can we optimize this more?
     let byte_count = rect.width as usize * rect.height as usize * 4;
     renderer.atlas_clear_scratch.resize(byte_count, 0);
-    queue.write_texture(
+    renderer.queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture: renderer.atlas_texture(AtlasId::new(rect.page_index)),
             mip_level: 0,
@@ -1055,6 +1101,8 @@ struct Programs {
     staging_belt: UploadStagingBelt,
     /// Dimensions of the rendering target
     render_size: RenderSize,
+    /// Offset of the scene within the rendering target.
+    scene_offset: (i32, i32),
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
     /// Scratch buffer for staging filter data texture data.
@@ -1995,6 +2043,7 @@ impl Programs {
                 width: render_target_config.width,
                 height: render_target_config.height,
             },
+            scene_offset: (0, 0),
             clear_pipeline,
             root_clear_pipeline,
             atlas_clear_pipeline,
@@ -2418,6 +2467,7 @@ impl Programs {
         encoded_paints: &[GpuEncodedPaint],
         alphas: &[u8],
         new_render_size: &RenderSize,
+        scene_offset: (i32, i32),
         paint_idxs: &[u32],
         filter_context: &FilterContext,
     ) {
@@ -2426,7 +2476,12 @@ impl Programs {
         self.maybe_resize_alphas_tex(device, resource_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, resource_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_tex(device, resource_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(encoder, resource_texture_dimension_2d, new_render_size);
+        self.maybe_update_config_buffer(
+            encoder,
+            resource_texture_dimension_2d,
+            new_render_size,
+            scene_offset,
+        );
 
         self.upload_alpha_texture(encoder, alphas);
         self.upload_encoded_paints_texture(encoder, encoded_paints, paint_idxs);
@@ -2593,22 +2648,23 @@ impl Programs {
         }
     }
 
-    /// Update config buffer if dimensions changed.
+    /// Update config buffer if dimensions or the scene offset changed.
     fn maybe_update_config_buffer(
         &mut self,
         encoder: &mut CommandEncoder,
         resource_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
+        scene_offset: (i32, i32),
     ) {
-        if self.render_size != *new_render_size {
+        if self.render_size != *new_render_size || self.scene_offset != scene_offset {
             let config = Config {
                 width: u32::from(new_render_size.width),
                 height: u32::from(new_render_size.height),
                 strip_height: Tile::HEIGHT.into(),
                 alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
                 encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
-                strip_offset_x: 0,
-                strip_offset_y: 0,
+                strip_offset_x: scene_offset.0,
+                strip_offset_y: scene_offset.1,
                 negate_ndc: 0,
             };
             let mut buffer = self.staging_belt.write_buffer(
@@ -2619,7 +2675,8 @@ impl Programs {
             );
             buffer.copy_from_slice(bytemuck::bytes_of(&config));
 
-            self.render_size = new_render_size.clone();
+            self.render_size = *new_render_size;
+            self.scene_offset = scene_offset;
         }
     }
 

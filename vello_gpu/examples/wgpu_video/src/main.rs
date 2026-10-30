@@ -45,9 +45,7 @@ mod macos {
         Blob, Extend, FontData, ImageAlphaType, ImageQuality, ImageSampler,
     };
     use vello_common::pixmap::{PixelMetadata, Pixmap};
-    use vello_gpu::{
-        ClearSettings, RenderSize, Resources, Scene, TargetInit, TextureBindings, TextureId,
-    };
+    use vello_gpu::{RenderOptions, RenderTarget, Resources, Scene, TextureBindings, TextureId};
     use winit::application::ApplicationHandler;
     use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
     use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -421,24 +419,18 @@ mod macos {
                 },
             );
 
-            let render_size = RenderSize {
-                width: u16::try_from(self.render_context.surface_config.width).unwrap_or(u16::MAX),
-                height: u16::try_from(self.render_context.surface_config.height)
-                    .unwrap_or(u16::MAX),
-            };
             self.render_context
                 .renderer
                 .render(
                     &self.scene,
                     &mut self.resources,
-                    &self.render_context.device,
-                    &self.render_context.queue,
                     &mut encoder,
-                    &render_size,
-                    &surface_view,
-                    Some(&self.render_context.depth_texture_view),
+                    RenderTarget {
+                        view: &surface_view,
+                        depth_view: Some(&self.render_context.depth_texture_view),
+                    },
                     &bindings,
-                    TargetInit::Clear(ClearSettings::default()),
+                    RenderOptions::default(),
                 )
                 .expect("Vello GPU render failed");
 
@@ -575,13 +567,9 @@ mod macos {
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                         label: Some("vello_gpu_wgpu_video image upload"),
                     });
-            let id = render_context.renderer.upload_image(
-                resources,
-                &render_context.device,
-                &render_context.queue,
-                &mut encoder,
-                &pixmap,
-            );
+            let id = render_context
+                .renderer
+                .upload_image(resources, &mut encoder, &pixmap);
             render_context.submit(encoder.finish());
 
             Self { id, width, height }

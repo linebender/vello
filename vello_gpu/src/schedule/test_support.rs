@@ -18,12 +18,14 @@ use vello_common::peniko::color::palette::css::BLUE;
 
 pub(super) struct SceneCase {
     pub(super) scene: Scene,
+    pub(super) visible_scene_area: Option<RectU16>,
 }
 
 impl SceneCase {
     pub(super) fn new(width: u16, height: u16) -> Self {
         Self {
             scene: Scene::new(width, height),
+            visible_scene_area: Some(RectU16::new(0, 0, width, height)),
         }
     }
 
@@ -68,6 +70,7 @@ impl SceneCase {
             &mut storage,
             &self.scene,
             root_target,
+            self.visible_scene_area,
             use_depth_buffer,
             PaintResolver::new(encoded, &offsets, &[]),
             texture_size,
@@ -96,6 +99,7 @@ impl SceneCase {
             storage,
             &self.scene,
             root_target,
+            self.visible_scene_area,
             use_depth_buffer,
             PaintResolver::new(encoded, &offsets, &[]),
             texture_size,

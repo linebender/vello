@@ -126,13 +126,14 @@ impl<'window> RenderContext<'window> {
         };
         let (renderer, resources) = Renderer::new(
             &device,
+            &queue,
             &RenderTargetConfig {
                 format: SURFACE_FORMAT,
                 width: render_size.width,
                 height: render_size.height,
             },
         );
-        let depth_texture_view = Renderer::create_depth_texture_view(&device, &render_size);
+        let depth_texture_view = renderer.create_depth_texture_view(&render_size);
 
         (
             Self {
@@ -163,6 +164,6 @@ impl<'window> RenderContext<'window> {
             width: u16::try_from(self.surface_config.width).unwrap_or(u16::MAX),
             height: u16::try_from(self.surface_config.height).unwrap_or(u16::MAX),
         };
-        self.depth_texture_view = Renderer::create_depth_texture_view(&self.device, &render_size);
+        self.depth_texture_view = self.renderer.create_depth_texture_view(&render_size);
     }
 }
