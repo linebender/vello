@@ -33,6 +33,9 @@ use core::ops::RangeInclusive;
 use core_maths::CoreFloat as _;
 use hashbrown::hash_map::{Entry, RawEntryMut};
 use hashbrown::{Equivalent, HashMap};
+use peniko::ImageAlphaType;
+use peniko::color::AlphaColor;
+use peniko::color::Srgb;
 use skrifa::bitmap::{BitmapData, BitmapFormat, Origin};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, OutlineGlyphFormat};
@@ -42,6 +45,7 @@ use skrifa::{FontRef, OutlineGlyphCollection};
 use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
 use vello_common::paint::PaintType;
+use vello_common::pixmap::PixelMetadata;
 
 /// Positioned glyph.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
@@ -615,12 +619,17 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             // ── Bitmap Glyphs ────────────────────────────────────────────
             let mut bitmap_unavailable_reason = None;
-            let bitmap_data: Option<(skrifa::bitmap::BitmapGlyph<'_>, Pixmap)> = bitmaps
+            let bitmap_data: Option<(
+                skrifa::bitmap::BitmapGlyph<'_>,
+                Pixmap,
+                AlphaColor<Srgb>,
+                u32,
+            )> = bitmaps
                 .glyph_for_size(Size::new(draw_props.font_size), glyph_id)
                 .and_then(|g| match g.data {
                     #[cfg(feature = "png")]
                     BitmapData::Png(data) => match Pixmap::from_png(std::io::Cursor::new(data)) {
-                        Ok(pixmap) => Some((g, pixmap)),
+                        Ok(pixmap) => Some((g, pixmap, BLACK, BLACK_PACKED)),
                         Err(_) => {
                             bitmap_unavailable_reason = Some(GlyphSkipReason::BitmapDecodeFailed);
                             None
@@ -631,15 +640,46 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                         bitmap_unavailable_reason = Some(GlyphSkipReason::PngSupportDisabled);
                         None
                     }
+                    BitmapData::Mask(ref mask) => {
+                        let width = g.width;
+                        let height = g.height;
+                        if let Ok(data) = mask.decode(width, height) {
+                            let [c_r, c_g, c_b, c_a] = context_color.to_rgba8().to_u8_array();
+                            let rgba = data
+                                .iter()
+                                .flat_map(|&m| {
+                                    [
+                                        c_r,
+                                        c_g,
+                                        c_b,
+                                        ((u16::from(c_a) * u16::from(m) + 127) / 255) as u8,
+                                    ]
+                                })
+                                .collect::<Vec<_>>();
+                            return Some((
+                                g,
+                                Pixmap::from_parts(
+                                    rgba,
+                                    width as u16,
+                                    height as u16,
+                                    PixelMetadata::new(ImageAlphaType::Alpha, true),
+                                ),
+                                context_color,
+                                context_color_packed,
+                            ));
+                        }
+                        bitmap_unavailable_reason = Some(GlyphSkipReason::BitmapDecodeFailed);
+                        None
+                    }
                     // The others are not worth implementing for now (unless we can find a test case),
                     // they should be very rare.
-                    BitmapData::Bgra(_) | BitmapData::Mask(_) => {
+                    BitmapData::Bgra(_) => {
                         bitmap_unavailable_reason = Some(GlyphSkipReason::UnsupportedBitmapFormat);
                         None
                     }
                 });
 
-            if let Some((bitmap_glyph, pixmap)) = bitmap_data {
+            if let Some((bitmap_glyph, pixmap, context_color, context_color_packed)) = bitmap_data {
                 // Bitmaps use the strike's own ppem, not the run's, because the
                 // image was pre-rendered at that specific size.
                 let bitmap_ppem = bitmap_glyph.ppem_x;
@@ -662,8 +702,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     size_bits: bitmap_ppem.to_bits(),
                     hinted: false,
                     subpixel_x: SUBPIXEL_BITMAP,
-                    context_color: BLACK,
-                    context_color_packed: BLACK_PACKED,
+                    context_color,
+                    context_color_packed,
                     embolden_x_bits: 0,
                     embolden_y_bits: 0,
                     embolden_join_bits: join_bits(Join::Miter),
