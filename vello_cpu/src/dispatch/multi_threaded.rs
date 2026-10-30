@@ -265,11 +265,18 @@ impl MultiThreadedDispatcher {
         let allocation_group =
             std::mem::replace(&mut self.allocation_group, self.allocations.get());
         let task_sender = self.task_sender.as_mut().unwrap();
-        let clip_path = self.clip_context.get().map(|c| OwnedClip {
-            strips: c.path.strips.into(),
-            alphas: c.path.alphas.into(),
-            bbox: c.path.bbox,
-            shape: c.shape,
+        let clip_path = self.clip_context.get().map(|c| {
+            // The tasks carry the clip's strips, so it must have them (an eager context).
+            debug_assert!(
+                c.path.lazy_rect.is_none(),
+                "the multi-threaded dispatcher needs an eager clip context"
+            );
+            OwnedClip {
+                strips: c.path.strips.into(),
+                alphas: c.path.alphas.into(),
+                bbox: c.path.bbox,
+                shape: c.shape,
+            }
         });
         let task = RenderTask {
             idx: task_idx,
