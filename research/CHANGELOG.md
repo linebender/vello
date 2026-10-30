@@ -15,6 +15,7 @@ This release has an [MSRV][] of 1.89.
 ### Fixed
 
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
+- GPU hang on Intel Macs with AMD GPUs: the Metal compiler compiled a loop in `flatten` without an exit. ([#2022][] by [@Dragoy][])
 
 ## [0.11.0][] - 2026-10-02
 
@@ -353,6 +354,7 @@ This release has an [MSRV][] of 1.75.
 [@DasLixou]: https://github.com/DasLixou
 [@dfrg]: https://github.com/drfg
 [@DJMcNab]: https://github.com/DJMcNab
+[@Dragoy]: https://github.com/Dragoy
 [@gugutu]: https://github.com/gugutu
 [@jrmoulton]: https://github.com/jrmoulton
 [@Keavon]: https://github.com/Keavon
@@ -490,6 +492,7 @@ This release has an [MSRV][] of 1.75.
 [#1936]: https://github.com/linebender/vello/pull/1936
 [#1939]: https://github.com/linebender/vello/pull/1939
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2022]: https://github.com/linebender/vello/pull/2022
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.11.0...HEAD
 [0.11.0]: https://github.com/linebender/vello/compare/v0.10.0...v0.11.0
