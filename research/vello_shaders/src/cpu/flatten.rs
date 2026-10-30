@@ -424,6 +424,11 @@ fn draw_cap(
     output_line_with_transform(path_ix, start, end, transform, line_ix, lines, bbox);
 }
 
+/// Threshold on the sine of the angle between a join's tangents below which they are treated as
+/// parallel and get no miter. Skipping the miter there moves the outline by about
+/// `offset * sin^2 / 4`, far below a pixel for any stroke width.
+const PARALLEL_THRESH: f32 = 1e-3;
+
 fn draw_join(
     path_ix: u32,
     style_flags: u32,
@@ -458,7 +463,7 @@ fn draw_join(
             let miter_limit = f16_to_f32((style_flags & Style::MITER_LIMIT_MASK) as u16);
 
             if 2. * hypot < (hypot + d) * miter_limit * miter_limit
-                && cr.abs() > TANGENT_THRESH.powi(2)
+                && cr.abs() > hypot * PARALLEL_THRESH
             {
                 let is_backside = cr > 0.;
                 let fp_last = if is_backside { back1 } else { front0 };
@@ -860,4 +865,63 @@ pub fn flatten(n_wg: u32, resources: &[CpuBinding<'_>]) {
         &mut bump,
         &mut lines,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A miter join between the straight top edge of a rounded rectangle and the corner arc
+    /// that meets it tangentially, as `kurbo::RoundedRect::new(0., 0., 390.5, 140.25, 64.164375)`
+    /// encodes it in f32. The tangents are parallel up to f32 noise in the arc's end tangent.
+    /// WGSL leaves `normalize`'s precision to the implementation, so on a GPU the two offset
+    /// normals can differ by an ulp; that noise must not be extrapolated into a miter point far
+    /// off the shape.
+    #[test]
+    fn near_parallel_miter_join_stays_bounded() {
+        let offset: f32 = 0.5;
+        let p0 = Vec2::new(64.164375, 0.0);
+        let tan_prev = Vec2::new(35.437004, -1.4210855e-14);
+        let tan_next = Vec2::new(87.390434, 0.0);
+        // `offset * normalize(..)` rotated a quarter turn, with the previous normal one ulp
+        // short, as an approximate reciprocal square root yields it.
+        let n_prev = Vec2::new(0.0, f32::from_bits(offset.to_bits() - 1));
+        let n_next = Vec2::new(0.0, offset);
+
+        // Miter limit 4.0, the `kurbo::Stroke` default, as binary16.
+        let miter_limit_4 = 0x4400;
+        assert_eq!(f16_to_f32(miter_limit_4), 4.0);
+        let style_flags =
+            Style::FLAGS_STYLE_BIT | Style::FLAGS_JOIN_BITS_MITER | u32::from(miter_limit_4);
+
+        let mut lines = [LineSoup::default(); 8];
+        let mut line_ix = 0;
+        let mut bbox = IntBbox::default();
+        draw_join(
+            0,
+            style_flags,
+            p0,
+            tan_prev,
+            tan_next,
+            n_prev,
+            n_next,
+            &Transform::identity(),
+            &mut line_ix,
+            &mut lines,
+            &mut bbox,
+        );
+
+        assert!(line_ix > 0, "the join must emit its connecting lines");
+        // No join may reach farther from its point than the miter limit times the offset.
+        let reach = 4.0 * offset + 1e-3;
+        for line in &lines[..line_ix] {
+            for [x, y] in [line.p0, line.p1] {
+                let d = ((x - p0.x).powi(2) + (y - p0.y).powi(2)).sqrt();
+                assert!(
+                    d <= reach,
+                    "join line endpoint ({x}, {y}) is {d} from the join point"
+                );
+            }
+        }
+    }
 }

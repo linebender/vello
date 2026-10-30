@@ -14,6 +14,7 @@ This release has an [MSRV][] of 1.89.
 
 ### Fixed
 
+- Miter joins between long, nearly collinear segments, such as a straight edge meeting the arc of a stroked rounded rectangle, no longer produce streak artifacts. ([#1988][] by [@TheTechromancer][])
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
 
 ## [0.11.0][] - 2026-10-02
@@ -369,6 +370,7 @@ This release has an [MSRV][] of 1.75.
 [@StT191]: https://github.com/StT191
 [@TheNachoBIT]: https://github.com/TheNachoB
 [@theoparis]: https://github.com/theoparis
+[@TheTechromancer]: https://github.com/TheTechromancer
 [@timtom-dev]: https://github.com/timtom-dev
 [@tomcur]: https://github.com/tomcur
 [@TrueDoctor]: https://github.com/TrueDoctor
@@ -489,6 +491,7 @@ This release has an [MSRV][] of 1.75.
 [#1909]: https://github.com/linebender/vello/pull/1909
 [#1936]: https://github.com/linebender/vello/pull/1936
 [#1939]: https://github.com/linebender/vello/pull/1939
+[#1988]: https://github.com/linebender/vello/pull/1988
 [#2000]: https://github.com/linebender/vello/pull/2000
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.11.0...HEAD
