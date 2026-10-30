@@ -75,12 +75,15 @@ pub(crate) fn flatten<S: Simd>(
     // Therefore, we align `top` to strip row boundaries, such that all intermediate tiles are
     // produced.
     //
-    // `right` and `bottom` are rounded out to match the tiler's tile granularity, so culling never
-    // changes a tile that covers visible pixels.
+    // This is not necessary for the bottom. Consider a path where a segment extends just below the
+    // cull bbox, but remains in the same strip row. The path is closed, so if anything is to be
+    // rendered at all, there will be other geometry above that edge of the cull bbox. If that
+    // geometry extends above the row, there will be coarse winding for a sparse fill. If not, it
+    // there will be geometry to generate the intermediate tiles.
     let left = cull_bbox.x0 as f64;
     let top = ((cull_bbox.y0 / Tile::HEIGHT) * Tile::HEIGHT) as f64;
-    let right = f64::from(cull_bbox.x1.div_ceil(Tile::WIDTH)) * f64::from(Tile::WIDTH);
-    let bottom = f64::from(cull_bbox.y1.div_ceil(Tile::HEIGHT)) * f64::from(Tile::HEIGHT);
+    let right = cull_bbox.x1 as f64;
+    let bottom = cull_bbox.y1 as f64;
 
     // A segment whose points all lie to the right of, above, or below the culling bbox impacts
     // neither pixel coverage nor winding inside it.
@@ -748,34 +751,6 @@ mod tests {
                 (p(30.0, 30.0), p(50.0, 30.0)),
                 (p(50.0, 30.0), p(50.0, 50.0)),
                 (p(50.0, 50.0), p(30.0, 30.0)),
-            ]
-        );
-    }
-
-    #[test]
-    fn cull_bbox_is_rounded_out_to_tiles() {
-        // The last tile column and row of this bbox end at 12, like the tiler's culling.
-        let cull_bbox = RectU16::new(0, 0, 10, 10);
-
-        let mut path = BezPath::new();
-        // Right of and below the bbox, but within its last tile column and row: kept.
-        path.move_to((11.0, 2.0));
-        path.line_to((11.0, 8.0));
-        path.move_to((2.0, 11.0));
-        path.line_to((8.0, 11.0));
-        // Past the last tile column and row: culled.
-        path.move_to((13.0, 2.0));
-        path.line_to((13.0, 8.0));
-        path.move_to((2.0, 13.0));
-        path.line_to((8.0, 13.0));
-
-        assert_eq!(
-            flatten_lines(&path, cull_bbox),
-            [
-                (p(11.0, 2.0), p(11.0, 8.0)),
-                (p(11.0, 8.0), p(11.0, 2.0)),
-                (p(2.0, 11.0), p(8.0, 11.0)),
-                (p(8.0, 11.0), p(2.0, 11.0)),
             ]
         );
     }
