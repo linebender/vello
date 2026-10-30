@@ -167,7 +167,6 @@ impl Renderer {
             &target_view,
             depth_view.as_ref(),
             &ImageCache::new_dummy(),
-            &scene.encoded_paints,
             TargetInit::Clear(ClearSettings::Viewport { color: css::WHITE }),
             RootTarget::UserSurface,
             &texture_bindings,
