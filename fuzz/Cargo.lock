@@ -425,9 +425,20 @@ dependencies = [
 
 [[package]]
 name = "fearless_simd"
-version = "0.7.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4beca3cb2444e3304ac30843cc091f44ed58932353cd492ce740067bfce6b12"
+checksum = "629c9d6b6f30b5604089e0980f4d924a013aacb1654a6cdf5d3d852224f68651"
+
+[[package]]
+name = "fearless_simd_macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e91d94c6885390b81782d7ee60fd6583b33907333a8b340de25ccf468353315"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
 
 [[package]]
 name = "find-msvc-tools"
@@ -537,7 +548,7 @@ dependencies = [
 
 [[package]]
 name = "glifo"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bytemuck",
  "foldhash 0.2.0",
@@ -1774,10 +1785,11 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "fearless_simd",
+ "fearless_simd_macros",
  "guillotiere",
  "log",
  "peniko",
@@ -1788,10 +1800,12 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
+ "fearless_simd",
+ "fearless_simd_macros",
  "glifo",
  "hashbrown 0.17.1",
  "ordered-channel",
@@ -1812,7 +1826,7 @@ dependencies = [
 
 [[package]]
 name = "vello_gpu"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -1826,7 +1840,7 @@ dependencies = [
 
 [[package]]
 name = "vello_gpu_shaders"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "naga",
  "wesl",
@@ -1836,23 +1850,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "vello_test_support"
+version = "0.0.0"
+dependencies = [
+ "image",
+ "oxipng",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "vello_tests"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
  "fearless_simd",
  "glifo",
- "image",
  "oxipng",
  "pollster",
- "serde",
- "serde_json",
  "skrifa",
  "smallvec",
  "vello_common",
  "vello_cpu",
  "vello_dev_macros",
  "vello_gpu",
+ "vello_gpu_shaders",
+ "vello_test_support",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

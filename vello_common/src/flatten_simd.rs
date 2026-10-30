@@ -212,12 +212,20 @@ pub(crate) fn flatten<S: Simd>(
                 {
                     callback.callback(LinePathEl::LineTo(p3));
                 } else {
-                    let c = CubicBez::new(p0, p1, p2, p3);
+                    // The cubic is flattened in `f32`, which has too little precision far away
+                    // from the origin, so we flatten it relative to its start point instead. This
+                    // way, the same curve is flattened the same way regardless of its position.
+                    let origin = p0.to_vec2();
+                    let c = CubicBez::new(p0 - origin, p1 - origin, p2 - origin, p3 - origin);
                     let max = flatten_cubic_simd(simd, c, flatten_ctx);
 
-                    for p in &flatten_ctx.flattened_cubics[1..max] {
-                        callback.callback(LinePathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
+                    for p in &flatten_ctx.flattened_cubics[1..max - 1] {
+                        callback.callback(LinePathEl::LineTo(
+                            Point::new(p.x as f64, p.y as f64) + origin,
+                        ));
                     }
+                    // Emit the end point exactly, so that the subpath stays watertight.
+                    callback.callback(LinePathEl::LineTo(p3));
                 }
                 last_pt = p3;
             }
@@ -369,12 +377,12 @@ fn is_finite_simd<S: Simd>(x: f32x4<S>) -> mask32x4<S> {
 /// SIMD version of [`approx_parabola_integral`].
 #[inline(always)]
 fn approx_parabola_integral_simd<S: Simd, F: SimdFloat<S, Element = f32>>(x: F) -> F {
-    let simd = x.witness();
+    let simd = x.token();
 
     const D: f32 = 0.67;
     const D_POWI_4: f32 = 0.201_511_2;
 
-    let temp = F::splat(x.witness(), 0.25)
+    let temp = F::splat(x.token(), 0.25)
         .mul_add(x * x, F::splat(simd, D_POWI_4))
         .sqrt()
         .sqrt();
@@ -665,11 +673,55 @@ fn estimate(err_div: f64) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use crate::fearless_simd::Level;
+    use crate::flatten::{self, FlattenCtx, Line};
     use crate::flatten_simd::{MAX_QUADS, estimate};
+    use crate::geometry::RectU16;
+    use crate::kurbo::{Affine, BezPath};
+    use alloc::vec::Vec;
 
     fn old_estimate(err_div: f64) -> usize {
         let n_quads = (err_div.powf(1. / 6.0).ceil() as usize).max(1);
         n_quads.min(MAX_QUADS)
+    }
+
+    fn flatten_translated(path: &BezPath, dy: f64) -> Vec<Line> {
+        let mut lines = Vec::new();
+        flatten::fill(
+            Level::baseline(),
+            path.iter(),
+            Affine::translate((0.0, dy)),
+            &mut lines,
+            &mut FlattenCtx::default(),
+            RectU16::new(0, 0, u16::MAX, u16::MAX),
+        );
+        lines
+    }
+
+    #[test]
+    fn cubic_flattening_does_not_depend_on_position() {
+        let mut path = BezPath::new();
+        path.move_to((21.0, 45.0));
+        path.curve_to((42.0, 38.0), (8.0, 12.0), (41.0, 39.0));
+        path.close_path();
+
+        let at_origin = flatten_translated(&path, 0.0);
+
+        for dy in [2048.0, 4000.0, 16000.0, 60000.0] {
+            let translated = flatten_translated(&path, dy);
+            assert_eq!(at_origin.len(), translated.len());
+
+            for (a, b) in at_origin.iter().zip(&translated) {
+                for (pa, pb) in [(a.p0, b.p0), (a.p1, b.p1)] {
+                    // Only rounding the translated points to `f32` remains.
+                    assert!((pa.x - pb.x).abs() <= 1e-2, "{a:?} vs {b:?} at {dy}");
+                    assert!(
+                        (pa.y - (pb.y - dy as f32)).abs() <= 1e-2,
+                        "{a:?} vs {b:?} at {dy}"
+                    );
+                }
+            }
+        }
     }
 
     // Test is disabled by default since it takes 10-20 seconds to run, even in release mode.

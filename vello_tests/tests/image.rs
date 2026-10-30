@@ -89,9 +89,7 @@ fn image_pad_x_pad_y(ctx: &mut impl Renderer) {
     repeat(ctx, Extend::Pad, Extend::Pad);
 }
 
-// TODO: Doesn't work correctly in the GPU renderer due to a difference in sampling behavior.
-#[vello_test(skip_gpu)]
-fn image_bilinear_repeat_x_pad_y(ctx: &mut impl Renderer) {
+fn filtered_repeat_x_pad_y(ctx: &mut impl Renderer, quality: ImageQuality) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     let image_source = rgb_img_2x2(ctx);
 
@@ -101,11 +99,21 @@ fn image_bilinear_repeat_x_pad_y(ctx: &mut impl Renderer) {
         sampler: ImageSampler {
             x_extend: Extend::Repeat,
             y_extend: Extend::Pad,
-            quality: ImageQuality::Medium,
+            quality,
             alpha: 1.0,
         },
     });
     ctx.fill_rect(&rect);
+}
+
+#[vello_test]
+fn image_bilinear_repeat_x_pad_y(ctx: &mut impl Renderer) {
+    filtered_repeat_x_pad_y(ctx, ImageQuality::Medium);
+}
+
+#[vello_test]
+fn image_bicubic_repeat_x_pad_y(ctx: &mut impl Renderer) {
+    filtered_repeat_x_pad_y(ctx, ImageQuality::High);
 }
 
 fn transform(ctx: &mut impl Renderer, transform: Affine, l: f64, t: f64, r: f64, b: f64) {

@@ -3,6 +3,7 @@
 
 use crate::fine::common::gradient::SimdGradientKind;
 use core::f32::consts::PI;
+use fearless_simd_macros::simd;
 use vello_common::encode::SweepKind;
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8};
 
@@ -14,15 +15,13 @@ pub(crate) struct SimdSweepKind<S: Simd> {
 }
 
 impl<S: Simd> SimdSweepKind<S> {
+    #[simd]
     pub(crate) fn new(simd: S, kind: &SweepKind) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || Self {
-                start_angle: f32x8::splat(simd, kind.start_angle),
-                inv_angle_delta: f32x8::splat(simd, kind.inv_angle_delta),
-                simd,
-            },
-        )
+        Self {
+            start_angle: f32x8::splat(simd, kind.start_angle),
+            inv_angle_delta: f32x8::splat(simd, kind.inv_angle_delta),
+            simd,
+        }
     }
 }
 

@@ -38,7 +38,7 @@ pub fn unpack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut F
     b.iter(|| {
         let mut pixmap = PixmapMut::new(BENCH_WIDTH, Tile::HEIGHT, &mut buf).unwrap();
         let mut region = Region::new(&mut pixmap, RectU16::new(0, 0, BENCH_WIDTH, Tile::HEIGHT));
-        fine.unpack(0, &mut region);
+        fine.unpack(&mut region);
 
         std::hint::black_box(&fine);
     });

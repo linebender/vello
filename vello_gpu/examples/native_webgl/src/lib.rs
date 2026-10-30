@@ -24,34 +24,26 @@ use vello_example_scenes::{
     AnyScene,
     performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
 };
-use vello_gpu::{RenderSettings, Scene};
+use vello_gpu::{RenderSettings, Resources, Scene, WebGlError, WebGlRendererInit};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 struct RendererWrapper {
     renderer: vello_gpu::WebGlRenderer,
-    resources: vello_gpu::Resources,
+    resources: Resources,
     gpu_timer: Option<WebGlGpuTimer>,
 }
 
 impl RendererWrapper {
-    async fn new(canvas: HtmlCanvasElement) -> Self {
-        let settings = RenderSettings::default();
-        let (mut init, resources) = vello_gpu::WebGlRenderer::begin_with(&canvas, settings, true)
-            .expect("failed to create WebGL renderer");
-        let renderer = loop {
-            match init
-                .try_finish()
-                .expect("failed to finish WebGL renderer initialization")
-            {
-                vello_gpu::WebGlRendererInitStatus::Complete(renderer) => break renderer,
-                vello_gpu::WebGlRendererInitStatus::Pending(pending) => {
-                    init = pending;
-                    next_animation_frame().await;
-                }
-            }
-        };
+    /// Finishes `init`, which was begun on `canvas`, once its shaders are ready.
+    async fn new(canvas: HtmlCanvasElement, init: WebGlRendererInit, resources: Resources) -> Self {
+        while !init.is_ready() {
+            next_animation_frame().await;
+        }
+        let renderer = init
+            .finish()
+            .expect("failed to finish WebGL renderer initialization");
 
         Self {
             renderer,
@@ -95,12 +87,17 @@ struct AppState {
 }
 
 impl AppState {
-    async fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<Scene>]>) -> Self {
+    async fn new(
+        canvas: HtmlCanvasElement,
+        init: WebGlRendererInit,
+        resources: Resources,
+        scenes: Box<[AnyScene<Scene>]>,
+    ) -> Self {
         let width = canvas.width();
         let height = canvas.height();
         let current_scene = initial_scene_index(scenes.len());
 
-        let mut renderer_wrapper = RendererWrapper::new(canvas.clone()).await;
+        let mut renderer_wrapper = RendererWrapper::new(canvas.clone(), init, resources).await;
         let probe_indicator = ProbeIndicator::new(&mut renderer_wrapper.renderer);
         let shader_compilation = renderer_wrapper.renderer.shader_compilation_stats();
         let timing_note = if renderer_wrapper.gpu_timer.is_some() {
@@ -169,11 +166,6 @@ impl AppState {
         );
         let scene_end = now();
 
-        let render_size = vello_gpu::RenderSize {
-            width: self.width.try_into().unwrap(),
-            height: self.height.try_into().unwrap(),
-        };
-
         if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
             gpu_timer.begin();
         }
@@ -182,9 +174,9 @@ impl AppState {
             .render(
                 &self.scene,
                 &mut self.renderer_wrapper.resources,
-                &render_size,
+                vello_gpu::WebGlRenderTarget::DrawingBuffer,
                 &vello_gpu::WebGlTextureBindings::new(),
-                vello_common::color::AlphaColor::TRANSPARENT,
+                vello_gpu::WebGlRenderOptions::default(),
             )
             .unwrap();
         if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
@@ -296,16 +288,16 @@ impl AppState {
         if self.mouse_down
             && let Some(last_client_pos) = self.last_drag_client_position
         {
-            let delta = client_delta_to_canvas_px(
-                &self.canvas,
-                x - last_client_pos.x,
-                y - last_client_pos.y,
-            );
-            self.transform = Affine::translate(delta) * self.transform;
+            self.handle_pan(x - last_client_pos.x, y - last_client_pos.y);
         }
 
         self.last_cursor_position = Some(current_pos);
         self.last_drag_client_position = Some(Vec2::new(x, y));
+    }
+
+    fn handle_pan(&mut self, client_delta_x: f64, client_delta_y: f64) {
+        let delta = client_delta_to_canvas_px(&self.canvas, client_delta_x, client_delta_y);
+        self.transform = Affine::translate(delta) * self.transform;
     }
 
     fn handle_wheel(
@@ -316,9 +308,6 @@ impl AppState {
         ctrl_key: bool,
         delta_mode: u32,
     ) {
-        let cursor_pos = client_to_canvas_px(&self.canvas, client_x, client_y);
-        self.last_cursor_position = Some(cursor_pos);
-
         let scale = if ctrl_key {
             0.01
         } else {
@@ -327,6 +316,12 @@ impl AppState {
         };
         let zoom_factor = (-delta_y * scale).exp();
 
+        self.handle_zoom(client_x, client_y, zoom_factor);
+    }
+
+    fn handle_zoom(&mut self, client_x: f64, client_y: f64, zoom_factor: f64) {
+        let cursor_pos = client_to_canvas_px(&self.canvas, client_x, client_y);
+        self.last_cursor_position = Some(cursor_pos);
         self.transform = Affine::translate(cursor_pos)
             * Affine::scale(zoom_factor)
             * Affine::translate(-cursor_pos)
@@ -425,15 +420,19 @@ async fn next_animation_frame() {
     JsFuture::from(promise).await.unwrap();
 }
 
-/// Creates a `HTMLCanvasElement` of the given dimensions and renders the given scenes into it,
-/// with interactive controls for panning, zooming, and switching between scenes.
+#[wasm_bindgen(module = "/generated/bootstrap.js")]
+extern "C" {
+    #[wasm_bindgen(js_name = earlyCanvasElement)]
+    fn early_canvas_element() -> Option<HtmlCanvasElement>;
+    #[wasm_bindgen(js_name = earlyPrecompiledShaders)]
+    fn early_precompiled_shaders() -> JsValue;
+}
+
+/// Sizes the canvas whose shaders started compiling before the WebAssembly module loaded, and
+/// renders the example scenes into it with interactive controls for panning, zooming, and
+/// switching between scenes.
 pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
-    let canvas = web_sys::Window::document(&web_sys::window().unwrap())
-        .unwrap()
-        .create_element("canvas")
-        .unwrap()
-        .dyn_into::<HtmlCanvasElement>()
-        .unwrap();
+    let canvas = early_canvas_element().expect("the bootstrap snippet runs in a document");
     canvas.set_width(canvas_width as u32);
     canvas.set_height(canvas_height as u32);
     canvas.style().set_property("width", "100%").unwrap();
@@ -451,6 +450,20 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     // Add canvas to body
     body.append_child(&canvas).unwrap();
 
+    // The shaders keep compiling while the example scenes are built.
+    let settings = RenderSettings::default();
+    let (init, resources) = match vello_gpu::WebGlRenderer::begin_with_precompiled(
+        &early_precompiled_shaders(),
+        settings.clone(),
+    ) {
+        Err(WebGlError::IncompatiblePrecompiledShaders(reason)) => {
+            log::warn!("Compiling shaders from scratch: {reason}");
+            vello_gpu::WebGlRenderer::begin_with(&canvas, settings, true)
+        }
+        result => result,
+    }
+    .expect("failed to create WebGL renderer");
+
     let scenes = {
         let v = vello_example_scenes::get_example_scenes(
             vello_example_scenes::Capabilities::default(),
@@ -463,7 +476,9 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         v.into_boxed_slice()
     };
 
-    let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));
+    let app_state = Rc::new(RefCell::new(
+        AppState::new(canvas.clone(), init, resources, scenes).await,
+    ));
 
     // Set up animation frame loop
     {
@@ -586,11 +601,26 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         closure.forget();
     }
 
+    // On-screen arrows and touch swipes
+    {
+        let prev_state = app_state.clone();
+        let next_state = app_state.clone();
+        let pan_state = app_state.clone();
+        let zoom_state = app_state.clone();
+        vello_example_scenes::navigation::add_scene_navigation(
+            &canvas,
+            move || prev_state.borrow_mut().prev_scene(),
+            move || next_state.borrow_mut().next_scene(),
+            move |dx, dy| pan_state.borrow_mut().handle_pan(dx, dy),
+            move |x, y, factor| zoom_state.borrow_mut().handle_zoom(x, y, factor),
+        );
+    }
+
     // Create instructions element
     let document = web_sys::window().unwrap().document().unwrap();
     let instructions = document.create_element("div").unwrap();
     instructions.set_inner_html(
-        "Left/Right Arrow: Change scene | Space: Reset view | Mouse Drag: Pan | Mouse Wheel: Zoom",
+        "Arrow Keys or Buttons: Change scene | Space: Reset view | Mouse or Touch Drag: Pan | Mouse Wheel or Pinch: Zoom",
     );
     let style = instructions
         .dyn_ref::<web_sys::HtmlElement>()
@@ -636,20 +666,22 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         .append_child(&canvas)
         .unwrap();
 
+    let (init, resources) =
+        vello_gpu::WebGlRenderer::begin_with(&canvas, RenderSettings::default(), true)
+            .expect("failed to create WebGL renderer");
     let RendererWrapper {
         mut renderer,
         mut resources,
         ..
-    } = RendererWrapper::new(canvas).await;
+    } = RendererWrapper::new(canvas, init, resources).await;
 
-    let render_size = vello_gpu::RenderSize { width, height };
     renderer
         .render(
             &scene,
             &mut resources,
-            &render_size,
+            vello_gpu::WebGlRenderTarget::DrawingBuffer,
             &vello_gpu::WebGlTextureBindings::new(),
-            vello_common::color::AlphaColor::TRANSPARENT,
+            vello_gpu::WebGlRenderOptions::default(),
         )
         .unwrap();
 }

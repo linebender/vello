@@ -95,12 +95,11 @@ impl RendererWrapper {
         };
         surface.configure(&device, &surface_config);
 
-        let settings = RenderSettings {
-            level: Level::try_detect().unwrap_or(Level::baseline()),
-            ..Default::default()
-        };
+        let settings =
+            RenderSettings::default().with_level(Level::try_detect().unwrap_or(Level::baseline()));
         let (renderer, resources) = Renderer::new_with(
             &device,
+            &queue,
             &RenderTargetConfig {
                 format: surface_format,
                 width: width.try_into().unwrap(),
@@ -108,13 +107,10 @@ impl RendererWrapper {
             },
             settings,
         );
-        let depth_texture_view = Renderer::create_depth_texture_view(
-            &device,
-            &vello_gpu::RenderSize {
-                width: width.try_into().unwrap(),
-                height: height.try_into().unwrap(),
-            },
-        );
+        let depth_texture_view = renderer.create_depth_texture_view(&vello_gpu::RenderSize {
+            width: width.try_into().unwrap(),
+            height: height.try_into().unwrap(),
+        });
 
         Self {
             renderer,
@@ -140,13 +136,12 @@ impl RendererWrapper {
             view_formats: vec![],
         };
         self.surface.configure(&self.device, &surface_config);
-        self.depth_texture_view = Renderer::create_depth_texture_view(
-            &self.device,
-            &vello_gpu::RenderSize {
+        self.depth_texture_view = self
+            .renderer
+            .create_depth_texture_view(&vello_gpu::RenderSize {
                 width: width.try_into().unwrap(),
                 height: height.try_into().unwrap(),
-            },
-        );
+            });
         if let Some(gpu_timer) = &mut self.gpu_timer {
             gpu_timer.reset();
         }
@@ -240,11 +235,6 @@ impl AppState {
         );
         let scene_end = now();
 
-        let render_size = vello_gpu::RenderSize {
-            width: self.width.try_into().unwrap(),
-            height: self.height.try_into().unwrap(),
-        };
-
         let surface_texture = match self.renderer_wrapper.surface.get_current_texture() {
             CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
             CurrentSurfaceTexture::Occluded
@@ -275,14 +265,13 @@ impl AppState {
             .render(
                 &self.scene,
                 &mut self.renderer_wrapper.resources,
-                &self.renderer_wrapper.device,
-                &self.renderer_wrapper.queue,
                 &mut encoder,
-                &render_size,
-                &surface_texture_view,
-                Some(&self.renderer_wrapper.depth_texture_view),
+                vello_gpu::RenderTarget {
+                    view: &surface_texture_view,
+                    depth_view: Some(&self.renderer_wrapper.depth_texture_view),
+                },
                 &vello_gpu::TextureBindings::new(),
-                vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
+                vello_gpu::RenderOptions::default(),
             )
             .unwrap();
         let render_end = now();
@@ -397,10 +386,17 @@ impl AppState {
         if self.mouse_down
             && let Some(last_pos) = self.last_cursor_position
         {
-            self.transform = self.transform.then_translate(current_pos - last_pos);
+            let delta = current_pos - last_pos;
+            self.handle_pan(delta.x, delta.y);
         }
 
         self.last_cursor_position = Some(current_pos);
+    }
+
+    fn handle_pan(&mut self, delta_x: f64, delta_y: f64) {
+        self.transform = self
+            .transform
+            .then_translate(vello_common::kurbo::Vec2::new(delta_x, delta_y));
     }
 
     fn handle_wheel(&mut self, delta_y: f64) {
@@ -417,6 +413,12 @@ impl AppState {
         );
     }
 
+    fn handle_zoom(&mut self, client_x: f64, client_y: f64, zoom_factor: f64) {
+        let cursor_pos = Point::new(client_x, client_y);
+        self.last_cursor_position = Some(cursor_pos);
+        self.transform = self.transform.then_scale_about(zoom_factor, cursor_pos);
+    }
+
     fn upload_images_to_atlas(&mut self) {
         let mut encoder =
             self.renderer_wrapper
@@ -429,8 +431,6 @@ impl AppState {
         let pixmap1 = ImageScene::read_flower_image();
         self.renderer_wrapper.renderer.upload_image(
             &mut self.renderer_wrapper.resources,
-            &self.renderer_wrapper.device,
-            &self.renderer_wrapper.queue,
             &mut encoder,
             &pixmap1,
         );
@@ -444,8 +444,6 @@ impl AppState {
         );
         self.renderer_wrapper.renderer.upload_image(
             &mut self.renderer_wrapper.resources,
-            &self.renderer_wrapper.device,
-            &self.renderer_wrapper.queue,
             &mut encoder,
             &texture2,
         );
@@ -660,11 +658,26 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         closure.forget();
     }
 
+    // On-screen arrows and touch swipes
+    {
+        let prev_state = app_state.clone();
+        let next_state = app_state.clone();
+        let pan_state = app_state.clone();
+        let zoom_state = app_state.clone();
+        vello_example_scenes::navigation::add_scene_navigation(
+            &canvas,
+            move || prev_state.borrow_mut().prev_scene(),
+            move || next_state.borrow_mut().next_scene(),
+            move |dx, dy| pan_state.borrow_mut().handle_pan(dx, dy),
+            move |x, y, factor| zoom_state.borrow_mut().handle_zoom(x, y, factor),
+        );
+    }
+
     // Create instructions element
     let document = web_sys::window().unwrap().document().unwrap();
     let instructions = document.create_element("div").unwrap();
     instructions.set_inner_html(
-        "Left/Right Arrow: Change scene | Space: Reset view | Mouse Drag: Pan | Mouse Wheel: Zoom",
+        "Arrow Keys or Buttons: Change scene | Space: Reset view | Mouse or Touch Drag: Pan | Mouse Wheel or Pinch: Zoom",
     );
     let style = instructions
         .dyn_ref::<web_sys::HtmlElement>()
@@ -720,7 +733,6 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         ..
     } = RendererWrapper::new(canvas).await;
 
-    let render_size = vello_gpu::RenderSize { width, height };
     let surface_texture = match surface.get_current_texture() {
         CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
         e => panic!("Error getting initial surface: {e:?}"),
@@ -736,14 +748,13 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         .render(
             &scene,
             &mut resources,
-            &device,
-            &queue,
             &mut encoder,
-            &render_size,
-            &surface_texture_view,
-            Some(&depth_texture_view),
+            vello_gpu::RenderTarget {
+                view: &surface_texture_view,
+                depth_view: Some(&depth_texture_view),
+            },
             &vello_gpu::TextureBindings::new(),
-            vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::default()),
+            vello_gpu::RenderOptions::default(),
         )
         .unwrap();
 

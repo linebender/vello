@@ -25,6 +25,11 @@ pub fn gradient(c: &mut Criterion) {
 
     if crate::EXTENDED {
         radial::opaque_conical(c);
+        radial::opaque_strip(c);
+        radial::opaque_focal_on_circle(c);
+        radial::opaque_focal_swapped(c);
+        radial::opaque_focal_undefined(c);
+        radial::opaque_focal_undefined_negated(c);
 
         extend::pad(c);
         extend::repeat(c);
@@ -193,6 +198,73 @@ mod radial {
             kind,
             stops_blue_green_red_yellow_opaque(),
         );
+    }
+
+    fn two_point<S: Simd, N: FineKernel<S>>(
+        b: &mut Bencher<'_>,
+        fine: &mut Fine<S, N>,
+        start_offset: f64,
+        start_radius: f32,
+        end_offset: f64,
+        end_radius: f32,
+    ) {
+        let center_x = BENCH_WIDTH as f64 / 2.0;
+        let center_y = (Tile::HEIGHT / 2) as f64;
+        let kind = RadialGradientPosition {
+            start_center: Point::new(center_x + start_offset, center_y),
+            start_radius,
+            end_center: Point::new(center_x + end_offset, center_y),
+            end_radius,
+        }
+        .into();
+
+        gradient_base(
+            b,
+            fine,
+            peniko::Extend::Pad,
+            kind,
+            stops_blue_green_red_yellow_opaque(),
+        );
+    }
+
+    #[vello_bench]
+    pub(super) fn opaque_strip<S: Simd, N: FineKernel<S>>(
+        b: &mut Bencher<'_>,
+        fine: &mut Fine<S, N>,
+    ) {
+        two_point(b, fine, -20.0, 20.0, 20.0, 20.0);
+    }
+
+    #[vello_bench]
+    pub(super) fn opaque_focal_on_circle<S: Simd, N: FineKernel<S>>(
+        b: &mut Bencher<'_>,
+        fine: &mut Fine<S, N>,
+    ) {
+        two_point(b, fine, 0.0, 0.0, 25.0, 25.0);
+    }
+
+    #[vello_bench]
+    pub(super) fn opaque_focal_swapped<S: Simd, N: FineKernel<S>>(
+        b: &mut Bencher<'_>,
+        fine: &mut Fine<S, N>,
+    ) {
+        two_point(b, fine, -15.0, 40.0, 15.0, 0.0);
+    }
+
+    #[vello_bench]
+    pub(super) fn opaque_focal_undefined<S: Simd, N: FineKernel<S>>(
+        b: &mut Bencher<'_>,
+        fine: &mut Fine<S, N>,
+    ) {
+        two_point(b, fine, -20.0, 5.0, 20.0, 20.0);
+    }
+
+    #[vello_bench]
+    pub(super) fn opaque_focal_undefined_negated<S: Simd, N: FineKernel<S>>(
+        b: &mut Bencher<'_>,
+        fine: &mut Fine<S, N>,
+    ) {
+        two_point(b, fine, -20.0, 20.0, 20.0, 5.0);
     }
 }
 

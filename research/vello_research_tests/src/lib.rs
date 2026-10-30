@@ -87,7 +87,7 @@ pub fn render_then_debug_sync(scene: &Scene, params: &TestParams) -> Result<Imag
 pub async fn render_then_debug(scene: &Scene, params: &TestParams) -> Result<ImageData> {
     let image = get_scene_image(params, scene).await?;
     let suffix = if params.use_cpu { "cpu" } else { "gpu" };
-    let name = format!("{}_{suffix}", &params.name);
+    let name = format!("{}_{suffix}", params.name);
     let out_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("debug_outputs")
         .join(name)

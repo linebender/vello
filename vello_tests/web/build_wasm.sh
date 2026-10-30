@@ -61,6 +61,7 @@ mkdir -p "$out_dir"
 "$wasm_bindgen" \
     --target web \
     --no-typescript \
+    --remove-name-section \
     --out-dir "$out_dir" \
     --out-name "$module" \
     "$target_dir/wasm32-unknown-unknown/wasm-size/$binary.wasm"

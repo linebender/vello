@@ -4,6 +4,7 @@
 use crate::fine::macros::{f32x16_painter, u8x16_painter};
 use crate::fine::{PosExt, Splat4thExt, u8_to_f32};
 use crate::kurbo::Point;
+use fearless_simd_macros::simd;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{
     Bytes, Select, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4,
@@ -22,6 +23,7 @@ pub(crate) struct PlainNNImagePainter<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
+    #[simd]
     pub(crate) fn new(
         simd: S,
         image: &'a EncodedImage,
@@ -31,37 +33,32 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
     ) -> Self {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let y_positions = extend_mode(
-                    f32x4::splat_pos(
-                        simd,
-                        data.cur_pos.y as f32,
-                        data.x_advances.1,
-                        data.y_advances.1,
-                    ),
-                    image.sampler.y_extend,
-                    data.height,
-                    data.height_inv,
-                );
+        let y_positions = extend_mode(
+            f32x4::splat_pos(
+                simd,
+                data.cur_pos.y as f32,
+                data.x_advances.1,
+                data.y_advances.1,
+            ),
+            image.sampler.y_extend,
+            data.height,
+            data.height_inv,
+        );
 
-                let cur_x_pos = f32x4::splat_pos(
-                    simd,
-                    data.cur_pos.x as f32,
-                    data.x_advances.0,
-                    data.y_advances.0,
-                );
+        let cur_x_pos = f32x4::splat_pos(
+            simd,
+            data.cur_pos.x as f32,
+            data.x_advances.0,
+            data.y_advances.0,
+        );
 
-                Self {
-                    data,
-                    advance: image.x_advance.x as f32,
-                    y_positions,
-                    cur_x_pos,
-                    simd,
-                }
-            },
-        )
+        Self {
+            data,
+            advance: image.x_advance.x as f32,
+            y_positions,
+            cur_x_pos,
+            simd,
+        }
     }
 }
 
@@ -357,6 +354,7 @@ pub(crate) struct ImagePainterData<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> ImagePainterData<'a, S> {
+    #[simd]
     pub(crate) fn new(
         simd: S,
         image: &'a EncodedImage,
@@ -364,36 +362,31 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
         start_x: f64,
         start_y: f64,
     ) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let width = pixmap.width() as f32;
-                let height = pixmap.height() as f32;
-                let start_pos = image.transform * Point::new(start_x, start_y);
+        let width = pixmap.width() as f32;
+        let height = pixmap.height() as f32;
+        let start_pos = image.transform * Point::new(start_x, start_y);
 
-                let width_inv = f32x4::splat(simd, 1.0 / width);
-                let height_inv = f32x4::splat(simd, 1.0 / height);
-                let width = f32x4::splat(simd, width);
-                let width_u32 = u32x4::splat(simd, pixmap.width() as u32);
-                let height = f32x4::splat(simd, height);
+        let width_inv = f32x4::splat(simd, 1.0 / width);
+        let height_inv = f32x4::splat(simd, 1.0 / height);
+        let width = f32x4::splat(simd, width);
+        let width_u32 = u32x4::splat(simd, pixmap.width() as u32);
+        let height = f32x4::splat(simd, height);
 
-                let x_advances = (image.x_advance.x as f32, image.x_advance.y as f32);
-                let y_advances = (image.y_advance.x as f32, image.y_advance.y as f32);
+        let x_advances = (image.x_advance.x as f32, image.x_advance.y as f32);
+        let y_advances = (image.y_advance.x as f32, image.y_advance.y as f32);
 
-                Self {
-                    cur_pos: start_pos,
-                    pixmap,
-                    x_advances,
-                    y_advances,
-                    image,
-                    width,
-                    height,
-                    width_u32,
-                    width_inv,
-                    height_inv,
-                }
-            },
-        )
+        Self {
+            cur_pos: start_pos,
+            pixmap,
+            x_advances,
+            y_advances,
+            image,
+            width,
+            height,
+            width_u32,
+            width_inv,
+            height_inv,
+        }
     }
 }
 
@@ -450,45 +443,41 @@ fn euclid_mod<S: Simd>(t: f32x4<S>, m: f32x4<S>, inv_m: f32x4<S>) -> f32x4<S> {
 }
 
 /// Calculate the weights for a single fractional value.
+#[simd]
 fn weights<S: Simd>(simd: S, fract: f32x4<S>) -> [f32x4<S>; 4] {
-    simd.vectorize(
-        #[inline(always)]
-        || {
-            let s = fract.simd;
-            const MF: [[f32; 4]; 4] = mf_resampler();
+    let s = fract.simd;
+    const MF: [[f32; 4]; 4] = mf_resampler();
 
-            [
-                single_weight(
-                    fract,
-                    f32x4::splat(s, MF[0][0]),
-                    f32x4::splat(s, MF[0][1]),
-                    f32x4::splat(s, MF[0][2]),
-                    f32x4::splat(s, MF[0][3]),
-                ),
-                single_weight(
-                    fract,
-                    f32x4::splat(s, MF[1][0]),
-                    f32x4::splat(s, MF[1][1]),
-                    f32x4::splat(s, MF[1][2]),
-                    f32x4::splat(s, MF[1][3]),
-                ),
-                single_weight(
-                    fract,
-                    f32x4::splat(s, MF[2][0]),
-                    f32x4::splat(s, MF[2][1]),
-                    f32x4::splat(s, MF[2][2]),
-                    f32x4::splat(s, MF[2][3]),
-                ),
-                single_weight(
-                    fract,
-                    f32x4::splat(s, MF[3][0]),
-                    f32x4::splat(s, MF[3][1]),
-                    f32x4::splat(s, MF[3][2]),
-                    f32x4::splat(s, MF[3][3]),
-                ),
-            ]
-        },
-    )
+    [
+        single_weight(
+            fract,
+            f32x4::splat(s, MF[0][0]),
+            f32x4::splat(s, MF[0][1]),
+            f32x4::splat(s, MF[0][2]),
+            f32x4::splat(s, MF[0][3]),
+        ),
+        single_weight(
+            fract,
+            f32x4::splat(s, MF[1][0]),
+            f32x4::splat(s, MF[1][1]),
+            f32x4::splat(s, MF[1][2]),
+            f32x4::splat(s, MF[1][3]),
+        ),
+        single_weight(
+            fract,
+            f32x4::splat(s, MF[2][0]),
+            f32x4::splat(s, MF[2][1]),
+            f32x4::splat(s, MF[2][2]),
+            f32x4::splat(s, MF[2][3]),
+        ),
+        single_weight(
+            fract,
+            f32x4::splat(s, MF[3][0]),
+            f32x4::splat(s, MF[3][1]),
+            f32x4::splat(s, MF[3][2]),
+            f32x4::splat(s, MF[3][3]),
+        ),
+    ]
 }
 
 /// Calculate a weight based on the fractional value t and the cubic coefficients.

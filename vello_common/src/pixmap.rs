@@ -300,10 +300,12 @@ impl Pixmap {
                 let mut grayscale_data = vec![0; reader.output_buffer_size().unwrap_or_default()];
                 reader.next_frame(&mut grayscale_data)?;
 
-                for (grayscale_pixel, pixmap_pixel) in
-                    grayscale_data.chunks_exact(2).zip(pixmap.data_mut())
+                for (&[gray, alpha], pixmap_pixel) in grayscale_data
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .zip(pixmap.data_mut())
                 {
-                    let [gray, alpha] = grayscale_pixel.try_into().unwrap();
                     *pixmap_pixel = PremulRgba8 {
                         r: gray,
                         g: gray,
@@ -582,7 +584,7 @@ fn unpremultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) -> bool {
     }
 
     let mut may_have_transparency = transparency.any_true();
-    for pixel in tail.chunks_exact_mut(4) {
+    for pixel in tail.as_chunks_mut::<4>().0 {
         may_have_transparency |= pixel[3] != 255;
         let reciprocal = unpremultiply::reciprocal(pixel[3]);
         for component in &mut pixel[..3] {
@@ -613,7 +615,7 @@ fn premultiply_rgba8_impl<S: Simd>(simd: S, data: &mut [u8]) -> bool {
     }
 
     let mut may_have_transparency = transparency.any_true();
-    for pixel in tail.chunks_exact_mut(4) {
+    for pixel in tail.as_chunks_mut::<4>().0 {
         let alpha = u16::from(pixel[3]);
         may_have_transparency |= alpha != 255;
         let premultiply = |component| ((u16::from(component) * alpha + 255) >> 8) as u8;
@@ -724,7 +726,9 @@ mod tests {
             })
             .collect();
         let expected: Vec<u8> = rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|pixel| pixel[..3].iter().copied())
             .collect();
         let pixmap = Pixmap::from_parts(

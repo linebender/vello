@@ -9,5 +9,5 @@
     reason = "renderer harnesses contain backend types that are not uniformly debuggable"
 )]
 
-pub mod diff;
+pub use vello_test_support::diff;
 pub mod renderer;

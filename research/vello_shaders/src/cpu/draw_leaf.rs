@@ -120,21 +120,19 @@ fn draw_leaf_main(
                             radius = r1 / cf.distance(p1);
                             let user_to_unit_line =
                                 two_point_to_unit_line(cf, p1) * user_to_gradient;
-                            let user_to_scaled;
                             // When r == 1.0, focal point is on circle
-                            if (radius - 1.0).abs() <= GRADIENT_EPSILON {
+                            let user_to_scaled = if (radius - 1.0).abs() <= GRADIENT_EPSILON {
                                 kind = RAD_GRAD_KIND_FOCAL_ON_CIRCLE;
                                 let scale = 0.5 * (1.0 - focal_x).abs();
-                                user_to_scaled = Transform([scale, 0.0, 0.0, scale, 0.0, 0.0])
-                                    * user_to_unit_line;
+                                Transform([scale, 0.0, 0.0, scale, 0.0, 0.0]) * user_to_unit_line
                             } else {
                                 let a = radius * radius - 1.0;
                                 let scale_ratio = (1.0 - focal_x).abs() / a;
                                 let scale_x = radius * scale_ratio;
                                 let scale_y = a.abs().sqrt() * scale_ratio;
-                                user_to_scaled = Transform([scale_x, 0.0, 0.0, scale_y, 0.0, 0.0])
-                                    * user_to_unit_line;
-                            }
+                                Transform([scale_x, 0.0, 0.0, scale_y, 0.0, 0.0])
+                                    * user_to_unit_line
+                            };
                             xform = user_to_scaled;
                         }
                         info[di + 1] = f32::to_bits(xform.0[0]);

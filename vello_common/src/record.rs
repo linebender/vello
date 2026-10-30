@@ -406,7 +406,7 @@ impl<D> CommandRecorder<D> {
             return;
         };
 
-        let Some(bbox) = bbox().and_then(|b| if b.is_empty() { None } else { Some(b) }) else {
+        let Some(bbox) = bbox().filter(|b| !b.is_empty()) else {
             return;
         };
 

@@ -9,8 +9,17 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+#[cfg(feature = "probe")]
+mod probe;
+
+#[cfg(feature = "probe")]
+pub use probe::{WgpuPendingProbe, WgpuProbeError, WgpuProbeStatus};
+
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
+#[cfg(feature = "wgpu_external_texture")]
+use crate::render::common::encode_wgpu_external_texture_paint;
+use crate::render::common::{SharedCore, encode_external_texture_paint};
 use crate::util::RangedSlice;
 use crate::{
     ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
@@ -19,20 +28,13 @@ use crate::{
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
     gradient_cache::GradientRampCache,
-    paint::{PaintResolver, TextureSourceId},
+    paint::{ExternalSampler, SamplerAddress, SamplerFilter, TextureSourceId},
     render::{
         Config,
-        common::{
-            DeviceLimits, GpuBlurredRoundedRect, GpuClearInstance, GpuEncodedImage,
-            GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            ScratchBuffers, ScratchTexture, pack_image_offset, pack_image_params, pack_image_size,
-            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
-        },
+        common::{DeviceLimits, GpuClearInstance, GpuEncodedPaint, ScratchBuffers, ScratchTexture},
     },
     scene::Scene,
-    schedule::{
-        Backend, IntermediateTextureAllocations, Schedule, ScheduleStorage, round::BlendOp,
-    },
+    schedule::{Backend, IntermediateTextureAllocations, Schedule, round::BlendOp},
     target::{
         BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
         RootTarget, TextureParity,
@@ -45,33 +47,23 @@ use core::{fmt::Debug, num::NonZeroU64, ops::Range};
 use glifo::PendingClearRect;
 use hashbrown::{HashMap, hash_map::Entry};
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::image_cache::{ImageCache, ImageResource};
+use vello_common::encode::EncodedImage;
+use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
     TextureId,
-    encode::{
-        EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
-        MAX_GRADIENT_LUT_SIZE, RadialKind,
-    },
     geometry::{RectU16, SizeU16},
-    paint::ImageSource,
-    peniko,
+    paint::TextureRegion,
     pixmap::Pixmap,
     tile::Tile,
 };
 use wgpu::{
-    BindGroup, BindGroupLayout, BlendState, Buffer, BufferDescriptor, COPY_BUFFER_ALIGNMENT,
-    ColorTargetState, ColorWrites, CommandEncoder, Device, Extent3d, PipelineCompilationOptions,
-    Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, Sampler, Texture,
-    TextureView, TextureViewDescriptor, util::DeviceExt,
+    BindGroup, BindGroupLayout, BlendState, Buffer, BufferDescriptor, BufferViewMut,
+    COPY_BUFFER_ALIGNMENT, ColorTargetState, ColorWrites, CommandEncoder, Device, Extent3d,
+    PipelineCompilationOptions, Queue, RenderPassColorAttachment, RenderPassDescriptor,
+    RenderPipeline, Sampler, Texture, TextureView, TextureViewDescriptor,
+    util::{DeviceExt, StagingBelt},
 };
-
-/// Placeholder value for uninitialized GPU encoded paints.
-const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
-    texture_width_and_extend_mode: 0,
-    gradient_start: 0,
-    transform: [0.0; 6],
-});
 
 /// Options for the renderer
 #[derive(Debug)]
@@ -84,10 +76,95 @@ pub struct RenderTargetConfig {
     pub height: u16,
 }
 
+/// The target that a scene is rendered into.
+#[derive(Debug, Clone, Copy)]
+pub struct RenderTarget<'a> {
+    /// The color attachment to render into.
+    ///
+    /// The view must cover mip level 0 of its texture.
+    pub view: &'a TextureView,
+    /// The optional depth attachment.
+    ///
+    /// Passing `Some(depth_view)` enables depth buffering to reduce overdraw. The depth view must
+    /// use [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), have the same
+    /// dimensions as `view`, have a sample count of one, and support
+    /// [`TextureUsages::RENDER_ATTACHMENT`](wgpu::TextureUsages::RENDER_ATTACHMENT). Pass `None`
+    /// to render without a depth buffer.
+    ///
+    /// The [WebGPU render pass validation rules] require every color and depth attachment view in
+    /// a render pass to have matching render extents.
+    ///
+    /// [WebGPU render pass validation rules]: https://gpuweb.github.io/gpuweb/#abstract-opdef-gpurenderpassdescriptor-valid-usage
+    pub depth_view: Option<&'a TextureView>,
+}
+
+impl RenderTarget<'_> {
+    fn size(&self) -> RenderSize {
+        let texture = self.view.texture();
+        RenderSize {
+            width: texture.width().try_into().unwrap(),
+            height: texture.height().try_into().unwrap(),
+        }
+    }
+}
+
+/// Options for [`Renderer::render`].
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct RenderOptions<'a> {
+    /// How existing target contents are handled before drawing.
+    pub target_init: TargetInit<'a>,
+    /// The position of the scene's origin in the target.
+    ///
+    /// Clear rectangles are not offset.
+    pub offset: (i32, i32),
+}
+
+impl Default for RenderOptions<'_> {
+    fn default() -> Self {
+        Self {
+            target_init: TargetInit::Clear(ClearSettings::default()),
+            offset: (0, 0),
+        }
+    }
+}
+
+/// A runtime binding for a [`TextureId`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum TextureBinding {
+    /// A premultiplied RGBA texture view; see [`TextureBindings::insert`].
+    TextureView(TextureView),
+    /// A wgpu external texture; see [`TextureBindings::insert_wgpu_external_texture`].
+    #[cfg(feature = "wgpu_external_texture")]
+    WgpuExternalTexture {
+        /// The external texture.
+        texture: wgpu::ExternalTexture,
+        /// The external texture's width, as passed to [`wgpu::ExternalTextureDescriptor`].
+        width: u32,
+        /// The external texture's height, as passed to [`wgpu::ExternalTextureDescriptor`].
+        height: u32,
+    },
+}
+
+impl TextureBinding {
+    /// Width and height of the texture space that image paints sample from.
+    fn size(&self) -> (u32, u32) {
+        match self {
+            Self::TextureView(view) => {
+                let texture = view.texture();
+                (texture.width(), texture.height())
+            }
+            #[cfg(feature = "wgpu_external_texture")]
+            Self::WgpuExternalTexture { width, height, .. } => (*width, *height),
+        }
+    }
+}
+
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct TextureBindings {
-    views: HashMap<TextureId, TextureView>,
+    bindings: HashMap<TextureId, TextureBinding>,
 }
 
 impl TextureBindings {
@@ -103,10 +180,10 @@ impl TextureBindings {
     ///
     /// ```ignore
     /// wgpu::BindGroupLayoutEntry {
-    ///     binding: 1,
+    ///     binding: 0,
     ///     visibility: wgpu::ShaderStages::FRAGMENT,
     ///     ty: wgpu::BindingType::Texture {
-    ///         sample_type: wgpu::TextureSampleType::Float { filterable: false },
+    ///         sample_type: wgpu::TextureSampleType::Float { filterable: true },
     ///         view_dimension: wgpu::TextureViewDimension::D2,
     ///         multisampled: false,
     ///     },
@@ -114,57 +191,149 @@ impl TextureBindings {
     /// }
     /// ```
     ///
-    /// This means the view must be a non-array 2D view of a float-sampleable texture (e.g. integer
-    /// formats are rejected by wgpu at bind time), the underlying texture must include
-    /// [`wgpu::TextureUsages::TEXTURE_BINDING`], and only mip level 0 is read.
+    /// This means the view must be a non-array 2D view of a filterable float texture (e.g.
+    /// `Rgba8Unorm`; integer and unfilterable float formats are rejected by wgpu at bind time).
+    /// The underlying texture must include [`wgpu::TextureUsages::TEXTURE_BINDING`], and only
+    /// mip level 0 is read. The view must start at mip level 0 of its texture.
     #[inline]
     pub fn insert(&mut self, texture_id: TextureId, view: TextureView) {
-        self.views.insert(texture_id, view);
+        self.bindings
+            .insert(texture_id, TextureBinding::TextureView(view));
+    }
+
+    /// Insert or replace a [`wgpu::ExternalTexture`] binding.
+    ///
+    /// The renderer's device must have [`wgpu::Features::EXTERNAL_TEXTURE`] enabled. When Vello
+    /// samples the texture, wgpu applies its sample transform and, for multi-planar formats, the
+    /// YCbCr → RGB and color space conversion. Multi-planar formats always produce opaque colors,
+    /// while an `Rgba` external texture is read as-is and must contain premultiplied RGBA.
+    ///
+    /// Image paints must sample the full texture ([`TextureRegion::Full`]) with
+    /// [`Extend::Pad`](vello_common::peniko::Extend::Pad), low or medium quality, and no tint
+    /// other than opacity. Other paints fail with
+    /// [`RenderError::UnsupportedExternalTextureSampling`]. To crop or rotate, use the paint
+    /// transform and limit the drawn geometry.
+    ///
+    /// `width` and `height` are the texture's size in texels, which wgpu does not expose. Pass
+    /// the [`wgpu::ExternalTextureDescriptor`]'s size, or the first plane's size if the
+    /// descriptor uses `(0, 0)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `width` or `height` is zero.
+    #[cfg(feature = "wgpu_external_texture")]
+    #[inline]
+    pub fn insert_wgpu_external_texture(
+        &mut self,
+        texture_id: TextureId,
+        external_texture: wgpu::ExternalTexture,
+        width: u32,
+        height: u32,
+    ) {
+        assert!(
+            width > 0 && height > 0,
+            "wgpu external texture size must be non-zero, got {width}x{height}"
+        );
+        self.bindings.insert(
+            texture_id,
+            TextureBinding::WgpuExternalTexture {
+                texture: external_texture,
+                width,
+                height,
+            },
+        );
+    }
+
+    /// Encodes an image paint that samples the binding of `texture_id`.
+    fn encode_paint(
+        &self,
+        texture_id: TextureId,
+        image: &EncodedImage,
+        source_region: TextureRegion,
+        render_target: &Texture,
+    ) -> Result<GpuEncodedPaint, RenderError> {
+        let texture_binding = self
+            .get(texture_id)
+            .ok_or(RenderError::MissingTextureBinding(texture_id))?;
+
+        let (texture_width, texture_height) = texture_binding.size();
+        let texture_width = u16::try_from(texture_width).unwrap();
+        let texture_height = u16::try_from(texture_height).unwrap();
+        match texture_binding {
+            TextureBinding::TextureView(view) => {
+                if view.texture() == render_target {
+                    return Err(RenderError::TextureFeedbackLoop(texture_id));
+                }
+                Ok(encode_external_texture_paint(
+                    image,
+                    source_region,
+                    texture_width,
+                    texture_height,
+                ))
+            }
+            #[cfg(feature = "wgpu_external_texture")]
+            TextureBinding::WgpuExternalTexture { .. } => {
+                encode_wgpu_external_texture_paint(image, texture_width, texture_height)
+                    .ok_or(RenderError::UnsupportedExternalTextureSampling(texture_id))
+            }
+        }
     }
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&TextureView> {
-        self.views.get(&texture_id)
+    fn get(&self, texture_id: TextureId) -> Option<&TextureBinding> {
+        self.bindings.get(&texture_id)
     }
 
     /// Remove a texture binding.
     ///
-    /// This returns the removed [`TextureView`] binding if it existed.
+    /// This returns the removed binding if it existed.
     #[inline]
-    pub fn remove(&mut self, texture_id: TextureId) -> Option<TextureView> {
-        self.views.remove(&texture_id)
+    pub fn remove(&mut self, texture_id: TextureId) -> Option<TextureBinding> {
+        self.bindings.remove(&texture_id)
     }
 }
 
 /// Vello GPU's renderer.
 #[derive(Debug)]
 pub struct Renderer {
+    /// The device that all GPU resources of the renderer are created on.
+    device: Device,
+    /// The queue of `device`.
+    queue: Queue,
     /// Programs for rendering.
     programs: Programs,
-    /// Encoded paints for storing encoded paints.
-    encoded_paints: Vec<GpuEncodedPaint>,
-    /// Stores the index (offset) of the encoded paints in the encoded paints texture.
-    paint_idxs: Vec<u32>,
-    /// Gradient cache for storing gradient ramps.
-    gradient_cache: GradientRampCache,
-    dummy_image_cache: Option<ImageCache>,
-    schedule_storage: ScheduleStorage,
-    scratch_buffers: ScratchBuffers,
-    layers_config: LayersConfig,
+    /// Backend-independent renderer state.
+    core: SharedCore,
+    /// Format of the render target that the pipelines are created for.
+    #[cfg_attr(
+        not(feature = "probe"),
+        expect(dead_code, reason = "only read when probing")
+    )]
+    target_format: wgpu::TextureFormat,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
 }
 
 impl Renderer {
     /// Creates a new renderer and its persistent resources.
-    pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> (Self, Resources) {
-        Self::new_with(device, render_target_config, RenderSettings::default())
+    pub fn new(
+        device: &Device,
+        queue: &Queue,
+        render_target_config: &RenderTargetConfig,
+    ) -> (Self, Resources) {
+        Self::new_with(
+            device,
+            queue,
+            render_target_config,
+            RenderSettings::default(),
+        )
     }
 
     /// Creates a new renderer and its persistent resources with specific settings.
     pub fn new_with(
         device: &Device,
+        queue: &Queue,
         render_target_config: &RenderTargetConfig,
         settings: RenderSettings,
     ) -> (Self, Resources) {
@@ -176,31 +345,22 @@ impl Renderer {
             max_texture_dimension_2d: u16::try_from(limits.max_texture_dimension_2d)
                 .unwrap_or(u16::MAX),
         };
-        settings.memory_settings.normalize(&device_limits);
-        let resources = Resources::new(settings.memory_settings.image_atlas_config);
+        let (core, resources) = SharedCore::new(&mut settings, &device_limits);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
-        // Estimate the maximum number of gradient cache entries based on the resource texture
-        // dimension and the maximum gradient LUT size - worst case scenario.
-        let max_gradient_cache_size = resource_texture_dimension_2d * resource_texture_dimension_2d
-            / MAX_GRADIENT_LUT_SIZE as u32;
-        let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
-        let layer_config = settings.memory_settings.layers_config;
 
         let renderer = Self {
+            device: device.clone(),
+            queue: queue.clone(),
             programs: Programs::new(
                 device,
                 &resources.image_cache,
                 render_target_config,
-                layer_config,
+                core.layers_config,
                 resource_texture_dimension_2d,
+                settings.pipeline_cache.as_ref(),
             ),
-            gradient_cache,
-            encoded_paints: Vec::new(),
-            paint_idxs: Vec::new(),
-            dummy_image_cache: Some(ImageCache::new_dummy()),
-            schedule_storage: ScheduleStorage::default(),
-            scratch_buffers: ScratchBuffers::default(),
-            layers_config: layer_config,
+            core,
+            target_format: render_target_config.format,
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
         };
@@ -213,8 +373,8 @@ impl Renderer {
     /// The returned view has the same dimensions as `render_size`, uses
     /// [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), and can be used as a
     /// render attachment.
-    pub fn create_depth_texture_view(device: &Device, render_size: &RenderSize) -> TextureView {
-        device
+    pub fn create_depth_texture_view(&self, render_size: &RenderSize) -> TextureView {
+        self.device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some("Vello GPU Depth Texture"),
                 size: Extent3d {
@@ -232,7 +392,7 @@ impl Renderer {
             .create_view(&TextureViewDescriptor::default())
     }
 
-    /// Render `scene`.
+    /// Render `scene` into `target`, recording the GPU commands into `encoder`.
     ///
     /// Every [`TextureId`] referenced by the scene must have a binding; this returns
     /// [`RenderError::MissingTextureBinding`] otherwise. See [`TextureBindings::insert`] for the
@@ -240,28 +400,16 @@ impl Renderer {
     ///
     /// To render without any texture bindings, you can pass an empty [`TextureBindings`].
     ///
-    /// Passing `Some(depth_view)` enables depth buffering to reduce overdraw. The depth view must
-    /// use [`TextureFormat::Depth24Plus`](wgpu::TextureFormat::Depth24Plus), have the same
-    /// dimensions as `render_size`, have a sample count of one, and support
-    /// [`TextureUsages::RENDER_ATTACHMENT`](wgpu::TextureUsages::RENDER_ATTACHMENT). Pass `None`
-    /// to render without a depth buffer.
-    ///
-    /// The [WebGPU render pass validation rules] require every color and depth attachment view in
-    /// a render pass to have matching render extents.
-    ///
-    /// [WebGPU render pass validation rules]: https://gpuweb.github.io/gpuweb/#abstract-opdef-gpurenderpassdescriptor-valid-usage
+    /// The commands are recorded into `encoder`, which must be submitted to the renderer's queue.
+    /// If this is not done, subsequent calls to `render` might produce invalid rendering.
     pub fn render(
         &mut self,
         scene: &Scene,
         resources: &mut Resources,
-        device: &Device,
-        queue: &Queue,
         encoder: &mut CommandEncoder,
-        render_size: &RenderSize,
-        view: &TextureView,
-        depth_view: Option<&TextureView>,
+        target: RenderTarget<'_>,
         texture_bindings: &TextureBindings,
-        target_init: TargetInit<'_>,
+        options: RenderOptions<'_>,
     ) -> Result<(), RenderError> {
         #[cfg(feature = "text")]
         {
@@ -272,8 +420,6 @@ impl Renderer {
                         glyph_renderer,
                         atlas_count,
                         atlas_config,
-                        device,
-                        queue,
                         atlas_id,
                         texture_bindings,
                     )
@@ -281,8 +427,6 @@ impl Renderer {
                 |renderer, image_cache, upload, dst_x, dst_y| {
                     renderer.write_to_atlas(
                         image_cache,
-                        device,
-                        queue,
                         encoder,
                         upload.image_id,
                         &upload.pixmap,
@@ -296,22 +440,20 @@ impl Renderer {
 
         let result = self.render_scene(
             scene,
-            device,
-            queue,
             encoder,
-            render_size,
-            view,
-            depth_view,
+            &target.size(),
+            target.view,
+            target.depth_view,
             &resources.image_cache,
-            &scene.encoded_paints,
-            target_init,
+            options.target_init,
             RootTarget::UserSurface,
             texture_bindings,
+            options.offset,
         );
 
         #[cfg(feature = "text")]
         resources.after_render(self, |renderer, rect| {
-            clear_atlas_region(queue, renderer, rect);
+            clear_atlas_region(renderer, rect);
 
             Ok::<(), RenderError>(())
         })?;
@@ -330,8 +472,7 @@ impl Renderer {
     ///
     /// This method creates its own command encoder and submits immediately,
     /// ensuring atlas content is committed before any subsequent
-    /// [`render`](Self::render) call (the two methods share GPU resources that
-    /// are staged by `queue.write_*` and only applied on the next `queue.submit`).
+    /// [`render`](Self::render) call, since the two methods share GPU resources.
     ///
     /// `texture_bindings` provides [externally bound textures](`TextureBindings`)
     /// referenced by the scene. Pass `&TextureBindings::new()` if the scene does
@@ -342,16 +483,20 @@ impl Renderer {
         scene: &Scene,
         atlas_count: u32,
         atlas_config: AtlasConfig,
-        device: &Device,
-        queue: &Queue,
         atlas_id: AtlasId,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render to Atlas Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render to Atlas Encoder"),
+            });
 
-        Programs::maybe_create_atlas_textures(device, &mut self.programs.resources, atlas_count);
+        Programs::maybe_create_atlas_textures(
+            &self.device,
+            &mut self.programs.resources,
+            atlas_count,
+        );
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
@@ -362,30 +507,28 @@ impl Renderer {
         let layer_view =
             self.programs.resources.atlas_texture_views[atlas_id.as_u32() as usize].clone();
 
-        let encoded_paints = &scene.encoded_paints;
         let dummy_image_cache = self
+            .core
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
         let result = self.render_scene(
             scene,
-            device,
-            queue,
             &mut encoder,
             &atlas_render_size,
             &layer_view,
             None,
             &dummy_image_cache,
-            encoded_paints,
             TargetInit::SrcOver,
             RootTarget::AtlasLayer,
             texture_bindings,
+            (0, 0),
         );
-        self.dummy_image_cache = Some(dummy_image_cache);
+        self.core.dummy_image_cache = Some(dummy_image_cache);
 
         // Submit immediately so the atlas content is committed before subsequent
         // render() calls overwrite the shared alpha/config/paint resources.
-        queue.submit(Some(encoder.finish()));
+        self.queue.submit(Some(encoder.finish()));
 
         result
     }
@@ -407,87 +550,72 @@ impl Renderer {
     fn render_scene(
         &mut self,
         scene: &Scene,
-        device: &Device,
-        queue: &Queue,
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
         depth_view: Option<&TextureView>,
         image_cache: &ImageCache,
-        encoded_paints: &[EncodedPaint],
         target_init: TargetInit<'_>,
         root_output_target: RootTarget,
         texture_bindings: &TextureBindings,
+        scene_offset: (i32, i32),
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
-        self.prepare_gpu_encoded_paints(
-            encoded_paints,
-            image_cache,
-            texture_bindings,
-            view.texture(),
-        )?;
-        let required_texture_size = self
-            .layers_config
-            .required_intermediate_texture_size(&scene.recorder)?;
-
-        // We currently only grow and never shrink textures, so max it with whatever
-        // we had in the previous run.
-        let texture_size = self
-            .programs
-            .resources
-            .texture_size
-            .max(required_texture_size);
         let current_allocations = self.current_allocations();
-        let paint_resolver =
-            PaintResolver::new(encoded_paints, &self.paint_idxs).with_image_cache(image_cache);
-        let schedule = Schedule::try_new(
-            &mut self.schedule_storage,
+        let schedule = self.core.prepare(
             scene,
+            image_cache,
             root_output_target,
+            RectU16::visible_scene_bounds(
+                scene.recorder.scene_size,
+                SizeU16::from_wh(render_size.width, render_size.height),
+                scene_offset,
+            ),
             depth_view.is_some(),
-            paint_resolver,
-            texture_size,
+            self.programs.resources.texture_size,
             current_allocations,
-            self.layers_config.max_textures,
+            |id, image, region| texture_bindings.encode_paint(id, image, region, view.texture()),
         )?;
         self.programs
-            .prepare_intermediate_textures(device, &schedule);
+            .prepare_intermediate_textures(&self.device, &schedule);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
-        self.programs.prepare(
-            device,
-            queue,
-            &mut self.gradient_cache,
-            &self.encoded_paints,
-            &mut scene.strip_storage.borrow_mut().alphas,
-            render_size,
-            &self.paint_idxs,
-            &self.schedule_storage.filter_context,
-        );
-
         let strip_count = self
+            .core
             .schedule_storage
             .buffers
             .draw_buffers
             .opaque
             .strips()
             .len()
-            + self.schedule_storage.buffers.draw_buffers.strips.len();
+            + self.core.schedule_storage.buffers.draw_buffers.strips.len();
+        let strip_bytes = (strip_count * size_of::<GpuStrip>()) as u64;
+        self.programs.prepare(
+            &self.device,
+            encoder,
+            &mut self.core.gradient_cache,
+            &self.core.encoded_paints,
+            &scene.strip_storage.borrow().alphas,
+            render_size,
+            scene_offset,
+            &self.core.paint_idxs,
+            &self.core.schedule_storage.filter_context,
+        );
+
         self.programs
             .strips_arena
-            .begin_frame(device, (strip_count * size_of::<GpuStrip>()) as u64);
+            .begin_frame(&self.device, strip_bytes);
 
         let mut ctx = RendererContext {
             programs: &mut self.programs,
-            device,
-            queue,
+            device: &self.device,
             encoder,
             view,
             depth_view,
             texture_bindings,
             external_texture_bind_groups: HashMap::new(),
-            scratch_buffers: &mut self.scratch_buffers,
+            scratch_buffers: &mut self.core.scratch_buffers,
             root_load_op: wgpu::LoadOp::Load,
         };
 
@@ -495,7 +623,7 @@ impl Renderer {
 
         crate::schedule::execute(
             &mut ctx,
-            &mut self.schedule_storage,
+            &mut self.core.schedule_storage,
             schedule,
             root_output_target,
         )
@@ -503,7 +631,12 @@ impl Renderer {
 
         ctx.finish_root_clear();
 
-        self.gradient_cache.maintain();
+        self.core.gradient_cache.maintain();
+
+        self.programs
+            .staging_belt
+            .belt
+            .finish_and_recall_on_submit(encoder);
 
         Ok(())
     }
@@ -516,37 +649,32 @@ impl Renderer {
     /// 1. Reserves space in the image cache
     /// 2. Writes the image data directly to the atlas
     /// 3. Returns the `ImageId` for use in rendering
+    #[track_caller]
     pub fn upload_image<T: AtlasWriter>(
         &mut self,
         resources: &mut Resources,
-        device: &Device,
-        queue: &Queue,
         encoder: &mut CommandEncoder,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        self.upload_image_with(
-            &mut resources.image_cache,
-            device,
-            queue,
-            encoder,
-            writer,
-            IMAGE_PADDING,
-        )
+        self.upload_image_with(&mut resources.image_cache, encoder, writer, IMAGE_PADDING)
     }
 
+    #[track_caller]
     pub(crate) fn upload_image_with<T: AtlasWriter>(
         &mut self,
         image_cache: &mut ImageCache,
-        device: &Device,
-        queue: &Queue,
         encoder: &mut CommandEncoder,
         writer: &T,
         padding: u16,
     ) -> vello_common::paint::ImageId {
+        if !cfg!(feature = "full_image_support") {
+            panic!("uploaded images require the `full_image_support` feature");
+        }
+
         let width = writer.width();
         let height = writer.height();
         let image_id = image_cache.allocate(width, height, padding).unwrap();
-        self.write_to_atlas(image_cache, device, queue, encoder, image_id, writer, None);
+        self.write_to_atlas(image_cache, encoder, image_id, writer, None);
         image_id
     }
 
@@ -562,8 +690,6 @@ impl Renderer {
     pub(crate) fn write_to_atlas<T: AtlasWriter>(
         &mut self,
         image_cache: &ImageCache,
-        device: &Device,
-        queue: &Queue,
         encoder: &mut CommandEncoder,
         image_id: vello_common::paint::ImageId,
         writer: &T,
@@ -572,7 +698,7 @@ impl Renderer {
         let image_resource = image_cache.get(image_id).expect("Image resource not found");
 
         Programs::maybe_create_atlas_textures(
-            device,
+            &self.device,
             &mut self.programs.resources,
             image_cache.atlas_count() as u32,
         );
@@ -580,8 +706,8 @@ impl Renderer {
         let atlas_texture =
             &self.programs.resources.atlas_textures[image_resource.atlas_id.as_u32() as usize];
         writer.write_to_atlas(
-            device,
-            queue,
+            &self.device,
+            &self.queue,
             encoder,
             atlas_texture,
             offset,
@@ -664,207 +790,14 @@ impl Renderer {
         // Draw fullscreen quad
         render_pass.draw(0..4, 0..1);
     }
-
-    fn prepare_gpu_encoded_paints(
-        &mut self,
-        encoded_paints: &[EncodedPaint],
-        image_cache: &ImageCache,
-        texture_bindings: &TextureBindings,
-        render_target_texture: &Texture,
-    ) -> Result<(), RenderError> {
-        self.encoded_paints
-            .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
-        self.paint_idxs.resize(encoded_paints.len() + 1, 0);
-
-        let mut current_idx = 0;
-        for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
-            self.paint_idxs[encoded_paint_idx] = current_idx;
-            let gpu_paint = match paint {
-                EncodedPaint::Image(img) => match &img.source {
-                    ImageSource::OpaqueId { id, .. } => {
-                        let image_resource = image_cache.get(*id).unwrap();
-                        self.encode_image_paint(img, image_resource)
-                    }
-                    ImageSource::ExternalTexture {
-                        id, source_region, ..
-                    } => {
-                        let texture_view = texture_bindings
-                            .get(*id)
-                            .ok_or(RenderError::MissingTextureBinding(*id))?;
-
-                        if texture_view.texture() == render_target_texture {
-                            return Err(RenderError::TextureFeedbackLoop(*id));
-                        }
-                        self.encode_external_texture_paint(img, *source_region)
-                    }
-                    ImageSource::Pixmap(_) => {
-                        panic!("pixmap image sources are not supported by Vello GPU")
-                    }
-                },
-                EncodedPaint::Gradient(gradient) => {
-                    let (gradient_start, gradient_width) =
-                        self.gradient_cache.get_or_create_ramp(gradient);
-                    self.encode_gradient_paint(gradient, gradient_width, gradient_start)
-                }
-                EncodedPaint::BlurredRoundedRect(blurred_rect) => {
-                    Self::encode_blurred_rounded_rect_paint(blurred_rect)
-                }
-            };
-
-            current_idx += gpu_paint.size_texels();
-            self.encoded_paints[encoded_paint_idx] = gpu_paint;
-        }
-        self.paint_idxs[encoded_paints.len()] = current_idx;
-        Ok(())
-    }
-
-    fn encode_image_paint(
-        &self,
-        image: &vello_common::encode::EncodedImage,
-        image_resource: &ImageResource,
-    ) -> GpuEncodedPaint {
-        let transform = image.transform.as_coeffs().map(|x| x as f32);
-        let image_size = pack_image_size(image_resource.width, image_resource.height);
-        let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
-        let image_params = pack_image_params(
-            image.sampler.quality as u32,
-            image.sampler.x_extend as u32,
-            image.sampler.y_extend as u32,
-        );
-        let (tint, tint_mode) = pack_tint(image.tint);
-
-        GpuEncodedPaint::Image(GpuEncodedImage {
-            image_params,
-            image_size,
-            image_offset,
-            transform,
-            tint,
-            tint_mode,
-            image_padding: image_resource.padding as u32,
-        })
-    }
-
-    fn encode_external_texture_paint(
-        &self,
-        image: &vello_common::encode::EncodedImage,
-        region: RectU16,
-    ) -> GpuEncodedPaint {
-        let transform = image.transform.as_coeffs().map(|x| x as f32);
-        let image_size = pack_image_size(region.width(), region.height());
-        let image_offset = pack_image_offset(region.x0, region.y0);
-        let image_params = pack_image_params(
-            image.sampler.quality as u32,
-            image.sampler.x_extend as u32,
-            image.sampler.y_extend as u32,
-        );
-        let (tint, tint_mode) = pack_tint(image.tint);
-
-        GpuEncodedPaint::Image(GpuEncodedImage {
-            image_params,
-            image_size,
-            image_offset,
-            transform,
-            tint,
-            tint_mode,
-            image_padding: 0,
-        })
-    }
-
-    fn encode_gradient_paint(
-        &self,
-        gradient: &EncodedGradient,
-        gradient_width: u32,
-        gradient_start: u32,
-    ) -> GpuEncodedPaint {
-        let transform = gradient.transform.as_coeffs().map(|x| x as f32);
-        let extend_mode = match gradient.extend {
-            peniko::Extend::Pad => 0,
-            peniko::Extend::Repeat => 1,
-            peniko::Extend::Reflect => 2,
-        };
-        let texture_width_and_extend_mode =
-            pack_texture_width_and_extend_mode(gradient_width, extend_mode);
-
-        match &gradient.kind {
-            EncodedKind::Linear(_) => GpuEncodedPaint::LinearGradient(GpuLinearGradient {
-                texture_width_and_extend_mode,
-                gradient_start,
-                transform,
-            }),
-            EncodedKind::Radial(radial) => {
-                let (kind, bias, scale, fp0, fp1, fr1, f_focal_x, f_is_swapped, scaled_r0_squared) =
-                    match radial {
-                        RadialKind::Radial { bias, scale } => {
-                            (0, *bias, *scale, 0.0, 0.0, 0.0, 0.0, 0, 0.0)
-                        }
-                        RadialKind::Strip { scaled_r0_squared } => {
-                            (1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, *scaled_r0_squared)
-                        }
-                        RadialKind::Focal {
-                            focal_data,
-                            fp0,
-                            fp1,
-                        } => (
-                            2,
-                            *fp0,
-                            *fp1,
-                            *fp0,
-                            *fp1,
-                            focal_data.fr1,
-                            focal_data.f_focal_x,
-                            focal_data.f_is_swapped as u32,
-                            0.0,
-                        ),
-                    };
-                GpuEncodedPaint::RadialGradient(GpuRadialGradient {
-                    texture_width_and_extend_mode,
-                    gradient_start,
-                    transform,
-                    kind_and_f_is_swapped: pack_radial_kind_and_swapped(kind, f_is_swapped),
-                    bias,
-                    scale,
-                    fp0,
-                    fp1,
-                    fr1,
-                    f_focal_x,
-                    scaled_r0_squared,
-                })
-            }
-            EncodedKind::Sweep(sweep) => GpuEncodedPaint::SweepGradient(GpuSweepGradient {
-                texture_width_and_extend_mode,
-                gradient_start,
-                transform,
-                start_angle: sweep.start_angle,
-                inv_angle_delta: sweep.inv_angle_delta,
-                _padding: [0, 0],
-            }),
-        }
-    }
-
-    fn encode_blurred_rounded_rect_paint(rect: &EncodedBlurredRoundedRectangle) -> GpuEncodedPaint {
-        GpuEncodedPaint::BlurredRoundedRect(GpuBlurredRoundedRect {
-            transform: rect.transform.as_coeffs().map(|x| x as f32),
-            color: rect.color.as_premul_rgba8().to_u32(),
-            invert: u32::from(rect.invert),
-            params0: [
-                rect.exponent,
-                rect.recip_exponent,
-                rect.scale,
-                rect.std_dev_inv,
-            ],
-            params1: [rect.min_edge, rect.w, rect.h, rect.r1],
-            size: [rect.width, rect.height],
-            _padding1: [0, 0],
-        })
-    }
 }
 
 #[cfg(feature = "text")]
-fn clear_atlas_region(queue: &Queue, renderer: &mut Renderer, rect: &PendingClearRect) {
+fn clear_atlas_region(renderer: &mut Renderer, rect: &PendingClearRect) {
     // TODO: Can we optimize this more?
     let byte_count = rect.width as usize * rect.height as usize * 4;
     renderer.atlas_clear_scratch.resize(byte_count, 0);
-    queue.write_texture(
+    renderer.queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture: renderer.atlas_texture(AtlasId::new(rect.page_index)),
             mip_level: 0,
@@ -916,6 +849,8 @@ struct Programs {
     filter_input_bind_group_layouts: [BindGroupLayout; 2],
     /// Filter sampler.
     filter_sampler: Sampler,
+    /// Native image samplers shared by external texture slots.
+    external_samplers: HashMap<ExternalSampler, Sampler>,
     /// Blend bind group layout.
     blend_layer_bind_group_layout: BindGroupLayout,
     /// Copy bind group layout.
@@ -942,8 +877,14 @@ struct Programs {
     resources: GpuResources,
     /// Arena holding all [`GpuStrip`] data.
     strips_arena: StripBufferArena,
+    /// Whether the external texture bind group has a `texture_external` binding.
+    wgpu_external_textures: bool,
+    /// Shared staging memory for buffer and texture uploads.
+    staging_belt: UploadStagingBelt,
     /// Dimensions of the rendering target
     render_size: RenderSize,
+    /// Offset of the scene within the rendering target.
+    scene_offset: (i32, i32),
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
     /// Scratch buffer for staging filter data texture data.
@@ -955,6 +896,89 @@ struct StripBufferArena {
     buffer: Buffer,
     capacity: u64,
     cursor: u64,
+}
+
+#[derive(Debug)]
+struct UploadStagingBelt {
+    belt: StagingBelt,
+    capacity: u64,
+    frame_allocated: u64,
+}
+
+impl UploadStagingBelt {
+    fn new(device: &Device) -> Self {
+        Self {
+            belt: StagingBelt::new(device.clone(), COPY_BUFFER_ALIGNMENT),
+            capacity: COPY_BUFFER_ALIGNMENT,
+            frame_allocated: 0,
+        }
+    }
+
+    fn prepare(&mut self, device: &Device) {
+        let max_buffer_size = device.limits().max_buffer_size;
+        if self.frame_allocated > self.capacity && self.capacity < max_buffer_size {
+            self.capacity = (self.frame_allocated * 2).min(max_buffer_size);
+            self.belt = StagingBelt::new(device.clone(), self.capacity);
+        }
+        self.frame_allocated = 0;
+    }
+
+    fn write_buffer(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        target: &Buffer,
+        offset: u64,
+        size: NonZeroU64,
+    ) -> BufferViewMut {
+        self.frame_allocated += size.get();
+        self.belt.write_buffer(encoder, target, offset, size)
+    }
+
+    fn upload_texture(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        texture: &Texture,
+        data: &[u8],
+        bytes_per_texel: u32,
+    ) {
+        if data.is_empty() {
+            return;
+        }
+
+        let bytes_per_row = texture.width() * bytes_per_texel;
+        let rows = data.len().div_ceil(bytes_per_row as usize) as u32;
+        let size = NonZeroU64::new(u64::from(rows) * u64::from(bytes_per_row)).unwrap();
+        self.frame_allocated += size.get();
+        let slice = self
+            .belt
+            .allocate(size, NonZeroU64::new(u64::from(bytes_per_texel)).unwrap());
+        {
+            let mut view = slice
+                .get_mapped_range_mut()
+                .expect("staging buffer must be mapped");
+
+            // Any data beyond `data.len` will never be sampled, so we don't need to
+            // pad it out and can just leave whatever was there already.
+            view.slice(..data.len()).copy_from_slice(data);
+        }
+
+        encoder.copy_buffer_to_texture(
+            wgpu::TexelCopyBufferInfo {
+                buffer: slice.buffer(),
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: slice.offset(),
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: None,
+                },
+            },
+            texture.as_image_copy(),
+            Extent3d {
+                width: texture.width(),
+                height: rows,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
 }
 
 fn create_arena_buffer(device: &Device, size: u64) -> Buffer {
@@ -1090,6 +1114,7 @@ impl Programs {
         render_target_config: &RenderTargetConfig,
         layer_config: LayersConfig,
         resource_texture_dimension_2d: u32,
+        pipeline_cache: Option<&wgpu::PipelineCache>,
     ) -> Self {
         let strip_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1128,17 +1153,38 @@ impl Programs {
                 ],
             });
 
+        #[cfg(feature = "wgpu_external_texture")]
+        let wgpu_external_textures = device.features().contains(wgpu::Features::EXTERNAL_TEXTURE);
+        #[cfg(not(feature = "wgpu_external_texture"))]
+        let wgpu_external_textures = false;
         let external_texture_layout_entry = |binding| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: false,
             },
             count: None,
         };
-        let external_texture_layout_entries = [external_texture_layout_entry(0)];
+        let external_sampler_layout_entry = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        };
+        let mut external_texture_layout_entries = vec![
+            external_texture_layout_entry(0),
+            external_sampler_layout_entry(1),
+        ];
+        if wgpu_external_textures {
+            external_texture_layout_entries.push(wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::ExternalTexture,
+                count: None,
+            });
+        }
         let external_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("External Texture Bind Group Layout"),
@@ -1175,9 +1221,17 @@ impl Programs {
                 }],
             });
 
+        #[cfg(feature = "wgpu_external_texture")]
+        let strip_shader_source = if wgpu_external_textures {
+            vello_gpu_shaders::wgsl::RENDER_TEXTURE_EXTERNAL
+        } else {
+            vello_gpu_shaders::wgsl::RENDER
+        };
+        #[cfg(not(feature = "wgpu_external_texture"))]
+        let strip_shader_source = vello_gpu_shaders::wgsl::RENDER;
         let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Strip Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_gpu_shaders::wgsl::RENDER.into()),
+            source: wgpu::ShaderSource::Wgsl(strip_shader_source.into()),
         });
 
         let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1240,7 +1294,7 @@ impl Programs {
                     depth_stencil,
                     multisample: wgpu::MultisampleState::default(),
                     multiview_mask: None,
-                    cache: None,
+                    cache: pipeline_cache,
                 })
             };
 
@@ -1317,7 +1371,7 @@ impl Programs {
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
                 multiview_mask: None,
-                cache: None,
+                cache: pipeline_cache,
             })
         };
         let clear_pipeline =
@@ -1360,7 +1414,7 @@ impl Programs {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
-            cache: None,
+            cache: pipeline_cache,
         });
 
         let filter_texture_entry = wgpu::BindGroupLayoutEntry {
@@ -1461,7 +1515,7 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            cache: None,
+            cache: pipeline_cache,
             multiview_mask: None,
         });
 
@@ -1590,7 +1644,7 @@ impl Programs {
                     depth_stencil: None,
                     multisample: wgpu::MultisampleState::default(),
                     multiview_mask: None,
-                    cache: None,
+                    cache: pipeline_cache,
                 })
             };
         let blend_pipeline = create_texture_op_pipeline(
@@ -1613,6 +1667,13 @@ impl Programs {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+
+        // The empty bind group needs a sampler even before any external image is drawn.
+        let mut external_samplers = HashMap::new();
+        external_samplers.insert(
+            ExternalSampler::DEFAULT,
+            Self::create_external_sampler(device, ExternalSampler::DEFAULT),
+        );
 
         let layer_textures: [Vec<TextureView>; 2] = core::array::from_fn(|_| Vec::new());
         let scratch_texture = None;
@@ -1659,6 +1720,10 @@ impl Programs {
             device,
             &external_texture_bind_group_layout,
             [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
+            [&external_samplers[&ExternalSampler::DEFAULT]; EXTERNAL_TEXTURE_SLOT_COUNT],
+            wgpu_external_textures.then_some(wgpu::BindingResource::TextureView(
+                &placeholder_external_texture_view,
+            )),
         );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
@@ -1752,17 +1817,21 @@ impl Programs {
             copy_pipeline,
             resources,
             strips_arena: StripBufferArena::new(device),
+            wgpu_external_textures,
+            staging_belt: UploadStagingBelt::new(device),
             encoded_paints_data,
             filter_data,
             render_size: RenderSize {
                 width: render_target_config.width,
                 height: render_target_config.height,
             },
+            scene_offset: (0, 0),
             clear_pipeline,
             root_clear_pipeline,
             atlas_clear_pipeline,
             filter_input_bind_group_layouts,
             filter_sampler,
+            external_samplers,
             blend_layer_bind_group_layout,
             copy_bind_group_layout,
             strip_layer_bind_groups: HashMap::new(),
@@ -2005,6 +2074,8 @@ impl Programs {
         })
     }
 
+    /// 1×1 placeholder bound to the external-texture slot when no real external texture is in
+    /// use. `Rgba8Unorm` is accepted by both the `Texture` and `ExternalTexture` binding types.
     fn create_placeholder_external_texture(device: &Device) -> TextureView {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Placeholder External Texture"),
@@ -2023,15 +2094,51 @@ impl Programs {
         texture.create_view(&TextureViewDescriptor::default())
     }
 
+    fn create_external_sampler(device: &Device, key: ExternalSampler) -> Sampler {
+        let address_mode = |address| match address {
+            SamplerAddress::Pad => wgpu::AddressMode::ClampToEdge,
+            SamplerAddress::Repeat => wgpu::AddressMode::Repeat,
+            SamplerAddress::Reflect => wgpu::AddressMode::MirrorRepeat,
+        };
+        let filter = match key.filter {
+            SamplerFilter::Nearest => wgpu::FilterMode::Nearest,
+            SamplerFilter::Linear => wgpu::FilterMode::Linear,
+        };
+        device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("External Texture Sampler"),
+            address_mode_u: address_mode(key.address_x),
+            address_mode_v: address_mode(key.address_y),
+            mag_filter: filter,
+            min_filter: filter,
+            ..Default::default()
+        })
+    }
+
+    /// `wgpu_external_texture` must be `Some` exactly if the layout has a `texture_external`
+    /// binding.
     fn create_external_texture_bind_group(
         device: &Device,
         external_texture_bind_group_layout: &BindGroupLayout,
         texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        samplers: [&Sampler; EXTERNAL_TEXTURE_SLOT_COUNT],
+        wgpu_external_texture: Option<wgpu::BindingResource<'_>>,
     ) -> BindGroup {
-        let entries = [wgpu::BindGroupEntry {
-            binding: 0,
-            resource: wgpu::BindingResource::TextureView(texture_views[0]),
-        }];
+        let mut entries = vec![
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(texture_views[0]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(samplers[0]),
+            },
+        ];
+        if let Some(resource) = wgpu_external_texture {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 2,
+                resource,
+            });
+        }
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("External Texture Bind Group"),
             layout: external_texture_bind_group_layout,
@@ -2137,27 +2244,34 @@ impl Programs {
     fn prepare(
         &mut self,
         device: &Device,
-        queue: &Queue,
+        encoder: &mut CommandEncoder,
         gradient_cache: &mut GradientRampCache,
         encoded_paints: &[GpuEncodedPaint],
-        alphas: &mut Vec<u8>,
+        alphas: &[u8],
         new_render_size: &RenderSize,
+        scene_offset: (i32, i32),
         paint_idxs: &[u32],
         filter_context: &FilterContext,
     ) {
         let resource_texture_dimension_2d = self.resources.resource_texture_dimension_2d;
+        self.staging_belt.prepare(device);
         self.maybe_resize_alphas_tex(device, resource_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, resource_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_tex(device, resource_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(queue, resource_texture_dimension_2d, new_render_size);
+        self.maybe_update_config_buffer(
+            encoder,
+            resource_texture_dimension_2d,
+            new_render_size,
+            scene_offset,
+        );
 
-        self.upload_alpha_texture(queue, alphas);
-        self.upload_encoded_paints_texture(queue, encoded_paints, paint_idxs);
-        self.upload_filter_texture(queue, filter_context);
+        self.upload_alpha_texture(encoder, alphas);
+        self.upload_encoded_paints_texture(encoder, encoded_paints, paint_idxs);
+        self.upload_filter_texture(encoder, filter_context);
 
         if gradient_cache.has_changed() {
             self.maybe_resize_gradient_tex(device, resource_texture_dimension_2d, gradient_cache);
-            self.upload_gradient_texture(queue, gradient_cache);
+            self.upload_gradient_texture(encoder, gradient_cache);
             gradient_cache.mark_synced();
         }
     }
@@ -2316,30 +2430,35 @@ impl Programs {
         }
     }
 
-    /// Update config buffer if dimensions changed.
+    /// Update config buffer if dimensions or the scene offset changed.
     fn maybe_update_config_buffer(
         &mut self,
-        queue: &Queue,
+        encoder: &mut CommandEncoder,
         resource_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
+        scene_offset: (i32, i32),
     ) {
-        if self.render_size != *new_render_size {
+        if self.render_size != *new_render_size || self.scene_offset != scene_offset {
             let config = Config {
                 width: u32::from(new_render_size.width),
                 height: u32::from(new_render_size.height),
                 strip_height: Tile::HEIGHT.into(),
                 alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
                 encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
-                strip_offset_x: 0,
-                strip_offset_y: 0,
+                strip_offset_x: scene_offset.0,
+                strip_offset_y: scene_offset.1,
                 negate_ndc: 0,
             };
-            let mut buffer = queue
-                .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
-                .expect("Buffer only ever holds `Config`");
+            let mut buffer = self.staging_belt.write_buffer(
+                encoder,
+                &self.resources.view_config_buffer,
+                0,
+                SIZE_OF_CONFIG,
+            );
             buffer.copy_from_slice(bytemuck::bytes_of(&config));
 
-            self.render_size = new_render_size.clone();
+            self.render_size = *new_render_size;
+            self.scene_offset = scene_offset;
         }
     }
 
@@ -2358,67 +2477,52 @@ impl Programs {
         }
     }
 
+    /// Bind a [`wgpu::ExternalTexture`] to the `texture_external` binding and any other texture to
+    /// the regular texture binding, with the placeholder in the unused one.
     fn create_run_external_texture_bind_group(
         &self,
         device: &Device,
-        texture_views: [&TextureView; EXTERNAL_TEXTURE_SLOT_COUNT],
+        bindings: &[TextureBinding; EXTERNAL_TEXTURE_SLOT_COUNT],
+        samplers: [&Sampler; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
+        let placeholder = &self.resources.placeholder_external_texture_view;
+        let [binding] = bindings;
+        let (texture_view, wgpu_external_texture) = match binding {
+            TextureBinding::TextureView(view) => (
+                view,
+                self.wgpu_external_textures
+                    .then_some(wgpu::BindingResource::TextureView(placeholder)),
+            ),
+            #[cfg(feature = "wgpu_external_texture")]
+            TextureBinding::WgpuExternalTexture { texture, .. } => (
+                placeholder,
+                Some(wgpu::BindingResource::ExternalTexture(texture)),
+            ),
+        };
         Self::create_external_texture_bind_group(
             device,
             &self.external_texture_bind_group_layout,
-            texture_views,
+            [texture_view],
+            samplers,
+            wgpu_external_texture,
         )
     }
 
     /// Upload alpha data to the texture.
-    fn upload_alpha_texture(&mut self, queue: &Queue, alphas: &mut Vec<u8>) {
+    fn upload_alpha_texture(&mut self, encoder: &mut CommandEncoder, alphas: &[u8]) {
         if alphas.is_empty() {
             return;
         }
 
-        let texture_width = self.resources.alphas_texture.width();
-        let texture_height = self.resources.alphas_texture.height();
-        let row_bytes = (texture_width << 4) as usize;
-        let rows = alphas
-            .len()
-            .div_ceil(row_bytes)
-            .min(texture_height as usize);
-
-        let original_len = alphas.len();
-
-        // Temporarily pad the last row with zeros before uploading.
-        alphas.resize(rows * row_bytes, 0);
-
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.resources.alphas_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            alphas,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), which is equivalent to
-                // a bit shift of 4.
-                bytes_per_row: Some(texture_width << 4),
-                rows_per_image: Some(rows as u32),
-            },
-            Extent3d {
-                width: texture_width,
-                height: rows as u32,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        // Truncate back to the original size.
-        alphas.truncate(original_len);
+        let texture = &self.resources.alphas_texture;
+        self.staging_belt
+            .upload_texture(encoder, texture, alphas, 16);
     }
 
     /// Upload encoded paints to the texture.
     fn upload_encoded_paints_texture(
         &mut self,
-        queue: &Queue,
+        encoder: &mut CommandEncoder,
         encoded_paints: &[GpuEncodedPaint],
         paint_idxs: &[u32],
     ) {
@@ -2426,122 +2530,55 @@ impl Programs {
             return;
         }
 
-        let encoded_paints_texture = &self.resources.encoded_paints_texture;
-        let encoded_paints_texture_width = encoded_paints_texture.width();
-        let encoded_paints_texture_height = encoded_paints_texture.height();
+        let texture = &self.resources.encoded_paints_texture;
+        let rows = paint_idxs.last().unwrap().div_ceil(texture.width());
+        let data = &mut self.encoded_paints_data[..(rows * texture.width() * 16) as usize];
 
-        let used_texels = *paint_idxs.last().unwrap() as usize;
-        let rows = used_texels
-            .div_ceil(encoded_paints_texture_width as usize)
-            .min(encoded_paints_texture_height as usize);
+        GpuEncodedPaint::serialize_to_buffer(encoded_paints, data);
 
-        GpuEncodedPaint::serialize_to_buffer(
-            encoded_paints,
-            &mut self.encoded_paints_data[..rows * encoded_paints_texture_width as usize * 16],
-        );
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: encoded_paints_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &self.encoded_paints_data[..rows * encoded_paints_texture_width as usize * 16],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), equivalent to bit shift of 4
-                bytes_per_row: Some(encoded_paints_texture_width << 4),
-                rows_per_image: Some(rows as u32),
-            },
-            Extent3d {
-                width: encoded_paints_texture_width,
-                height: rows as u32,
-                depth_or_array_layers: 1,
-            },
-        );
+        self.staging_belt.upload_texture(encoder, texture, data, 16);
     }
 
-    fn upload_filter_texture(&mut self, queue: &Queue, filter_context: &FilterContext) {
+    fn upload_filter_texture(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        filter_context: &FilterContext,
+    ) {
         if filter_context.is_empty() {
             return;
         }
+        let texture = &self.resources.filter_data_texture;
+        let rows = filter_context.total_texels().div_ceil(texture.width());
+        let data = &mut self.filter_data[..(rows * texture.width() * 16) as usize];
 
-        let filter_texture = &self.resources.filter_data_texture;
-        let width = filter_texture.width();
-        let height = filter_texture.height();
+        filter_context.serialize_to_buffer(data);
 
-        let used_texels = filter_context.total_texels() as usize;
-        let rows = used_texels.div_ceil(width as usize).min(height as usize);
-
-        filter_context.serialize_to_buffer(&mut self.filter_data[..rows * width as usize * 16]);
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: filter_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &self.filter_data[..rows * width as usize * 16],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(width << 4),
-                rows_per_image: Some(rows as u32),
-            },
-            Extent3d {
-                width,
-                height: rows as u32,
-                depth_or_array_layers: 1,
-            },
-        );
+        self.staging_belt.upload_texture(encoder, texture, data, 16);
     }
 
     /// Upload gradient data to the texture.
-    fn upload_gradient_texture(&mut self, queue: &Queue, gradient_cache: &mut GradientRampCache) {
-        let gradient_texture = &self.resources.gradient_texture;
-        let gradient_texture_width = gradient_texture.width();
-        let gradient_texture_height = gradient_texture.height();
-
-        // Upload the gradient LUT data
-        if !gradient_cache.is_empty() {
-            let total_capacity = (gradient_texture_width * gradient_texture_height * 4) as usize;
-
-            // Take ownership of the luts to avoid copying, then resize for texture padding
-            let mut luts = gradient_cache.take_luts();
-            let old_luts_len = luts.len();
-            luts.resize(total_capacity, 0);
-
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: gradient_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &luts,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    // 4 bytes per RGBA8 pixel
-                    bytes_per_row: Some(gradient_texture_width << 2),
-                    rows_per_image: Some(gradient_texture_height),
-                },
-                Extent3d {
-                    width: gradient_texture_width,
-                    height: gradient_texture_height,
-                    depth_or_array_layers: 1,
-                },
-            );
-
-            // Restore the luts back to the cache
-            luts.truncate(old_luts_len);
-            gradient_cache.restore_luts(luts);
+    fn upload_gradient_texture(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        gradient_cache: &mut GradientRampCache,
+    ) {
+        if gradient_cache.is_empty() {
+            return;
         }
+
+        self.staging_belt.upload_texture(
+            encoder,
+            &self.resources.gradient_texture,
+            gradient_cache.luts(),
+            4,
+        );
     }
 
     /// Uploads two strip slices (opaque then alpha) into the frame arena and
     /// returns the byte range of the uploaded data.
     fn upload_strip_pair(
         &mut self,
-        queue: &Queue,
+        encoder: &mut CommandEncoder,
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
     ) -> Range<u64> {
@@ -2555,10 +2592,9 @@ impl Programs {
         let arena = &mut self.strips_arena;
         let offset = arena.alloc(total_len);
         let size = NonZeroU64::new(total_len).expect("total length is non-zero");
-        // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
-        let mut view = queue
-            .write_buffer_with(&arena.buffer, offset, size)
-            .expect("Capacity handled in creation");
+        let mut view = self
+            .staging_belt
+            .write_buffer(encoder, &arena.buffer, offset, size);
         if opaque_len > 0 {
             view.slice(..opaque_len as usize)
                 .copy_from_slice(bytemuck::cast_slice(opaque_strips));
@@ -2579,7 +2615,6 @@ impl Programs {
 struct RendererContext<'a> {
     programs: &'a mut Programs,
     device: &'a Device,
-    queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
     depth_view: Option<&'a TextureView>,
@@ -2646,19 +2681,32 @@ impl RendererContext<'_> {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 let texture_sources = bindings.as_array();
-                let texture_views = core::array::from_fn(|slot| match texture_sources[slot] {
-                    Some(TextureSourceId::Atlas(atlas_id)) => {
-                        atlas_texture_views[atlas_id.as_u32() as usize].clone()
-                    }
-                    Some(TextureSourceId::External(texture_id)) => texture_bindings
+                let slot_bindings = core::array::from_fn(|slot| match texture_sources[slot] {
+                    Some(TextureSourceId::Atlas(atlas_id)) => TextureBinding::TextureView(
+                        atlas_texture_views[atlas_id.as_u32() as usize].clone(),
+                    ),
+                    Some(TextureSourceId::External(texture_id, _)) => texture_bindings
                         .get(texture_id)
                         .expect("external texture binding was validated during paint preparation")
                         .clone(),
-                    None => placeholder.clone(),
+                    None => TextureBinding::TextureView(placeholder.clone()),
                 });
-                let bind_group = self
-                    .programs
-                    .create_run_external_texture_bind_group(self.device, texture_views.each_ref());
+                let sampler_keys = texture_sources.map(|source| match source {
+                    Some(TextureSourceId::External(_, sampler)) => sampler,
+                    _ => ExternalSampler::DEFAULT,
+                });
+                let samplers = sampler_keys.map(|key| {
+                    self.programs
+                        .external_samplers
+                        .entry(key)
+                        .or_insert_with(|| Programs::create_external_sampler(self.device, key))
+                        .clone()
+                });
+                let bind_group = self.programs.create_run_external_texture_bind_group(
+                    self.device,
+                    &slot_bindings,
+                    samplers.each_ref(),
+                );
                 entry.insert(bind_group)
             }
         }
@@ -2684,9 +2732,9 @@ impl RendererContext<'_> {
             self.external_texture_bind_group_for_textures(run.bindings);
         }
 
-        let strips_range = self
-            .programs
-            .upload_strip_pair(self.queue, opaque_strips, alpha_strips);
+        let strips_range =
+            self.programs
+                .upload_strip_pair(self.encoder, opaque_strips, alpha_strips);
         let opaque_count = opaque_count as u32;
         let alpha_count = alpha_count as u32;
 

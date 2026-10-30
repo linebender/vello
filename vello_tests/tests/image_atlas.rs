@@ -4,9 +4,8 @@
 //! Tests for the image/glyph atlas configuration of the WebGL renderer.
 
 use vello_common::{
-    geometry::RectU16,
     kurbo::Rect,
-    paint::{Image, ImageSource},
+    paint::{Image, ImageSource, TextureRegion},
     peniko::ImageSampler,
     pixmap::Pixmap,
 };
@@ -40,13 +39,10 @@ fn image_atlas_texture_is_created_on_first_upload() {
         atlas_size: (10, 10),
         ..AtlasConfig::default()
     };
-    let settings = RenderSettings {
-        memory_settings: MemorySettings {
-            image_atlas_config: atlas_config,
-            ..MemorySettings::default()
-        },
-        ..RenderSettings::default()
-    };
+    let settings = RenderSettings::default().with_memory_settings(MemorySettings {
+        image_atlas_config: atlas_config,
+        ..MemorySettings::default()
+    });
     let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings, true).unwrap();
 
     assert_eq!(
@@ -99,13 +95,10 @@ fn image_atlas_upload_larger_than_atlas_fails() {
         atlas_size: (10, 10),
         ..AtlasConfig::default()
     };
-    let settings = RenderSettings {
-        memory_settings: MemorySettings {
-            image_atlas_config: atlas_config,
-            ..MemorySettings::default()
-        },
-        ..RenderSettings::default()
-    };
+    let settings = RenderSettings::default().with_memory_settings(MemorySettings {
+        image_atlas_config: atlas_config,
+        ..MemorySettings::default()
+    });
 
     let (mut renderer, mut resources) = WebGlRenderer::new_with(&canvas, settings, true).unwrap();
 
@@ -128,21 +121,23 @@ fn image_atlas_rejects_sampling_from_its_render_target() {
         atlas_size: (1, 1),
         ..AtlasConfig::default()
     };
-    let settings = RenderSettings {
-        memory_settings: MemorySettings {
-            image_atlas_config: atlas_config,
-            ..MemorySettings::default()
-        },
-        ..RenderSettings::default()
-    };
+    let settings = RenderSettings::default().with_memory_settings(MemorySettings {
+        image_atlas_config: atlas_config,
+        ..MemorySettings::default()
+    });
     let (mut renderer, _) = WebGlRenderer::new_with(&canvas, settings, false).unwrap();
     let texture_id = TextureId(0);
     let mut bindings = WebGlTextureBindings::new();
-    bindings.insert(texture_id, renderer.atlas_texture(AtlasId::new(0)).clone());
+    bindings.insert(
+        texture_id,
+        renderer.atlas_texture(AtlasId::new(0)).clone(),
+        1,
+        1,
+    );
 
     let mut scene = Scene::new(1, 1);
     scene.set_paint(Image {
-        image: ImageSource::external_texture(texture_id, RectU16::new(0, 0, 1, 1), false),
+        image: ImageSource::external_texture(texture_id, TextureRegion::Full, false),
         sampler: ImageSampler::default(),
     });
     scene.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));

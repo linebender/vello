@@ -1,8 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::peniko;
-use core::slice::ChunksExact;
+use crate::fine::common::gradient::apply_extend;
+use core::slice::Iter;
+use fearless_simd_macros::simd;
 use vello_common::encode::EncodedGradient;
 use vello_common::fearless_simd::*;
 
@@ -13,28 +14,24 @@ use vello_common::fearless_simd::*;
 pub(crate) struct GradientPainter<'a, S: Simd> {
     gradient: &'a EncodedGradient,
     lut: &'a [[u8; 4]],
-    t_vals: ChunksExact<'a, f32>,
+    t_vals: Iter<'a, [f32; 16]>,
     scale_factor: f32x16<S>,
     simd: S,
 }
 
 impl<'a, S: Simd> GradientPainter<'a, S> {
+    #[simd]
     pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let lut = gradient.u8_lut(simd);
-                let scale_factor = f32x16::splat(simd, lut.scale_factor());
+        let lut = gradient.u8_lut(simd);
+        let scale_factor = f32x16::splat(simd, lut.scale_factor());
 
-                Self {
-                    gradient,
-                    scale_factor,
-                    lut: lut.lut(),
-                    t_vals: t_vals.chunks_exact(16),
-                    simd,
-                }
-            },
-        )
+        Self {
+            gradient,
+            scale_factor,
+            lut: lut.lut(),
+            t_vals: t_vals.as_chunks::<16>().0.iter(),
+            simd,
+        }
     }
 }
 
@@ -49,7 +46,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         let indices = (t_vals * self.scale_factor).to_int::<u32x16<S>>();
 
         let mut vals = [0_u8; 64];
-        for (val, idx) in vals.chunks_exact_mut(4).zip(*indices) {
+        for (val, idx) in vals.as_chunks_mut::<4>().0.iter_mut().zip(*indices) {
             val.copy_from_slice(&self.lut[idx as usize]);
         }
 
@@ -62,7 +59,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
         self.simd.vectorize(
             #[inline(always)]
             || {
-                for chunk in buf.chunks_exact_mut(64) {
+                for chunk in buf.as_chunks_mut::<64>().0 {
                     self.next().unwrap().store_slice(chunk);
                 }
             },
@@ -71,19 +68,5 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
 
     fn paint_f32(self, _: &mut [f32]) {
         unimplemented!()
-    }
-}
-
-// TODO: Maybe delete this method and use `apply_extend` from highp by splitting into two f32x8.
-#[inline(always)]
-pub(crate) fn apply_extend<S: Simd>(val: f32x16<S>, extend: peniko::Extend) -> f32x16<S> {
-    match extend {
-        peniko::Extend::Pad => val.max(0.0).min(1.0),
-        peniko::Extend::Repeat => (val - val.floor()).fract(),
-        // See <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L6472-L6475>
-        peniko::Extend::Reflect => ((val - 1.0) - 2.0 * ((val - 1.0) * 0.5).floor() - 1.0)
-            .abs()
-            .max(0.0)
-            .min(1.0),
     }
 }

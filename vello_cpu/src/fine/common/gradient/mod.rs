@@ -4,7 +4,8 @@
 use crate::fine::{NumericVec, PosExt};
 use crate::kurbo::Point;
 use crate::peniko;
-use core::slice::ChunksExact;
+use core::slice::Iter;
+use fearless_simd_macros::simd;
 use vello_common::encode::{EncodedGradient, GradientLut};
 use vello_common::fearless_simd::*;
 
@@ -14,6 +15,7 @@ pub(crate) mod sweep;
 
 const GRADIENT_INVALID_POS: u32 = u32::MAX;
 
+#[simd]
 pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
     simd: S,
     kind: U,
@@ -22,53 +24,44 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
     start_x: f64,
     start_y: f64,
 ) {
-    simd.vectorize(
-        #[inline(always)]
-        || {
-            let mut cur_pos = gradient.transform * Point::new(start_x, start_y);
-            let x_advances = (gradient.x_advance.x as f32, gradient.x_advance.y as f32);
-            let y_advances = (gradient.y_advance.x as f32, gradient.y_advance.y as f32);
+    let mut cur_pos = gradient.transform * Point::new(start_x, start_y);
+    let x_advances = (gradient.x_advance.x as f32, gradient.x_advance.y as f32);
+    let y_advances = (gradient.y_advance.x as f32, gradient.y_advance.y as f32);
 
-            for buf_part in buf.chunks_exact_mut(8) {
-                let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
-                let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
-                let pos = kind.cur_pos(x_pos, y_pos);
-                pos.store_slice(buf_part);
+    for buf_part in buf.as_chunks_mut::<8>().0 {
+        let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
+        let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
+        let pos = kind.cur_pos(x_pos, y_pos);
+        pos.store_slice(buf_part);
 
-                cur_pos += 2.0 * gradient.x_advance;
-            }
-        },
-    );
+        cur_pos += 2.0 * gradient.x_advance;
+    }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct GradientPainter<'a, S: Simd> {
     gradient: &'a EncodedGradient,
     lut: &'a GradientLut<f32>,
-    t_vals: ChunksExact<'a, f32>,
+    t_vals: Iter<'a, [f32; 8]>,
     has_undefined: bool,
     scale_factor: f32x8<S>,
     simd: S,
 }
 
 impl<'a, S: Simd> GradientPainter<'a, S> {
+    #[simd]
     pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                let lut = gradient.f32_lut(simd);
-                let scale_factor: f32x8<S> = f32x8::splat(simd, lut.scale_factor());
+        let lut = gradient.f32_lut(simd);
+        let scale_factor: f32x8<S> = f32x8::splat(simd, lut.scale_factor());
 
-                Self {
-                    gradient,
-                    scale_factor,
-                    lut,
-                    t_vals: t_vals.chunks_exact(8),
-                    has_undefined: gradient.has_undefined,
-                    simd,
-                }
-            },
-        )
+        Self {
+            gradient,
+            scale_factor,
+            lut,
+            t_vals: t_vals.as_chunks::<8>().0.iter(),
+            has_undefined: gradient.has_undefined,
+            simd,
+        }
     }
 }
 
@@ -105,7 +98,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
             || {
                 let max_index = u32x8::splat(self.simd, max_index);
 
-                for chunk in buf.chunks_exact_mut(32) {
+                for chunk in buf.as_chunks_mut::<32>().0 {
                     let indices = self.next().unwrap();
                     let clamped_indices = indices.min(max_index);
 
@@ -139,7 +132,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
             self.simd.vectorize(
                 #[inline(always)]
                 || {
-                    for chunk in buf.chunks_exact_mut(32) {
+                    for chunk in buf.as_chunks_mut::<32>().0 {
                         let indices = masked_iter.next().unwrap();
                         let invalid =
                             indices.simd_eq(u32x8::splat(self.simd, GRADIENT_INVALID_POS));
@@ -173,7 +166,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
                 let max_index = self.lut.width() as u32 - 1;
                 let max_index = u32x8::splat(self.simd, max_index);
 
-                for chunk in buf.chunks_exact_mut(32) {
+                for chunk in buf.as_chunks_mut::<32>().0 {
                     let indices = self.next().unwrap();
                     let clamped_indices = indices.min(max_index);
                     chunk[0..4].copy_from_slice(&self.lut.get(clamped_indices[0] as usize));
@@ -193,7 +186,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
             self.simd.vectorize(
                 #[inline(always)]
                 || {
-                    for chunk in buf.chunks_exact_mut(32) {
+                    for chunk in buf.as_chunks_mut::<32>().0 {
                         let indices = masked_iter.next().unwrap();
                         let (indices_1, indices_2) = self.simd.split_u32x8(indices);
                         let invalid_1 = invalid_f32_mask(self.simd, indices_1);
@@ -228,15 +221,20 @@ fn invalid_f32_mask<S: Simd>(simd: S, indices: u32x4<S>) -> mask32x16<S> {
 }
 
 #[inline(always)]
-pub(crate) fn apply_extend<S: Simd>(val: f32x8<S>, extend: peniko::Extend) -> f32x8<S> {
+pub(crate) fn apply_extend<S: Simd, V: SimdFloat<S, Element = f32>>(
+    val: V,
+    extend: peniko::Extend,
+) -> V {
     match extend {
         peniko::Extend::Pad => val.max(0.0).min(1.0),
         peniko::Extend::Repeat => (val - val.floor()).fract(),
         // See <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L6472-L6475>
-        peniko::Extend::Reflect => ((val - 1.0) - 2.0 * ((val - 1.0) * 0.5).floor() - 1.0)
-            .abs()
-            .max(0.0)
-            .min(1.0),
+        peniko::Extend::Reflect => {
+            ((val - 1.0) - V::splat(val.token(), 2.0) * ((val - 1.0) * 0.5).floor() - 1.0)
+                .abs()
+                .max(0.0)
+                .min(1.0)
+        }
     }
 }
 

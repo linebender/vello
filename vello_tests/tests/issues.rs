@@ -495,6 +495,30 @@ fn multi_threading_oob_access() {
     );
 }
 
+/// See <https://github.com/linebender/vello/issues/2026>.
+#[test]
+fn lowp_src_over_partial_coverage_keeps_opaque_alpha() {
+    let mut ctx = RenderContext::new(1, 1);
+    let mut resources = vello_cpu::Resources::new();
+    let mut pixmap = Pixmap::new(1, 1);
+
+    ctx.set_paint(Color::WHITE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+    ctx.set_paint(BLACK.with_alpha(1.0 / 255.0));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 0.5, 1.0));
+    ctx.flush();
+    ctx.render_with(
+        &mut pixmap,
+        &mut resources,
+        RasterizerSettings {
+            render_mode: RenderMode::OptimizeSpeed,
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(pixmap.data()[0].a, 255);
+}
+
 /// See <https://github.com/linebender/vello/issues/1181>.
 #[vello_test(width = 556, height = 8)]
 fn tile_clamped_off_by_one(ctx: &mut impl Renderer) {
@@ -863,12 +887,12 @@ fn image_filtering_at_extend_boundary(
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test]
 fn issue_image_filtering_at_reflect_boundary(ctx: &mut impl Renderer) {
     image_filtering_at_extend_boundary(ctx, 2, Extend::Reflect, (-1.0_f32).next_down());
 }
 
-#[vello_test(skip_gpu)]
+#[vello_test]
 fn issue_image_filtering_at_repeat_boundary(ctx: &mut impl Renderer) {
     image_filtering_at_extend_boundary(ctx, 3, Extend::Repeat, 15.0_f32.next_down());
 }

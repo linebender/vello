@@ -16,6 +16,10 @@ This release has an [MSRV][] of 1.89.
 
 - Breaking change: In `ClipState`, and in a `ClipContext` made with the new `ClipContext::new_lazy`, rectangular clips pushed onto the viewport or onto another rectangular clip generate their strips lazily, for the tile rows of each path drawn through them. Their `PathDataRef` has empty strips and the rectangle in the new `lazy_rect` field, which `intersect` handles. `ClipContext::new` keeps the previous behavior. ([#1989][] by [@Thenewmanator15][])
 
+### Fixed
+
+- Cubics flattened far from the origin now match the same curve flattened near it. ([#2039][] by [@josefguenther][])
+
 ## [0.3.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.
@@ -271,6 +275,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@dipeshbabu]: https://github.com/dipeshbabu
 [@DJMcNab]: https://github.com/waywardmonkeys
 [@grebmeg]: https://github.com/grebmeg
+[@josefguenther]: https://github.com/josefguenther
 [@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
 [@taj-p]: https://github.com/taj-p
@@ -373,6 +378,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1949]: https://github.com/linebender/vello/pull/1949
 [#1962]: https://github.com/linebender/vello/pull/1962
 [#1989]: https://github.com/linebender/vello/pull/1989
+[#2039]: https://github.com/linebender/vello/pull/2039
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0

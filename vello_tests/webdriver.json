@@ -1,5 +1,6 @@
 {
     "timeouts": {
+        "pageLoad": 1200000,
         "script": 1200000
     }
 }

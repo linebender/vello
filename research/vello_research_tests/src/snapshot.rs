@@ -98,7 +98,7 @@ impl Snapshot<'_> {
                 )?;
                 eprintln!(
                     "Updated result for updated test {} to {:?}",
-                    self.params.name, &self.reference_path
+                    self.params.name, self.reference_path
                 );
             } else {
                 eprintln!(
@@ -117,7 +117,7 @@ impl Snapshot<'_> {
             eprintln!(
                 "Wrote result for failing test {} to {:?}\n\
                 Use `VELLO_TEST_UPDATE=all` to update",
-                self.params.name, &self.update_path
+                self.params.name, self.update_path
             );
         }
         bail!("{}", message);
@@ -234,7 +234,7 @@ pub fn snapshot_test_image(
                     )?;
                     eprintln!(
                         "Wrote result for new test {} to {:?}",
-                        params.name, &reference_path
+                        params.name, reference_path
                     );
                 } else {
                     eprintln!(

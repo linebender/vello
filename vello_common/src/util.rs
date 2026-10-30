@@ -48,18 +48,22 @@ pub fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
     result
 }
 
-/// A trait for implementing a fast approximal division by 255 for integers.
+/// A trait for implementing fast divisions by 255 for integers.
 pub trait Div255Ext: private::Sealed {
-    /// Divide by 255.
+    /// Divide by 255, rounding up by at most 1 compared to an integer division.
     fn div_255(self) -> Self;
+
+    /// Divide by 255 with the same result as an integer division, for values below `65280`.
+    fn div_255_exact(self) -> Self;
 }
 
 mod private {
-    use fearless_simd::{Simd, u16x16, u16x32};
+    use fearless_simd::{Simd, u16x8, u16x16, u16x32};
 
     #[expect(unnameable_types, reason = "Sealed trait pattern.")]
     pub trait Sealed {}
 
+    impl<S: Simd> Sealed for u16x8<S> {}
     impl<S: Simd> Sealed for u16x16<S> {}
     impl<S: Simd> Sealed for u16x32<S> {}
 }
@@ -102,11 +106,20 @@ where
 
 impl<T> Div255Ext for T
 where
-    T: private::Sealed + core::ops::Add<u16, Output = T> + core::ops::Shr<u32, Output = T>,
+    T: private::Sealed
+        + Copy
+        + core::ops::Add<Output = T>
+        + core::ops::Add<u16, Output = T>
+        + core::ops::Shr<u32, Output = T>,
 {
     #[inline(always)]
     fn div_255(self) -> Self {
         (self + 255_u16) >> 8_u32
+    }
+
+    #[inline(always)]
+    fn div_255_exact(self) -> Self {
+        (self + (self >> 8_u32) + 1_u16) >> 8_u32
     }
 }
 

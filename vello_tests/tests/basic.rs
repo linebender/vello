@@ -76,7 +76,7 @@ fn stroked_triangle(ctx: &mut impl Renderer) {
     ctx.stroke_path(&path);
 }
 
-#[vello_test]
+#[vello_test(webgl_texture)]
 fn filled_circle(ctx: &mut impl Renderer) {
     let circle = Circle::new((50.0, 50.0), 45.0);
     ctx.set_paint(LIME);
@@ -568,7 +568,7 @@ fn render_src_over_with_offset() {
             RasterizerSettings {
                 render_mode: RenderMode::OptimizeQuality,
                 target_init: TargetInit::SrcOver,
-                offset: (dst_x, dst_y),
+                offset: (dst_x.into(), dst_y.into()),
                 ..Default::default()
             },
         );

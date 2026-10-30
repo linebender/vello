@@ -29,13 +29,15 @@ pub(crate) mod resource;
 pub use error::WebGlProbeOperation;
 pub(crate) use error::WebGlResultExt;
 pub use error::{
-    IncompatibleContextReason, WebGlContextOperation, WebGlDataTransferOperation, WebGlError,
-    WebGlOperation, WebGlResourceKind, WebGlShaderInterfaceOperation, WebGlShaderProgramOperation,
+    IncompatibleContextReason, IncompatiblePrecompiledShadersReason, InvalidTextureTargetReason,
+    WebGlContextOperation, WebGlDataTransferOperation, WebGlError, WebGlOperation,
+    WebGlResourceKind, WebGlShaderInterfaceOperation, WebGlShaderProgramOperation,
     WebGlShaderStage,
 };
 
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::common::IMAGE_PADDING;
+use crate::render::common::{SharedCore, encode_external_texture_paint};
 use crate::util::RangedSlice;
 use crate::{
     ClearSettings, GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
@@ -44,45 +46,39 @@ use crate::{
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
     gradient_cache::GradientRampCache,
-    paint::{PaintResolver, TextureSourceId},
+    paint::{ExternalSampler, SamplerAddress, SamplerFilter, TextureSourceId},
     render::{
         Config,
-        common::{
-            DeviceLimits, GpuBlurredRoundedRect, GpuEncodedImage, GpuEncodedPaint,
-            GpuLinearGradient, GpuRadialGradient, GpuSweepGradient, ScratchBuffers, ScratchTexture,
-            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
-            pack_texture_width_and_extend_mode, pack_tint,
-        },
+        common::{DeviceLimits, GpuEncodedPaint, ScratchBuffers, ScratchTexture},
     },
     scene::Scene,
-    schedule::{
-        Backend, IntermediateTextureAllocations, Schedule, ScheduleStorage, round::BlendOp,
-    },
+    schedule::{Backend, IntermediateTextureAllocations, Schedule, round::BlendOp},
     target::{
         BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
         RootTarget, TextureParity,
     },
 };
+use alloc::rc::Rc;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::cell::Cell;
 use core::time::Duration;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
-use hashbrown::HashMap;
-use resource::{Buffer, FragmentShader, Framebuffer, Program, Texture, VertexArray, VertexShader};
+use hashbrown::{HashMap, hash_map::Entry};
+use resource::{
+    Buffer, FragmentShader, Framebuffer, Program, Sampler, Texture, VertexArray, VertexShader,
+    WebGlFragmentShader, WebGlVertexShader,
+};
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::image_cache::{ImageCache, ImageResource};
+use vello_common::encode::EncodedImage;
+use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
     TextureId,
-    encode::{
-        EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
-        MAX_GRADIENT_LUT_SIZE, RadialKind,
-    },
     geometry::{RectU16, SizeU16},
-    paint::{ImageId, ImageSource},
-    peniko::{self},
+    paint::{ImageId, TextureRegion},
     pixmap::Pixmap,
     tile::Tile,
 };
@@ -90,7 +86,8 @@ use vello_gpu_shaders::{blend, copy, filter as filter_shader, render};
 use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
-    WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
+    WebGlRenderbuffer, WebGlSampler, WebGlShader, WebGlTexture, WebGlUniformLocation,
+    WebGlVertexArrayObject,
 };
 
 #[wasm_bindgen]
@@ -98,13 +95,6 @@ extern "C" {
     #[wasm_bindgen(js_namespace = performance, js_name = now)]
     fn performance_now() -> f64;
 }
-
-/// Placeholder value for uninitialized GPU encoded paints.
-const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
-    texture_width_and_extend_mode: 0,
-    gradient_start: 0,
-    transform: [0.0; 6],
-});
 
 /// First texture unit from which the strip program samples external textures.
 const EXTERNAL_TEXTURE_UNIT_START: u32 = 4;
@@ -123,10 +113,6 @@ fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> Result<u32, WebG
 
 /// Result of polling WebGL renderer initialization.
 #[derive(Debug)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "both variants are one-shot ownership transfers; boxing would add unnecessary allocation"
-)]
 pub enum WebGlRendererInitStatus {
     /// Shader compilation or program linking is still in progress.
     Pending(WebGlRendererInit),
@@ -151,35 +137,69 @@ pub struct WebGlRenderer {
     pub(super) programs: WebGlPrograms,
     /// WebGL context.
     pub(crate) gl: WebGl2RenderingContext,
-    /// Encoded paints for storing encoded paints.
-    encoded_paints: Vec<GpuEncodedPaint>,
-    /// Stores the index (offset) of the encoded paints in the encoded paints texture.
-    paint_idxs: Vec<u32>,
-    /// Gradient cache for storing gradient ramps.
-    gradient_cache: GradientRampCache,
-    dummy_image_cache: Option<ImageCache>,
-    schedule_storage: ScheduleStorage,
-    scratch_buffers: ScratchBuffers,
-    layers_config: LayersConfig,
+    /// Backend-independent renderer state.
+    core: SharedCore,
 }
 
 /// WebGL renderer initialization that may still be compiling shader programs.
 ///
-/// Poll this with [`WebGlRendererInit::try_finish`] from successive animation frames to avoid
-/// blocking the browser's main thread when `KHR_parallel_shader_compile` is available. On browsers
-/// without the extension, the first poll falls back to synchronously finishing initialization.
+/// Its [`Resources`] are already usable, so CPU-side work such as glyph preparation can proceed
+/// while compilation continues. Check [`WebGlRendererInit::is_ready`] (or poll
+/// [`WebGlRendererInit::try_finish`]) from successive animation frames to avoid blocking the
+/// browser's main thread when `KHR_parallel_shader_compile` is available. On browsers without the
+/// extension, finishing falls back to synchronously completing compilation.
 #[derive(Debug)]
 pub struct WebGlRendererInit {
-    programs: PendingWebGlPrograms,
+    shaders: WebGlShaders,
+    resources: WebGlResources,
+    encoded_paints_data: Vec<u8>,
+    core: SharedCore,
+}
+
+/// Vello's WebGL shader programs, whose compilation and linking may still be in progress.
+///
+/// The programs belong to the canvas's WebGL context and cannot be used with any other context.
+#[derive(Debug)]
+struct WebGlShaders {
     gl: WebGl2RenderingContext,
-    gradient_cache: GradientRampCache,
-    layers_config: LayersConfig,
+    use_depth_buffer: bool,
+    parallel_shader_compile: bool,
+    compilation_start_ms: f64,
+    poll_count: Cell<u32>,
+    ready: Cell<bool>,
+    strip_program: PendingShaderProgram,
+    filter_program: PendingShaderProgram,
+    blend_program: PendingShaderProgram,
+    copy_program: PendingShaderProgram,
+}
+
+/// Options for [`WebGlRenderer::render`].
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct WebGlRenderOptions {
+    /// The color that the target is cleared to before drawing.
+    // Note that in WebGL, the contents of drawing buffers are not guaranteed to be preserved
+    // unless `preserveDrawingBuffer` has been set to `true` (which is highly discouraged).
+    // Therefore, for the WebGL backend we currently don't expose more configurable clear
+    // options.
+    pub clear_color: AlphaColor<Srgb>,
+    /// The position of the scene's origin in the target.
+    pub offset: (i32, i32),
+}
+
+impl Default for WebGlRenderOptions {
+    fn default() -> Self {
+        Self {
+            clear_color: AlphaColor::TRANSPARENT,
+            offset: (0, 0),
+        }
+    }
 }
 
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by image paints.
 #[derive(Debug, Default, Clone)]
 pub struct WebGlTextureBindings {
-    textures: HashMap<TextureId, WebGlTexture>,
+    textures: HashMap<TextureId, WebGlTextureWithDimensions>,
 }
 
 impl WebGlTextureBindings {
@@ -193,23 +213,61 @@ impl WebGlTextureBindings {
     ///
     /// The texture must satisfy the following requirements.
     ///
-    /// - It is sampled as a `sampler2D`, so its internal format must be float-sampleable (e.g.
-    ///   `RGBA8`). Integer formats do not match the sampler's type.
-    /// - It is read with `texelFetch`, which requires the texture to be complete. For a texture
-    ///   without mipmaps this means `TEXTURE_MIN_FILTER` must be set to `NEAREST` or `LINEAR`;
-    ///   the WebGL default of `NEAREST_MIPMAP_LINEAR` leaves it incomplete and it will sample as
-    ///   transparent black. Only mip level 0 is read.
+    /// - It must be complete for sampling, with a defined mip level 0 in a linearly filterable
+    ///   `sampler2D` format (e.g. `RGBA8`). Integer and unfilterable float formats are unsupported.
     /// - Its contents are treated as premultiplied alpha, and are sampled in texel space with
     ///   the origin at the first uploaded texel. A texture uploaded with `UNPACK_FLIP_Y_WEBGL`
     ///   enabled therefore samples vertically flipped.
+    /// - `width` and `height` must match the dimensions of its mip level 0, otherwise rendering
+    ///   might be corrupted.
     #[inline]
-    pub fn insert(&mut self, texture_id: TextureId, texture: WebGlTexture) {
-        self.textures.insert(texture_id, texture);
+    pub fn insert(
+        &mut self,
+        texture_id: TextureId,
+        texture: WebGlTexture,
+        width: u16,
+        height: u16,
+    ) {
+        assert!(
+            width > 0 && height > 0,
+            "external texture dimensions must not be zero"
+        );
+
+        self.textures.insert(
+            texture_id,
+            WebGlTextureWithDimensions {
+                texture,
+                width,
+                height,
+            },
+        );
+    }
+
+    /// Encodes an image paint that samples the binding of `texture_id`.
+    fn encode_paint(
+        &self,
+        texture_id: TextureId,
+        image: &EncodedImage,
+        source_region: TextureRegion,
+        render_target: Option<&WebGlTexture>,
+    ) -> Result<GpuEncodedPaint, RenderError> {
+        let binding = self
+            .get(texture_id)
+            .ok_or(RenderError::MissingTextureBinding(texture_id))?;
+        if render_target.is_some_and(|target| *target == binding.texture) {
+            return Err(RenderError::TextureFeedbackLoop(texture_id));
+        }
+        Ok(encode_external_texture_paint(
+            image,
+            source_region,
+            binding.width,
+            binding.height,
+        ))
     }
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&WebGlTexture> {
+    fn get(&self, texture_id: TextureId) -> Option<&WebGlTextureWithDimensions> {
         self.textures.get(&texture_id)
     }
 
@@ -218,7 +276,109 @@ impl WebGlTextureBindings {
     /// This returns the removed texture binding if it existed.
     #[inline]
     pub fn remove(&mut self, texture_id: TextureId) -> Option<WebGlTexture> {
-        self.textures.remove(&texture_id)
+        self.textures
+            .remove(&texture_id)
+            .map(|binding| binding.texture)
+    }
+}
+
+/// What [`WebGlRenderer::render`] renders into.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum WebGlRenderTarget<'a> {
+    /// The drawing buffer of the canvas.
+    #[default]
+    DrawingBuffer,
+    /// An offscreen texture.
+    Texture(&'a WebGlTextureTarget),
+}
+
+impl WebGlRenderTarget<'_> {
+    fn size(&self, gl: &WebGl2RenderingContext) -> RenderSize {
+        match self {
+            Self::DrawingBuffer => RenderSize {
+                width: gl.drawing_buffer_width().try_into().unwrap(),
+                height: gl.drawing_buffer_height().try_into().unwrap(),
+            },
+            Self::Texture(target) => target.size(),
+        }
+    }
+}
+
+/// A texture to render into, created with [`WebGlRenderer::create_texture_target`].
+///
+/// It is meant to be reused across renders.
+#[derive(Debug, Clone)]
+pub struct WebGlTextureTarget {
+    texture: WebGlTexture,
+    framebuffer: Rc<Framebuffer>,
+    width: u16,
+    height: u16,
+    use_depth_buffer: bool,
+}
+
+impl WebGlTextureTarget {
+    fn new(
+        gl: &WebGl2RenderingContext,
+        texture: &WebGlTexture,
+        depth: Option<&WebGlRenderbuffer>,
+        width: u16,
+        height: u16,
+    ) -> Result<Self, WebGlError> {
+        let framebuffer = create_framebuffer_for_texture(gl, texture)?;
+        gl.framebuffer_renderbuffer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            WebGl2RenderingContext::DEPTH_ATTACHMENT,
+            WebGl2RenderingContext::RENDERBUFFER,
+            depth,
+        );
+        let result = validate_bound_texture_target(gl, depth.is_some());
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+        result?;
+
+        Ok(Self {
+            texture: texture.clone(),
+            framebuffer: Rc::new(framebuffer),
+            width,
+            height,
+            use_depth_buffer: depth.is_some(),
+        })
+    }
+
+    fn for_atlas(
+        gl: &WebGl2RenderingContext,
+        texture: &WebGlTexture,
+        width: u16,
+        height: u16,
+    ) -> Result<Self, WebGlError> {
+        // Unlike `new`, we don't do validation here since we know our atlas framebuffers
+        // are valid.
+        let framebuffer = create_framebuffer_for_texture(gl, texture)?;
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+
+        Ok(Self {
+            texture: texture.clone(),
+            framebuffer: Rc::new(framebuffer),
+            width,
+            height,
+            use_depth_buffer: false,
+        })
+    }
+
+    /// The width of the texture.
+    pub fn width(&self) -> u16 {
+        self.width
+    }
+
+    /// The height of the texture.
+    pub fn height(&self) -> u16 {
+        self.height
+    }
+
+    fn size(&self) -> RenderSize {
+        RenderSize {
+            width: self.width,
+            height: self.height,
+        }
     }
 }
 
@@ -235,7 +395,7 @@ pub struct ShaderCompilationStats {
     /// Number of non-blocking completion-status polls.
     ///
     /// This is zero when initialization is completed through [`WebGlRendererInit::finish`]
-    /// without first calling [`WebGlRendererInit::try_finish`].
+    /// without first checking [`WebGlRendererInit::is_ready`].
     pub poll_count: u32,
     /// Wall-clock time from issuing the first compilation until all programs were confirmed
     /// linked.
@@ -280,11 +440,11 @@ impl WebGlRenderer {
     /// Begins creating a WebGL2 renderer and its persistent resources.
     ///
     /// When `KHR_parallel_shader_compile` is available, shader compilation and program linking can
-    /// continue while the caller yields to the browser. Poll the returned initialization with
-    /// [`WebGlRendererInit::try_finish`] on successive animation frames.
+    /// continue while the caller yields to the browser. Check [`WebGlRendererInit::is_ready`] (or
+    /// poll [`WebGlRendererInit::try_finish`]) on successive animation frames.
     ///
-    /// If the extension is unavailable, the first poll synchronously finishes shader compilation
-    /// and linking.
+    /// If the extension is unavailable, finishing synchronously completes shader compilation and
+    /// linking.
     pub fn begin(canvas: &HtmlCanvasElement) -> Result<(WebGlRendererInit, Resources), WebGlError> {
         Self::begin_with(canvas, RenderSettings::default(), true)
     }
@@ -294,173 +454,247 @@ impl WebGlRenderer {
     /// See [`WebGlRenderer::begin`] for polling and fallback behavior.
     pub fn begin_with(
         canvas: &HtmlCanvasElement,
-        mut settings: RenderSettings,
+        settings: RenderSettings,
         use_depth_buffer: bool,
     ) -> Result<(WebGlRendererInit, Resources), WebGlError> {
-        #[allow(
-            clippy::assertions_on_constants,
-            reason = "intentional guard against non-wasm32 use"
-        )]
-        {
-            debug_assert!(
-                cfg!(target_arch = "wasm32"),
-                "`WebGlRenderer` can only be constructed when targeting `wasm32`",
-            );
-        }
-        super::common::maybe_warn_about_webgl_feature_conflict();
+        Self::begin_with_shaders(WebGlShaders::compile(canvas, use_depth_buffer)?, settings)
+    }
 
-        // We do our own anti-aliasing, so no need to enable it in the WebGL
-        // context.
-        let context_options = js_sys::Object::new();
-        js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE)
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
-        // Avoid running Vello GPU if it's gonna be super slow.
-        js_sys::Reflect::set(
-            &context_options,
-            &"failIfMajorPerformanceCaveat".into(),
-            &JsValue::TRUE,
-        )
-        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
-        // The opaque-strip optimization requires a 24+ bit depth buffer. If the hardware falls
-        // back to a 16 bit depth buffer, correctness issues will arise. For all intents and
-        // purposes, a device manufactured in the past 10 years should support 24+ bit depth
-        // buffers (certainly those within the realm of what we consider "supported" devices) but:
-        //
-        // Relevant code for default depth buffer behaviour can be found here:
-        // - Chromium defaults to 24 bit with no fallback: https://github.com/chromium/chromium/blob/86bafb3aab8e999690d310b201d0b5489f512b08/third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.cc#L1376-L1400
-        // - Firefox defaults to 24 bit with no fallback: https://github.com/mozilla/gecko-dev/blob/5836a062726f715fda621338a17b51aff30d0a8c/gfx/gl/MozFramebuffer.cpp#L155-L161
-        // - Safari defaults to 24 bit _with 16 bit_ fallback: https://github.com/WebKit/WebKit/blob/a6d6c154bbee0643f5ad1e55c071558c0df9aef7/Source/WebCore/platform/graphics/angle/GraphicsContextGLANGLE.cpp#L393-L416
-        //
-        // TODO: The above understanding is encoded in a below assertion, but this should be encapsulated within a
-        // "this device can run Vello correctly" check function.
-        let depth = if use_depth_buffer {
-            &JsValue::TRUE
-        } else {
-            &JsValue::FALSE
-        };
-        js_sys::Reflect::set(&context_options, &"depth".into(), depth)
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
+    /// Begins creating a WebGL2 renderer from the shader programs that the `compileVelloShaders`
+    /// JavaScript function from [`vello_gpu_shaders::webgl_bootstrap::JS_MODULE`] started
+    /// compiling.
+    ///
+    /// Running that module before the WebAssembly module is downloaded and instantiated lets shader
+    /// compilation overlap with loading it. The renderer uses the canvas and WebGL context that
+    /// `compileVelloShaders` created, and a depth buffer only if that context has one. See
+    /// [`WebGlRenderer::begin`] for polling and fallback behavior.
+    ///
+    /// The renderer takes ownership of the shaders and programs in `precompiled` and deletes them
+    /// when it's dropped, so they must not be used elsewhere, and the same result must not be
+    /// passed to this function twice.
+    ///
+    /// Returns [`WebGlError::IncompatiblePrecompiledShaders`] if the programs can't be adopted,
+    /// including when `precompiled` is `null` because WebGL2 was unavailable.
+    /// [`IncompatiblePrecompiledShadersReason::DifferentModule`] can also happen in
+    /// production, for example when a cached JavaScript module from an older build is served
+    /// with a newer WebAssembly module, so callers should fall back to
+    /// [`WebGlRenderer::begin_with`] rather than give up on rendering.
+    pub fn begin_with_precompiled(
+        precompiled: &JsValue,
+        settings: RenderSettings,
+    ) -> Result<(WebGlRendererInit, Resources), WebGlError> {
+        Self::begin_with_shaders(WebGlShaders::from_precompiled(precompiled)?, settings)
+    }
 
-        let context = canvas
-            .get_context_with_context_options("webgl2", &context_options)
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Create))?
-            .ok_or(WebGlError::ContextUnavailable)?;
-        let gl = context
-            .dyn_into::<WebGl2RenderingContext>()
-            .expect("Context to be a WebGL2 context");
-
-        // See https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_webgl_provoking_vertex_when_its_available
-        // for why we need to set this. This has been confirmed by benchmarks, where doing just a
-        // couple of draw calls with external textures tanks performance on any
-        // Apple device, especially low-tier iOS devices.
-        // IMPORTANT: This assumes that any use of flat parameters in shaders is the same across
-        // each vertex! In case this ever changes, we need to revisit this.
-        // https://web3dsurvey.com/webgl2/extensions/WEBGL_provoking_vertex
-        if let Some(ext) = gl
-            .get_extension("WEBGL_provoking_vertex")
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
-        {
-            // See https://registry.khronos.org/webgl/extensions/WEBGL_provoking_vertex
-            const FIRST_VERTEX_CONVENTION_WEBGL: u32 = 0x8E4D;
-
-            // In WebGL, the _last_ vertex supplies the value for flat shader varyings by default.
-            // According to the spec, implementations should only expose this flag if the _first_
-            // convention is faster by default. Therefore, if the extension is available, we always
-            // set it to _first_.
-            js_sys::Reflect::get(ext.as_ref(), &"provokingVertexWEBGL".into())
-                .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
-                .unchecked_into::<js_sys::Function>()
-                .call1(ext.as_ref(), &JsValue::from(FIRST_VERTEX_CONVENTION_WEBGL))
-                .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?;
-        }
-
-        // Note: It is not entirely clear whether we really _have_ to ensure anti-aliasing is disabled.
-        // This code is inherited from a similar snippet in wgpu
-        // (https://github.com/gfx-rs/wgpu/blob/56e4a389ddd02403e232beef3d3ff305625e6485/wgpu-hal/src/gles/web.rs#L101-L106),
-        // which itself seems to have been copied from the older `gfx` crate, where it was first introduced
-        // in https://github.com/gfx-rs/gfx/pull/2554/changes#diff-a47711d61df7a43fe6dd99c39b936d17ff817cbc2238d7e3ae6698ffde9b88f7R79,
-        // without any comment on why.
-        // From my (Laurenz) testing, tests seem to work even when anti-aliasing is enabled,
-        // but Andrew previously got errors similar to the ones outlined in
-        // https://github.com/gfx-rs/wgpu/issues/5263. Therefore, we just leave it as is for now.
-        #[cfg(debug_assertions)]
-        {
-            // If a WebGL context already exists on this canvas, it will be returned instead of
-            // creating a new one with the correct context_options set.
-            // See this comment for why we still care about non-antialiased context:
-            // https://github.com/linebender/vello/pull/1546/changes#r3008692535
-            let context_attributes =
-                gl.get_context_attributes()
-                    .ok_or(WebGlError::OperationFailed {
-                        operation: WebGlOperation::Context(WebGlContextOperation::Query),
-                        message: None,
-                    })?;
-            let antialias = js_sys::Reflect::get(&context_attributes, &"antialias".into())
-                .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
-                .as_bool()
-                .unwrap();
-            if antialias {
-                return Err(WebGlError::IncompatibleContext(
-                    IncompatibleContextReason::AntialiasingEnabled,
-                ));
-            }
-        }
-
+    /// Allocates the renderer's persistent resources without waiting for `shaders` to compile.
+    fn begin_with_shaders(
+        shaders: WebGlShaders,
+        mut settings: RenderSettings,
+    ) -> Result<(WebGlRendererInit, Resources), WebGlError> {
+        let gl = &shaders.gl;
         let device_limits = DeviceLimits {
-            max_texture_dimension_2d: u16::try_from(get_max_texture_dimension_2d(&gl)?)
+            max_texture_dimension_2d: u16::try_from(get_max_texture_dimension_2d(gl)?)
                 .unwrap_or(u16::MAX),
         };
-        settings.memory_settings.normalize(&device_limits);
-        if use_depth_buffer {
-            let actual_bits = gl
-                .get_parameter(WebGl2RenderingContext::DEPTH_BITS)
-                .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
-                .as_f64()
-                .unwrap() as u32;
-
-            if actual_bits < REQUIRED_DEPTH_BITS {
-                return Err(WebGlError::IncompatibleContext(
-                    IncompatibleContextReason::InsufficientDepthBuffer {
-                        actual_bits,
-                        required_bits: REQUIRED_DEPTH_BITS,
-                    },
-                ));
-            }
-        }
-        let resources = Resources::new(settings.memory_settings.image_atlas_config);
+        let (core, resources) = SharedCore::new(&mut settings, &device_limits);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
 
-        // Estimate the maximum number of gradient cache entries based on the resource texture
-        // dimension and the maximum gradient LUT size - worst case scenario.
-        let max_gradient_cache_size = resource_texture_dimension_2d * resource_texture_dimension_2d
-            / MAX_GRADIENT_LUT_SIZE as u32;
-        let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
-        let layer_config = settings.memory_settings.layers_config;
-        let init = WebGlRendererInit {
-            programs: PendingWebGlPrograms::new(
-                gl.clone(),
-                &resources.image_cache,
-                layer_config,
-                resource_texture_dimension_2d,
-                use_depth_buffer,
-            )?,
+        let webgl_resources = create_webgl_resources(
             gl,
-            gradient_cache,
-            layers_config: layer_config,
+            &resources.image_cache,
+            core.layers_config,
+            resource_texture_dimension_2d,
+            shaders.use_depth_buffer,
+        )?;
+        initialize_strip_vao(gl, &webgl_resources);
+        initialize_filter_vao(gl, &webgl_resources);
+        initialize_blend_vao(gl, &webgl_resources);
+        initialize_copy_vao(gl, &webgl_resources);
+        let encoded_paints_data = vec![0; (resource_texture_dimension_2d << 4) as usize];
+
+        let init = WebGlRendererInit {
+            shaders,
+            resources: webgl_resources,
+            encoded_paints_data,
+            core,
         };
 
         Ok((init, resources))
     }
+}
 
+/// Creates the canvas's WebGL2 context with the attributes the renderer depends on.
+///
+/// If the canvas already has a WebGL2 context, the browser returns it and ignores the requested
+/// attributes, so the ones that can be queried are validated afterwards. The attributes must match
+/// the defaults of `compileVelloShaders` in `vello_gpu_shaders/src/webgl_bootstrap.js`, which
+/// creates the context when shaders are compiled from JavaScript;
+/// `webgl_contexts_created_by_javascript_and_rust_match` in `vello_tests` checks this.
+fn create_context(
+    canvas: &HtmlCanvasElement,
+    use_depth_buffer: bool,
+) -> Result<WebGl2RenderingContext, WebGlError> {
+    #[allow(
+        clippy::assertions_on_constants,
+        reason = "intentional guard against non-wasm32 use"
+    )]
+    {
+        debug_assert!(
+            cfg!(target_arch = "wasm32"),
+            "`WebGlRenderer` can only be constructed when targeting `wasm32`",
+        );
+    }
+    super::common::maybe_warn_about_webgl_feature_conflict();
+
+    // We do our own anti-aliasing, so no need to enable it in the WebGL
+    // context.
+    let context_options = js_sys::Object::new();
+    js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE)
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
+    // Avoid running Vello GPU if it's gonna be super slow.
+    js_sys::Reflect::set(
+        &context_options,
+        &"failIfMajorPerformanceCaveat".into(),
+        &JsValue::TRUE,
+    )
+    .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
+    // The opaque-strip optimization requires a 24+ bit depth buffer. If the hardware falls
+    // back to a 16 bit depth buffer, correctness issues will arise. For all intents and
+    // purposes, a device manufactured in the past 10 years should support 24+ bit depth
+    // buffers (certainly those within the realm of what we consider "supported" devices) but:
+    //
+    // Relevant code for default depth buffer behaviour can be found here:
+    // - Chromium defaults to 24 bit with no fallback: https://github.com/chromium/chromium/blob/86bafb3aab8e999690d310b201d0b5489f512b08/third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.cc#L1376-L1400
+    // - Firefox defaults to 24 bit with no fallback: https://github.com/mozilla/gecko-dev/blob/5836a062726f715fda621338a17b51aff30d0a8c/gfx/gl/MozFramebuffer.cpp#L155-L161
+    // - Safari defaults to 24 bit _with 16 bit_ fallback: https://github.com/WebKit/WebKit/blob/a6d6c154bbee0643f5ad1e55c071558c0df9aef7/Source/WebCore/platform/graphics/angle/GraphicsContextGLANGLE.cpp#L393-L416
+    //
+    // TODO: The above understanding is encoded in a below assertion, but this should be encapsulated within a
+    // "this device can run Vello correctly" check function.
+    let depth = if use_depth_buffer {
+        &JsValue::TRUE
+    } else {
+        &JsValue::FALSE
+    };
+    js_sys::Reflect::set(&context_options, &"depth".into(), depth)
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
+
+    let context = canvas
+        .get_context_with_context_options("webgl2", &context_options)
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Create))?
+        .ok_or(WebGlError::ContextUnavailable)?;
+    let gl = context
+        .dyn_into::<WebGl2RenderingContext>()
+        .expect("Context to be a WebGL2 context");
+
+    // See https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_webgl_provoking_vertex_when_its_available
+    // for why we need to set this. This has been confirmed by benchmarks, where doing just a
+    // couple of draw calls with external textures tanks performance on any
+    // Apple device, especially low-tier iOS devices.
+    // IMPORTANT: This assumes that any use of flat parameters in shaders is the same across
+    // each vertex! In case this ever changes, we need to revisit this.
+    // https://web3dsurvey.com/webgl2/extensions/WEBGL_provoking_vertex
+    if let Some(ext) = gl
+        .get_extension("WEBGL_provoking_vertex")
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
+    {
+        // See https://registry.khronos.org/webgl/extensions/WEBGL_provoking_vertex
+        const FIRST_VERTEX_CONVENTION_WEBGL: u32 = 0x8E4D;
+
+        // In WebGL, the _last_ vertex supplies the value for flat shader varyings by default.
+        // According to the spec, implementations should only expose this flag if the _first_
+        // convention is faster by default. Therefore, if the extension is available, we always
+        // set it to _first_.
+        js_sys::Reflect::get(ext.as_ref(), &"provokingVertexWEBGL".into())
+            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
+            .unchecked_into::<js_sys::Function>()
+            .call1(ext.as_ref(), &JsValue::from(FIRST_VERTEX_CONVENTION_WEBGL))
+            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?;
+    }
+
+    // Note: It is not entirely clear whether we really _have_ to ensure anti-aliasing is disabled.
+    // This code is inherited from a similar snippet in wgpu
+    // (https://github.com/gfx-rs/wgpu/blob/56e4a389ddd02403e232beef3d3ff305625e6485/wgpu-hal/src/gles/web.rs#L101-L106),
+    // which itself seems to have been copied from the older `gfx` crate, where it was first introduced
+    // in https://github.com/gfx-rs/gfx/pull/2554/changes#diff-a47711d61df7a43fe6dd99c39b936d17ff817cbc2238d7e3ae6698ffde9b88f7R79,
+    // without any comment on why.
+    // From my (Laurenz) testing, tests seem to work even when anti-aliasing is enabled,
+    // but Andrew previously got errors similar to the ones outlined in
+    // https://github.com/gfx-rs/wgpu/issues/5263. Therefore, we just leave it as is for now.
+    #[cfg(debug_assertions)]
+    {
+        // If a WebGL context already exists on this canvas, it will be returned instead of
+        // creating a new one with the correct context_options set.
+        // See this comment for why we still care about non-antialiased context:
+        // https://github.com/linebender/vello/pull/1546/changes#r3008692535
+        if context_attribute(&gl, "antialias")? {
+            return Err(WebGlError::IncompatibleContext(
+                IncompatibleContextReason::AntialiasingEnabled,
+            ));
+        }
+    }
+
+    if use_depth_buffer {
+        let actual_bits = gl
+            .get_parameter(WebGl2RenderingContext::DEPTH_BITS)
+            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
+            .as_f64()
+            .unwrap() as u32;
+
+        if actual_bits < REQUIRED_DEPTH_BITS {
+            return Err(WebGlError::IncompatibleContext(
+                IncompatibleContextReason::InsufficientDepthBuffer {
+                    actual_bits,
+                    required_bits: REQUIRED_DEPTH_BITS,
+                },
+            ));
+        }
+    }
+
+    Ok(gl)
+}
+
+/// Returns a boolean attribute that `gl` was actually created with.
+fn context_attribute(gl: &WebGl2RenderingContext, name: &str) -> Result<bool, WebGlError> {
+    let context_attributes = gl
+        .get_context_attributes()
+        .ok_or(WebGlError::OperationFailed {
+            operation: WebGlOperation::Context(WebGlContextOperation::Query),
+            message: None,
+        })?;
+
+    Ok(js_sys::Reflect::get(&context_attributes, &name.into())
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
+        .as_bool()
+        .unwrap_or(false))
+}
+
+impl WebGlRenderer {
     /// Returns the shaders compiled while creating this renderer and the time spent.
     ///
-    /// When initialization is polled with [`WebGlRendererInit::try_finish`], `elapsed` also
-    /// includes time between polls, so its resolution is limited by the polling frequency.
+    /// `elapsed` is measured until the renderer is finished, so when finishing is deferred (for
+    /// example, by polling readiness or doing other work first) it is an upper bound on the actual
+    /// compilation time.
     pub fn shader_compilation_stats(&self) -> ShaderCompilationStats {
         self.programs.shader_compilation_stats
     }
 
-    /// Render `scene` using WebGL2
+    /// Create a target for rendering into `texture`.
+    ///
+    /// `texture` must be `RGBA8` and `depth` `DEPTH_COMPONENT24`, and `width` and `height` must
+    /// match the dimensions of both. The same `depth` can be used for any number of targets of
+    /// the same size. Like the drawing buffer, the first row of the texture is the bottom row of
+    /// the image.
+    pub fn create_texture_target(
+        &self,
+        texture: &WebGlTexture,
+        depth: Option<&WebGlRenderbuffer>,
+        width: u16,
+        height: u16,
+    ) -> Result<WebGlTextureTarget, WebGlError> {
+        WebGlTextureTarget::new(&self.gl, texture, depth, width, height)
+    }
+
+    /// Render `scene` into `target` using WebGL2
     ///
     /// This method creates GPU resources as needed and schedules potentially multiple draw calls.
     ///
@@ -473,23 +707,10 @@ impl WebGlRenderer {
         &mut self,
         scene: &Scene,
         resources: &mut Resources,
-        render_size: &RenderSize,
+        target: WebGlRenderTarget<'_>,
         texture_bindings: &WebGlTextureBindings,
-        // Note that in WebGL, the contents of drawing buffers are not guaranteed to be preserved
-        // unless `preserveDrawingBuffer` has been set to `true` (which is highly discouraged).
-        // Therefore, for the WebGL backend we currently don't expose more configurable clear
-        // options.
-        clear_color: AlphaColor<Srgb>,
+        options: WebGlRenderOptions,
     ) -> Result<(), WebGlError> {
-        debug_assert_eq!(
-            RenderSize {
-                width: self.gl.drawing_buffer_width().try_into().unwrap(),
-                height: self.gl.drawing_buffer_height().try_into().unwrap()
-            },
-            *render_size,
-            "Render size must match drawing buffer size"
-        );
-
         #[cfg(feature = "text")]
         resources.before_render(
             self,
@@ -512,15 +733,34 @@ impl WebGlRenderer {
             },
         )?;
 
-        self.render_scene(
-            scene,
-            &resources.image_cache,
-            render_size,
-            TargetInit::Clear(ClearSettings::Viewport { color: clear_color }),
-            RootTarget::UserSurface,
-            texture_bindings,
-            None,
-        )?;
+        let render_size = target.size(&self.gl);
+        let target_init = TargetInit::Clear(ClearSettings::Viewport {
+            color: options.clear_color,
+        });
+        match target {
+            WebGlRenderTarget::DrawingBuffer => self.render_scene(
+                scene,
+                &resources.image_cache,
+                &render_size,
+                target_init,
+                RootTarget::UserSurface,
+                texture_bindings,
+                None,
+                options.offset,
+            )?,
+            WebGlRenderTarget::Texture(target) => self.render_offscreen(target, |renderer| {
+                renderer.render_scene(
+                    scene,
+                    &resources.image_cache,
+                    &render_size,
+                    target_init,
+                    RootTarget::UserSurface,
+                    texture_bindings,
+                    Some(&target.texture),
+                    options.offset,
+                )
+            })?,
+        }
 
         #[cfg(feature = "text")]
         // TODO: We should sort the rectangles once by atlas
@@ -539,11 +779,6 @@ impl WebGlRenderer {
     /// The scene should be sized to the atlas layer dimensions
     /// ([`AtlasConfig::atlas_size`]), with content positioned at the allocated offset
     /// coordinates from `ImageCache::allocate`.
-    ///
-    /// This method creates its own command encoder and submits immediately,
-    /// ensuring atlas content is committed before any subsequent
-    /// [`render`](Self::render) call (the two methods share GPU resources that
-    /// are staged by `queue.write_*` and only applied on the next `queue.submit`).
     ///
     /// `texture_bindings` provides [externally bound textures](`WebGlTextureBindings`)
     /// referenced by the scene. Pass `&WebGlTextureBindings::new()` if the scene does
@@ -565,56 +800,41 @@ impl WebGlRenderer {
             width: atlas_width,
             height: atlas_height,
         };
-        let render_target_texture = self.atlas_texture(atlas_id).clone();
-
-        let atlas_framebuffer =
-            if let Some(framebuffer) = self.programs.resources.atlas_render_framebuffer.take() {
-                framebuffer
-            } else {
-                Framebuffer::new(&self.gl)?
-            };
-        self.gl.bind_framebuffer(
-            WebGl2RenderingContext::FRAMEBUFFER,
-            Some(&atlas_framebuffer),
-        );
-        self.gl.framebuffer_texture_2d(
-            WebGl2RenderingContext::FRAMEBUFFER,
-            WebGl2RenderingContext::COLOR_ATTACHMENT0,
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.atlas_textures[atlas_id.as_u32() as usize]),
-            0,
-        );
-
-        let previous_view_framebuffer = core::mem::replace(
-            &mut self.programs.resources.view_framebuffer,
-            ViewFramebuffer::offscreen(atlas_framebuffer, false),
-        );
-
+        let target = self.programs.resources.atlas_targets[atlas_id.as_u32() as usize].clone();
         // TODO: Explore using an option instead of a dummy image cache.
         let dummy_image_cache = self
+            .core
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
-        let result = self.render_scene(
-            scene,
-            &dummy_image_cache,
-            &atlas_render_size,
-            TargetInit::SrcOver,
-            RootTarget::AtlasLayer,
-            texture_bindings,
-            Some(&render_target_texture),
-        );
-        self.dummy_image_cache = Some(dummy_image_cache);
+        let result = self.render_offscreen(&target, |renderer| {
+            renderer.render_scene(
+                scene,
+                &dummy_image_cache,
+                &atlas_render_size,
+                TargetInit::SrcOver,
+                RootTarget::AtlasLayer,
+                texture_bindings,
+                Some(&target.texture),
+                (0, 0),
+            )
+        });
+        self.core.dummy_image_cache = Some(dummy_image_cache);
 
-        // Restore the previous view framebuffer and cache the atlas FBO for reuse.
-        let atlas_framebuffer = core::mem::replace(
-            &mut self.programs.resources.view_framebuffer,
-            previous_view_framebuffer,
-        )
-        .into_framebuffer()
-        .unwrap();
-        self.programs.resources.atlas_render_framebuffer = Some(atlas_framebuffer);
+        result
+    }
 
+    /// Run `render` with `target` as the root target.
+    ///
+    /// Note that the method might update the currently bound framebuffer.
+    fn render_offscreen(
+        &mut self,
+        target: &WebGlTextureTarget,
+        render: impl FnOnce(&mut Self) -> Result<(), WebGlError>,
+    ) -> Result<(), WebGlError> {
+        let previous_target = self.programs.resources.root_target.replace(target.clone());
+        let result = render(self);
+        self.programs.resources.root_target = previous_target;
         result
     }
 
@@ -642,58 +862,42 @@ impl WebGlRenderer {
         root_output_target: RootTarget,
         texture_bindings: &WebGlTextureBindings,
         render_target_texture: Option<&WebGlTexture>,
+        scene_offset: (i32, i32),
     ) -> Result<(), WebGlError> {
-        let encoded_paints = &scene.encoded_paints;
-        let use_depth_buffer = self.programs.resources.view_framebuffer.use_depth_buffer();
-
-        self.prepare_gpu_encoded_paints(
-            encoded_paints,
-            image_cache,
-            texture_bindings,
-            render_target_texture,
-        )?;
-
-        let mut required_texture_size = self
-            .layers_config
-            .required_intermediate_texture_size(&scene.recorder)
-            .map_err(RenderError::IntermediateTexture)?;
-
-        // We currently only grow and never shrink textures, so max it with whatever
-        // we had in the previous run.
-        required_texture_size = self
-            .programs
-            .resources
-            .texture_size
-            .max(required_texture_size);
+        let use_depth_buffer = self.programs.resources.root_uses_depth_buffer();
 
         let current_allocations = self.current_allocations();
-
-        let paint_resolver =
-            PaintResolver::new(encoded_paints, &self.paint_idxs).with_image_cache(image_cache);
-        let schedule = Schedule::try_new(
-            &mut self.schedule_storage,
+        let schedule = self.core.prepare(
             scene,
+            image_cache,
             root_output_target,
+            RectU16::visible_scene_bounds(
+                scene.recorder.scene_size,
+                SizeU16::from_wh(render_size.width, render_size.height),
+                scene_offset,
+            ),
             use_depth_buffer,
-            paint_resolver,
-            required_texture_size,
+            self.programs.resources.texture_size,
             current_allocations,
-            self.layers_config.max_textures,
+            |id, image, region| {
+                texture_bindings.encode_paint(id, image, region, render_target_texture)
+            },
         )?;
         self.programs
-            .prepare_intermediate_textures(&self.gl, &schedule, required_texture_size)?;
+            .prepare_intermediate_textures(&self.gl, &schedule)?;
 
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
         self.programs.prepare(
             &self.gl,
-            &mut self.gradient_cache,
-            &self.encoded_paints,
+            &mut self.core.gradient_cache,
+            &self.core.encoded_paints,
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
-            &self.paint_idxs,
-            &self.schedule_storage.filter_context,
+            scene_offset,
+            &self.core.paint_idxs,
+            &self.core.schedule_storage.filter_context,
             root_output_target,
         )?;
         self.programs.resources.depth_cleared_this_frame = false;
@@ -701,7 +905,7 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
             texture_bindings,
-            scratch_buffers: &mut self.scratch_buffers,
+            scratch_buffers: &mut self.core.scratch_buffers,
             use_depth_buffer,
         };
         if let TargetInit::Clear(clear) = target_init {
@@ -709,14 +913,14 @@ impl WebGlRenderer {
         }
         crate::schedule::execute(
             &mut ctx,
-            &mut self.schedule_storage,
+            &mut self.core.schedule_storage,
             schedule,
             root_output_target,
         )?;
 
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            self.programs.resources.view_framebuffer.binding(),
+            self.programs.resources.root_framebuffer(),
         );
         if self.programs.resources.depth_cleared_this_frame {
             // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
@@ -725,7 +929,7 @@ impl WebGlRenderer {
             self.gl
                 .invalidate_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    if self.programs.resources.view_framebuffer.is_offscreen() {
+                    if self.programs.resources.root_target.is_some() {
                         &self.programs.resources.offscreen_depth_attachment_array
                     } else {
                         &self.programs.resources.default_depth_attachment_array
@@ -736,7 +940,7 @@ impl WebGlRenderer {
                 ))?;
         }
 
-        self.gradient_cache.maintain();
+        self.core.gradient_cache.maintain();
 
         Ok(())
     }
@@ -752,6 +956,11 @@ impl WebGlRenderer {
     ///
     /// This is the WebGL analogue of the wgpu Renderer's `upload_image` method.
     /// It allocates space in the image cache and uploads the image data to the atlas texture.
+    ///
+    /// # Errors
+    /// Returns [`WebGlError::FullImageSupportDisabled`] if the `full_image_support` feature
+    /// is disabled, or an error if allocating or uploading the image fails.
+    #[track_caller]
     pub fn upload_image<T: WebGlAtlasWriter>(
         &mut self,
         resources: &mut Resources,
@@ -760,12 +969,17 @@ impl WebGlRenderer {
         self.upload_image_with(&mut resources.image_cache, writer, IMAGE_PADDING)
     }
 
+    #[track_caller]
     pub(crate) fn upload_image_with<T: WebGlAtlasWriter>(
         &mut self,
         image_cache: &mut ImageCache,
         writer: &T,
         padding: u16,
     ) -> Result<ImageId, WebGlError> {
+        if !cfg!(feature = "full_image_support") {
+            return Err(WebGlError::FullImageSupportDisabled);
+        }
+
         let width = writer.width();
         let height = writer.height();
         let image_id = image_cache
@@ -867,18 +1081,9 @@ impl WebGlRenderer {
         width: u16,
         height: u16,
     ) -> Result<(), WebGlError> {
-        let temp_framebuffer = Framebuffer::new(&self.gl)?;
-
-        // Bind our temporary framebuffer
-        self.gl
-            .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&temp_framebuffer));
-
-        self.gl.framebuffer_texture_2d(
+        self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            WebGl2RenderingContext::COLOR_ATTACHMENT0,
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.atlas_textures[atlas_id.as_u32() as usize]),
-            0,
+            Some(&self.programs.resources.atlas_targets[atlas_id.as_u32() as usize].framebuffer),
         );
 
         // Set viewport to match the atlas texture dimensions
@@ -901,233 +1106,95 @@ impl WebGlRenderer {
 
         Ok(())
     }
-
-    fn prepare_gpu_encoded_paints(
-        &mut self,
-        encoded_paints: &[EncodedPaint],
-        image_cache: &ImageCache,
-        texture_bindings: &WebGlTextureBindings,
-        render_target_texture: Option<&WebGlTexture>,
-    ) -> Result<(), WebGlError> {
-        self.encoded_paints
-            .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
-        self.paint_idxs.resize(encoded_paints.len() + 1, 0);
-
-        let mut current_idx = 0;
-        for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
-            self.paint_idxs[encoded_paint_idx] = current_idx;
-            let gpu_paint = match paint {
-                EncodedPaint::Image(img) => match &img.source {
-                    ImageSource::OpaqueId { id, .. } => {
-                        let image_resource =
-                            image_cache.get(*id).ok_or(RenderError::MissingImage(*id))?;
-                        self.encode_image_paint(img, image_resource)
-                    }
-                    ImageSource::ExternalTexture {
-                        id, source_region, ..
-                    } => {
-                        let texture = texture_bindings
-                            .get(*id)
-                            .ok_or(RenderError::MissingTextureBinding(*id))?;
-                        if render_target_texture.is_some_and(|target| target == texture) {
-                            return Err(WebGlError::Render(RenderError::TextureFeedbackLoop(*id)));
-                        }
-                        Self::encode_external_texture_paint(img, *source_region)
-                    }
-                    ImageSource::Pixmap(_) => {
-                        panic!("pixmap image sources are not supported by Vello GPU")
-                    }
-                },
-                EncodedPaint::Gradient(gradient) => {
-                    let (gradient_start, gradient_width) =
-                        self.gradient_cache.get_or_create_ramp(gradient);
-                    self.encode_gradient_paint(gradient, gradient_width, gradient_start)
-                }
-                EncodedPaint::BlurredRoundedRect(blurred_rect) => {
-                    Self::encode_blurred_rounded_rect_paint(blurred_rect)
-                }
-            };
-
-            current_idx += gpu_paint.size_texels();
-            self.encoded_paints[encoded_paint_idx] = gpu_paint;
-        }
-        self.paint_idxs[encoded_paints.len()] = current_idx;
-        Ok(())
-    }
-
-    fn encode_image_paint(
-        &self,
-        image: &vello_common::encode::EncodedImage,
-        image_resource: &ImageResource,
-    ) -> GpuEncodedPaint {
-        let transform = image.transform.as_coeffs().map(|x| x as f32);
-        let image_size = pack_image_size(image_resource.width, image_resource.height);
-        let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
-        let image_params = pack_image_params(
-            image.sampler.quality as u32,
-            image.sampler.x_extend as u32,
-            image.sampler.y_extend as u32,
-        );
-        let (tint, tint_mode) = pack_tint(image.tint);
-
-        GpuEncodedPaint::Image(GpuEncodedImage {
-            image_params,
-            image_size,
-            image_offset,
-            transform,
-            tint,
-            tint_mode,
-            image_padding: image_resource.padding as u32,
-        })
-    }
-
-    fn encode_external_texture_paint(
-        image: &vello_common::encode::EncodedImage,
-        region: RectU16,
-    ) -> GpuEncodedPaint {
-        let transform = image.transform.as_coeffs().map(|x| x as f32);
-        let image_size = pack_image_size(region.width(), region.height());
-        let image_offset = pack_image_offset(region.x0, region.y0);
-        let image_params = pack_image_params(
-            image.sampler.quality as u32,
-            image.sampler.x_extend as u32,
-            image.sampler.y_extend as u32,
-        );
-        let (tint, tint_mode) = pack_tint(image.tint);
-
-        GpuEncodedPaint::Image(GpuEncodedImage {
-            image_params,
-            image_size,
-            image_offset,
-            transform,
-            tint,
-            tint_mode,
-            image_padding: 0,
-        })
-    }
-
-    fn encode_gradient_paint(
-        &self,
-        gradient: &EncodedGradient,
-        gradient_width: u32,
-        gradient_start: u32,
-    ) -> GpuEncodedPaint {
-        let transform = gradient.transform.as_coeffs().map(|x| x as f32);
-        let extend_mode = match gradient.extend {
-            peniko::Extend::Pad => 0,
-            peniko::Extend::Repeat => 1,
-            peniko::Extend::Reflect => 2,
-        };
-        let texture_width_and_extend_mode =
-            pack_texture_width_and_extend_mode(gradient_width, extend_mode);
-
-        match &gradient.kind {
-            EncodedKind::Linear(_) => GpuEncodedPaint::LinearGradient(GpuLinearGradient {
-                texture_width_and_extend_mode,
-                gradient_start,
-                transform,
-            }),
-            EncodedKind::Radial(radial) => {
-                let (kind, bias, scale, fp0, fp1, fr1, f_focal_x, f_is_swapped, scaled_r0_squared) =
-                    match radial {
-                        RadialKind::Radial { bias, scale } => {
-                            (0, *bias, *scale, 0.0, 0.0, 0.0, 0.0, 0, 0.0)
-                        }
-                        RadialKind::Strip { scaled_r0_squared } => {
-                            (1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, *scaled_r0_squared)
-                        }
-                        RadialKind::Focal {
-                            focal_data,
-                            fp0,
-                            fp1,
-                        } => (
-                            2,
-                            *fp0,
-                            *fp1,
-                            *fp0,
-                            *fp1,
-                            focal_data.fr1,
-                            focal_data.f_focal_x,
-                            focal_data.f_is_swapped as u32,
-                            0.0,
-                        ),
-                    };
-                GpuEncodedPaint::RadialGradient(GpuRadialGradient {
-                    texture_width_and_extend_mode,
-                    gradient_start,
-                    transform,
-                    kind_and_f_is_swapped: pack_radial_kind_and_swapped(kind, f_is_swapped),
-                    bias,
-                    scale,
-                    fp0,
-                    fp1,
-                    fr1,
-                    f_focal_x,
-                    scaled_r0_squared,
-                })
-            }
-            EncodedKind::Sweep(sweep) => GpuEncodedPaint::SweepGradient(GpuSweepGradient {
-                texture_width_and_extend_mode,
-                gradient_start,
-                transform,
-                start_angle: sweep.start_angle,
-                inv_angle_delta: sweep.inv_angle_delta,
-                _padding: [0, 0],
-            }),
-        }
-    }
-
-    fn encode_blurred_rounded_rect_paint(rect: &EncodedBlurredRoundedRectangle) -> GpuEncodedPaint {
-        GpuEncodedPaint::BlurredRoundedRect(GpuBlurredRoundedRect {
-            transform: rect.transform.as_coeffs().map(|x| x as f32),
-            color: rect.color.as_premul_rgba8().to_u32(),
-            invert: u32::from(rect.invert),
-            params0: [
-                rect.exponent,
-                rect.recip_exponent,
-                rect.scale,
-                rect.std_dev_inv,
-            ],
-            params1: [rect.min_edge, rect.w, rect.h, rect.r1],
-            size: [rect.width, rect.height],
-            _padding1: [0, 0],
-        })
-    }
 }
 
 impl WebGlRendererInit {
+    /// Returns whether shader compilation and program linking have finished, without blocking.
+    ///
+    /// Without `KHR_parallel_shader_compile`, completion cannot be queried without blocking, so
+    /// this returns `true` immediately and [`WebGlRendererInit::finish`] completes compilation
+    /// synchronously.
+    pub fn is_ready(&self) -> bool {
+        self.shaders.is_ready()
+    }
+
     /// Polls shader compilation and program linking without blocking when
     /// `KHR_parallel_shader_compile` is available.
     ///
     /// On browsers without the extension, this synchronously finishes initialization and returns
     /// [`WebGlRendererInitStatus::Complete`].
-    pub fn try_finish(mut self) -> Result<WebGlRendererInitStatus, WebGlError> {
-        self.programs.poll_count += 1;
-        if self.programs.is_complete(&self.gl) {
+    pub fn try_finish(self) -> Result<WebGlRendererInitStatus, WebGlError> {
+        if self.is_ready() {
             Ok(WebGlRendererInitStatus::Complete(self.finish()?))
         } else {
             Ok(WebGlRendererInitStatus::Pending(self))
         }
     }
 
-    /// Blocks until shader compilation and program linking finish.
+    /// Finishes initialization, blocking until shader compilation and program linking finish.
     ///
-    /// Prefer [`WebGlRendererInit::try_finish`] when blocking the browser's main thread is
-    /// undesirable.
+    /// This does not block once [`WebGlRendererInit::is_ready`] has returned `true`.
     pub fn finish(self) -> Result<WebGlRenderer, WebGlError> {
-        let programs = self.programs.finish(&self.gl)?;
+        let Self {
+            shaders,
+            resources,
+            encoded_paints_data,
+            core,
+        } = self;
+        let WebGlShaders {
+            gl,
+            compilation_start_ms,
+            poll_count,
+            strip_program,
+            filter_program,
+            blend_program,
+            copy_program,
+            ..
+        } = shaders;
 
-        Ok(WebGlRenderer {
-            programs,
-            gl: self.gl,
-            encoded_paints: Vec::new(),
-            paint_idxs: Vec::new(),
-            gradient_cache: self.gradient_cache,
-            dummy_image_cache: Some(ImageCache::new_dummy()),
-            schedule_storage: ScheduleStorage::default(),
-            scratch_buffers: ScratchBuffers::default(),
-            layers_config: self.layers_config,
-        })
+        let strip_program = strip_program.finish(&gl)?;
+        let filter_program = filter_program.finish(&gl)?;
+        let blend_program = blend_program.finish(&gl)?;
+        let copy_program = copy_program.finish(&gl)?;
+        let shader_compilation_stats = ShaderCompilationStats {
+            shader_count: WebGlShaders::PROGRAM_COUNT * PendingShaderProgram::SHADER_COUNT,
+            poll_count: poll_count.get(),
+            elapsed: Duration::from_secs_f64((performance_now() - compilation_start_ms) / 1_000.0),
+        };
+
+        let filter_uniforms = get_filter_pass_uniforms(&gl, &filter_program)?;
+        let blend_uniforms = get_blend_uniforms(&gl, &blend_program)?;
+        let copy_uniforms = get_copy_uniforms(&gl, &copy_program)?;
+        let strip_uniforms = get_strip_uniforms(&gl, &strip_program)?;
+
+        gl.enable(WebGl2RenderingContext::BLEND);
+        gl.blend_func(
+            WebGl2RenderingContext::ONE,
+            WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA,
+        );
+
+        let programs = WebGlPrograms {
+            strip_program,
+            strip_uniforms,
+            filter_program,
+            filter_uniforms,
+            blend_program,
+            blend_uniforms,
+            copy_program,
+            copy_uniforms,
+            shader_compilation_stats,
+            resources,
+            render_size: RenderSize {
+                width: 0,
+                height: 0,
+            },
+            negate_ndc: false,
+            scene_offset: (0, 0),
+            encoded_paints_data,
+            filter_data: Vec::new(),
+        };
+
+        Ok(WebGlRenderer { programs, gl, core })
     }
 }
 
@@ -1175,6 +1242,8 @@ pub(crate) struct WebGlPrograms {
     render_size: RenderSize,
     /// Whether the last config buffer upload had NDC Y negation enabled.
     negate_ndc: bool,
+    /// Offset of the scene within the rendering target.
+    scene_offset: (i32, i32),
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
     /// Scratch buffer for staging filter data texture data.
@@ -1221,64 +1290,6 @@ struct StripUniforms {
     external_textures: [WebGlUniformLocation; EXTERNAL_TEXTURE_SLOT_COUNT],
 }
 
-/// The framebuffer used for root-target rendering.
-#[derive(Debug)]
-pub(crate) enum ViewFramebuffer {
-    /// The canvas framebuffer created with the WebGL context.
-    Default {
-        /// Whether the context's depth buffer is enabled and should be used.
-        use_depth_buffer: bool,
-    },
-    /// An offscreen framebuffer object.
-    Offscreen {
-        /// The framebuffer object to bind.
-        framebuffer: Framebuffer,
-        /// Whether the framebuffer has a usable depth attachment.
-        use_depth_buffer: bool,
-    },
-}
-
-impl ViewFramebuffer {
-    pub(crate) const fn default(use_depth_buffer: bool) -> Self {
-        Self::Default { use_depth_buffer }
-    }
-
-    /// If `use_depth_buffer` is true, the framebuffer must have a valid depth attachment!
-    pub(crate) fn offscreen(framebuffer: Framebuffer, use_depth_buffer: bool) -> Self {
-        Self::Offscreen {
-            framebuffer,
-            use_depth_buffer,
-        }
-    }
-
-    fn binding(&self) -> Option<&WebGlFramebuffer> {
-        match self {
-            Self::Default { .. } => None,
-            Self::Offscreen { framebuffer, .. } => Some(framebuffer),
-        }
-    }
-
-    const fn use_depth_buffer(&self) -> bool {
-        match self {
-            Self::Default { use_depth_buffer }
-            | Self::Offscreen {
-                use_depth_buffer, ..
-            } => *use_depth_buffer,
-        }
-    }
-
-    const fn is_offscreen(&self) -> bool {
-        matches!(self, Self::Offscreen { .. })
-    }
-
-    pub(crate) fn into_framebuffer(self) -> Option<Framebuffer> {
-        match self {
-            Self::Default { .. } => None,
-            Self::Offscreen { framebuffer, .. } => Some(framebuffer),
-        }
-    }
-}
-
 /// Contains all WebGL resources needed for rendering.
 #[derive(Debug)]
 pub(crate) struct WebGlResources {
@@ -1294,6 +1305,8 @@ pub(crate) struct WebGlResources {
     alpha_texture_height: u32,
     /// One 2D texture per image atlas.
     pub(crate) atlas_textures: Vec<Texture>,
+    /// The render target of each texture in `atlas_textures`.
+    atlas_targets: Vec<WebGlTextureTarget>,
     /// Configured atlas dimensions.
     pub(crate) atlas_size: (u16, u16),
     /// Encoded paints texture for image metadata.
@@ -1304,13 +1317,17 @@ pub(crate) struct WebGlResources {
     gradient_texture: Texture,
     /// Placeholder texture bound to unoccupied external texture slots.
     placeholder_external_texture: Texture,
+    /// Native image samplers shared by external texture slots.
+    external_samplers: HashMap<ExternalSampler, Sampler>,
     /// Height of gradient texture.
     gradient_texture_height: u32,
 
     /// Config buffer for rendering strips into the root target.
     view_config_buffer: Buffer,
-    /// The root framebuffer and whether its depth buffer may be used.
-    pub(crate) view_framebuffer: ViewFramebuffer,
+    /// Whether the depth buffer of the drawing buffer is enabled and may be used.
+    drawing_buffer_uses_depth_buffer: bool,
+    /// The target that is rendered into, or `None` for the drawing buffer.
+    root_target: Option<WebGlTextureTarget>,
     /// Whether the depth buffer has been cleared this frame.
     depth_cleared_this_frame: bool,
     /// Pre-allocated depth attachment list for the default framebuffer.
@@ -1323,10 +1340,6 @@ pub(crate) struct WebGlResources {
 
     /// Dimensions of the intermediate layer and scratch textures.
     texture_size: SizeU16,
-
-    /// Cached framebuffer for rendering into an atlas texture in `render_to_atlas`.
-    /// Reused to avoid create/delete overhead on every call.
-    atlas_render_framebuffer: Option<Framebuffer>,
 
     /// RGBA32UI texture storing filter parameters.
     filter_data_texture: Texture,
@@ -1353,6 +1366,20 @@ pub(crate) struct WebGlResources {
 }
 
 impl WebGlResources {
+    fn root_framebuffer(&self) -> Option<&WebGlFramebuffer> {
+        self.root_target
+            .as_ref()
+            .map(|target| &**target.framebuffer)
+    }
+
+    fn root_uses_depth_buffer(&self) -> bool {
+        self.root_target
+            .as_ref()
+            .map_or(self.drawing_buffer_uses_depth_buffer, |target| {
+                target.use_depth_buffer
+            })
+    }
+
     fn layer_texture(&self, id: LayerTextureId) -> &Texture {
         self.layer_textures[id.texture_parity.get_parity()][usize::from(id.page_index)]
             .binding_texture()
@@ -1496,134 +1523,176 @@ impl PendingShaderProgram {
     }
 }
 
-#[derive(Debug)]
-struct PendingWebGlPrograms {
-    parallel_shader_compile: bool,
-    compilation_start_ms: f64,
-    poll_count: u32,
-    strip_program: PendingShaderProgram,
-    filter_program: PendingShaderProgram,
-    blend_program: PendingShaderProgram,
-    copy_program: PendingShaderProgram,
-    resources: WebGlResources,
-    encoded_paints_data: Vec<u8>,
-}
-
-impl PendingWebGlPrograms {
+impl WebGlShaders {
     const PROGRAM_COUNT: u32 = 4;
 
-    /// Starts compiling all programs before performing any blocking status queries.
-    fn new(
+    /// Creates the canvas's WebGL2 context and starts compiling and linking all shader programs,
+    /// returning without waiting for them to finish.
+    fn compile(canvas: &HtmlCanvasElement, use_depth_buffer: bool) -> Result<Self, WebGlError> {
+        let gl = create_context(canvas, use_depth_buffer)?;
+        let (compilation_start_ms, programs) = compile_programs(&gl)?;
+
+        Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs)
+    }
+
+    /// See [`WebGlRenderer::begin_with_precompiled`].
+    fn from_precompiled(precompiled: &JsValue) -> Result<Self, WebGlError> {
+        let not_a_result = || {
+            WebGlError::IncompatiblePrecompiledShaders(
+                IncompatiblePrecompiledShadersReason::NotCompileVelloShadersResult,
+            )
+        };
+        let context = precompiled_field(precompiled, "gl")
+            .ok()
+            .and_then(|gl| gl.dyn_into::<WebGl2RenderingContext>().ok())
+            .ok_or_else(not_a_result)?;
+        let canvas = context
+            .canvas()
+            .and_then(|canvas| canvas.dyn_into::<HtmlCanvasElement>().ok())
+            .ok_or_else(not_a_result)?;
+        let use_depth_buffer = context_attribute(&context, "depth")?;
+
+        // The canvas already has the context `compileVelloShaders` created, so this validates and
+        // returns it rather than creating a new one.
+        let gl = create_context(&canvas, use_depth_buffer)?;
+        let (compilation_start_ms, programs) = adopt_precompiled_programs(&gl, precompiled)
+            .map_err(WebGlError::IncompatiblePrecompiledShaders)?;
+
+        Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs)
+    }
+
+    fn from_programs(
         gl: WebGl2RenderingContext,
-        image_cache: &ImageCache,
-        layer_config: LayersConfig,
-        resource_texture_dimension_2d: u32,
         use_depth_buffer: bool,
+        compilation_start_ms: f64,
+        [strip_program, filter_program, blend_program, copy_program]: [PendingShaderProgram; 4],
     ) -> Result<Self, WebGlError> {
         let parallel_shader_compile = gl
             .get_extension("KHR_parallel_shader_compile")
             .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
             .is_some();
 
-        let compilation_start_ms = performance_now();
-        let strip_program =
-            PendingShaderProgram::new(&gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE)?;
-        let filter_program = PendingShaderProgram::new(
-            &gl,
-            filter_shader::VERTEX_SOURCE,
-            filter_shader::FRAGMENT_SOURCE,
-        )?;
-        let blend_program =
-            PendingShaderProgram::new(&gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE)?;
-        let copy_program =
-            PendingShaderProgram::new(&gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE)?;
-
-        let resources = create_webgl_resources(
-            &gl,
-            image_cache,
-            layer_config,
-            resource_texture_dimension_2d,
-            use_depth_buffer,
-        )?;
-
-        initialize_strip_vao(&gl, &resources);
-        initialize_filter_vao(&gl, &resources);
-        initialize_blend_vao(&gl, &resources);
-        initialize_copy_vao(&gl, &resources);
-
-        let encoded_paints_data = vec![0; (resources.resource_texture_dimension_2d << 4) as usize];
-
         Ok(Self {
+            gl,
+            use_depth_buffer,
             parallel_shader_compile,
             compilation_start_ms,
-            poll_count: 0,
+            poll_count: Cell::new(0),
+            ready: Cell::new(false),
             strip_program,
             filter_program,
             blend_program,
             copy_program,
-            resources,
-            encoded_paints_data,
         })
     }
 
-    fn is_complete(&self, gl: &WebGl2RenderingContext) -> bool {
-        self.strip_program
-            .is_complete(gl, self.parallel_shader_compile)
-            && self
-                .filter_program
-                .is_complete(gl, self.parallel_shader_compile)
-            && self
-                .blend_program
-                .is_complete(gl, self.parallel_shader_compile)
-            && self
-                .copy_program
-                .is_complete(gl, self.parallel_shader_compile)
+    /// See [`WebGlRendererInit::is_ready`].
+    fn is_ready(&self) -> bool {
+        if !self.ready.get() {
+            self.poll_count.set(self.poll_count.get() + 1);
+            let ready = [
+                &self.strip_program,
+                &self.filter_program,
+                &self.blend_program,
+                &self.copy_program,
+            ]
+            .into_iter()
+            .all(|program| program.is_complete(&self.gl, self.parallel_shader_compile));
+            self.ready.set(ready);
+        }
+        self.ready.get()
     }
+}
 
-    fn finish(self, gl: &WebGl2RenderingContext) -> Result<WebGlPrograms, WebGlError> {
-        let strip_program = self.strip_program.finish(gl)?;
-        let filter_program = self.filter_program.finish(gl)?;
-        let blend_program = self.blend_program.finish(gl)?;
-        let copy_program = self.copy_program.finish(gl)?;
-        let shader_compilation_stats = ShaderCompilationStats {
-            shader_count: Self::PROGRAM_COUNT * PendingShaderProgram::SHADER_COUNT,
-            poll_count: self.poll_count,
-            elapsed: Duration::from_secs_f64(
-                (performance_now() - self.compilation_start_ms) / 1_000.0,
-            ),
+/// Starts compiling all programs, returning when compilation started and the programs in
+/// [`WebGlShaders`]' field order.
+fn compile_programs(
+    gl: &WebGl2RenderingContext,
+) -> Result<(f64, [PendingShaderProgram; 4]), WebGlError> {
+    // Must be enabled before compiling: besides the completion status polled by
+    // `WebGlShaders::is_ready`, enabling it is what makes Chromium compile on background threads.
+    gl.get_extension("KHR_parallel_shader_compile")
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?;
+
+    let compilation_start_ms = performance_now();
+    let programs = [
+        PendingShaderProgram::new(gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE)?,
+        PendingShaderProgram::new(
+            gl,
+            filter_shader::VERTEX_SOURCE,
+            filter_shader::FRAGMENT_SOURCE,
+        )?,
+        PendingShaderProgram::new(gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE)?,
+        PendingShaderProgram::new(gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE)?,
+    ];
+    // Browsers may buffer WebGL commands until the next flush, which would delay compilation
+    // until the caller yields if it keeps the main thread busy instead.
+    gl.flush();
+
+    Ok((compilation_start_ms, programs))
+}
+
+/// Takes ownership of the programs in a `compileVelloShaders` result whose context is `gl`,
+/// returning when compilation started and the programs in [`WebGlShaders`]' field order.
+///
+/// This avoids WebGL queries, which may block until compilation finishes.
+fn adopt_precompiled_programs(
+    gl: &WebGl2RenderingContext,
+    precompiled: &JsValue,
+) -> Result<(f64, [PendingShaderProgram; 4]), IncompatiblePrecompiledShadersReason> {
+    use IncompatiblePrecompiledShadersReason::{DifferentModule, NotCompileVelloShadersResult};
+
+    let module_hash = precompiled_field(precompiled, "moduleHash")?
+        .as_string()
+        .ok_or(NotCompileVelloShadersResult)?;
+    if module_hash != vello_gpu_shaders::webgl_bootstrap::MODULE_HASH {
+        return Err(DifferentModule);
+    }
+    let compilation_start_ms = precompiled_field(precompiled, "startTime")?
+        .as_f64()
+        .ok_or(NotCompileVelloShadersResult)?;
+    let programs = precompiled_field(precompiled, "programs")?;
+
+    let adopt = |name: &str| {
+        let program = precompiled_field(&programs, name)?;
+        let shader = |key| {
+            precompiled_field(&program, key)?
+                .dyn_into::<WebGlShader>()
+                .map_err(|_| NotCompileVelloShadersResult)
         };
+        let vertex_shader = shader("vertexShader")?;
+        let fragment_shader = shader("fragmentShader")?;
+        let program = precompiled_field(&program, "program")?
+            .dyn_into::<WebGlProgram>()
+            .map_err(|_| NotCompileVelloShadersResult)?;
 
-        let filter_uniforms = get_filter_pass_uniforms(gl, &filter_program)?;
-        let blend_uniforms = get_blend_uniforms(gl, &blend_program)?;
-        let copy_uniforms = get_copy_uniforms(gl, &copy_program)?;
-        let strip_uniforms = get_strip_uniforms(gl, &strip_program)?;
-
-        gl.enable(WebGl2RenderingContext::BLEND);
-        gl.blend_func(
-            WebGl2RenderingContext::ONE,
-            WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA,
-        );
-
-        Ok(WebGlPrograms {
-            strip_program,
-            strip_uniforms,
-            filter_program,
-            filter_uniforms,
-            blend_program,
-            blend_uniforms,
-            copy_program,
-            copy_uniforms,
-            shader_compilation_stats,
-            resources: self.resources,
-            render_size: RenderSize {
-                width: 0,
-                height: 0,
-            },
-            negate_ndc: false,
-            encoded_paints_data: self.encoded_paints_data,
-            filter_data: Vec::new(),
+        Ok(PendingShaderProgram {
+            vertex_shader: VertexShader::from_raw(gl, WebGlVertexShader(vertex_shader)),
+            fragment_shader: FragmentShader::from_raw(gl, WebGlFragmentShader(fragment_shader)),
+            program: Program::from_raw(gl, program),
         })
-    }
+    };
+
+    Ok((
+        compilation_start_ms,
+        [
+            adopt("render")?,
+            adopt("filter")?,
+            adopt("blend")?,
+            adopt("copy")?,
+        ],
+    ))
+}
+
+/// Returns a field of a `compileVelloShaders` result, or of an object nested in it.
+fn precompiled_field(
+    object: &JsValue,
+    key: &str,
+) -> Result<JsValue, IncompatiblePrecompiledShadersReason> {
+    js_sys::Reflect::get(object, &key.into())
+        .ok()
+        .filter(|value| !value.is_undefined() && !value.is_null())
+        .ok_or(IncompatiblePrecompiledShadersReason::NotCompileVelloShadersResult)
 }
 
 impl WebGlPrograms {
@@ -1635,6 +1704,7 @@ impl WebGlPrograms {
         encoded_paints: &[GpuEncodedPaint],
         alphas: &mut Vec<u8>,
         render_size: &RenderSize,
+        scene_offset: (i32, i32),
         paint_idxs: &[u32],
         filter_context: &FilterContext,
         root_target: RootTarget,
@@ -1645,7 +1715,13 @@ impl WebGlPrograms {
         self.maybe_resize_encoded_paints_tex(gl, resource_texture_dimension_2d, paint_idxs)?;
         self.maybe_resize_filter_data_tex(gl, filter_context)?;
         let negate_ndc = DrawPassTarget::Root(root_target).negate_ndc();
-        self.maybe_update_config_buffer(gl, resource_texture_dimension_2d, render_size, negate_ndc);
+        self.maybe_update_config_buffer(
+            gl,
+            resource_texture_dimension_2d,
+            render_size,
+            scene_offset,
+            negate_ndc,
+        );
 
         self.upload_alpha_texture(gl, alphas)?;
         self.upload_encoded_paints_texture(gl, encoded_paints, paint_idxs)?;
@@ -1664,10 +1740,11 @@ impl WebGlPrograms {
         &mut self,
         gl: &WebGl2RenderingContext,
         schedule: &Schedule,
-        texture_size: SizeU16,
     ) -> Result<(), WebGlError> {
         let current_size = self.resources.texture_size;
-        let allocations = schedule.intermediate_texture_requirements().allocations;
+        let requirements = schedule.intermediate_texture_requirements();
+        let texture_size = requirements.size;
+        let allocations = requirements.allocations;
         let layer_pages = allocations.layer_pages;
         let scratch_required = allocations.scratch;
         let size_changed = current_size != texture_size;
@@ -1730,9 +1807,11 @@ impl WebGlPrograms {
     ) -> Result<(), WebGlError> {
         let (width, height) = self.resources.atlas_size;
         while self.resources.atlas_textures.len() < required_atlas_count as usize {
+            let texture = create_atlas_texture(gl, width, height)?;
             self.resources
-                .atlas_textures
-                .push(create_atlas_texture(gl, width, height)?);
+                .atlas_targets
+                .push(WebGlTextureTarget::for_atlas(gl, &texture, width, height)?);
+            self.resources.atlas_textures.push(texture);
         }
 
         Ok(())
@@ -1936,26 +2015,30 @@ impl WebGlPrograms {
         Ok(())
     }
 
-    /// Update config buffer if dimensions changed.
+    /// Update config buffer if dimensions, the scene offset or NDC negation changed.
     fn maybe_update_config_buffer(
         &mut self,
         gl: &WebGl2RenderingContext,
         resource_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
+        scene_offset: (i32, i32),
         negate_ndc: bool,
     ) {
         // TODO: Collect all attributes that influence the config buffer into a
         // single struct and compare that, such that we cannot forget to update the
         // condition in case we add new fields in the future.
-        if self.render_size != *new_render_size || self.negate_ndc != negate_ndc {
+        if self.render_size != *new_render_size
+            || self.scene_offset != scene_offset
+            || self.negate_ndc != negate_ndc
+        {
             let config = Config {
                 width: u32::from(new_render_size.width),
                 height: u32::from(new_render_size.height),
                 strip_height: u32::from(Tile::HEIGHT),
                 alphas_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
                 encoded_paints_tex_width_bits: resource_texture_dimension_2d.trailing_zeros(),
-                strip_offset_x: 0,
-                strip_offset_y: 0,
+                strip_offset_x: scene_offset.0,
+                strip_offset_y: scene_offset.1,
                 negate_ndc: u32::from(negate_ndc),
             };
 
@@ -1969,7 +2052,8 @@ impl WebGlPrograms {
                 WebGl2RenderingContext::STATIC_DRAW,
             );
 
-            self.render_size = new_render_size.clone();
+            self.render_size = *new_render_size;
+            self.scene_offset = scene_offset;
             self.negate_ndc = negate_ndc;
         }
     }
@@ -2051,8 +2135,8 @@ impl WebGlPrograms {
         let used_height = (gradient_cache.luts_size() as u32).div_ceil(gradient_texture_width * 4);
         let used_size = (gradient_texture_width * used_height * 4) as usize;
 
-        // Take ownership of the luts to avoid copying, then pad to the end of the last used row.
-        let mut luts = gradient_cache.take_luts();
+        // Borrow the luts and pad to the end of the last used row.
+        let luts = gradient_cache.luts_mut();
         let old_luts_len = luts.len();
         luts.resize(used_size, 0);
 
@@ -2072,18 +2156,14 @@ impl WebGlPrograms {
                 used_height as i32,
                 WebGl2RenderingContext::RGBA,
                 WebGl2RenderingContext::UNSIGNED_BYTE,
-                Some(&luts),
+                Some(luts.as_slice()),
             )
             .map_js_error(WebGlOperation::DataTransfer(
                 WebGlDataTransferOperation::TextureUpload,
             ));
 
-        // Restore the luts back to the cache.
         luts.truncate(old_luts_len);
-        gradient_cache.restore_luts(luts);
-        result?;
-
-        Ok(())
+        result
     }
 
     /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
@@ -2474,6 +2554,39 @@ fn upload_layer_config_buffer(
 }
 
 /// Create all WebGL resources needed for rendering.
+fn create_external_sampler(
+    gl: &WebGl2RenderingContext,
+    key: ExternalSampler,
+) -> Result<Sampler, WebGlError> {
+    let sampler = Sampler::new(gl)?;
+
+    let filter = match key.filter {
+        SamplerFilter::Nearest => WebGl2RenderingContext::NEAREST,
+        SamplerFilter::Linear => WebGl2RenderingContext::LINEAR,
+    } as i32;
+
+    let address = |mode| match mode {
+        SamplerAddress::Pad => WebGl2RenderingContext::CLAMP_TO_EDGE,
+        SamplerAddress::Repeat => WebGl2RenderingContext::REPEAT,
+        SamplerAddress::Reflect => WebGl2RenderingContext::MIRRORED_REPEAT,
+    } as i32;
+
+    gl.sampler_parameteri(&sampler, WebGl2RenderingContext::TEXTURE_MIN_FILTER, filter);
+    gl.sampler_parameteri(&sampler, WebGl2RenderingContext::TEXTURE_MAG_FILTER, filter);
+    gl.sampler_parameteri(
+        &sampler,
+        WebGl2RenderingContext::TEXTURE_WRAP_S,
+        address(key.address_x),
+    );
+    gl.sampler_parameteri(
+        &sampler,
+        WebGl2RenderingContext::TEXTURE_WRAP_T,
+        address(key.address_y),
+    );
+
+    Ok(sampler)
+}
+
 fn create_webgl_resources(
     gl: &WebGl2RenderingContext,
     image_cache: &ImageCache,
@@ -2536,6 +2649,10 @@ fn create_webgl_resources(
     let atlas_textures = (0..initial_atlas_count)
         .map(|_| create_atlas_texture(gl, atlas_width, atlas_height))
         .collect::<Result<Vec<_>, _>>()?;
+    let atlas_targets = atlas_textures
+        .iter()
+        .map(|texture| WebGlTextureTarget::for_atlas(gl, texture, atlas_width, atlas_height))
+        .collect::<Result<Vec<_>, _>>()?;
 
     // Create and configure encoded paints texture.
     let encoded_paints_texture = create_placeholder_rgba32ui_texture(gl)?;
@@ -2543,6 +2660,7 @@ fn create_webgl_resources(
     // Create and configure gradient texture.
     let gradient_texture = create_placeholder_rgba8_texture(gl)?;
     let placeholder_external_texture = create_placeholder_rgba8_texture(gl)?;
+    let external_samplers = HashMap::new();
 
     let layer_textures: [Vec<WebGlIntermediateTexture>; 2] = core::array::from_fn(|_| Vec::new());
     let scratch_texture = None;
@@ -2555,14 +2673,17 @@ fn create_webgl_resources(
         alphas_texture,
         alpha_texture_height: 0,
         atlas_textures,
+        atlas_targets,
         atlas_size,
         encoded_paints_texture,
         encoded_paints_texture_height: 0,
         gradient_texture,
         placeholder_external_texture,
+        external_samplers,
         gradient_texture_height: 0,
         view_config_buffer,
-        view_framebuffer: ViewFramebuffer::default(use_depth_buffer),
+        drawing_buffer_uses_depth_buffer: use_depth_buffer,
+        root_target: None,
         depth_cleared_this_frame: false,
         default_depth_attachment_array: js_sys::Array::of1(&WebGl2RenderingContext::DEPTH.into()),
         offscreen_depth_attachment_array: js_sys::Array::of1(
@@ -2570,7 +2691,6 @@ fn create_webgl_resources(
         ),
         resource_texture_dimension_2d,
         texture_size,
-        atlas_render_framebuffer: None,
         filter_data_texture,
         filter_data_texture_height: 0,
         filter_instance_buffer,
@@ -2618,6 +2738,41 @@ pub(crate) fn create_atlas_texture(
         WebGl2RenderingContext::NEAREST,
         WebGl2RenderingContext::NEAREST,
     )
+}
+
+fn validate_bound_texture_target(
+    gl: &WebGl2RenderingContext,
+    use_depth_buffer: bool,
+) -> Result<(), WebGlError> {
+    let status = gl.check_framebuffer_status(WebGl2RenderingContext::FRAMEBUFFER);
+    if status != WebGl2RenderingContext::FRAMEBUFFER_COMPLETE {
+        return Err(WebGlError::InvalidTextureTarget(
+            InvalidTextureTargetReason::IncompleteFramebuffer { status },
+        ));
+    }
+
+    if use_depth_buffer {
+        let actual_bits = gl
+            .get_framebuffer_attachment_parameter(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                WebGl2RenderingContext::DEPTH_ATTACHMENT,
+                WebGl2RenderingContext::FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE,
+            )
+            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
+            .as_f64()
+            .unwrap() as u32;
+
+        if actual_bits < REQUIRED_DEPTH_BITS {
+            return Err(WebGlError::InvalidTextureTarget(
+                InvalidTextureTargetReason::InsufficientDepthBuffer {
+                    actual_bits,
+                    required_bits: REQUIRED_DEPTH_BITS,
+                },
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Create a framebuffer for a texture.
@@ -2713,7 +2868,7 @@ impl WebGlRendererContext<'_> {
     ///
     /// Strip attribute offsets are restored to the start of the buffer before returning.
     fn draw_strips(
-        &self,
+        &mut self,
         external_texture_runs: &[ExternalTextureRun],
         first_instance: i32,
         count: i32,
@@ -2764,25 +2919,43 @@ impl WebGlRendererContext<'_> {
     }
 
     /// Bind the external texture slots.
-    fn bind_external_textures(&self, bindings: &ExternalTextureBindings) -> Result<(), WebGlError> {
+    fn bind_external_textures(
+        &mut self,
+        bindings: &ExternalTextureBindings,
+    ) -> Result<(), WebGlError> {
         for (slot, texture_source) in bindings.as_array().into_iter().enumerate() {
-            self.gl.active_texture(
-                WebGl2RenderingContext::TEXTURE0
-                    + EXTERNAL_TEXTURE_UNIT_START
-                    + u32::try_from(slot).unwrap(),
-            );
-            let texture: &WebGlTexture = match texture_source {
-                Some(TextureSourceId::Atlas(atlas_id)) => {
-                    &self.programs.resources.atlas_textures[atlas_id.as_u32() as usize]
-                }
-                Some(TextureSourceId::External(texture_id)) => self
-                    .texture_bindings
-                    .get(texture_id)
-                    .ok_or(RenderError::MissingTextureBinding(texture_id))?,
-                None => &self.programs.resources.placeholder_external_texture,
+            let texture_unit = EXTERNAL_TEXTURE_UNIT_START + u32::try_from(slot).unwrap();
+
+            self.gl
+                .active_texture(WebGl2RenderingContext::TEXTURE0 + texture_unit);
+            let (texture, sampler_key): (&WebGlTexture, ExternalSampler) = match texture_source {
+                Some(TextureSourceId::Atlas(atlas_id)) => (
+                    &self.programs.resources.atlas_textures[atlas_id.as_u32() as usize],
+                    ExternalSampler::DEFAULT,
+                ),
+                Some(TextureSourceId::External(texture_id, sampler)) => (
+                    &self
+                        .texture_bindings
+                        .get(texture_id)
+                        .ok_or(RenderError::MissingTextureBinding(texture_id))?
+                        .texture,
+                    sampler,
+                ),
+                None => (
+                    &self.programs.resources.placeholder_external_texture,
+                    ExternalSampler::DEFAULT,
+                ),
             };
             self.gl
                 .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(texture));
+            let sampler = match self.programs.resources.external_samplers.entry(sampler_key) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => {
+                    entry.insert(create_external_sampler(self.gl, sampler_key)?)
+                }
+            };
+
+            self.gl.bind_sampler(texture_unit, Some(sampler));
         }
 
         Ok(())
@@ -2820,7 +2993,7 @@ impl WebGlRendererContext<'_> {
             DrawPassTarget::Root(_) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    self.programs.resources.view_framebuffer.binding(),
+                    self.programs.resources.root_framebuffer(),
                 );
                 let width = self.programs.render_size.width;
                 let height = self.programs.render_size.height;
@@ -3234,7 +3407,7 @@ impl WebGlRendererContext<'_> {
             DrawPassTarget::Root(_) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    self.programs.resources.view_framebuffer.binding(),
+                    self.programs.resources.root_framebuffer(),
                 );
                 (
                     self.programs.render_size.width,
@@ -3486,7 +3659,7 @@ impl WebGlAtlasWriter for WebGlTexture {
 }
 
 /// Wrapper for `WebGlTexture` with known dimensions.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WebGlTextureWithDimensions {
     /// The WebGL texture.
     pub texture: WebGlTexture,

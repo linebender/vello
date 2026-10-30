@@ -3,6 +3,7 @@
 
 use crate::peniko::{BlendMode, Mix};
 use crate::util::Premultiply;
+use fearless_simd_macros::simd;
 use vello_common::fearless_simd::*;
 
 #[derive(Copy, Clone)]
@@ -23,15 +24,9 @@ impl<S: Simd> Channels<S> {
     }
 }
 
+#[inline(never)]
+#[simd]
 pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) -> f32x16<S> {
-    src_c.simd.vectorize(
-        #[inline(always)]
-        || mix_inner(src_c, bg, blend_mode),
-    )
-}
-
-#[inline(always)]
-fn mix_inner<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) -> f32x16<S> {
     if matches!(blend_mode.mix, Mix::Normal) {
         return src_c;
     }
@@ -271,23 +266,20 @@ fn sat<S: Simd>(r: f32x4<S>, g: f32x4<S>, b: f32x4<S>) -> f32x4<S> {
 #[inline(always)]
 fn clip_color<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>) {
     let simd = r.simd;
+    let zero = f32x4::splat(simd, 0.0);
 
     let l = lum(*r, *g, *b);
     let n = r.min(g.min(*b));
     let x = r.max(g.max(*b));
+    let below = l - n;
+    let above = x - l;
+    let clip_low = simd.simd_lt_f32x4(n, zero) & simd.simd_gt_f32x4(below, zero);
+    let clip_high =
+        simd.simd_gt_f32x4(x, f32x4::splat(simd, 1.0)) & simd.simd_gt_f32x4(above, zero);
 
     for c in [r, g, b] {
-        *c = simd.select_f32x4(
-            simd.simd_lt_f32x4(n, f32x4::splat(simd, 0.0)),
-            l + (((*c - l) * l) / (l - n)),
-            *c,
-        );
-
-        *c = simd.select_f32x4(
-            simd.simd_gt_f32x4(x, f32x4::splat(simd, 1.0)),
-            l + (((*c - l) * (1.0 - l)) / (x - l)),
-            *c,
-        );
+        *c = simd.select_f32x4(clip_low, l + (((*c - l) * l) / below), *c);
+        *c = simd.select_f32x4(clip_high, l + (((*c - l) * (1.0 - l)) / above), *c);
     }
 }
 

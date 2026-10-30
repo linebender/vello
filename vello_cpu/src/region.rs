@@ -4,8 +4,9 @@
 //! Splitting a single mutable buffer into regions that can be accessed concurrently.
 
 use crate::fine::COLOR_COMPONENTS;
+use crate::span::Span;
 use alloc::vec::Vec;
-use vello_common::geometry::RectU16;
+use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::pixmap::PixmapMut;
 use vello_common::tile::Tile;
 
@@ -13,6 +14,8 @@ use vello_common::tile::Tile;
 #[derive(Default, Debug)]
 pub struct Region<'a> {
     pub(crate) row_idx: usize,
+    scene_x0: u16,
+    tile_y_start: u16,
     width: u16,
     pub(crate) height: u16,
     areas: [&'a mut [u8]; Tile::HEIGHT as usize],
@@ -33,14 +36,16 @@ impl<'a> Region<'a> {
         let height = rect.height().min(Tile::HEIGHT);
         let row_stride = usize::from(pixmap.width()) * COLOR_COMPONENTS;
         let start_offset = usize::from(rect.y0) * row_stride;
-        let x_offset = usize::from(rect.x0) * COLOR_COMPONENTS;
+        let x_offset_bytes = usize::from(rect.x0) * COLOR_COMPONENTS;
         let buffer = pixmap.data_mut();
         Self::from_rows(
             row_idx,
+            0,
+            0,
             width,
             height,
             row_stride,
-            x_offset,
+            x_offset_bytes,
             &mut buffer[start_offset..],
         )
     }
@@ -53,25 +58,36 @@ impl<'a> Region<'a> {
         self.width
     }
 
+    pub(crate) fn span(&self) -> Span {
+        Span::new(self.scene_x0, self.width)
+    }
+
+    pub(crate) fn tile_rows(&self) -> core::ops::Range<u16> {
+        self.tile_y_start..self.tile_y_start + self.height
+    }
+
     /// Return a horizontal sub-span of the region.
     pub(crate) fn sub_span(&mut self, x: u16, width: u16) -> Region<'_> {
-        let x_offset = usize::from(x) * COLOR_COMPONENTS;
+        let x_offset_bytes = usize::from(x) * COLOR_COMPONENTS;
         let row_width_bytes = usize::from(width) * COLOR_COMPONENTS;
         let mut areas: [&mut [u8]; Tile::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
 
         for (source, area) in self
             .areas
             .iter_mut()
-            .take(usize::from(self.height))
             .zip(areas.iter_mut())
+            .skip(usize::from(self.tile_y_start))
+            .take(usize::from(self.height))
         {
-            let (_, source) = source.split_at_mut(x_offset);
+            let (_, source) = source.split_at_mut(x_offset_bytes);
             let (source, _) = source.split_at_mut(row_width_bytes);
             *area = source;
         }
 
         Region {
             row_idx: self.row_idx,
+            scene_x0: self.scene_x0 + x,
+            tile_y_start: self.tile_y_start,
             width,
             height: self.height,
             areas,
@@ -84,18 +100,24 @@ impl<'a> Region<'a> {
 
     fn from_rows(
         row_idx: usize,
+        scene_x0: u16,
+        tile_y_start: u16,
         width: u16,
         height: u16,
         row_stride: usize,
-        x_offset: usize,
+        x_offset_bytes: usize,
         mut rows: &'a mut [u8],
     ) -> Self {
         let row_width_bytes = usize::from(width) * COLOR_COMPONENTS;
         let mut areas: [&mut [u8]; Tile::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
 
-        for area in areas.iter_mut().take(usize::from(height)) {
+        for area in areas
+            .iter_mut()
+            .skip(usize::from(tile_y_start))
+            .take(usize::from(height))
+        {
             let (row, rest) = rows.split_at_mut(row_stride);
-            let (_, row) = row.split_at_mut(x_offset);
+            let (_, row) = row.split_at_mut(x_offset_bytes);
             let (row, _) = row.split_at_mut(row_width_bytes);
             *area = row;
             rows = rest;
@@ -103,6 +125,8 @@ impl<'a> Region<'a> {
 
         Self {
             row_idx,
+            scene_x0,
+            tile_y_start,
             width,
             height,
             areas,
@@ -119,36 +143,50 @@ impl<'a> Regions<'a> {
     pub(crate) fn new(
         target: &'a mut PixmapMut<'_>,
         scene_size: (u16, u16),
-        offset: (u16, u16),
+        offset: (i32, i32),
         row_count: usize,
     ) -> Self {
         let (dst_x, dst_y) = offset;
-
         let (scene_width, scene_height) = scene_size;
-        let width = scene_width.min(target.width().saturating_sub(dst_x));
-        let height = scene_height.min(target.height().saturating_sub(dst_y));
-
-        if width == 0 || height == 0 {
+        let max_height = u16::try_from(row_count * usize::from(Tile::HEIGHT)).unwrap_or(u16::MAX);
+        let Some(visible) = RectU16::visible_scene_bounds(
+            SizeU16::from_wh(scene_width, scene_height.min(max_height)),
+            SizeU16::from_wh(target.width(), target.height()),
+            offset,
+        ) else {
             return Self {
                 regions: Vec::new(),
             };
-        }
+        };
 
-        let row_count = row_count.min(usize::from(height).div_ceil(Tile::HEIGHT as usize));
+        let first_row_idx = visible.y0 / Tile::HEIGHT;
+        let last_row_idx = (visible.y1 - 1) / Tile::HEIGHT;
+
         let stride = usize::from(target.width()) * COLOR_COMPONENTS;
-        let x_offset = usize::from(dst_x) * COLOR_COMPONENTS;
-        let render_bytes = usize::from(height) * stride;
+        let x_offset_bytes =
+            usize::try_from(i32::from(visible.x0) + dst_x).unwrap() * COLOR_COMPONENTS;
+        let render_bytes = usize::from(visible.height()) * stride;
+        let target_y0 = usize::try_from(i32::from(visible.y0) + dst_y).unwrap();
         let target = target.data_mut();
-        let mut remaining = &mut target[usize::from(dst_y) * stride..][..render_bytes];
-        let mut regions = Vec::with_capacity(row_count);
+        let mut remaining = &mut target[target_y0 * stride..][..render_bytes];
+        let mut regions = Vec::with_capacity(usize::from(last_row_idx - first_row_idx + 1));
 
-        for row_idx in 0..row_count {
-            let row_y = row_idx as u16 * Tile::HEIGHT;
-            let row_height = (height - row_y).min(Tile::HEIGHT);
-            let band_len = usize::from(row_height) * stride;
-            let (buffer, rest) = remaining.split_at_mut(band_len);
+        for row_idx in first_row_idx..=last_row_idx {
+            let band_y0 = (row_idx * Tile::HEIGHT).max(visible.y0);
+            let band_y1 = (row_idx * Tile::HEIGHT)
+                .saturating_add(Tile::HEIGHT)
+                .min(visible.y1);
+            let band_height = band_y1 - band_y0;
+            let (buffer, rest) = remaining.split_at_mut(usize::from(band_height) * stride);
             regions.push(Region::from_rows(
-                row_idx, width, row_height, stride, x_offset, buffer,
+                usize::from(row_idx),
+                visible.x0,
+                band_y0 - row_idx * Tile::HEIGHT,
+                visible.width(),
+                band_height,
+                stride,
+                x_offset_bytes,
+                buffer,
             ));
             remaining = rest;
         }
@@ -175,7 +213,14 @@ mod tests {
 
     #[test]
     fn regions_with_off_target_offsets_do_not_panic() {
-        for offset in [(20, 0), (0, 20)] {
+        for offset in [
+            (20, 0),
+            (0, 20),
+            (-20, 0),
+            (0, -20),
+            (i32::MIN, i32::MIN),
+            (i32::MAX, i32::MAX),
+        ] {
             let mut pixmap = Pixmap::new(10, 10);
             let mut pixmap = pixmap.as_mut();
             let _regions = Regions::new(&mut pixmap, (4, 4), offset, 1);

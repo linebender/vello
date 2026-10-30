@@ -1,7 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -10,7 +9,7 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
+use vello_common::paint::{ImageId, ImageSource, PaintType, TextureRegion, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{
@@ -90,6 +89,7 @@ pub trait Renderer: Sized {
     fn reset_filter_effect(&mut self);
     fn reset(&mut self);
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>);
+    fn set_offset(&mut self, offset: (i32, i32));
     fn render(&mut self);
     fn snapshot(&mut self) -> Pixmap;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
@@ -100,9 +100,12 @@ pub trait Renderer: Sized {
 pub struct CpuRenderer {
     ctx: RenderContext,
     resources: Resources,
+    external_textures: HashMap<TextureId, Arc<Pixmap>>,
+    next_external_texture_id: u64,
     render_mode: RenderMode,
     target: Pixmap,
     target_init: GpuTargetInit<'static>,
+    offset: (i32, i32),
 }
 
 impl Renderer for CpuRenderer {
@@ -119,9 +122,12 @@ impl Renderer for CpuRenderer {
         Self {
             ctx: RenderContext::new_with(width, height, settings),
             resources: Resources::new(),
+            external_textures: HashMap::new(),
+            next_external_texture_id: 1,
             render_mode,
             target: Pixmap::new(width, height),
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
+            offset: (0, 0),
         }
     }
 
@@ -214,6 +220,39 @@ impl Renderer for CpuRenderer {
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
+        let mut paint = paint.into();
+        if let PaintType::Image(image) = &mut paint
+            && let ImageSource::ExternalTexture {
+                id, source_region, ..
+            } = &image.image
+        {
+            let pixmap = self
+                .external_textures
+                .get(id)
+                .unwrap_or_else(|| panic!("External texture {id:?} not found in test registry"));
+            let source_region = match *source_region {
+                TextureRegion::Full => RectU16::new(0, 0, pixmap.width(), pixmap.height()),
+                TextureRegion::Rect(rect) => rect,
+            };
+
+            if source_region == RectU16::new(0, 0, pixmap.width(), pixmap.height()) {
+                image.image = ImageSource::Pixmap(Arc::clone(pixmap));
+            } else {
+                let mut cropped = Pixmap::new(source_region.width(), source_region.height());
+                let width = usize::from(source_region.width());
+                for (row, y) in cropped
+                    .data_mut()
+                    .chunks_exact_mut(width)
+                    .zip(source_region.y0..source_region.y1)
+                {
+                    let start = usize::from(y) * usize::from(pixmap.width())
+                        + usize::from(source_region.x0);
+                    row.copy_from_slice(&pixmap.data()[start..start + width]);
+                }
+                cropped.set_may_have_transparency(pixmap.may_have_transparency());
+                image.image = ImageSource::Pixmap(Arc::new(cropped));
+            }
+        }
         self.ctx.set_paint(paint);
     }
 
@@ -257,6 +296,10 @@ impl Renderer for CpuRenderer {
         self.target_init = target_init;
     }
 
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
+    }
+
     fn render(&mut self) {
         let target_init = match self.target_init {
             GpuTargetInit::SrcOver => CpuTargetInit::SrcOver,
@@ -274,6 +317,7 @@ impl Renderer for CpuRenderer {
             RasterizerSettings {
                 render_mode: self.render_mode,
                 target_init,
+                offset: self.offset,
                 ..Default::default()
             },
         );
@@ -283,8 +327,11 @@ impl Renderer for CpuRenderer {
         self.target.clone()
     }
 
-    fn register_external_texture(&mut self, _: Arc<Pixmap>) -> TextureId {
-        unimplemented!("external textures are only supported by GPU renderer tests")
+    fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId {
+        let texture_id = TextureId(self.next_external_texture_id);
+        self.next_external_texture_id += 1;
+        self.external_textures.insert(texture_id, pixmap);
+        texture_id
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
@@ -312,7 +359,8 @@ fn create_wgpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
     .expect("Failed to find an appropriate adapter");
     pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("Device"),
-        required_features: wgpu::Features::empty(),
+        // Exercises Vello's `texture_external` binding path on backends that support it.
+        required_features: adapter.features() & wgpu::Features::EXTERNAL_TEXTURE,
         ..Default::default()
     }))
     .expect("Failed to create device")
@@ -333,8 +381,10 @@ pub struct GpuRenderer {
     depth_texture_view: Option<wgpu::TextureView>,
     renderer: vello_gpu::Renderer,
     external_textures: HashMap<TextureId, wgpu::TextureView>,
+    wgpu_external_textures: HashMap<TextureId, (wgpu::ExternalTexture, u32, u32)>,
     next_external_texture_id: u64,
     target_init: GpuTargetInit<'static>,
+    offset: (i32, i32),
     gpu_test_guard: Option<std::sync::MutexGuard<'static, ()>>,
 }
 
@@ -346,7 +396,7 @@ impl GpuRenderer {
         settings: GpuRenderSettings,
         use_depth_buffer: bool,
     ) -> Self {
-        let scene = Scene::new_with(width, height, settings.level);
+        let scene = Scene::new_with(width, height, settings.level());
         #[cfg(not(target_arch = "wasm32"))]
         let (device, queue) = &*WGPU_DEVICE_QUEUE;
         #[cfg(not(target_arch = "wasm32"))]
@@ -377,6 +427,7 @@ impl GpuRenderer {
         // Create renderer and render the scene to the texture
         let (renderer, resources) = vello_gpu::Renderer::new_with(
             &device,
+            &queue,
             &vello_gpu::RenderTargetConfig {
                 format: texture.format(),
                 width,
@@ -385,8 +436,8 @@ impl GpuRenderer {
             settings,
         );
         let render_size = vello_gpu::RenderSize { width, height };
-        let depth_texture_view = use_depth_buffer
-            .then(|| vello_gpu::Renderer::create_depth_texture_view(&device, &render_size));
+        let depth_texture_view =
+            use_depth_buffer.then(|| renderer.create_depth_texture_view(&render_size));
 
         Self {
             scene,
@@ -398,10 +449,38 @@ impl GpuRenderer {
             depth_texture_view,
             renderer,
             external_textures: HashMap::new(),
+            wgpu_external_textures: HashMap::new(),
             next_external_texture_id: 1,
             target_init: GpuTargetInit::Clear(ClearSettings::default()),
+            offset: (0, 0),
             gpu_test_guard: None,
         }
+    }
+
+    /// The renderer's device, for creating wgpu resources such as external textures.
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    /// Binds `external_texture` (of size `width` × `height`) to a new texture ID for subsequent
+    /// renders.
+    ///
+    /// The device must have [`wgpu::Features::EXTERNAL_TEXTURE`] enabled.
+    pub fn register_wgpu_external_texture(
+        &mut self,
+        external_texture: wgpu::ExternalTexture,
+        width: u32,
+        height: u32,
+    ) -> TextureId {
+        let texture_id = TextureId(self.next_external_texture_id);
+        self.next_external_texture_id += 1;
+        self.wgpu_external_textures
+            .insert(texture_id, (external_texture, width, height));
+        texture_id
     }
 
     fn lock_gpu_test(&mut self) {
@@ -418,13 +497,9 @@ impl GpuRenderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
-        let image_id = self.renderer.upload_image(
-            &mut self.resources,
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            pixmap,
-        );
+        let image_id = self
+            .renderer
+            .upload_image(&mut self.resources, &mut encoder, pixmap);
         self.queue.submit([encoder.finish()]);
         image_id
     }
@@ -456,12 +531,18 @@ impl Renderer for GpuRenderer {
         if num_threads != 0 {
             panic!("GPU renderer doesn't support multi-threading");
         }
-        let mut settings = GpuRenderSettings::default();
         // Most of the tests are 100x100 by default, and we want to make sure that some visual
         // tests have the chance to cover more complex parts of the Vello GPU scheduler
         // (for example situations where we need to spill to a new page, etc.). Therefore,
         // we make the minimum size smaller than the default.
-        settings.memory_settings.layers_config.min_texture_size = vello_gpu::SizeU16::new(100);
+        let settings =
+            GpuRenderSettings::default().with_memory_settings(vello_gpu::MemorySettings {
+                layers_config: vello_gpu::LayersConfig {
+                    min_texture_size: vello_gpu::SizeU16::new(100),
+                    ..vello_gpu::LayersConfig::default()
+                },
+                ..vello_gpu::MemorySettings::default()
+            });
         Self::new_with_settings(width, height, settings, use_depth_buffer)
     }
 
@@ -596,6 +677,10 @@ impl Renderer for GpuRenderer {
         self.target_init = target_init;
     }
 
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
+    }
+
     fn render(&mut self) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
@@ -604,32 +689,37 @@ impl Renderer for GpuRenderer {
         // stability by serializing the GPU portion of otherwise parallel tests.
         self.lock_gpu_test();
 
-        let width = self.scene.width();
-        let height = self.scene.height();
-
-        let render_size = vello_gpu::RenderSize { width, height };
-
         let mut texture_bindings = vello_gpu::TextureBindings::new();
         for (texture_id, texture) in &self.external_textures {
             texture_bindings.insert(*texture_id, texture.clone());
+        }
+        for (texture_id, (texture, width, height)) in &self.wgpu_external_textures {
+            texture_bindings.insert_wgpu_external_texture(
+                *texture_id,
+                texture.clone(),
+                *width,
+                *height,
+            );
         }
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Vello Render"),
             });
+        let mut options = vello_gpu::RenderOptions::default();
+        options.target_init = self.target_init;
+        options.offset = self.offset;
         self.renderer
             .render(
                 &self.scene,
                 &mut self.resources,
-                &self.device,
-                &self.queue,
                 &mut encoder,
-                &render_size,
-                &self.texture_view,
-                self.depth_texture_view.as_ref(),
+                vello_gpu::RenderTarget {
+                    view: &self.texture_view,
+                    depth_view: self.depth_texture_view.as_ref(),
+                },
                 &texture_bindings,
-                self.target_init,
+                options,
             )
             .unwrap();
 
@@ -780,10 +870,134 @@ pub struct GpuRenderer {
     external_textures: vello_gpu::WebGlTextureBindings,
     next_external_texture_id: u64,
     clear_color: AlphaColor<Srgb>,
+    offset: (i32, i32),
+    use_depth_buffer: bool,
+    texture_target: Option<TestTextureTarget>,
+}
+
+/// A `width` × `height` texture that is rendered into and read back.
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+#[derive(Debug)]
+pub struct TestTextureTarget {
+    target: vello_gpu::WebGlTextureTarget,
+    framebuffer: web_sys::WebGlFramebuffer,
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+impl TestTextureTarget {
+    /// Create a target that renders with the optional `depth` buffer.
+    pub fn new(
+        renderer: &vello_gpu::WebGlRenderer,
+        width: u16,
+        height: u16,
+        depth: Option<&web_sys::WebGlRenderbuffer>,
+    ) -> Self {
+        let gl = renderer.gl_context();
+        let texture = gl.create_texture().unwrap();
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
+        gl.tex_storage_2d(
+            WebGl2RenderingContext::TEXTURE_2D,
+            1,
+            WebGl2RenderingContext::RGBA8,
+            width.into(),
+            height.into(),
+        );
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
+
+        let framebuffer = gl.create_framebuffer().unwrap();
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
+        gl.framebuffer_texture_2d(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            WebGl2RenderingContext::COLOR_ATTACHMENT0,
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&texture),
+            0,
+        );
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+
+        Self {
+            target: renderer
+                .create_texture_target(&texture, depth, width, height)
+                .unwrap(),
+            framebuffer,
+        }
+    }
+
+    /// The render target.
+    pub fn render_target(&self) -> vello_gpu::WebGlRenderTarget<'_> {
+        vello_gpu::WebGlRenderTarget::Texture(&self.target)
+    }
+
+    /// Read back the bottom-up pixels of the rendered area.
+    pub fn read_pixels(&self, gl: &WebGl2RenderingContext) -> Vec<u8> {
+        read_webgl_pixels(
+            gl,
+            Some(&self.framebuffer),
+            self.target.width(),
+            self.target.height(),
+        )
+    }
+}
+
+/// Create a `width` × `height` `DEPTH_COMPONENT24` renderbuffer for a [`TestTextureTarget`].
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+pub fn create_webgl_depth_buffer(
+    gl: &WebGl2RenderingContext,
+    width: u16,
+    height: u16,
+) -> web_sys::WebGlRenderbuffer {
+    let depth = gl.create_renderbuffer().unwrap();
+    gl.bind_renderbuffer(WebGl2RenderingContext::RENDERBUFFER, Some(&depth));
+    gl.renderbuffer_storage(
+        WebGl2RenderingContext::RENDERBUFFER,
+        WebGl2RenderingContext::DEPTH_COMPONENT24,
+        width.into(),
+        height.into(),
+    );
+    gl.bind_renderbuffer(WebGl2RenderingContext::RENDERBUFFER, None);
+    depth
+}
+
+/// Read back the bottom-up pixels of `framebuffer`, or of the drawing buffer if `None`.
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+pub fn read_webgl_pixels(
+    gl: &WebGl2RenderingContext,
+    framebuffer: Option<&web_sys::WebGlFramebuffer>,
+    width: u16,
+    height: u16,
+) -> Vec<u8> {
+    let mut pixels = vec![0_u8; usize::from(width) * usize::from(height) * 4];
+    gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, framebuffer);
+    gl.read_pixels_with_opt_u8_array(
+        0,
+        0,
+        width.into(),
+        height.into(),
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(&mut pixels),
+    )
+    .unwrap();
+    gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+    pixels
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl GpuRenderer {
+    /// Render into a texture instead of the drawing buffer.
+    pub fn use_texture_target(&mut self) {
+        let (width, height) = (self.scene.width(), self.scene.height());
+        let depth = self
+            .use_depth_buffer
+            .then(|| create_webgl_depth_buffer(&self.gl, width, height));
+        self.texture_target = Some(TestTextureTarget::new(
+            &self.renderer,
+            width,
+            height,
+            depth.as_ref(),
+        ));
+    }
+
     fn upload_image(&mut self, pixmap: &Arc<Pixmap>) -> ImageId {
         self.renderer
             .upload_image(&mut self.resources, pixmap)
@@ -821,10 +1035,16 @@ impl Renderer for GpuRenderer {
             panic!("GPU renderer doesn't support multi-threading");
         }
 
-        let mut settings = GpuRenderSettings::default();
         // See the comment above for why we change the `min_texture_size`.
-        settings.memory_settings.layers_config.min_texture_size = vello_gpu::SizeU16::new(100);
-        let scene = Scene::new_with(width, height, settings.level);
+        let settings =
+            GpuRenderSettings::default().with_memory_settings(vello_gpu::MemorySettings {
+                layers_config: vello_gpu::LayersConfig {
+                    min_texture_size: vello_gpu::SizeU16::new(100),
+                    ..vello_gpu::LayersConfig::default()
+                },
+                ..vello_gpu::MemorySettings::default()
+            });
+        let scene = Scene::new_with(width, height, settings.level());
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
         let document = web_sys::window().unwrap().document().unwrap();
@@ -851,6 +1071,9 @@ impl Renderer for GpuRenderer {
             external_textures: vello_gpu::WebGlTextureBindings::new(),
             next_external_texture_id: 1,
             clear_color: AlphaColor::TRANSPARENT,
+            offset: (0, 0),
+            use_depth_buffer,
+            texture_target: None,
         }
     }
 
@@ -989,18 +1212,25 @@ impl Renderer for GpuRenderer {
         };
     }
 
-    fn render(&mut self) {
-        let width = self.scene.width();
-        let height = self.scene.height();
+    fn set_offset(&mut self, offset: (i32, i32)) {
+        self.offset = offset;
+    }
 
-        let render_size = vello_gpu::RenderSize { width, height };
+    fn render(&mut self) {
+        let target = match &self.texture_target {
+            Some(texture_target) => texture_target.render_target(),
+            None => vello_gpu::WebGlRenderTarget::DrawingBuffer,
+        };
+        let mut options = vello_gpu::WebGlRenderOptions::default();
+        options.clear_color = self.clear_color;
+        options.offset = self.offset;
         self.renderer
             .render(
                 &self.scene,
                 &mut self.resources,
-                &render_size,
+                target,
                 &self.external_textures,
-                self.clear_color,
+                options,
             )
             .unwrap();
     }
@@ -1008,22 +1238,13 @@ impl Renderer for GpuRenderer {
     fn snapshot(&mut self) -> Pixmap {
         use vello_common::peniko::ImageAlphaType;
         use vello_common::pixmap::PixelMetadata;
-        use web_sys::WebGl2RenderingContext;
 
         let width = self.scene.width();
         let height = self.scene.height();
-        let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
-        self.gl
-            .read_pixels_with_opt_u8_array(
-                0,
-                0,
-                width.into(),
-                height.into(),
-                WebGl2RenderingContext::RGBA,
-                WebGl2RenderingContext::UNSIGNED_BYTE,
-                Some(&mut pixels),
-            )
-            .unwrap();
+        let mut pixels = match &self.texture_target {
+            Some(texture_target) => texture_target.read_pixels(&self.gl),
+            None => read_webgl_pixels(&self.gl, None, width, height),
+        };
 
         // WebGL framebuffers are y-up, so we need to invert the rows.
         let row_bytes = usize::from(width) * 4;
@@ -1087,7 +1308,8 @@ impl Renderer for GpuRenderer {
         self.gl
             .bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
 
-        self.external_textures.insert(texture_id, texture);
+        self.external_textures
+            .insert(texture_id, texture, pixmap.width(), pixmap.height());
         texture_id
     }
 

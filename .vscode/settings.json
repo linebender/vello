@@ -19,6 +19,10 @@
     "msaa16",
     "msaa"
   ],
+  // `vello_gpu_shaders` formats WESL with wgslfmt; see its README.
+  "[wesl]": {
+    "editor.defaultFormatter": "wgsl-analyzer.wgsl-analyzer",
+  },
   "[json]": {
     // Show a colour preview in the diff reports.
     // The diff reports (and the trace.json dump from wgpu-profiler) are the only instances of

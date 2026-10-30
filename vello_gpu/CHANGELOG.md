@@ -12,6 +12,17 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- Renderer probing in the wgpu backend through `Renderer::probe`, with the `probe` feature. (by [@LaurenzV][])
+- `WebGlRenderer::begin_with_precompiled` adopts the canvas, WebGL context, and shader programs set up by the JavaScript module in `vello_gpu_shaders::webgl_bootstrap::JS_MODULE`, so compilation can start before the WebAssembly module is downloaded and instantiated. Programs that can't be adopted are reported with `WebGlError::IncompatiblePrecompiledShaders`.
+- `WebGlRendererInit::is_ready` for non-blocking readiness checks. WebGL initialization now flushes compile commands immediately, so compilation starts even if the caller keeps the main thread busy.
+
+### Fixed
+
+- The wgpu renderer returns `RenderError::MissingImage` instead of panicking when a scene references an image that isn't in the image cache. (by [@LaurenzV][])
+- A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
+
 ## [0.3.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.
@@ -271,6 +282,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@xStrom]: https://github.com/xStrom
+[@zlstringham]: https://github.com/zlstringham
 
 [#1203]: https://github.com/linebender/vello/pull/1203
 [#1349]: https://github.com/linebender/vello/pull/1349
@@ -408,6 +420,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1962]: https://github.com/linebender/vello/pull/1962
 [#1966]: https://github.com/linebender/vello/pull/1966
 [#1970]: https://github.com/linebender/vello/pull/1970
+[#2000]: https://github.com/linebender/vello/pull/2000
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0

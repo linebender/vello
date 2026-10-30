@@ -10,7 +10,7 @@ use vello_common::peniko::Color;
 use vello_dev_macros::vello_test;
 
 /// Exercise painter ordering when opaque and translucent draws alternate at the root.
-#[vello_test(width = 96, height = 96, gpu_only, gpu_no_depth)]
+#[vello_test(width = 96, height = 96, gpu_only, gpu_no_depth, webgl_texture)]
 fn gpu_depth_modes_preserve_interleaved_painter_order(ctx: &mut impl Renderer) {
     ctx.set_paint(BLUE.with_alpha(0.5));
     ctx.fill_rect(&Rect::new(8.0, 8.0, 88.0, 88.0));
@@ -26,7 +26,14 @@ fn gpu_depth_modes_preserve_interleaved_painter_order(ctx: &mut impl Renderer) {
 }
 
 /// Exercise painter ordering and alpha output without an implicit opaque background.
-#[vello_test(width = 96, height = 96, transparent, gpu_only, gpu_no_depth)]
+#[vello_test(
+    width = 96,
+    height = 96,
+    transparent,
+    gpu_only,
+    gpu_no_depth,
+    webgl_texture
+)]
 fn gpu_depth_modes_preserve_transparent_output(ctx: &mut impl Renderer) {
     ctx.set_paint(BLUE.with_alpha(0.35));
     ctx.fill_rect(&Rect::new(4.0, 4.0, 84.0, 84.0));
