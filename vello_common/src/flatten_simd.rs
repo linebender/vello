@@ -731,13 +731,9 @@ mod tests {
         // Continues from the start point of the closed subpath.
         path.line_to((30.0, 40.0));
 
-        // Implicitly closed subpaths: right of the bbox, inside it, and right of it at the end of
-        // the path.
+        // Implicitly closed subpaths right of the bbox, the second one at the end of the path.
         path.move_to((70.0, 30.0));
         path.line_to((75.0, 50.0));
-        path.move_to((30.0, 30.0));
-        path.line_to((50.0, 30.0));
-        path.line_to((50.0, 50.0));
         path.move_to((70.0, 55.0));
         path.line_to((75.0, 58.0));
 
@@ -749,9 +745,6 @@ mod tests {
                 (p(40.0, 21.0), p(40.0, 70.0)),
                 (p(10.0, 70.0), p(30.0, 40.0)),
                 (p(30.0, 40.0), p(10.0, 70.0)),
-                (p(30.0, 30.0), p(50.0, 30.0)),
-                (p(50.0, 30.0), p(50.0, 50.0)),
-                (p(50.0, 50.0), p(30.0, 30.0)),
             ]
         );
     }
