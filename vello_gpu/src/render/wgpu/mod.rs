@@ -561,12 +561,8 @@ impl Renderer {
         scene_offset: (i32, i32),
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
-        self.core
-            .prepare_paints(&scene.encoded_paints, image_cache, |id, image, region| {
-                texture_bindings.encode_paint(id, image, region, view.texture())
-            })?;
         let current_allocations = self.current_allocations();
-        let schedule = self.core.schedule(
+        let schedule = self.core.prepare(
             scene,
             image_cache,
             root_output_target,
@@ -578,6 +574,7 @@ impl Renderer {
             depth_view.is_some(),
             self.programs.resources.texture_size,
             current_allocations,
+            |id, image, region| texture_bindings.encode_paint(id, image, region, view.texture()),
         )?;
         self.programs
             .prepare_intermediate_textures(&self.device, &schedule);

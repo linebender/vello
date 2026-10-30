@@ -866,12 +866,8 @@ impl WebGlRenderer {
     ) -> Result<(), WebGlError> {
         let use_depth_buffer = self.programs.resources.root_uses_depth_buffer();
 
-        self.core
-            .prepare_paints(&scene.encoded_paints, image_cache, |id, image, region| {
-                texture_bindings.encode_paint(id, image, region, render_target_texture)
-            })?;
         let current_allocations = self.current_allocations();
-        let schedule = self.core.schedule(
+        let schedule = self.core.prepare(
             scene,
             image_cache,
             root_output_target,
@@ -883,6 +879,9 @@ impl WebGlRenderer {
             use_depth_buffer,
             self.programs.resources.texture_size,
             current_allocations,
+            |id, image, region| {
+                texture_bindings.encode_paint(id, image, region, render_target_texture)
+            },
         )?;
         self.programs
             .prepare_intermediate_textures(&self.gl, &schedule)?;

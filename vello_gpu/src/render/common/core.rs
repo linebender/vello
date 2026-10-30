@@ -65,11 +65,38 @@ impl Core {
         (core, resources)
     }
 
-    /// Encodes `encoded_paints` for the GPU.
+    /// Encodes the paints of `scene` for the GPU and schedules the passes that render it.
     ///
     /// `encode_external_texture` encodes image paints that sample an external texture, given the
     /// texture, the image and the sampled region of the texture.
-    pub(crate) fn prepare_paints(
+    pub(crate) fn prepare(
+        &mut self,
+        scene: &Scene,
+        image_cache: &ImageCache,
+        root_output_target: RootTarget,
+        visible_scene_area: Option<RectU16>,
+        use_depth_buffer: bool,
+        current_texture_size: SizeU16,
+        current_allocations: IntermediateTextureAllocations,
+        encode_external_texture: impl FnMut(
+            TextureId,
+            &EncodedImage,
+            TextureRegion,
+        ) -> Result<GpuEncodedPaint, RenderError>,
+    ) -> Result<Schedule, RenderError> {
+        self.prepare_paints(&scene.encoded_paints, image_cache, encode_external_texture)?;
+        self.schedule(
+            scene,
+            image_cache,
+            root_output_target,
+            visible_scene_area,
+            use_depth_buffer,
+            current_texture_size,
+            current_allocations,
+        )
+    }
+
+    fn prepare_paints(
         &mut self,
         encoded_paints: &[EncodedPaint],
         image_cache: &ImageCache,
@@ -117,10 +144,7 @@ impl Core {
         Ok(())
     }
 
-    /// Schedules the passes that render `scene`.
-    ///
-    /// Must be called after [`Self::prepare_paints`] for the same scene.
-    pub(crate) fn schedule(
+    fn schedule(
         &mut self,
         scene: &Scene,
         image_cache: &ImageCache,
