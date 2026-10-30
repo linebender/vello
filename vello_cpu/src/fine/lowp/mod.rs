@@ -536,13 +536,12 @@ mod alpha_fill {
     //! This module handles compositing when each pixel has an additional mask value
     //! (e.g., from anti-aliasing or clip masks) that modulates the source alpha.
 
-    use crate::fine::Splat4thExt;
     use crate::fine::lowp::compose::ComposeExt;
-    use crate::fine::lowp::{blend, extract_masks};
+    use crate::fine::lowp::{blend, expand_alphas};
     use crate::peniko::{BlendMode, Mix};
     use fearless_simd_macros::simd;
     use vello_common::fearless_simd::*;
-    use vello_common::util::{Div255Ext, narrow, normalized_mul_u8, widen};
+    use vello_common::util::{Div255Ext, narrow, widen};
 
     /// Applies blend mode compositing with per-pixel alpha masks.
     #[simd]
@@ -564,7 +563,8 @@ mod alpha_fill {
             } else {
                 blend::mix(next_src, bg_v, blend_mode)
             };
-            let masks = extract_masks(simd, &next_mask);
+            let mask_v = u64x2::splat(simd, u64::from_ne_bytes(next_mask)).to_bytes();
+            let masks = expand_alphas(simd, mask_v);
             let res = blend_mode.compose(simd, src_c, bg_v, Some(masks));
 
             res.store_slice(next_bg);
@@ -582,12 +582,11 @@ mod alpha_fill {
         src: [u8; 4],
         alphas: impl Iterator<Item = [u8; 8]>,
     ) {
-        let src_a = u8x32::splat(s, src[3]);
+        let src_a = u8x16::splat(s, src[3]);
         let src_c = u32x8::splat(s, u32::from_ne_bytes(src)).to_bytes();
-        let one = u8x32::splat(s, 255);
 
         for (next_bg, next_mask) in dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas) {
-            alpha_composite_inner(s, next_bg, &next_mask, src_c, src_a, one);
+            alpha_composite_inner(s, next_bg, &next_mask, src_c, src_a);
         }
     }
 
@@ -602,13 +601,13 @@ mod alpha_fill {
         src: T,
         alphas: impl Iterator<Item = [u8; 8]>,
     ) {
-        let one = u8x32::splat(simd, 255);
-
         for ((next_dest, next_mask), next_src) in
             dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas).zip(src)
         {
-            let src_a = next_src.splat_4th();
-            alpha_composite_inner(simd, next_dest, &next_mask, next_src, src_a, one);
+            let (lo, hi) = simd.split_u8x32(next_src);
+            let odd = lo.unzip_high(hi);
+            let src_a = odd.unzip_high(odd);
+            alpha_composite_inner(simd, next_dest, &next_mask, next_src, src_a);
         }
     }
 
@@ -623,18 +622,18 @@ mod alpha_fill {
         dest: &mut [u8],
         masks: &[u8; 8],
         src_c: u8x32<S>,
-        src_a: u8x32<S>,
-        one: u8x32<S>,
+        src_a: u8x16<S>,
     ) {
         let bg_v = u8x32::from_slice(s, dest);
+        let mask_v = u64x2::splat(s, u64::from_ne_bytes(*masks)).to_bytes();
 
-        let mask_v = extract_masks(s, masks);
-        let inv_src_a_mask_a = one - narrow(normalized_mul_u8(src_a, mask_v));
+        let src_a_mask_a = (src_a.widen().0 * mask_v.widen().0).div_255_exact();
+        let inv_src_a_mask_a = !s.narrow_u16x8(src_a_mask_a, u16x8::splat(s, 0));
 
         let bg = widen(bg_v);
-        let inv = widen(inv_src_a_mask_a);
+        let inv = widen(expand_alphas(s, inv_src_a_mask_a));
         let src = widen(src_c);
-        let mask = widen(mask_v);
+        let mask = widen(expand_alphas(s, mask_v));
         let result = (bg * inv + src * mask).div_255();
         let res = narrow(result);
 
@@ -642,23 +641,13 @@ mod alpha_fill {
     }
 }
 
-/// Expands 8 mask bytes into a 32-byte SIMD vector where each pixel's 4 components
-/// share the same mask value (each of 8 mask values is repeated 4 times).
-///
-/// Input: [m0, m1, m2, m3, m4, m5, m6, m7]
-/// Output: [m0, m0, m0, m0, m1, m1, m1, m1, ..., m7, m7, m7, m7]
 #[inline(always)]
-fn extract_masks<S: Simd>(simd: S, masks: &[u8; 8]) -> u8x32<S> {
-    let m1 = u32x4::splat(simd, u32::from_ne_bytes(masks[0..4].try_into().unwrap())).to_bytes();
-    let m2 = u32x4::splat(simd, u32::from_ne_bytes(masks[4..8].try_into().unwrap())).to_bytes();
-
-    let zipped1 = m1.zip_low(m1);
-    let zipped1 = zipped1.zip_low(zipped1);
-
-    let zipped2 = m2.zip_low(m2);
-    let zipped2 = zipped2.zip_low(zipped2);
-
-    simd.combine_u8x16(zipped1, zipped2)
+fn expand_alphas<S: Simd>(simd: S, alphas: u8x16<S>) -> u8x32<S> {
+    const INDICES: [u8; 32] = [
+        0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7,
+        7, 7,
+    ];
+    u8x32::block_splat(alphas).swizzle_dyn_within_blocks(u8x32::from_slice(simd, &INDICES))
 }
 
 #[cfg(test)]

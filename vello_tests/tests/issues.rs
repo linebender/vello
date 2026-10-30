@@ -495,6 +495,30 @@ fn multi_threading_oob_access() {
     );
 }
 
+/// See <https://github.com/linebender/vello/issues/2026>.
+#[test]
+fn lowp_src_over_partial_coverage_keeps_opaque_alpha() {
+    let mut ctx = RenderContext::new(1, 1);
+    let mut resources = vello_cpu::Resources::new();
+    let mut pixmap = Pixmap::new(1, 1);
+
+    ctx.set_paint(Color::WHITE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+    ctx.set_paint(BLACK.with_alpha(1.0 / 255.0));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 0.5, 1.0));
+    ctx.flush();
+    ctx.render_with(
+        &mut pixmap,
+        &mut resources,
+        RasterizerSettings {
+            render_mode: RenderMode::OptimizeSpeed,
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(pixmap.data()[0].a, 255);
+}
+
 /// See <https://github.com/linebender/vello/issues/1181>.
 #[vello_test(width = 556, height = 8)]
 fn tile_clamped_off_by_one(ctx: &mut impl Renderer) {
