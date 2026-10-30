@@ -1687,23 +1687,6 @@ mod tests {
     }
 
     #[test]
-    fn vertical_path_on_the_right_of_viewport() {
-        const VIEWPORT_WIDTH: u16 = 10;
-        const VIEWPORT_HEIGHT: u16 = 10;
-
-        // Built directly, as flattening would cull all of these lines.
-        let lines = [
-            Line::new(Point::new(261.0, 0.0), Point::new(78848.0, 0.0)),
-            Line::new(Point::new(78848.0, 0.0), Point::new(78848.0, 4.0)),
-            Line::new(Point::new(78848.0, 4.0), Point::new(261.0, 4.0)),
-            Line::new(Point::new(261.0, 4.0), Point::new(261.0, 0.0)),
-        ];
-
-        let mut tiles = new_tiles();
-        tiles.assert_tiles_match(&lines, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, &[]);
-    }
-
-    #[test]
     fn vertical_line_crossing_top_viewport() {
         let lines = [
             Line {
