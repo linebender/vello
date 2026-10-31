@@ -45,10 +45,10 @@ impl ExampleScene for FilterBlurCircleScene {
         let radius = vw.min(vh) * 0.3;
 
         ctx.set_transform(root_transform);
-        let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-            std_deviation: STD_DEVIATION,
-            edge_mode: EdgeMode::None,
-        });
+        let filter = Filter::from_primitive(FilterPrimitive::gaussian_blur(
+            STD_DEVIATION,
+            EdgeMode::None,
+        ));
         ctx.push_filter_layer(filter);
 
         ctx.set_transform(root_transform);

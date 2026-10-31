@@ -719,10 +719,7 @@ fn opaque_rect_partially_occluding_aa_edge(ctx: &mut impl Renderer) {
 
 #[vello_test(skip_multithreaded, width = 768, height = 100, gpu_tolerance = 4)]
 fn issue_1509(ctx: &mut impl Renderer) {
-    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 25.0,
-        edge_mode: EdgeMode::None,
-    });
+    let filter = Filter::from_primitive(FilterPrimitive::gaussian_blur(25.0, EdgeMode::None));
     let rect = Rect::new(100.0, 10.0, 668.0, 90.0);
 
     ctx.push_filter_layer(filter);

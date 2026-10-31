@@ -80,6 +80,8 @@ fn apply_drop_shadow(
             &mut shadow_pixmap,
             scratch,
             n_decimations,
+            n_decimations,
+            kernel,
             kernel,
             edge_mode,
         );

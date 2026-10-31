@@ -226,14 +226,8 @@ fn gpu_schedule_filter_atlas_page_one(ctx: &mut impl Renderer) {
 /// Test the behavior when multiple filter layers are batched together in a single layer texture.
 #[vello_test(skip_multithreaded, gpu_tolerance = 2)]
 fn gpu_schedule_filter_batch_page_zero(ctx: &mut impl Renderer) {
-    let blur_two = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 2.0,
-        edge_mode: EdgeMode::None,
-    });
-    let blur_four = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 4.0,
-        edge_mode: EdgeMode::None,
-    });
+    let blur_two = Filter::from_primitive(FilterPrimitive::gaussian_blur(2.0, EdgeMode::None));
+    let blur_four = Filter::from_primitive(FilterPrimitive::gaussian_blur(4.0, EdgeMode::None));
     let drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 4.0,
         dy: 4.0,
