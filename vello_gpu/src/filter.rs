@@ -484,8 +484,17 @@ impl FilterPassPlan {
                 filter_type::FLOOD => {
                     builder.emit(pass_kind::FLOOD);
                 }
-                filter_type::GAUSSIAN_BLUR | filter_type::DROP_SHADOW => {
+                filter_type::GAUSSIAN_BLUR => {
                     builder.emit_blur_sequence(&filter.gpu_filter);
+                }
+                filter_type::DROP_SHADOW => {
+                    builder.emit(pass_kind::OFFSET);
+                    builder.emit_blur_sequence(&filter.gpu_filter);
+                    if filter.gpu_filter.composite_original() {
+                        builder.emit(pass_kind::COMPOSITE_DROP_SHADOW);
+                    } else {
+                        builder.emit(pass_kind::COLORIZE);
+                    }
                 }
                 _ => unreachable!("unsupported filter type was encoded"),
             }
@@ -595,9 +604,8 @@ impl<'a> FilterPassBuilder<'a> {
         self.current_is_original = !self.current_is_original;
     }
 
-    /// Apply the sequence of passes needed for a filter that blurs: the offset of a
-    /// drop shadow, the per-axis decimation levels, one convolution per axis that
-    /// blurs, the matching upscales, and the shadow's final colorization.
+    /// Apply the passes of a blur: the per-axis decimation levels, one convolution per
+    /// axis that blurs, and the matching upscales.
     fn emit_blur_sequence(&mut self, filter: &GpuFilterData) {
         // TODO: From my experiments, it would very much be worth it to add a
         // UPSCALE_4x and DOWNSCALE_4x pass, since unlike the CPU we can use bilinear
@@ -606,11 +614,6 @@ impl<'a> FilterPassBuilder<'a> {
         // causes higher pixel differences for some tests compared to vello_cpu, since edge
         // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
         // this more straight-forward approach.
-
-        let is_shadow = filter.filter_type() == filter_type::DROP_SHADOW;
-        if is_shadow {
-            self.emit(pass_kind::OFFSET);
-        }
 
         let levels = decimation_levels(filter.n_decimations_x(), filter.n_decimations_y());
         for axes in levels.clone() {
@@ -627,6 +630,11 @@ impl<'a> FilterPassBuilder<'a> {
         if filter.blurs_y() {
             self.emit(pass_kind::BLUR_V);
         }
+        // Even out the pass count here, at the coarsest level, rather than copying the
+        // full-size result back to the original region at the end.
+        if filter.blurs_x() != filter.blurs_y() {
+            self.emit(pass_kind::COPY);
+        }
 
         for axes in levels.rev() {
             self.emit(match axes {
@@ -634,14 +642,6 @@ impl<'a> FilterPassBuilder<'a> {
                 DecimationAxes::X => pass_kind::UPSCALE_X,
                 DecimationAxes::Y => pass_kind::UPSCALE_Y,
             });
-        }
-
-        if is_shadow {
-            if filter.composite_original() {
-                self.emit(pass_kind::COMPOSITE_DROP_SHADOW);
-            } else {
-                self.emit(pass_kind::COLORIZE);
-            }
         }
     }
 
@@ -853,9 +853,9 @@ mod tests {
                 alloc::vec![(0, pass_kind::DOWNSCALE_X)],
                 alloc::vec![(0, pass_kind::DOWNSCALE_X)],
                 alloc::vec![(0, pass_kind::BLUR_H)],
-                alloc::vec![(0, pass_kind::UPSCALE_X)],
-                alloc::vec![(0, pass_kind::UPSCALE_X)],
                 alloc::vec![(0, pass_kind::COPY)],
+                alloc::vec![(0, pass_kind::UPSCALE_X)],
+                alloc::vec![(0, pass_kind::UPSCALE_X)],
             ]
         );
     }

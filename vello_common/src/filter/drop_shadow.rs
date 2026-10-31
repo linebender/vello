@@ -104,8 +104,9 @@ pub(crate) fn transform_shadow_params(
 ) -> (f32, f32, f32) {
     let (scaled_dx, scaled_dy) = transform_offset_params(dx, dy, transform);
 
-    // Scale the blur radius uniformly
-    let (scaled_std_dev, _) = transform_blur_params(std_deviation, std_deviation, transform);
+    // The shadow blurs both axes with one kernel, so average the per-axis deviations.
+    let (scaled_x, scaled_y) = transform_blur_params(std_deviation, std_deviation, transform);
+    let scaled_std_dev = (scaled_x + scaled_y) / 2.0;
 
     (scaled_dx, scaled_dy, scaled_std_dev)
 }

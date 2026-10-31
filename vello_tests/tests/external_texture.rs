@@ -576,11 +576,7 @@ mod tests {
     #[vello_test(width = 96, height = 96, skip_multithreaded, gpu_tolerance = 2)]
     fn external_texture_blurred(ctx: &mut impl Renderer) {
         let texture_id = ctx.register_external_texture(load_image!("glyphs_colr_noto"));
-        let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-            std_deviation_x: 4.0,
-            std_deviation_y: 4.0,
-            edge_mode: EdgeMode::None,
-        });
+        let blur = Filter::from_primitive(FilterPrimitive::gaussian_blur(4.0, EdgeMode::None));
 
         ctx.push_filter_layer(blur);
         ctx.set_paint_transform(Affine::translate((20., 20.)));

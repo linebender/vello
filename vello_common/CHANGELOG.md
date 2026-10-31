@@ -14,11 +14,12 @@ This release has an [MSRV][] of 1.89.
 
 ### Added
 
-- `FilterPrimitive::GaussianBlur` blurs each axis by its own standard deviation (`std_deviation_x`, `std_deviation_y`), like SVG's `stdDeviation="x y"`; a blur along one axis only decimates and convolves that axis alone. ([#1997][] by [@theashraf][])
+- `FilterPrimitive::GaussianBlur` blurs each axis by its own standard deviation (`std_deviation_x`, `std_deviation_y`), like SVG's `stdDeviation="x y"`; a blur along one axis only decimates and convolves that axis alone. `FilterPrimitive::gaussian_blur` builds a blur with the same deviation on both axes. ([#1997][] by [@theashraf][])
 
 ### Changed
 
 - Breaking change: `FilterPrimitive::GaussianBlur`'s `std_deviation` is now `std_deviation_x` and `std_deviation_y`, `filter::gaussian_blur::GaussianBlur` carries a decimation plan and kernel per axis, and `DecimationSizer` scales the axes independently through `downscale_axes` and `upscale_axes`. ([#1997][] by [@theashraf][])
+- A blur under a non-uniform scale or skew is scaled per axis instead of by the average scale factor, so its device-space extent follows the transform. ([#1997][] by [@theashraf][])
 
 ### Fixed
 

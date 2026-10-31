@@ -20,7 +20,9 @@
 
 use super::FilterEffect;
 use crate::filter::context::ScratchBuffer;
-use vello_common::filter::gaussian_blur::{DecimationAxes, DecimationSizer, GaussianBlur};
+use vello_common::filter::gaussian_blur::{
+    DecimationAxes, DecimationSizer, GaussianBlur, decimation_levels,
+};
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::color::PremulRgba8;
 #[cfg(not(feature = "std"))]
@@ -37,7 +39,8 @@ impl FilterEffect for GaussianBlur {
         apply_blur(
             pixmap,
             scratch,
-            self.decimation_levels(),
+            self.n_decimations_x,
+            self.n_decimations_y,
             self.kernel_x(),
             self.kernel_y(),
             self.edge_mode,
@@ -53,21 +56,22 @@ impl FilterEffect for GaussianBlur {
 
 /// Apply Gaussian blur using multi-scale decimation and upsampling.
 ///
-/// Uses a precomputed decimation plan (`levels`, finest first) and one kernel per axis
-/// for optimal performance. Operates in-place using a single pixmap buffer with logical
-/// dimension tracking to minimize memory allocations. With no levels, applies direct
-/// convolution.
+/// Uses a precomputed decimation plan and kernel per axis for optimal performance.
+/// Operates in-place using a single pixmap buffer with logical dimension tracking to
+/// minimize memory allocations. With no decimation levels, applies direct convolution.
 ///
 /// The `scratch` buffer is used for separable convolution and must be at least as
 /// large as the source pixmap.
 pub(crate) fn apply_blur(
     pixmap: &mut Pixmap,
     scratch: &mut Pixmap,
-    levels: impl DoubleEndedIterator<Item = DecimationAxes> + Clone,
+    n_decimations_x: usize,
+    n_decimations_y: usize,
     kernel_x: &[f32],
     kernel_y: &[f32],
     edge_mode: EdgeMode,
 ) {
+    let levels = decimation_levels(n_decimations_x, n_decimations_y);
     let width = pixmap.width();
     let height = pixmap.height();
 
@@ -598,8 +602,7 @@ fn interpolate_75_25(p0: PremulRgba8, p1: PremulRgba8) -> PremulRgba8 {
 mod tests {
     use super::*;
     use vello_common::filter::gaussian_blur::{
-        GaussianBlur, MAX_KERNEL_SIZE, compute_gaussian_kernel, decimation_levels,
-        plan_decimated_blur,
+        GaussianBlur, MAX_KERNEL_SIZE, compute_gaussian_kernel, plan_decimated_blur,
     };
 
     /// Test edge extension with Duplicate mode.
@@ -815,7 +818,8 @@ mod tests {
             apply_blur(
                 &mut pixmap,
                 &mut scratch,
-                decimation_levels(n_decimations, n_decimations),
+                n_decimations,
+                n_decimations,
                 kernel,
                 kernel,
                 EdgeMode::None,
@@ -850,7 +854,8 @@ mod tests {
             apply_blur(
                 &mut pixmap,
                 &mut scratch,
-                blur.decimation_levels(),
+                blur.n_decimations_x,
+                blur.n_decimations_y,
                 blur.kernel_x(),
                 blur.kernel_y(),
                 EdgeMode::None,
@@ -900,7 +905,8 @@ mod tests {
         apply_blur(
             &mut horizontal,
             &mut scratch,
-            blur_x.decimation_levels(),
+            blur_x.n_decimations_x,
+            blur_x.n_decimations_y,
             blur_x.kernel_x(),
             blur_x.kernel_y(),
             EdgeMode::None,
@@ -909,7 +915,8 @@ mod tests {
         apply_blur(
             &mut vertical,
             &mut scratch,
-            blur_y.decimation_levels(),
+            blur_y.n_decimations_x,
+            blur_y.n_decimations_y,
             blur_y.kernel_x(),
             blur_y.kernel_y(),
             EdgeMode::None,

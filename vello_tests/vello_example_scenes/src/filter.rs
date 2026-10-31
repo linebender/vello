@@ -33,11 +33,8 @@ impl ExampleScene for FilterScene {
             color: AlphaColor::from_rgba8(255, 255, 255, 128),
             edge_mode: EdgeMode::None,
         });
-        let filter_gaussian_blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-            std_deviation_x: 10.0,
-            std_deviation_y: 10.0,
-            edge_mode: EdgeMode::None,
-        });
+        let filter_gaussian_blur =
+            Filter::from_primitive(FilterPrimitive::gaussian_blur(10.0, EdgeMode::None));
 
         let spacing = 380.;
         let width = 120.;
@@ -469,40 +466,33 @@ impl ExampleScene for FilterScene {
         left = x;
         top = y;
         {
-            ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::GaussianBlur {
-                std_deviation_x: 2.0,
-                std_deviation_y: 2.0,
-                edge_mode: EdgeMode::None,
-            }));
+            ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::gaussian_blur(
+                2.0,
+                EdgeMode::None,
+            )));
             ctx.set_paint(ROYAL_BLUE);
             ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
             {
-                ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::GaussianBlur {
-                    std_deviation_x: 2.0,
-                    std_deviation_y: 2.0,
-                    edge_mode: EdgeMode::None,
-                }));
+                ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::gaussian_blur(
+                    2.0,
+                    EdgeMode::None,
+                )));
                 ctx.set_paint(PURPLE);
                 left = x + width + between;
                 top = y;
                 ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
                 {
-                    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::GaussianBlur {
-                        std_deviation_x: 2.0,
-                        std_deviation_y: 2.0,
-                        edge_mode: EdgeMode::None,
-                    }));
+                    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::gaussian_blur(
+                        2.0,
+                        EdgeMode::None,
+                    )));
                     ctx.set_paint(VIOLET);
                     left = x;
                     top = y + width + between;
                     ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
                     {
                         ctx.push_filter_layer(Filter::from_primitive(
-                            FilterPrimitive::GaussianBlur {
-                                std_deviation_x: 2.0,
-                                std_deviation_y: 2.0,
-                                edge_mode: EdgeMode::None,
-                            },
+                            FilterPrimitive::gaussian_blur(2.0, EdgeMode::None),
                         ));
                         ctx.set_paint(SEA_GREEN);
                         left = x + width + between;
@@ -510,11 +500,7 @@ impl ExampleScene for FilterScene {
                         ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
                         {
                             ctx.push_filter_layer(Filter::from_primitive(
-                                FilterPrimitive::GaussianBlur {
-                                    std_deviation_x: 2.0,
-                                    std_deviation_y: 2.0,
-                                    edge_mode: EdgeMode::None,
-                                },
+                                FilterPrimitive::gaussian_blur(2.0, EdgeMode::None),
                             ));
                             ctx.set_paint(TOMATO);
                             left = x + width / 2.0 + between / 2.0;

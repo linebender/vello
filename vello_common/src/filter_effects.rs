@@ -77,11 +77,9 @@ impl Filter {
     pub fn from_function(function: FilterFunction) -> Self {
         // Convert function to primitive
         let primitive = match function {
-            FilterFunction::Blur { radius } => FilterPrimitive::GaussianBlur {
-                std_deviation_x: radius,
-                std_deviation_y: radius,
-                edge_mode: EdgeMode::default(),
-            },
+            FilterFunction::Blur { radius } => {
+                FilterPrimitive::gaussian_blur(radius, EdgeMode::default())
+            }
             _ => unimplemented!("Filter function {:?} not supported", function),
         };
 
@@ -379,7 +377,7 @@ pub enum FilterPrimitive {
     /// each axis, as this captures ~99.7% of the Gaussian distribution.
     GaussianBlur {
         /// Standard deviation of the blur kernel along the x-axis. Larger values
-        /// create more blur. Must be non-negative; `0` leaves the axis unblurred.
+        /// create more blur. `0` or a negative value leaves the axis unblurred.
         ///
         /// This directly corresponds to the σ (sigma) parameter in the Gaussian
         /// function. The visible blur effect extends approximately 3σ in each direction.
@@ -573,6 +571,15 @@ pub enum FilterPrimitive {
 }
 
 impl FilterPrimitive {
+    /// A Gaussian blur with the same standard deviation along both axes.
+    pub fn gaussian_blur(std_deviation: f32, edge_mode: EdgeMode) -> Self {
+        Self::GaussianBlur {
+            std_deviation_x: std_deviation,
+            std_deviation_y: std_deviation,
+            edge_mode,
+        }
+    }
+
     /// The filter expansion of the primitive, see [`Filter::filter_expansion`].
     pub fn filter_expansion(&self) -> Rect {
         match self {

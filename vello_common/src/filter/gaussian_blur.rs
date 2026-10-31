@@ -7,24 +7,20 @@ use alloc::vec::Vec;
 
 use crate::filter_effects::EdgeMode;
 use crate::kurbo::Affine;
-use crate::util::extract_scales;
 use core::f32::consts::E;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 
 /// Scale a blur's standard deviations into device space.
 ///
-/// A uniform blur (equal standard deviations) extracts the scale factors from the
-/// transformation matrix using SVD and averages them into one uniform scale factor,
-/// so rotating a uniform blur never changes it.
+/// The blur is the Gaussian with covariance `diag(σx², σy²)`; under the linear part `A`
+/// of the transform it becomes the Gaussian with covariance `A·diag(σx², σy²)·Aᵀ`. The
+/// diagonal of that matrix gives the device-space variances per axis, so a 90° rotation
+/// swaps the two deviations and a non-uniform scale scales each one on its own. The
+/// off-diagonal term (the tilt of a blur rotated by an angle that is not a multiple of
+/// 90°) cannot be represented by an axis-aligned kernel and is dropped.
 ///
-/// An anisotropic blur is the Gaussian with covariance `diag(σx², σy²)`; under the
-/// linear part `A` of the transform it becomes the Gaussian with covariance
-/// `A·diag(σx², σy²)·Aᵀ`. The diagonal of that matrix gives the device-space variances
-/// per axis, so a 90° rotation swaps the two deviations and a non-uniform scale scales
-/// each one on its own. The off-diagonal term (the tilt of a blur rotated by an angle
-/// that is not a multiple of 90°) cannot be represented by an axis-aligned kernel and is
-/// dropped.
+/// A negative deviation disables the blur along that axis, as in SVG.
 ///
 /// # Arguments
 /// * `std_deviation_x` - The blur standard deviation along the x-axis in user space
@@ -38,12 +34,9 @@ pub(crate) fn transform_blur_params(
     std_deviation_y: f32,
     transform: &Affine,
 ) -> (f32, f32) {
-    if std_deviation_x == std_deviation_y {
-        let (scale_x, scale_y) = extract_scales(transform);
-        let uniform_scale = (scale_x + scale_y) / 2.0;
-        let scaled = std_deviation_x * uniform_scale;
-        return (scaled, scaled);
-    }
+    // Squaring would lose the sign, so clamp first.
+    let std_deviation_x = std_deviation_x.max(0.0);
+    let std_deviation_y = std_deviation_y.max(0.0);
 
     let [a, b, c, d, _, _] = transform.as_coeffs();
     let (a, b, c, d) = (a as f32, b as f32, c as f32, d as f32);
@@ -166,13 +159,6 @@ impl GaussianBlur {
             kernel_y,
             kernel_size_y,
         }
-    }
-
-    /// The decimation levels of this blur, from the finest to the coarsest.
-    pub fn decimation_levels(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = DecimationAxes> + ExactSizeIterator + Clone {
-        decimation_levels(self.n_decimations_x, self.n_decimations_y)
     }
 
     /// The valid part of the x-axis kernel.
@@ -508,12 +494,28 @@ mod tests {
     }
 
     #[test]
-    fn test_uniform_blur_transforms_like_before() {
-        let transform = Affine::rotate(0.7) * Affine::scale_non_uniform(2.0, 0.5);
+    fn test_uniform_blur_ignores_rotation() {
+        let transform = Affine::rotate(0.7) * Affine::scale(2.0);
         let (x, y) = transform_blur_params(3.0, 3.0, &transform);
-        assert_eq!(x, y);
-        // The mean of the singular values 2.0 and 0.5.
-        assert!((x - 3.75).abs() < 1e-5);
+        assert!((x - 6.0).abs() < 1e-5);
+        assert!((y - 6.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_uniform_blur_scales_per_axis() {
+        let (x, y) = transform_blur_params(3.0, 3.0, &Affine::scale_non_uniform(2.0, 0.5));
+        assert!((x - 6.0).abs() < 1e-5);
+        assert!((y - 1.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_negative_sigma_disables_the_axis() {
+        let (x, y) = transform_blur_params(-2.0, 1.0, &Affine::IDENTITY);
+        assert_eq!(x, 0.0);
+        assert!((y - 1.0).abs() < 1e-5);
+
+        let (x, y) = transform_blur_params(-2.0, -2.0, &Affine::rotate(0.3));
+        assert_eq!((x, y), (0.0, 0.0));
     }
 
     #[test]
