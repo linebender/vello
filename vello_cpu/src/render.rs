@@ -21,13 +21,14 @@ use alloc::vec::Vec;
 use hashbrown::HashMap;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::encode::{EncodeExt, EncodedPaint, invert_paint_transform};
-use vello_common::fearless_simd::Level;
+use vello_common::encode::{EncodeExt, EncodedPaint, GradientCacheKey, invert_paint_transform};
+use vello_common::fearless_simd::{Level, dispatch};
 use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
+use vello_common::peniko::color::cache_key::CacheKey;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::{Pixmap, PixmapMut};
@@ -156,11 +157,10 @@ pub struct RenderContext {
     /// Optional threshold for aliasing.
     pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
+    /// For each gradient cache key, the index of the first encoded gradient with that key, whose
+    /// lookup tables are shared with all later gradients with the same key.
+    gradient_luts: HashMap<CacheKey<GradientCacheKey>, usize>,
     pub(crate) filter: Option<Filter>,
-    #[cfg_attr(
-        not(feature = "text"),
-        allow(dead_code, reason = "used when the `text` feature is enabled")
-    )]
     pub(crate) render_settings: RenderSettings,
     dispatcher: Box<dyn Dispatcher>,
 }
@@ -230,6 +230,7 @@ impl RenderContext {
             mask: None,
             temp_path,
             encoded_paints,
+            gradient_luts: HashMap::new(),
             filter: None,
         }
     }
@@ -250,8 +251,12 @@ impl RenderContext {
                 let transform = self
                     .root_transforms
                     .effective_paint_transform(self.transforms());
-                // TODO: Add caching?
-                g.encode_into(&mut self.encoded_paints, transform, None)
+                let paint = g.encode_into(&mut self.encoded_paints, transform, None)?;
+                if let Paint::Indexed(indexed) = &paint {
+                    self.share_gradient_luts(indexed.index());
+                }
+
+                Some(paint)
             }
             PaintType::Image(i) => {
                 let transform = self
@@ -260,6 +265,32 @@ impl RenderContext {
                 i.encode_into(&mut self.encoded_paints, transform, self.state.tint)
             }
         }
+    }
+
+    /// Let the gradient that was just encoded at `idx` share its lookup tables with the first
+    /// gradient with the same colors, so that they are only built once per render context.
+    fn share_gradient_luts(&mut self, idx: usize) {
+        let (earlier, [EncodedPaint::Gradient(gradient)]) = self.encoded_paints.split_at_mut(idx)
+        else {
+            return;
+        };
+
+        let Some(&first_idx) = self.gradient_luts.get(&gradient.cache_key) else {
+            self.gradient_luts.insert(gradient.cache_key.clone(), idx);
+            return;
+        };
+
+        let EncodedPaint::Gradient(first) = &earlier[first_idx] else {
+            unreachable!("gradient lookup tables are only recorded for gradients");
+        };
+
+        // Build the lookup tables of the first gradient now, so that both can use them.
+        #[cfg(feature = "u8_pipeline")]
+        dispatch!(self.render_settings.level, simd => first.u8_lut(simd));
+        #[cfg(feature = "f32_pipeline")]
+        dispatch!(self.render_settings.level, simd => first.f32_lut(simd));
+
+        gradient.share_luts(first);
     }
 
     /// Whether the effective paint transform maps paint space onto a non-zero area.
@@ -740,6 +771,7 @@ impl RenderContext {
     pub fn reset(&mut self) {
         self.dispatcher.reset(self.width, self.height);
         self.encoded_paints.clear();
+        self.gradient_luts.clear();
         self.mask = None;
         self.root_transforms.reset();
         self.state.reset();
@@ -1038,8 +1070,11 @@ mod tests {
     use glifo::Glyph;
     use vello_common::color::PremulRgba8;
     use vello_common::color::palette::css::{BLUE, RED};
-    use vello_common::kurbo::{Rect, Shape};
-    use vello_common::peniko::ImageAlphaType;
+    use vello_common::color::{AlphaColor, Srgb};
+    use vello_common::encode::{EncodedGradient, EncodedPaint};
+    use vello_common::fearless_simd::Fallback;
+    use vello_common::kurbo::{Point, Rect, Shape};
+    use vello_common::peniko::{Gradient, ImageAlphaType};
     use vello_common::pixmap::{PixelMetadata, Pixmap, PixmapMut};
     use vello_common::tile::Tile;
 
@@ -1197,6 +1232,54 @@ mod tests {
         ctx.reset();
 
         assert_eq!(ctx.aliasing_threshold, None);
+    }
+
+    fn fill_linear_gradient(ctx: &mut RenderContext, x: f64, stops: [AlphaColor<Srgb>; 2]) {
+        ctx.set_paint(
+            Gradient::new_linear(Point::new(x, 0.0), Point::new(x + 4.0, 0.0)).with_stops(stops),
+        );
+        ctx.fill_rect(&Rect::new(x, 0.0, x + 4.0, 4.0));
+    }
+
+    fn gradient_at(ctx: &RenderContext, idx: usize) -> &EncodedGradient {
+        match &ctx.encoded_paints[idx] {
+            EncodedPaint::Gradient(gradient) => gradient,
+            _ => panic!("paint {idx} is not a gradient"),
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "u8_pipeline")]
+    fn gradients_with_same_colors_share_luts() {
+        let simd = Fallback::new();
+        let mut ctx = RenderContext::new(12, 4);
+        fill_linear_gradient(&mut ctx, 0.0, [RED, BLUE]);
+        fill_linear_gradient(&mut ctx, 4.0, [RED, BLUE]);
+        fill_linear_gradient(&mut ctx, 8.0, [BLUE, RED]);
+
+        let first = gradient_at(&ctx, 0).u8_lut(simd);
+        assert!(core::ptr::eq(first, gradient_at(&ctx, 1).u8_lut(simd)));
+        assert!(!core::ptr::eq(first, gradient_at(&ctx, 2).u8_lut(simd)));
+    }
+
+    #[test]
+    #[cfg(feature = "u8_pipeline")]
+    fn reset_clears_shared_gradient_luts() {
+        let simd = Fallback::new();
+        let mut ctx = RenderContext::new(8, 4);
+        fill_linear_gradient(&mut ctx, 0.0, [BLUE, RED]);
+        fill_linear_gradient(&mut ctx, 4.0, [RED, BLUE]);
+
+        ctx.reset();
+
+        fill_linear_gradient(&mut ctx, 0.0, [RED, BLUE]);
+        fill_linear_gradient(&mut ctx, 4.0, [RED, BLUE]);
+
+        assert_eq!(ctx.gradient_luts.len(), 1);
+        assert!(core::ptr::eq(
+            gradient_at(&ctx, 0).u8_lut(simd),
+            gradient_at(&ctx, 1).u8_lut(simd)
+        ));
     }
 
     #[test]

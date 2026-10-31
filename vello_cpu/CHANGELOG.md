@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Changed
+
+- Gradients with the same colors now share one lookup table per render context. ([#2038][] by [@josefguenther][])
+
 ### Fixed
 
 - `Color` and `Luminosity` blending rendering some gray colors as black, caused by a division by zero in `clip_color`. ([#2000][] by [@zlstringham][])
@@ -253,6 +257,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [@DJMcNab]: https://github.com/DJMcNab
 [@b0nes164]: https://github.com/b0nes164
 [@grebmeg]: https://github.com/grebmeg
+[@josefguenther]: https://github.com/josefguenther
 [@jrmoulton]: https://github.com/jrmoulton
 [@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
@@ -343,6 +348,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1962]: https://github.com/linebender/vello/pull/1962
 [#1970]: https://github.com/linebender/vello/pull/1970
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2038]: https://github.com/linebender/vello/pull/2038
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0
