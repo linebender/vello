@@ -162,12 +162,9 @@ impl ExampleScene for FilterElementsScene {
                 ctx.set_transform(root_transform);
                 let filter = match el.filter {
                     FilterKind::None => unreachable!(),
-                    FilterKind::Blur { std_deviation } => {
-                        Filter::from_primitive(FilterPrimitive::GaussianBlur {
-                            std_deviation,
-                            edge_mode: EdgeMode::None,
-                        })
-                    }
+                    FilterKind::Blur { std_deviation } => Filter::from_primitive(
+                        FilterPrimitive::gaussian_blur(std_deviation, EdgeMode::None),
+                    ),
                     FilterKind::DropShadow { std_deviation } => {
                         Filter::from_primitive(FilterPrimitive::DropShadow {
                             dx: 12.0,

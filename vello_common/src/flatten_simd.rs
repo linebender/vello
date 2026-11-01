@@ -85,6 +85,15 @@ pub(crate) fn flatten<S: Simd>(
     let right = cull_bbox.x1 as f64;
     let bottom = cull_bbox.y1 as f64;
 
+    let is_culled = {
+        #[inline(always)]
+        |pts: &[Point]| {
+            pts.iter().all(|p| p.x > right)
+                || pts.iter().all(|p| p.y < top)
+                || pts.iter().all(|p| p.y > bottom)
+        }
+    };
+
     let mut path = path.into_iter();
     let Some(first_el) = path.next() else {
         return;
@@ -105,7 +114,7 @@ pub(crate) fn flatten<S: Simd>(
     for el in path {
         match affine * el {
             PathEl::MoveTo(p) => {
-                if last_pt != start_pt {
+                if last_pt != start_pt && !is_culled(&[last_pt, start_pt]) {
                     callback.callback(LinePathEl::LineTo(start_pt));
                 }
                 last_pt = p;
@@ -113,8 +122,12 @@ pub(crate) fn flatten<S: Simd>(
                 callback.callback(LinePathEl::MoveTo(p));
             }
             PathEl::LineTo(p) => {
+                if is_culled(&[last_pt, p]) {
+                    callback.callback(LinePathEl::MoveTo(p));
+                } else {
+                    callback.callback(LinePathEl::LineTo(p));
+                }
                 last_pt = p;
-                callback.callback(LinePathEl::LineTo(p));
             }
             PathEl::QuadTo(p1, p2) => {
                 let p0 = last_pt;
@@ -123,10 +136,7 @@ pub(crate) fn flatten<S: Simd>(
                 // bbox, it does not impact pixel coverage or winding. We can ignore it. The
                 // following checks that conservatively by checking whether the bounding box of the
                 // Bézier's control points is fully outside the culling bbox.
-                if [p0, p1, p2].into_iter().all(|p| p.x > right)
-                    || [p0, p1, p2].into_iter().all(|p| p.y < top)
-                    || [p0, p1, p2].into_iter().all(|p| p.y > bottom)
-                {
+                if is_culled(&[p0, p1, p2]) {
                     callback.callback(LinePathEl::MoveTo(p2));
                 }
                 // The following checks two things. First, if the quadratic Bézier is fully to the
@@ -175,10 +185,7 @@ pub(crate) fn flatten<S: Simd>(
                 // it does not impact pixel coverage or winding. We can ignore it. The following
                 // checks that conservatively by checking whether the bounding box of the Bézier's
                 // control points is fully outside the culling bbox.
-                if [p0, p1, p2, p3].into_iter().all(|p| p.x > right)
-                    || [p0, p1, p2, p3].into_iter().all(|p| p.y < top)
-                    || [p0, p1, p2, p3].into_iter().all(|p| p.y > bottom)
-                {
+                if is_culled(&[p0, p1, p2, p3]) {
                     callback.callback(LinePathEl::MoveTo(p3));
                 }
                 // The following checks two things. First, if the cubic Bézier is fully to the left
@@ -231,7 +238,11 @@ pub(crate) fn flatten<S: Simd>(
             }
             PathEl::ClosePath => {
                 if last_pt != start_pt {
-                    callback.callback(LinePathEl::LineTo(start_pt));
+                    if is_culled(&[last_pt, start_pt]) {
+                        callback.callback(LinePathEl::MoveTo(start_pt));
+                    } else {
+                        callback.callback(LinePathEl::LineTo(start_pt));
+                    }
 
                     // Kurbo says: "If `quad_to` [or another drawing op] is called immediately
                     // after `close_path` then the current subpath starts at the initial point of
@@ -244,7 +255,7 @@ pub(crate) fn flatten<S: Simd>(
         }
     }
 
-    if last_pt != start_pt {
+    if last_pt != start_pt && !is_culled(&[last_pt, start_pt]) {
         callback.callback(LinePathEl::LineTo(start_pt));
     }
 }
@@ -674,11 +685,69 @@ fn estimate(err_div: f64) -> usize {
 #[cfg(test)]
 mod tests {
     use crate::fearless_simd::Level;
-    use crate::flatten::{self, FlattenCtx, Line};
+    use crate::flatten::{self, FlattenCtx, Line, Point};
     use crate::flatten_simd::{MAX_QUADS, estimate};
     use crate::geometry::RectU16;
     use crate::kurbo::{Affine, BezPath};
     use alloc::vec::Vec;
+
+    fn p(x: f32, y: f32) -> Point {
+        Point::new(x, y)
+    }
+
+    fn flatten_lines(path: &BezPath, cull_bbox: RectU16) -> Vec<(Point, Point)> {
+        let mut lines = Vec::new();
+        flatten::fill(
+            Level::baseline(),
+            path,
+            Affine::IDENTITY,
+            &mut lines,
+            &mut FlattenCtx::default(),
+            cull_bbox,
+        );
+        lines.iter().map(|l| (l.p0, l.p1)).collect()
+    }
+
+    #[test]
+    fn lines_outside_cull_bbox_are_culled() {
+        // The top edge is not aligned to strip rows, so culling uses the row boundary at y=20.
+        let cull_bbox = RectU16::new(20, 22, 60, 60);
+
+        let mut path = BezPath::new();
+        path.move_to((10.0, 70.0));
+        // Left of the bbox: kept, it contributes winding.
+        path.line_to((10.0, 10.0));
+        // Above the strip row of the bbox's top edge: culled.
+        path.line_to((80.0, 10.0));
+        // Right of the bbox: culled.
+        path.line_to((80.0, 21.0));
+        // Above the bbox, but within the strip row of its top edge: kept.
+        path.line_to((40.0, 21.0));
+        // Crossing the bbox: kept.
+        path.line_to((40.0, 70.0));
+        // Below the bbox: culled, as is the closing line.
+        path.line_to((90.0, 70.0));
+        path.close_path();
+        // Continues from the start point of the closed subpath.
+        path.line_to((30.0, 40.0));
+
+        // Implicitly closed subpaths right of the bbox, the second one at the end of the path.
+        path.move_to((70.0, 30.0));
+        path.line_to((75.0, 50.0));
+        path.move_to((70.0, 55.0));
+        path.line_to((75.0, 58.0));
+
+        assert_eq!(
+            flatten_lines(&path, cull_bbox),
+            [
+                (p(10.0, 70.0), p(10.0, 10.0)),
+                (p(80.0, 21.0), p(40.0, 21.0)),
+                (p(40.0, 21.0), p(40.0, 70.0)),
+                (p(10.0, 70.0), p(30.0, 40.0)),
+                (p(30.0, 40.0), p(10.0, 70.0)),
+            ]
+        );
+    }
 
     fn old_estimate(err_div: f64) -> usize {
         let n_quads = (err_div.powf(1. / 6.0).ceil() as usize).max(1);
