@@ -475,8 +475,13 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
-        let scale_props =
-            GlyphScaleProperties::new(draw_props.font_size, font_info.upem, hinted, style);
+        let scale_props = GlyphScaleProperties::new(
+            draw_props.font_size,
+            font_info.upem,
+            hinted,
+            font_embolden,
+            style,
+        );
 
         let mut first_skipped = None;
         let mut skipped_count = 0;
@@ -838,6 +843,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             draw_props.font_size,
             font_info.upem,
             hinting_instance.is_some(),
+            font_embolden,
             Style::Fill,
         );
         let outline_to_nominal_scale =
@@ -1246,10 +1252,19 @@ struct GlyphScaleProperties {
 }
 
 impl GlyphScaleProperties {
-    fn new(draw_font_size: f32, upem: f32, hinted: bool, style: Style) -> Self {
-        if hinted || style == Style::Stroke {
+    fn new(
+        draw_font_size: f32,
+        upem: f32,
+        hinted: bool,
+        embolden: FontEmbolden,
+        style: Style,
+    ) -> Self {
+        let emboldened = embolden.amount != Diagonal2::new(0.0, 0.0);
+        if hinted || emboldened || style == Style::Stroke {
             // For hinting, we need to preserve the original font size since outlines are
             // scale-dependent.
+            // For emboldening, the expansion amount is in pixels at the draw size, so it must be
+            // applied to outlines at that size rather than in font units.
             // For stroking, we need to preserve the font size because the stroke width would
             // be affected by any additional transform (we could support them
             // in the future by scaling the outlines directly instead of folding the scale into
