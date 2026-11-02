@@ -170,10 +170,6 @@ pub fn get_diff(
 }
 
 fn is_pix_diff(pixel1: &Rgba<u8>, pixel2: &Rgba<u8>, threshold: u8) -> bool {
-    if pixel1.0[3] == 0 && pixel2.0[3] == 0 {
-        return false;
-    }
-
     pixel1
         .0
         .iter()
@@ -230,9 +226,11 @@ mod tests {
     }
 
     #[test]
-    fn fully_transparent_pixels_ignore_colour() {
+    fn fully_transparent_pixels_compare_colour() {
         let expected = single_pixel([0, 0, 0, 0]);
         let actual = single_pixel([255, 255, 255, 0]);
-        assert!(get_diff(&expected, &actual, 0, 0).is_none());
+        let (_, pixels) =
+            get_diff(&expected, &actual, 0, 0).expect("transparent colour change must be a diff");
+        assert_eq!(pixels[0].difference, [255, 255, 255, 0]);
     }
 }
