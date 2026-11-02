@@ -20,7 +20,7 @@ use crate::render::webgl::{
 };
 use crate::{
     RenderSettings, Resources,
-    render::common::{DeviceLimits, SharedCore},
+    render::common::{DeviceLimits, ScenePreparer},
 };
 use core::cell::Cell;
 use core::time::Duration;
@@ -63,7 +63,7 @@ pub enum WebGlRendererInitStatus {
 pub struct WebGlRendererInit {
     shaders: WebGlShaders,
     resources: WebGlResources,
-    core: SharedCore,
+    scene_preparer: ScenePreparer,
 }
 
 /// Vello's WebGL shader programs, whose compilation and linking may still be in progress.
@@ -186,13 +186,13 @@ impl WebGlRenderer {
             max_texture_dimension_2d: u16::try_from(get_max_texture_dimension_2d(gl)?)
                 .unwrap_or(u16::MAX),
         };
-        let (core, resources) = SharedCore::new(&mut settings, &device_limits);
+        let (scene_preparer, resources) = ScenePreparer::new(&mut settings, &device_limits);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
 
         let webgl_resources = create_webgl_resources(
             gl,
             &resources.image_cache,
-            core.layers_config,
+            scene_preparer.layers_config,
             resource_texture_dimension_2d,
             shaders.use_depth_buffer,
         )?;
@@ -204,7 +204,7 @@ impl WebGlRenderer {
         let init = WebGlRendererInit {
             shaders,
             resources: webgl_resources,
-            core,
+            scene_preparer,
         };
 
         Ok((init, resources))
@@ -389,7 +389,7 @@ impl WebGlRendererInit {
         let Self {
             shaders,
             resources,
-            core,
+            scene_preparer,
         } = self;
         let WebGlShaders {
             gl,
@@ -439,7 +439,7 @@ impl WebGlRendererInit {
             programs,
             resources,
             gl,
-            core,
+            scene_preparer,
         })
     }
 }

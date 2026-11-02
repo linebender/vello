@@ -3,10 +3,10 @@
 
 //! Backend agnostic renderer module.
 
-mod core;
 pub(crate) mod paint;
+mod scene_preparer;
 
-pub(crate) use self::core::SharedCore;
+pub(crate) use self::scene_preparer::ScenePreparer;
 #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
 pub(crate) use paint::encode_wgpu_external_texture_paint;
 pub(crate) use paint::{GpuEncodedPaint, encode_external_texture_paint};
