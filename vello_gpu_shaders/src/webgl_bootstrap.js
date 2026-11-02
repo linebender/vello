@@ -4,7 +4,8 @@
 // The build script prepends `MODULE_HASH` and `PROGRAMS` to this file to generate
 // `webgl_bootstrap::JS_MODULE`. The context attributes Vello enforces and the program creation
 // must match `vello_gpu`'s WebGL backend; `webgl_contexts_created_by_javascript_and_rust_match` in
-// `vello_tests` checks the attributes.
+// `vello_tests` checks the attributes. `webgl_bootstrap.d.ts` declares this file's exports for
+// TypeScript, so update it whenever they change.
 
 /**
  * Creates the canvas's WebGL2 context and starts compiling Vello's shader programs without
