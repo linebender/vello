@@ -69,7 +69,7 @@ where
 }
 
 /// Compares two images and, if more than `diff_pixels` pixels differ by more than `threshold`
-/// in any colour channel, returns an `expected | diff | actual` image and the differing pixels.
+/// in any RGBA channel, returns an `expected | diff | actual` image and the differing pixels.
 pub fn get_diff(
     expected_image: &RgbaImage,
     actual_image: &RgbaImage,
@@ -174,14 +174,11 @@ fn is_pix_diff(pixel1: &Rgba<u8>, pixel2: &Rgba<u8>, threshold: u8) -> bool {
         return false;
     }
 
-    let mut different = false;
-
-    for i in 0..3 {
-        let difference = pixel1.0[i].abs_diff(pixel2.0[i]);
-        different |= difference > threshold;
-    }
-
-    different
+    pixel1
+        .0
+        .iter()
+        .zip(&pixel2.0)
+        .any(|(a, b)| a.abs_diff(*b) > threshold)
 }
 
 /// Writes `<stem>.png` and `<stem>.json`, creating the parent directory if needed, and returns
@@ -207,4 +204,35 @@ pub fn write_diff(
     let json_path = with_suffix(".json");
     std::fs::write(&json_path, serde_json::to_string_pretty(report).unwrap()).unwrap();
     (image_path, json_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn single_pixel(rgba: [u8; 4]) -> RgbaImage {
+        RgbaImage::from_pixel(1, 1, Rgba(rgba))
+    }
+
+    #[test]
+    fn alpha_only_difference_is_reported() {
+        let expected = single_pixel([10, 20, 30, 255]);
+        let actual = single_pixel([10, 20, 30, 200]);
+        let (_, pixels) = get_diff(&expected, &actual, 1, 0).expect("alpha change must be a diff");
+        assert_eq!(pixels[0].difference, [0, 0, 0, -55]);
+    }
+
+    #[test]
+    fn alpha_difference_within_threshold_is_ignored() {
+        let expected = single_pixel([10, 20, 30, 255]);
+        let actual = single_pixel([10, 20, 30, 254]);
+        assert!(get_diff(&expected, &actual, 1, 0).is_none());
+    }
+
+    #[test]
+    fn fully_transparent_pixels_ignore_colour() {
+        let expected = single_pixel([0, 0, 0, 0]);
+        let actual = single_pixel([255, 255, 255, 0]);
+        assert!(get_diff(&expected, &actual, 0, 0).is_none());
+    }
 }
