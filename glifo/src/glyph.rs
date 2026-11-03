@@ -108,13 +108,15 @@ pub enum GlyphSkipReason {
 /// Synthetic embolden settings for a glyph run.
 #[derive(Clone, Copy, Debug)]
 pub struct FontEmbolden {
-    /// Synthetic embolden amount.
+    /// Synthetic embolden amount per side, in pixels at the run's font size.
+    ///
+    /// Like the glyph outlines, the amount is scaled by the run transform.
     pub amount: Diagonal2,
     /// Join style used when expanding outlines.
     pub join: Join,
     /// Miter limit used when expanding outlines.
     pub miter_limit: f64,
-    /// Tolerance used when expanding outlines.
+    /// Tolerance used when expanding outlines, in the same units as `amount`.
     pub tolerance: f64,
 }
 
@@ -450,7 +452,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let PreparedGlyphRun {
             draw_props,
             scene_paint_transform,
-            run_size: _,
+            run_size,
             font_info,
             font_embolden,
             normalized_coords,
@@ -475,13 +477,9 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
-        let scale_props = GlyphScaleProperties::new(
-            draw_props.font_size,
-            font_info.upem,
-            hinted,
-            font_embolden,
-            style,
-        );
+        let scale_props =
+            GlyphScaleProperties::new(draw_props.font_size, font_info.upem, hinted, style);
+        let font_embolden = scale_props.embolden_in_cache_units(font_embolden, run_size);
 
         let mut first_skipped = None;
         let mut skipped_count = 0;
@@ -843,9 +841,10 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             draw_props.font_size,
             font_info.upem,
             hinting_instance.is_some(),
-            font_embolden,
             Style::Fill,
         );
+        let font_embolden =
+            scale_props.embolden_in_cache_units(font_embolden, self.prepared_run.run_size);
         let outline_to_nominal_scale =
             f64::from(self.prepared_run.run_size / scale_props.cache_size);
         let outline_transform = self
@@ -1252,19 +1251,10 @@ struct GlyphScaleProperties {
 }
 
 impl GlyphScaleProperties {
-    fn new(
-        draw_font_size: f32,
-        upem: f32,
-        hinted: bool,
-        embolden: FontEmbolden,
-        style: Style,
-    ) -> Self {
-        let emboldened = embolden.amount != Diagonal2::new(0.0, 0.0);
-        if hinted || emboldened || style == Style::Stroke {
+    fn new(draw_font_size: f32, upem: f32, hinted: bool, style: Style) -> Self {
+        if hinted || style == Style::Stroke {
             // For hinting, we need to preserve the original font size since outlines are
             // scale-dependent.
-            // For emboldening, the expansion amount is in pixels at the draw size, so it must be
-            // applied to outlines at that size rather than in font units.
             // For stroking, we need to preserve the font size because the stroke width would
             // be affected by any additional transform (we could support them
             // in the future by scaling the outlines directly instead of folding the scale into
@@ -1278,6 +1268,24 @@ impl GlyphScaleProperties {
                 cache_size: upem,
                 draw_scale: f64::from(draw_font_size / upem),
             }
+        }
+    }
+
+    /// Convert embolden settings from pixels at the run's font size into the units of the
+    /// cached outline.
+    ///
+    /// The embolden amount and tolerance are in the same space as `GlyphRun::font_size`, so
+    /// emboldening scales with the run transform, like the rest of the glyph. This keeps the
+    /// result independent of whether that transform was folded into the font size.
+    fn embolden_in_cache_units(&self, embolden: FontEmbolden, run_size: f32) -> FontEmbolden {
+        if embolden.amount == Diagonal2::new(0.0, 0.0) || run_size == 0.0 {
+            return embolden;
+        }
+        let factor = f64::from(self.cache_size / run_size);
+        FontEmbolden {
+            amount: Diagonal2::new(embolden.amount.xx * factor, embolden.amount.yy * factor),
+            tolerance: embolden.tolerance * factor,
+            ..embolden
         }
     }
 }
@@ -2610,5 +2618,55 @@ mod tests {
                 skipped_count: 1,
             })
         );
+    }
+
+    #[test]
+    fn embolden_does_not_depend_on_scale_folding() {
+        let embolden = FontEmbolden::new(Diagonal2::new(1.0, 0.5));
+        let run_size = 22.0;
+        let upem = 2048.0;
+        // Embolden amount and tolerance in device pixels, for a run drawn at 2x.
+        let device = |draw_size: f32, hinted: bool, transform_scale: f64| {
+            let props = GlyphScaleProperties::new(draw_size, upem, hinted, Style::Fill);
+            let embolden = props.embolden_in_cache_units(embolden, run_size);
+            let scale = props.draw_scale * transform_scale;
+            [
+                embolden.amount.xx * scale,
+                embolden.amount.yy * scale,
+                embolden.tolerance * scale,
+            ]
+        };
+
+        let expected = [2.0, 1.0, 0.2];
+        for actual in [
+            // Uniform scale folded into the font size.
+            device(44.0, false, 1.0),
+            // Hinted, with the scale folded into the font size.
+            device(44.0, true, 1.0),
+            // Not folded (e.g. rotation or non-uniform scale): the transform scales the outline.
+            device(22.0, false, 2.0),
+        ] {
+            for (actual, expected) in actual.into_iter().zip(expected) {
+                assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
+            }
+        }
+    }
+
+    #[test]
+    fn unhinted_embolden_cache_units_ignore_folded_scale() {
+        // While zooming, the folded draw size changes every frame. The units the outline is
+        // cached in must not, so that emboldened outlines stay cached.
+        let embolden = FontEmbolden::new(Diagonal2::new(0.2, 0.25));
+        let cached = |draw_size: f32| {
+            let props = GlyphScaleProperties::new(draw_size, 2048.0, false, Style::Fill);
+            let embolden = props.embolden_in_cache_units(embolden, 16.0);
+            (
+                props.cache_size.to_bits(),
+                f32_bits(embolden.amount.xx),
+                f32_bits(embolden.amount.yy),
+                f32_bits(embolden.tolerance),
+            )
+        };
+        assert_eq!(cached(16.0), cached(16.48));
     }
 }
