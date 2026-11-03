@@ -1409,23 +1409,29 @@ fn calculate_colr_metrics<'a>(
 
     // TODO: Cache this across frames.
     let colr_info = get_colr_info(font_ref, color_glyph, location, outline_cache, font_info);
-    let bbox = color_glyph
-        // First try to get the clip bbox from the COLR table,
-        // as this one has the highest priority.
+    // First try to get the clip bbox from the COLR table, as this one has the highest priority.
+    let clip_box = color_glyph
         .bounding_box(location, Size::unscaled())
-        .map(convert_bounding_box)
+        .map(convert_bounding_box);
+    let has_clip_box = clip_box.is_some();
+    let bbox = clip_box
         // Otherwise, we use the conservative bounding box we determined before.
         .or(colr_info.bbox)
         .unwrap_or(Rect::ZERO);
 
     // Calculate the position of the rectangle that will contain the rendered pixmap in device
     // coordinates.
-    let scaled_bbox = Rect {
+    let mut scaled_bbox = Rect {
         x0: bbox.x0 * scale_factor_x,
         y0: bbox.y0 * scale_factor_y,
         x1: bbox.x1 * scale_factor_x,
         y1: bbox.y1 * scale_factor_y,
     };
+
+    // Inflate bbox to avoid conflation artifacts, see <https://github.com/linebender/vello/issues/1983>
+    if !has_clip_box && colr_info.bbox.is_some() {
+        scaled_bbox = scaled_bbox.inflate(2.0, 2.0);
+    }
 
     ColrMetrics {
         transform,
