@@ -7,6 +7,7 @@ use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, External
 use crate::render::wgpu::RenderTargetConfig;
 use crate::render::wgpu::bindings::TextureBinding;
 use crate::render::wgpu::passes::{Programs, RendererContext};
+use crate::render::wgpu::resources::GpuResources;
 use crate::util::RangedSlice;
 use crate::{
     GpuStrip,
@@ -322,10 +323,10 @@ impl Programs {
     fn create_run_external_texture_bind_group(
         &self,
         device: &Device,
+        placeholder: &TextureView,
         bindings: &[TextureBinding; EXTERNAL_TEXTURE_SLOT_COUNT],
         samplers: [&Sampler; EXTERNAL_TEXTURE_SLOT_COUNT],
     ) -> BindGroup {
-        let placeholder = &self.resources.placeholder_external_texture_view;
         let [binding] = bindings;
         let (texture_view, wgpu_external_texture) = match binding {
             TextureBinding::TextureView(view) => (
@@ -348,7 +349,9 @@ impl Programs {
             wgpu_external_texture,
         )
     }
+}
 
+impl GpuResources {
     /// Uploads two strip slices (opaque then alpha) into the frame arena and
     /// returns the byte range of the uploaded data.
     fn upload_strip_pair(
@@ -384,13 +387,14 @@ impl Programs {
         offset..offset + total_len
     }
 }
+
 impl RendererContext<'_> {
     fn external_texture_bind_group_for_textures(
         &mut self,
         bindings: ExternalTextureBindings,
     ) -> &BindGroup {
-        let atlas_texture_views = &self.programs.resources.atlas_texture_views;
-        let placeholder = &self.programs.resources.placeholder_external_texture_view;
+        let atlas_texture_views = &self.resources.atlas_texture_views;
+        let placeholder = &self.resources.placeholder_external_texture_view;
         let texture_bindings = self.texture_bindings;
         match self.external_texture_bind_groups.entry(bindings) {
             Entry::Occupied(entry) => entry.into_mut(),
@@ -411,14 +415,15 @@ impl RendererContext<'_> {
                     _ => ExternalSampler::DEFAULT,
                 });
                 let samplers = sampler_keys.map(|key| {
-                    self.programs
+                    self.resources
                         .external_samplers
                         .entry(key)
-                        .or_insert_with(|| Programs::create_external_sampler(self.device, key))
+                        .or_insert_with(|| GpuResources::create_external_sampler(self.device, key))
                         .clone()
                 });
                 let bind_group = self.programs.create_run_external_texture_bind_group(
                     self.device,
+                    placeholder,
                     &slot_bindings,
                     samplers.each_ref(),
                 );
@@ -448,7 +453,7 @@ impl RendererContext<'_> {
         }
 
         let strips_range =
-            self.programs
+            self.resources
                 .upload_strip_pair(self.encoder, opaque_strips, alpha_strips);
         let opaque_count = opaque_count as u32;
         let alpha_count = alpha_count as u32;
@@ -459,54 +464,13 @@ impl RendererContext<'_> {
             // For layer targets we always want to load.
             wgpu::LoadOp::Load
         };
-        let (view, config_buffer, bind_group_target) = match target {
-            DrawPassTarget::Root(_) => (
-                self.view,
-                &self.programs.resources.view_config_buffer,
-                StripTargetKind::Root,
-            ),
-            DrawPassTarget::Layer(id) => (
-                self.programs.resources.layer_view(id),
-                &self.programs.resources.layer_config_buffer,
-                StripTargetKind::Layer,
-            ),
-        };
-        let bind_group_key = (bind_group_target, child_layer_texture);
-        if !self
-            .programs
-            .strip_layer_bind_groups
-            .contains_key(&bind_group_key)
-        {
-            let child_layer_view = child_layer_texture.map_or(
-                &self.programs.resources.placeholder_external_texture_view,
-                |id| self.programs.resources.layer_view(id),
-            );
-            let alphas_texture_view = self
-                .programs
-                .resources
-                .alphas_texture
-                .create_view(&TextureViewDescriptor::default());
-            let bind_group = Programs::create_strip_bind_group(
-                self.device,
-                &self.programs.strip.bind_group_layout,
-                &alphas_texture_view,
-                config_buffer,
-                child_layer_view,
-            );
-            self.programs
-                .strip_layer_bind_groups
-                .insert(bind_group_key, bind_group);
-        }
-
-        let bind_group = &self.programs.strip_layer_bind_groups[&bind_group_key];
-
         let enable_opaque = self.depth_view.is_some() && target.enable_opaque();
 
         let depth_stencil_attachment = if enable_opaque {
-            let depth_load = if self.programs.depth_cleared_this_frame {
+            let depth_load = if self.resources.depth_cleared_this_frame {
                 wgpu::LoadOp::Load
             } else {
-                self.programs.depth_cleared_this_frame = true;
+                self.resources.depth_cleared_this_frame = true;
                 wgpu::LoadOp::Clear(1.0)
             };
             Some(wgpu::RenderPassDepthStencilAttachment {
@@ -522,6 +486,47 @@ impl RendererContext<'_> {
         } else {
             None
         };
+
+        let bind_group_target = match target {
+            DrawPassTarget::Root(_) => StripTargetKind::Root,
+            DrawPassTarget::Layer(_) => StripTargetKind::Layer,
+        };
+        let bind_group_key = (bind_group_target, child_layer_texture);
+        if !self
+            .resources
+            .strip_layer_bind_groups
+            .contains_key(&bind_group_key)
+        {
+            let resources = &*self.resources;
+            let config_buffer = match target {
+                DrawPassTarget::Root(_) => &resources.view_config_buffer,
+                DrawPassTarget::Layer(_) => &resources.layer_config_buffer,
+            };
+            let child_layer_view = child_layer_texture
+                .map_or(&resources.placeholder_external_texture_view, |id| {
+                    resources.layer_view(id)
+                });
+            let alphas_texture_view = resources
+                .alphas_texture
+                .create_view(&TextureViewDescriptor::default());
+            let bind_group = Programs::create_strip_bind_group(
+                self.device,
+                &self.programs.strip.bind_group_layout,
+                &alphas_texture_view,
+                config_buffer,
+                child_layer_view,
+            );
+            self.resources
+                .strip_layer_bind_groups
+                .insert(bind_group_key, bind_group);
+        }
+
+        let resources = &*self.resources;
+        let view = match target {
+            DrawPassTarget::Root(_) => self.view,
+            DrawPassTarget::Layer(id) => resources.layer_view(id),
+        };
+        let bind_group = &resources.strip_layer_bind_groups[&bind_group_key];
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Render to Texture Pass"),
@@ -540,23 +545,13 @@ impl RendererContext<'_> {
             multiview_mask: None,
         });
         render_pass.set_bind_group(0, bind_group, &[]);
-        render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
-        render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
-        render_pass.set_vertex_buffer(
-            0,
-            self.programs
-                .strips_arena
-                .buffer
-                .slice(strips_range.clone()),
-        );
+        render_pass.set_bind_group(2, &resources.encoded_paints_bind_group, &[]);
+        render_pass.set_bind_group(3, &resources.gradient_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, resources.strips_arena.buffer.slice(strips_range.clone()));
 
         let draw_strip_runs = |render_pass: &mut wgpu::RenderPass<'_>, first_instance, count| {
             if external_texture_runs.is_empty() {
-                render_pass.set_bind_group(
-                    1,
-                    &self.programs.resources.empty_external_texture_bind_group,
-                    &[],
-                );
+                render_pass.set_bind_group(1, &resources.empty_external_texture_bind_group, &[]);
                 render_pass.draw(0..4, first_instance..first_instance + count);
 
                 return;

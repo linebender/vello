@@ -9,23 +9,20 @@ pub(crate) mod copy;
 pub(crate) mod filter;
 pub(crate) mod strip;
 
-use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
+use crate::draw::{ExternalTextureBindings, ExternalTextureRun};
 use crate::render::wgpu::RenderTargetConfig;
 use crate::render::wgpu::bindings::TextureBindings;
 use crate::render::wgpu::passes::blend::BlendPipeline;
 use crate::render::wgpu::passes::clear::{ClearPipelines, clear_color};
 use crate::render::wgpu::passes::copy::CopyPipeline;
-use crate::render::wgpu::passes::filter::{
-    FilterPairBindGroups, FilterPipeline, create_filter_original_texture_bind_group,
-};
-use crate::render::wgpu::passes::strip::{StripPipelines, StripTargetKind};
-use crate::render::wgpu::resources::{GpuResources, StripBufferArena, UploadStagingBelt};
+use crate::render::wgpu::passes::filter::FilterPipeline;
+use crate::render::wgpu::passes::strip::StripPipelines;
+use crate::render::wgpu::resources::GpuResources;
 use crate::util::RangedSlice;
 use crate::{
-    ClearSettings, GpuStrip, LayersConfig, RenderSize, TargetInit,
+    ClearSettings, GpuStrip, TargetInit,
     blend::BlendStrip,
     filter::FilterPassPlan,
-    paint::ExternalSampler,
     render::common::ScratchBuffers,
     schedule::{Backend, round::BlendOp},
     target::{
@@ -33,20 +30,16 @@ use crate::{
         RootTarget,
     },
 };
-use alloc::vec;
-use alloc::vec::Vec;
 use core::fmt::Debug;
 use hashbrown::HashMap;
 use vello_common::color::AlphaColor;
 use vello_common::geometry::{RectU16, SizeU16};
-use vello_common::image_cache::ImageCache;
-use vello_common::multi_atlas::AtlasConfig;
 use wgpu::{
     BindGroup, BindGroupLayout, ColorTargetState, ColorWrites, CommandEncoder, Device,
-    PipelineCompilationOptions, RenderPipeline, Sampler, TextureView, TextureViewDescriptor,
+    PipelineCompilationOptions, RenderPipeline, TextureView,
 };
 
-/// Defines the GPU resources and pipelines for rendering.
+/// The pipelines and bind group layouts of the render passes.
 #[derive(Debug)]
 pub(crate) struct Programs {
     /// Bind group layouts and pipelines of the strip pass.
@@ -59,44 +52,16 @@ pub(crate) struct Programs {
     pub(crate) blend: BlendPipeline,
     /// Bind group layout and pipeline of the copy pass.
     pub(crate) copy: CopyPipeline,
-    /// Whether the depth buffer has been cleared this frame.
-    pub(crate) depth_cleared_this_frame: bool,
     /// Bind group layout for encoded paints
     pub(crate) encoded_paints_bind_group_layout: BindGroupLayout,
     /// Bind group layout for gradient texture
     pub(crate) gradient_bind_group_layout: BindGroupLayout,
-    /// Native image samplers shared by external texture slots.
-    external_samplers: HashMap<ExternalSampler, Sampler>,
-    /// Strip bind group cache.
-    pub(crate) strip_layer_bind_groups:
-        HashMap<(StripTargetKind, Option<LayerTextureId>), BindGroup>,
-    /// Blend bind group cache.
-    pub(crate) blend_layer_bind_groups: HashMap<BlendPassBindings, BindGroup>,
-    /// Filter bind group cache.
-    pub(crate) filter_pair_bind_groups: HashMap<FilterPassBindings, FilterPairBindGroups>,
-    /// GPU resources for rendering (created during prepare)
-    pub(crate) resources: GpuResources,
-    /// Arena holding all [`GpuStrip`] data.
-    pub(crate) strips_arena: StripBufferArena,
-    /// Shared staging memory for buffer and texture uploads.
-    pub(crate) staging_belt: UploadStagingBelt,
-    /// Dimensions of the rendering target
-    pub(crate) render_size: RenderSize,
-    /// Offset of the scene within the rendering target.
-    pub(crate) scene_offset: (i32, i32),
-    /// Scratch buffer for staging encoded paints texture data.
-    pub(crate) encoded_paints_data: Vec<u8>,
-    /// Scratch buffer for staging filter data texture data.
-    filter_data: Vec<u8>,
 }
 
 impl Programs {
     pub(crate) fn new(
         device: &Device,
-        image_cache: &ImageCache,
         render_target_config: &RenderTargetConfig,
-        layer_config: LayersConfig,
-        resource_texture_dimension_2d: u32,
         pipeline_cache: Option<&wgpu::PipelineCache>,
     ) -> Self {
         let encoded_paints_bind_group_layout =
@@ -109,172 +74,48 @@ impl Programs {
             &gradient_bind_group_layout,
             pipeline_cache,
         );
-        let clear = ClearPipelines::new(device, render_target_config, pipeline_cache);
-        let filter = FilterPipeline::new(device, pipeline_cache);
-        let blend = BlendPipeline::new(device, pipeline_cache);
-        let copy = CopyPipeline::new(device, pipeline_cache);
-
-        let texture_size = layer_config.min_texture_size;
-
-        // The empty bind group needs a sampler even before any external image is drawn.
-        let mut external_samplers = HashMap::new();
-        external_samplers.insert(
-            ExternalSampler::DEFAULT,
-            Self::create_external_sampler(device, ExternalSampler::DEFAULT),
-        );
-
-        let layer_textures: [Vec<TextureView>; 2] = core::array::from_fn(|_| Vec::new());
-        let scratch_texture = None;
-        let placeholder_external_texture_view = Self::create_placeholder_external_texture(device);
-        let filter_original_bind_group = create_filter_original_texture_bind_group(
-            device,
-            &filter.input_bind_group_layouts[1],
-            &placeholder_external_texture_view,
-        );
-        let layer_config_buffer = Self::create_config_buffer(
-            device,
-            u32::from(texture_size.width()),
-            u32::from(texture_size.height()),
-            resource_texture_dimension_2d,
-        );
-
-        const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
-        let alphas_texture = Self::create_alphas_texture(
-            device,
-            resource_texture_dimension_2d,
-            INITIAL_ALPHA_TEXTURE_HEIGHT,
-        );
-        let view_config_buffer = Self::create_config_buffer(
-            device,
-            u32::from(render_target_config.width),
-            u32::from(render_target_config.height),
-            resource_texture_dimension_2d,
-        );
-
-        let AtlasConfig {
-            atlas_size: (atlas_width, atlas_height),
-            initial_atlas_count,
-            ..
-        } = image_cache.atlas_manager().config();
-        let atlas_size = (*atlas_width, *atlas_height);
-        let atlas_textures: Vec<_> = (0..*initial_atlas_count)
-            .map(|_| Self::create_atlas_texture(device, *atlas_width, *atlas_height))
-            .collect();
-        let atlas_texture_views = atlas_textures
-            .iter()
-            .map(|texture| texture.create_view(&TextureViewDescriptor::default()))
-            .collect();
-        let empty_external_texture_bind_group = Self::create_external_texture_bind_group(
-            device,
-            &strip.external_texture_bind_group_layout,
-            [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
-            [&external_samplers[&ExternalSampler::DEFAULT]; EXTERNAL_TEXTURE_SLOT_COUNT],
-            strip
-                .wgpu_external_textures
-                .then_some(wgpu::BindingResource::TextureView(
-                    &placeholder_external_texture_view,
-                )),
-        );
-
-        const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
-        let encoded_paints_data = vec![
-            0;
-            ((resource_texture_dimension_2d * INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT) << 4)
-                as usize
-        ];
-        let encoded_paints_texture = Self::create_encoded_paints_texture(
-            device,
-            resource_texture_dimension_2d,
-            INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT,
-        );
-        let encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
-            device,
-            &encoded_paints_bind_group_layout,
-            &encoded_paints_texture.create_view(&TextureViewDescriptor::default()),
-        );
-
-        const INITIAL_GRADIENT_TEXTURE_HEIGHT: u32 = 1;
-        let gradient_texture = Self::create_gradient_texture(
-            device,
-            resource_texture_dimension_2d,
-            INITIAL_GRADIENT_TEXTURE_HEIGHT,
-        );
-        let gradient_bind_group = Self::create_gradient_bind_group(
-            device,
-            &gradient_bind_group_layout,
-            &gradient_texture.create_view(&TextureViewDescriptor::default()),
-        );
-
-        // TODO: We really should deduplicate handling of this this with encoded paints texture.
-        const INITIAL_FILTER_TEXTURE_HEIGHT: u32 = 1;
-        let filter_data = vec![
-            0_u8;
-            ((resource_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4)
-                as usize
-        ];
-        let filter_data_texture = Self::create_filter_data_texture(
-            device,
-            resource_texture_dimension_2d,
-            INITIAL_FILTER_TEXTURE_HEIGHT,
-        );
-        let filter_base_bind_group = Self::create_filter_base_bind_group(
-            device,
-            &filter.bind_group_layout,
-            &filter_data_texture.create_view(&TextureViewDescriptor::default()),
-        );
-        let scratch_copy_bind_group = Self::create_copy_bind_group(
-            device,
-            &copy.bind_group_layout,
-            &placeholder_external_texture_view,
-        );
-
-        let resources = GpuResources {
-            layer_textures,
-            scratch_texture,
-            filter_original_bind_group,
-            scratch_copy_bind_group,
-            layer_config_buffer,
-            alphas_texture,
-            resource_texture_dimension_2d,
-            atlas_textures,
-            atlas_texture_views,
-            atlas_size,
-            placeholder_external_texture_view,
-            empty_external_texture_bind_group,
-            encoded_paints_texture,
-            encoded_paints_bind_group,
-            gradient_texture,
-            gradient_bind_group,
-            filter_data_texture,
-            filter_base_bind_group,
-            texture_size,
-            view_config_buffer,
-        };
 
         Self {
             strip,
-            clear,
-            filter,
-            blend,
-            copy,
-            depth_cleared_this_frame: false,
+            clear: ClearPipelines::new(device, render_target_config, pipeline_cache),
+            filter: FilterPipeline::new(device, pipeline_cache),
+            blend: BlendPipeline::new(device, pipeline_cache),
+            copy: CopyPipeline::new(device, pipeline_cache),
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
-            resources,
-            strips_arena: StripBufferArena::new(device),
-            staging_belt: UploadStagingBelt::new(device),
-            encoded_paints_data,
-            filter_data,
-            render_size: RenderSize {
-                width: render_target_config.width,
-                height: render_target_config.height,
-            },
-            scene_offset: (0, 0),
-            external_samplers,
-            strip_layer_bind_groups: HashMap::new(),
-            blend_layer_bind_groups: HashMap::new(),
-            filter_pair_bind_groups: HashMap::new(),
         }
+    }
+
+    pub(crate) fn create_encoded_paints_bind_group_layout(device: &Device) -> BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Encoded Paints Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Uint,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        })
+    }
+
+    pub(crate) fn create_gradient_bind_group_layout(device: &Device) -> BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Gradient Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        })
     }
 }
 
@@ -320,7 +161,8 @@ fn create_texture_op_pipeline(
 /// A struct containing references to the many objects needed to get work
 /// scheduled onto the GPU.
 pub(crate) struct RendererContext<'a> {
-    pub(crate) programs: &'a mut Programs,
+    pub(crate) programs: &'a Programs,
+    pub(crate) resources: &'a mut GpuResources,
     pub(crate) device: &'a Device,
     pub(crate) encoder: &'a mut CommandEncoder,
     pub(crate) view: &'a TextureView,
@@ -359,7 +201,7 @@ impl RendererContext<'_> {
     }
 
     fn texture_size(&self) -> SizeU16 {
-        self.programs.resources.texture_size
+        self.resources.texture_size
     }
 }
 

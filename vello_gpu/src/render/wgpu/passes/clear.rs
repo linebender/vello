@@ -162,7 +162,7 @@ impl RendererContext<'_> {
 
         let view = match target {
             DrawPassTarget::Root(_) => self.view,
-            DrawPassTarget::Layer(target) => self.programs.resources.layer_view(target),
+            DrawPassTarget::Layer(target) => self.resources.layer_view(target),
         };
         let rects = match settings {
             ClearSettings::Viewport { .. } => {
@@ -176,8 +176,8 @@ impl RendererContext<'_> {
         let (target_size, pipeline) = match target {
             DrawPassTarget::Root(_) => (
                 [
-                    self.programs.render_size.width,
-                    self.programs.render_size.height,
+                    self.resources.render_size.width,
+                    self.resources.render_size.height,
                 ],
                 &self.programs.clear.root,
             ),
