@@ -21,7 +21,7 @@ pub use bindings::{TextureBinding, TextureBindings};
 #[cfg(feature = "probe")]
 pub use probe::{WgpuPendingProbe, WgpuProbeError, WgpuProbeStatus};
 
-use crate::render::common::{IMAGE_PADDING, SharedCore};
+use crate::render::common::{IMAGE_PADDING, ScenePreparer};
 use crate::{
     ClearSettings, GpuStrip, RenderError, RenderSettings, RenderSize, Resources, TargetInit,
     render::common::DeviceLimits, scene::Scene, schedule::IntermediateTextureAllocations,
@@ -114,8 +114,8 @@ pub struct Renderer {
     queue: Queue,
     /// Programs for rendering.
     programs: Programs,
-    /// Backend-independent renderer state.
-    core: SharedCore,
+    /// Encodes scenes and schedules their rendering.
+    scene_preparer: ScenePreparer,
     /// Format of the render target that the pipelines are created for.
     #[cfg_attr(
         not(feature = "probe"),
@@ -156,7 +156,7 @@ impl Renderer {
             max_texture_dimension_2d: u16::try_from(limits.max_texture_dimension_2d)
                 .unwrap_or(u16::MAX),
         };
-        let (core, resources) = SharedCore::new(&mut settings, &device_limits);
+        let (scene_preparer, resources) = ScenePreparer::new(&mut settings, &device_limits);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
 
         let renderer = Self {
@@ -166,11 +166,11 @@ impl Renderer {
                 device,
                 &resources.image_cache,
                 render_target_config,
-                core.layers_config,
+                scene_preparer.layers_config,
                 resource_texture_dimension_2d,
                 settings.pipeline_cache.as_ref(),
             ),
-            core,
+            scene_preparer,
             target_format: render_target_config.format,
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
@@ -321,7 +321,7 @@ impl Renderer {
             self.programs.resources.atlas_texture_views[atlas_id.as_u32() as usize].clone();
 
         let dummy_image_cache = self
-            .core
+            .scene_preparer
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
@@ -337,7 +337,7 @@ impl Renderer {
             texture_bindings,
             (0, 0),
         );
-        self.core.dummy_image_cache = Some(dummy_image_cache);
+        self.scene_preparer.dummy_image_cache = Some(dummy_image_cache);
 
         // Submit immediately so the atlas content is committed before subsequent
         // render() calls overwrite the shared alpha/config/paint resources.
@@ -375,7 +375,7 @@ impl Renderer {
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
         let current_allocations = self.current_allocations();
-        let schedule = self.core.prepare(
+        let schedule = self.scene_preparer.prepare(
             scene,
             image_cache,
             root_output_target,
@@ -394,26 +394,19 @@ impl Renderer {
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
-        let strip_count = self
-            .core
-            .schedule_storage
-            .buffers
-            .draw_buffers
-            .opaque
-            .strips()
-            .len()
-            + self.core.schedule_storage.buffers.draw_buffers.strips.len();
+        let draw_buffers = &self.scene_preparer.schedule_storage.buffers.draw_buffers;
+        let strip_count = draw_buffers.opaque.strips().len() + draw_buffers.strips.len();
         let strip_bytes = (strip_count * size_of::<GpuStrip>()) as u64;
         self.programs.prepare(
             &self.device,
             encoder,
-            &mut self.core.gradient_cache,
-            &self.core.encoded_paints,
+            &mut self.scene_preparer.gradient_cache,
+            &self.scene_preparer.encoded_paints,
             &scene.strip_storage.borrow().alphas,
             render_size,
             scene_offset,
-            &self.core.paint_idxs,
-            &self.core.schedule_storage.filter_context,
+            &self.scene_preparer.paint_idxs,
+            &self.scene_preparer.schedule_storage.filter_context,
         );
 
         self.programs
@@ -428,7 +421,7 @@ impl Renderer {
             depth_view,
             texture_bindings,
             external_texture_bind_groups: HashMap::new(),
-            scratch_buffers: &mut self.core.scratch_buffers,
+            scratch_buffers: &mut self.scene_preparer.scratch_buffers,
             root_load_op: wgpu::LoadOp::Load,
         };
 
@@ -436,7 +429,7 @@ impl Renderer {
 
         crate::schedule::execute(
             &mut ctx,
-            &mut self.core.schedule_storage,
+            &mut self.scene_preparer.schedule_storage,
             schedule,
             root_output_target,
         )
@@ -444,7 +437,7 @@ impl Renderer {
 
         ctx.finish_root_clear();
 
-        self.core.gradient_cache.maintain();
+        self.scene_preparer.gradient_cache.maintain();
 
         self.programs
             .staging_belt

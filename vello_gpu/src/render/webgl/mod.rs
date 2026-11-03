@@ -45,7 +45,7 @@ pub use error::{
 pub use init::{ShaderCompilationStats, WebGlRendererInit, WebGlRendererInitStatus};
 pub use target::{WebGlRenderTarget, WebGlTextureTarget};
 
-use crate::render::common::{IMAGE_PADDING, SharedCore};
+use crate::render::common::{IMAGE_PADDING, ScenePreparer};
 use crate::{
     ClearSettings, RenderError, RenderSize, Resources, TargetInit,
     scene::Scene,
@@ -85,8 +85,8 @@ pub struct WebGlRenderer {
     pub(super) resources: WebGlResources,
     /// WebGL context.
     pub(crate) gl: WebGl2RenderingContext,
-    /// Backend-independent renderer state.
-    core: SharedCore,
+    /// Encodes scenes and schedules their rendering.
+    scene_preparer: ScenePreparer,
 }
 
 /// Options for [`WebGlRenderer::render`].
@@ -260,7 +260,7 @@ impl WebGlRenderer {
         let target = self.resources.atlas_targets[atlas_id.as_u32() as usize].clone();
         // TODO: Explore using an option instead of a dummy image cache.
         let dummy_image_cache = self
-            .core
+            .scene_preparer
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
@@ -276,7 +276,7 @@ impl WebGlRenderer {
                 (0, 0),
             )
         });
-        self.core.dummy_image_cache = Some(dummy_image_cache);
+        self.scene_preparer.dummy_image_cache = Some(dummy_image_cache);
 
         result
     }
@@ -319,7 +319,7 @@ impl WebGlRenderer {
         let use_depth_buffer = self.resources.root_uses_depth_buffer();
 
         let current_allocations = self.current_allocations();
-        let schedule = self.core.prepare(
+        let schedule = self.scene_preparer.prepare(
             scene,
             image_cache,
             root_output_target,
@@ -343,13 +343,13 @@ impl WebGlRenderer {
         // buffer fills.
         self.resources.prepare(
             &self.gl,
-            &mut self.core.gradient_cache,
-            &self.core.encoded_paints,
+            &mut self.scene_preparer.gradient_cache,
+            &self.scene_preparer.encoded_paints,
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
             scene_offset,
-            &self.core.paint_idxs,
-            &self.core.schedule_storage.filter_context,
+            &self.scene_preparer.paint_idxs,
+            &self.scene_preparer.schedule_storage.filter_context,
             root_output_target,
         )?;
         self.resources.depth_cleared_this_frame = false;
@@ -358,7 +358,7 @@ impl WebGlRenderer {
             resources: &mut self.resources,
             gl: &self.gl,
             texture_bindings,
-            scratch_buffers: &mut self.core.scratch_buffers,
+            scratch_buffers: &mut self.scene_preparer.scratch_buffers,
             use_depth_buffer,
         };
         if let TargetInit::Clear(clear) = target_init {
@@ -366,7 +366,7 @@ impl WebGlRenderer {
         }
         crate::schedule::execute(
             &mut ctx,
-            &mut self.core.schedule_storage,
+            &mut self.scene_preparer.schedule_storage,
             schedule,
             root_output_target,
         )?;
@@ -393,7 +393,7 @@ impl WebGlRenderer {
                 ))?;
         }
 
-        self.core.gradient_cache.maintain();
+        self.scene_preparer.gradient_cache.maintain();
 
         Ok(())
     }

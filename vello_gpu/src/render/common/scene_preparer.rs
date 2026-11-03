@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Renderer state and steps shared by all backends.
+//! Scene preparation shared by all backends.
 
 use super::paint::{
     GpuEncodedPaint, encode_blurred_rounded_rect_paint, encode_gradient_paint, encode_image_paint,
@@ -22,9 +22,9 @@ use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::image_cache::ImageCache;
 use vello_common::paint::{ImageSource, TextureRegion};
 
-/// Renderer state that doesn't depend on the backend.
+/// Encodes the paints of a scene for the GPU and schedules the passes that render it.
 #[derive(Debug)]
-pub(crate) struct SharedCore {
+pub(crate) struct ScenePreparer {
     /// GPU encodings of the scene's encoded paints, in the same order.
     pub(crate) encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
@@ -37,9 +37,9 @@ pub(crate) struct SharedCore {
     pub(crate) layers_config: LayersConfig,
 }
 
-impl SharedCore {
-    /// Normalizes the memory settings in `settings` to `device_limits`, then creates the renderer
-    /// state and the persistent resources.
+impl ScenePreparer {
+    /// Normalizes the memory settings in `settings` to `device_limits`, then creates the scene
+    /// preparer and the persistent resources.
     pub(crate) fn new(
         settings: &mut RenderSettings,
         device_limits: &DeviceLimits,
@@ -52,7 +52,7 @@ impl SharedCore {
         let max_gradient_cache_size = resource_texture_dimension_2d * resource_texture_dimension_2d
             / u32::try_from(MAX_GRADIENT_LUT_SIZE).unwrap();
 
-        let core = Self {
+        let scene_preparer = Self {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gradient_cache: GradientRampCache::new(max_gradient_cache_size, settings.level),
@@ -62,7 +62,7 @@ impl SharedCore {
             layers_config: settings.memory_settings.layers_config,
         };
 
-        (core, resources)
+        (scene_preparer, resources)
     }
 
     /// Encodes the paints of `scene` for the GPU and schedules the passes that render it.
