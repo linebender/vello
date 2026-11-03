@@ -9,9 +9,9 @@ members = [
     "research/xtask",
 
     "research/examples/headless",
-    "tools/run_wasm",
     "research/examples/scenes",
     "research/examples/simple",
+    "research/examples/simple_sdl3",
     "research/examples/with_winit",
 
     "vello_cpu",
@@ -34,6 +34,8 @@ members = [
     "vello_tests/vello_example_scenes",
     "vello_gpu/examples/wgpu_video",
     "glifo",
+
+    "tools/run_wasm",
 ]
 
 [workspace.package]
