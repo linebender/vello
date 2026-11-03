@@ -3,7 +3,7 @@
 Guidance for AI coding agents working in the Vello repository. Read
 [README.md](README.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for the full picture.
 
-## Contribution policy (read first)
+## Contribution policy
 
 Vello follows the [Linebender LLM contribution policy][llm-policy]. The goal is
 quality: a maintainer should never spend more time reading something than it
@@ -19,20 +19,25 @@ took to produce. In practice, as an agent:
   the author must read, edit, and stand behind every sentence. Follow
   [Writing PR descriptions](#writing-pr-descriptions).
 - **Remind the author to disclose LLM use** in the PR description, including
-  code written from an LLM-proposed plan. Do not add "no AI was used" claims.
-- **Issues need triage, not volume.** Do not batch-file findings from fuzzing or
-  repo-wide scans. A good issue has a minimized repro (using AI to reduce it is
-  fine), a check for duplicates, and an analysis of the likely cause.
+  code written from an LLM-proposed plan.
+- **Issues are drafts too.** Follow [Writing issues](#writing-issues).
 
 ## Comments
 
-- Doc comments (required on public items by `missing_docs`) state the contract:
-  invariants, units, panics or errors, and non-obvious behavior. Do not restate
-  the name or signature.
+- Doc comments state the contract: invariants, units, panics or errors, and
+  non-obvious behavior. Do not restate the name, signature, or implementation.
 - Code comments explain what the code cannot show, such as a constraint, an
   invariant, or a driver workaround. Do not narrate the next line or refer to
   the change that introduced it.
 - Match the comment density of the surrounding code.
+
+## Tests
+
+- When a bug or feature is visible in the rendered output, prefer a
+  `#[vello_test]` snapshot test in `vello_tests/tests/` over a unit test. A
+  snapshot shows at a glance whether the output is right, and it survives
+  changes to internal APIs.
+- Use unit tests for behavior that a snapshot cannot show.
 
 ## Making changes easy to review
 
@@ -57,8 +62,9 @@ how the author should commit:
 
 ## Writing PR descriptions
 
-Reviewers can read the diff; the description should tell them what the diff
-cannot. Keep it short and include only the parts that apply:
+Keep descriptions short; a long description buries what reviewers need, and a
+few sentences is often enough. Reviewers can read the diff, so cover only what
+it cannot, and include only the parts that apply:
 
 - **Why**: the problem or motivation, with links to issues or discussions.
 - **How it works**, when the approach is not obvious from the code.
@@ -78,5 +84,17 @@ cannot. Keep it short and include only the parts that apply:
 
 Leave out file-by-file summaries, restated code, generic claims ("improves
 robustness"), and empty headings.
+
+## Writing issues
+
+- Never create issues yourself; only draft them for the human author.
+- Keep issues short. Long descriptions obscure the actionable information. The
+  most important part is what input led to what outcome; explain why the
+  outcome is wrong only when that is not obvious. Disclose LLM use.
+- Do not include a suggested fix, even if you found one. Maintainers will find
+  the right fix.
+- Do not batch-file findings from fuzzing or repo-wide scans. Suggest that the
+  author share them on Zulip instead, so maintainers can decide how to track
+  them.
 
 [llm-policy]: https://linebender.org/wiki/llm-policy/
