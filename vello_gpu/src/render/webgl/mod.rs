@@ -56,6 +56,7 @@ use alloc::vec::Vec;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use passes::{WebGlPrograms, WebGlRendererContext};
+use resources::WebGlResources;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
@@ -80,6 +81,8 @@ use web_sys::{WebGl2RenderingContext, WebGlRenderbuffer, WebGlTexture};
 pub struct WebGlRenderer {
     /// Programs for rendering.
     pub(super) programs: WebGlPrograms,
+    /// GPU resources for rendering.
+    pub(super) resources: WebGlResources,
     /// WebGL context.
     pub(crate) gl: WebGl2RenderingContext,
     /// Backend-independent renderer state.
@@ -246,7 +249,7 @@ impl WebGlRenderer {
         atlas_id: AtlasId,
         texture_bindings: &WebGlTextureBindings,
     ) -> Result<(), WebGlError> {
-        self.programs
+        self.resources
             .maybe_create_atlas_textures(&self.gl, atlas_count)?;
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
@@ -254,7 +257,7 @@ impl WebGlRenderer {
             width: atlas_width,
             height: atlas_height,
         };
-        let target = self.programs.resources.atlas_targets[atlas_id.as_u32() as usize].clone();
+        let target = self.resources.atlas_targets[atlas_id.as_u32() as usize].clone();
         // TODO: Explore using an option instead of a dummy image cache.
         let dummy_image_cache = self
             .core
@@ -286,21 +289,16 @@ impl WebGlRenderer {
         target: &WebGlTextureTarget,
         render: impl FnOnce(&mut Self) -> Result<(), WebGlError>,
     ) -> Result<(), WebGlError> {
-        let previous_target = self.programs.resources.root_target.replace(target.clone());
+        let previous_target = self.resources.root_target.replace(target.clone());
         let result = render(self);
-        self.programs.resources.root_target = previous_target;
+        self.resources.root_target = previous_target;
         result
     }
 
     fn current_allocations(&self) -> IntermediateTextureAllocations {
         IntermediateTextureAllocations {
-            layer_pages: self
-                .programs
-                .resources
-                .layer_textures
-                .each_ref()
-                .map(Vec::len),
-            scratch: self.programs.resources.scratch_texture.is_some(),
+            layer_pages: self.resources.layer_textures.each_ref().map(Vec::len),
+            scratch: self.resources.scratch_texture.is_some(),
         }
     }
 
@@ -318,7 +316,7 @@ impl WebGlRenderer {
         render_target_texture: Option<&WebGlTexture>,
         scene_offset: (i32, i32),
     ) -> Result<(), WebGlError> {
-        let use_depth_buffer = self.programs.resources.root_uses_depth_buffer();
+        let use_depth_buffer = self.resources.root_uses_depth_buffer();
 
         let current_allocations = self.current_allocations();
         let schedule = self.core.prepare(
@@ -331,19 +329,19 @@ impl WebGlRenderer {
                 scene_offset,
             ),
             use_depth_buffer,
-            self.programs.resources.texture_size,
+            self.resources.texture_size,
             current_allocations,
             |id, image, region| {
                 texture_bindings.encode_paint(id, image, region, render_target_texture)
             },
         )?;
-        self.programs
+        self.resources
             .prepare_intermediate_textures(&self.gl, &schedule)?;
 
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
-        self.programs.prepare(
+        self.resources.prepare(
             &self.gl,
             &mut self.core.gradient_cache,
             &self.core.encoded_paints,
@@ -354,9 +352,10 @@ impl WebGlRenderer {
             &self.core.schedule_storage.filter_context,
             root_output_target,
         )?;
-        self.programs.resources.depth_cleared_this_frame = false;
+        self.resources.depth_cleared_this_frame = false;
         let mut ctx = WebGlRendererContext {
-            programs: &mut self.programs,
+            programs: &self.programs,
+            resources: &mut self.resources,
             gl: &self.gl,
             texture_bindings,
             scratch_buffers: &mut self.core.scratch_buffers,
@@ -374,19 +373,19 @@ impl WebGlRenderer {
 
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            self.programs.resources.root_framebuffer(),
+            self.resources.root_framebuffer(),
         );
-        if self.programs.resources.depth_cleared_this_frame {
+        if self.resources.depth_cleared_this_frame {
             // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
             // We want to indicate to the GPU driver that we won't read the depth buffer again
             // until the next clear. This enables the GPU to avoid storing depth tiles back to VRAM.
             self.gl
                 .invalidate_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    if self.programs.resources.root_target.is_some() {
-                        &self.programs.resources.offscreen_depth_attachment_array
+                    if self.resources.root_target.is_some() {
+                        &self.resources.offscreen_depth_attachment_array
                     } else {
-                        &self.programs.resources.default_depth_attachment_array
+                        &self.resources.default_depth_attachment_array
                     },
                 )
                 .map_js_error(WebGlOperation::DataTransfer(
@@ -469,12 +468,12 @@ impl WebGlRenderer {
             .get(image_id)
             .ok_or(RenderError::MissingImage(image_id))?;
 
-        self.programs
+        self.resources
             .maybe_create_atlas_textures(&self.gl, image_cache.atlas_count() as u32)?;
         let offset = offset_override.unwrap_or(image_resource.offset);
         writer.write_to_atlas(
             &self.gl,
-            &self.programs.resources.atlas_textures[image_resource.atlas_id.as_u32() as usize],
+            &self.resources.atlas_textures[image_resource.atlas_id.as_u32() as usize],
             offset,
             writer.width(),
             writer.height(),
@@ -509,8 +508,7 @@ impl WebGlRenderer {
 
     /// Returns an individual image atlas texture.
     pub fn atlas_texture(&self, atlas_id: AtlasId) -> &WebGlTexture {
-        self.programs
-            .resources
+        self.resources
             .atlas_textures
             .get(atlas_id.as_u32() as usize)
             .map(|texture| &**texture)
@@ -519,7 +517,7 @@ impl WebGlRenderer {
 
     /// Returns the current allocation state of the image/glyph atlas texture.
     pub fn atlas_info(&self) -> AtlasTextureInfo {
-        let resources = &self.programs.resources;
+        let resources = &self.resources;
         AtlasTextureInfo {
             width: resources.atlas_size.0,
             height: resources.atlas_size.1,
@@ -537,11 +535,11 @@ impl WebGlRenderer {
     ) -> Result<(), WebGlError> {
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            Some(&self.programs.resources.atlas_targets[atlas_id.as_u32() as usize].framebuffer),
+            Some(&self.resources.atlas_targets[atlas_id.as_u32() as usize].framebuffer),
         );
 
         // Set viewport to match the atlas texture dimensions
-        let (atlas_width, atlas_height) = self.programs.resources.atlas_size;
+        let (atlas_width, atlas_height) = self.resources.atlas_size;
         self.gl
             .viewport(0, 0, i32::from(atlas_width), i32::from(atlas_height));
 

@@ -4,7 +4,6 @@
 //! Creation and growth of the renderer's GPU resources.
 
 use crate::render::webgl::gl::resource::{Buffer, Framebuffer, Sampler, Texture, VertexArray};
-use crate::render::webgl::passes::WebGlPrograms;
 use crate::render::webgl::target::{WebGlTextureTarget, create_framebuffer_for_texture};
 use crate::render::webgl::{
     WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResultExt,
@@ -21,6 +20,7 @@ use crate::{
     schedule::Schedule,
     target::{DrawPassTarget, LayerTextureId, RootTarget},
 };
+use alloc::vec;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 use vello_common::image_cache::ImageCache;
@@ -101,6 +101,16 @@ pub(crate) struct WebGlResources {
     pub(crate) layer_config_buffer: Buffer,
     /// Layer texture pages grouped by parity.
     pub(crate) layer_textures: [Vec<WebGlIntermediateTexture>; 2],
+    /// Dimensions of the rendering target.
+    pub(crate) render_size: RenderSize,
+    /// Whether the last config buffer upload had NDC Y negation enabled.
+    pub(crate) negate_ndc: bool,
+    /// Offset of the scene within the rendering target.
+    pub(crate) scene_offset: (i32, i32),
+    /// Scratch buffer for staging encoded paints texture data.
+    pub(crate) encoded_paints_data: Vec<u8>,
+    /// Scratch buffer for staging filter data texture data.
+    pub(crate) filter_data: Vec<u8>,
 }
 
 impl WebGlResources {
@@ -157,7 +167,7 @@ impl WebGlIntermediateTexture {
     }
 }
 
-impl WebGlPrograms {
+impl WebGlResources {
     /// Prepare resources for rendering.
     pub(crate) fn prepare(
         &mut self,
@@ -171,7 +181,7 @@ impl WebGlPrograms {
         filter_context: &FilterContext,
         root_target: RootTarget,
     ) -> Result<(), WebGlError> {
-        let resource_texture_dimension_2d = self.resources.resource_texture_dimension_2d;
+        let resource_texture_dimension_2d = self.resource_texture_dimension_2d;
 
         self.maybe_resize_alphas_tex(gl, resource_texture_dimension_2d, alphas.len())?;
         self.maybe_resize_encoded_paints_tex(gl, resource_texture_dimension_2d, paint_idxs)?;
@@ -203,7 +213,7 @@ impl WebGlPrograms {
         gl: &WebGl2RenderingContext,
         schedule: &Schedule,
     ) -> Result<(), WebGlError> {
-        let current_size = self.resources.texture_size;
+        let current_size = self.texture_size;
         let requirements = schedule.intermediate_texture_requirements();
         let texture_size = requirements.size;
         let allocations = requirements.allocations;
@@ -214,13 +224,13 @@ impl WebGlPrograms {
         if size_changed {
             upload_layer_config_buffer(
                 gl,
-                &self.resources.layer_config_buffer,
+                &self.layer_config_buffer,
                 texture_size,
-                self.resources.resource_texture_dimension_2d,
+                self.resource_texture_dimension_2d,
             );
         }
 
-        for (index, textures) in self.resources.layer_textures.iter_mut().enumerate() {
+        for (index, textures) in self.layer_textures.iter_mut().enumerate() {
             let required_page_count = layer_pages[index];
 
             // When resizing textures, we explicitly first destroy the old textures before creating
@@ -244,19 +254,20 @@ impl WebGlPrograms {
             }
         }
 
-        let recreate_scratch = (self.resources.scratch_texture.is_some() && size_changed)
-            || (self.resources.scratch_texture.is_none() && scratch_required);
+        let recreate_scratch = (self.scratch_texture.is_some() && size_changed)
+            || (self.scratch_texture.is_none() && scratch_required);
 
         if recreate_scratch {
             // Make sure the old texture is destroyed first.
-            let _ = self.resources.scratch_texture.take();
+            let _ = self.scratch_texture.take();
 
-            self.resources.scratch_texture = Some(ScratchTexture::new(
-                create_intermediate_texture(gl, texture_size)?,
-            ));
+            self.scratch_texture = Some(ScratchTexture::new(create_intermediate_texture(
+                gl,
+                texture_size,
+            )?));
         }
 
-        self.resources.texture_size = texture_size;
+        self.texture_size = texture_size;
 
         Ok(())
     }
@@ -267,13 +278,12 @@ impl WebGlPrograms {
         gl: &WebGl2RenderingContext,
         required_atlas_count: u32,
     ) -> Result<(), WebGlError> {
-        let (width, height) = self.resources.atlas_size;
-        while self.resources.atlas_textures.len() < required_atlas_count as usize {
+        let (width, height) = self.atlas_size;
+        while self.atlas_textures.len() < required_atlas_count as usize {
             let texture = create_atlas_texture(gl, width, height)?;
-            self.resources
-                .atlas_targets
+            self.atlas_targets
                 .push(WebGlTextureTarget::for_atlas(gl, &texture, width, height)?);
-            self.resources.atlas_textures.push(texture);
+            self.atlas_textures.push(texture);
         }
 
         Ok(())
@@ -290,7 +300,7 @@ impl WebGlPrograms {
             // There are 16 1-byte alpha values per texel.
             .div_ceil(resource_texture_dimension_2d << 4);
 
-        let current_alpha_height = self.resources.alpha_texture_height;
+        let current_alpha_height = self.alpha_texture_height;
         if required_alpha_height > current_alpha_height {
             validate_resource_texture_size(
                 resource_texture_dimension_2d,
@@ -299,13 +309,13 @@ impl WebGlPrograms {
             )?;
 
             // We need to resize the alpha texture to fit the new alpha data.
-            self.resources.alphas_texture = create_data_texture_storage(
+            self.alphas_texture = create_data_texture_storage(
                 gl,
                 WebGl2RenderingContext::RGBA32UI,
                 resource_texture_dimension_2d,
                 required_alpha_height,
             )?;
-            self.resources.alpha_texture_height = required_alpha_height;
+            self.alpha_texture_height = required_alpha_height;
         }
 
         Ok(())
@@ -321,7 +331,7 @@ impl WebGlPrograms {
         let required_texels = paint_idxs.last().unwrap();
         let required_encoded_paints_height =
             required_texels.div_ceil(resource_texture_dimension_2d);
-        let current_encoded_paints_height = self.resources.encoded_paints_texture_height;
+        let current_encoded_paints_height = self.encoded_paints_texture_height;
         if required_encoded_paints_height > current_encoded_paints_height {
             validate_resource_texture_size(
                 resource_texture_dimension_2d,
@@ -333,13 +343,13 @@ impl WebGlPrograms {
                 (resource_texture_dimension_2d * required_encoded_paints_height) << 4;
             self.encoded_paints_data
                 .resize(required_encoded_paints_size as usize, 0);
-            self.resources.encoded_paints_texture = create_data_texture_storage(
+            self.encoded_paints_texture = create_data_texture_storage(
                 gl,
                 WebGl2RenderingContext::RGBA32UI,
                 resource_texture_dimension_2d,
                 required_encoded_paints_height,
             )?;
-            self.resources.encoded_paints_texture_height = required_encoded_paints_height;
+            self.encoded_paints_texture_height = required_encoded_paints_height;
         }
 
         Ok(())
@@ -361,7 +371,7 @@ impl WebGlPrograms {
         let required_gradient_height =
             (gradient_data_size as u32).div_ceil(resource_texture_dimension_2d * 4);
 
-        let current_gradient_height = self.resources.gradient_texture_height;
+        let current_gradient_height = self.gradient_texture_height;
         if required_gradient_height > current_gradient_height {
             validate_resource_texture_size(
                 resource_texture_dimension_2d,
@@ -369,13 +379,13 @@ impl WebGlPrograms {
                 resource_texture_dimension_2d,
             )?;
 
-            self.resources.gradient_texture = create_data_texture_storage(
+            self.gradient_texture = create_data_texture_storage(
                 gl,
                 WebGl2RenderingContext::RGBA8,
                 resource_texture_dimension_2d,
                 required_gradient_height,
             )?;
-            self.resources.gradient_texture_height = required_gradient_height;
+            self.gradient_texture_height = required_gradient_height;
         }
 
         Ok(())
@@ -410,7 +420,7 @@ impl WebGlPrograms {
 
             gl.bind_buffer(
                 WebGl2RenderingContext::UNIFORM_BUFFER,
-                Some(&self.resources.view_config_buffer),
+                Some(&self.view_config_buffer),
             );
             gl.buffer_data_with_u8_array(
                 WebGl2RenderingContext::UNIFORM_BUFFER,
@@ -434,7 +444,7 @@ impl WebGlPrograms {
             return Ok(());
         }
 
-        let alpha_texture_width = self.resources.resource_texture_dimension_2d;
+        let alpha_texture_width = self.resource_texture_dimension_2d;
         // There are 16 1-byte alpha values per texel.
         let used_height = (alphas.len() as u32).div_ceil(alpha_texture_width << 4);
         let used_size = (alpha_texture_width as usize) * (used_height as usize) * 16;
@@ -446,7 +456,7 @@ impl WebGlPrograms {
 
         let result = upload_rgba32ui_rows(
             gl,
-            &self.resources.alphas_texture,
+            &self.alphas_texture,
             bytemuck::cast_slice::<u8, u32>(alphas),
             alpha_texture_width,
             used_height,
@@ -466,7 +476,7 @@ impl WebGlPrograms {
         paint_idxs: &[u32],
     ) -> Result<(), WebGlError> {
         if !encoded_paints.is_empty() {
-            let encoded_paints_texture_width = self.resources.resource_texture_dimension_2d;
+            let encoded_paints_texture_width = self.resource_texture_dimension_2d;
             let used_texels = *paint_idxs.last().unwrap();
             let used_height = used_texels.div_ceil(encoded_paints_texture_width);
             let used_size = ((encoded_paints_texture_width * used_height) << 4) as usize;
@@ -475,7 +485,7 @@ impl WebGlPrograms {
 
             upload_rgba32ui_rows(
                 gl,
-                &self.resources.encoded_paints_texture,
+                &self.encoded_paints_texture,
                 bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data[..used_size]),
                 encoded_paints_texture_width,
                 used_height,
@@ -495,7 +505,7 @@ impl WebGlPrograms {
             return Ok(());
         }
 
-        let gradient_texture_width = self.resources.resource_texture_dimension_2d;
+        let gradient_texture_width = self.resource_texture_dimension_2d;
         // Each texel is RGBA8, so 4 bytes per texel. Only the rows covering the LUT cache are
         // uploaded; see `upload_alpha_texture`.
         let used_height = (gradient_cache.luts_size() as u32).div_ceil(gradient_texture_width * 4);
@@ -509,7 +519,7 @@ impl WebGlPrograms {
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.resources.gradient_texture),
+            Some(&self.gradient_texture),
         );
 
         let result = gl
@@ -838,6 +848,14 @@ pub(crate) fn create_webgl_resources(
         scratch_texture,
         layer_config_buffer,
         layer_textures,
+        render_size: RenderSize {
+            width: 0,
+            height: 0,
+        },
+        negate_ndc: false,
+        scene_offset: (0, 0),
+        encoded_paints_data: vec![0; (resource_texture_dimension_2d << 4) as usize],
+        filter_data: Vec::new(),
     })
 }
 

@@ -6,9 +6,7 @@
 use crate::copy::GpuCopyInstance;
 use crate::render::webgl::WebGlError;
 use crate::render::webgl::gl::resource::Program;
-use crate::render::webgl::passes::{
-    WebGlPrograms, initialize_packed_u32_attribs, required_uniform_location,
-};
+use crate::render::webgl::passes::{initialize_packed_u32_attribs, required_uniform_location};
 use crate::render::webgl::resources::WebGlResources;
 use vello_gpu_shaders::copy;
 use web_sys::{WebGl2RenderingContext, WebGlUniformLocation};
@@ -18,7 +16,7 @@ pub(crate) struct CopyUniforms {
     pub(crate) source_texture: WebGlUniformLocation,
 }
 
-impl WebGlPrograms {
+impl WebGlResources {
     pub(crate) fn upload_copy_instances(
         &self,
         gl: &WebGl2RenderingContext,
@@ -26,7 +24,7 @@ impl WebGlPrograms {
     ) {
         gl.bind_buffer(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            Some(&self.resources.copy_instance_buffer),
+            Some(&self.copy_instance_buffer),
         );
         gl.buffer_data_with_u8_array(
             WebGl2RenderingContext::ARRAY_BUFFER,

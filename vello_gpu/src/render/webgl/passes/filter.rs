@@ -6,7 +6,7 @@
 use crate::render::webgl::WebGlError;
 use crate::render::webgl::gl::resource::Program;
 use crate::render::webgl::passes::{
-    WebGlPrograms, WebGlRendererContext, checked_instance_count, initialize_packed_u32_attribs,
+    WebGlRendererContext, checked_instance_count, initialize_packed_u32_attribs,
     required_uniform_location,
 };
 use crate::render::webgl::resources::{
@@ -26,14 +26,14 @@ pub(crate) struct FilterPassUniforms {
     original_texture: WebGlUniformLocation,
 }
 
-impl WebGlPrograms {
+impl WebGlResources {
     /// Grow the filter data texture if needed.
     pub(crate) fn maybe_resize_filter_data_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
         filter_context: &FilterContext,
     ) -> Result<(), WebGlError> {
-        let resource_texture_dimension_2d = self.resources.resource_texture_dimension_2d;
+        let resource_texture_dimension_2d = self.resource_texture_dimension_2d;
 
         let Some(required_height) =
             filter_context.required_filter_data_height(resource_texture_dimension_2d)
@@ -41,16 +41,16 @@ impl WebGlPrograms {
             return Ok(());
         };
 
-        if required_height > self.resources.filter_data_texture_height {
+        if required_height > self.filter_data_texture_height {
             let required_size = (resource_texture_dimension_2d * required_height) << 4;
             self.filter_data.resize(required_size as usize, 0);
-            self.resources.filter_data_texture = create_data_texture_storage(
+            self.filter_data_texture = create_data_texture_storage(
                 gl,
                 WebGl2RenderingContext::RGBA32UI,
                 resource_texture_dimension_2d,
                 required_height,
             )?;
-            self.resources.filter_data_texture_height = required_height;
+            self.filter_data_texture_height = required_height;
         }
 
         Ok(())
@@ -66,7 +66,7 @@ impl WebGlPrograms {
             return Ok(());
         }
 
-        let width = self.resources.resource_texture_dimension_2d;
+        let width = self.resource_texture_dimension_2d;
         let used_height = filter_context
             .required_filter_data_height(width)
             .expect("non-empty filter context must have a data height");
@@ -74,7 +74,7 @@ impl WebGlPrograms {
         filter_context.serialize_to_buffer(&mut self.filter_data);
         upload_rgba32ui_rows(
             gl,
-            &self.resources.filter_data_texture,
+            &self.filter_data_texture,
             bytemuck::cast_slice::<u8, u32>(&self.filter_data[..used_size]),
             width,
             used_height,
@@ -90,7 +90,7 @@ impl WebGlPrograms {
     ) {
         gl.bind_buffer(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            Some(&self.resources.filter_instance_buffer),
+            Some(&self.filter_instance_buffer),
         );
         gl.buffer_data_with_u8_array(
             WebGl2RenderingContext::ARRAY_BUFFER,
@@ -143,17 +143,16 @@ impl WebGlRendererContext<'_> {
         bindings: FilterPassBindings,
     ) -> Result<(), WebGlError> {
         if let Some(copy_pass) = plan.copy_pass() {
-            self.programs.upload_copy_instances(self.gl, copy_pass);
+            self.resources.upload_copy_instances(self.gl, copy_pass);
             self.gl.disable(WebGl2RenderingContext::BLEND);
             self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
             self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
             self.gl.depth_mask(false);
-            self.gl
-                .bind_vertex_array(Some(&self.programs.resources.copy_vao));
+            self.gl.bind_vertex_array(Some(&self.resources.copy_vao));
             self.gl.use_program(Some(&self.programs.copy_program));
             self.gl.bind_framebuffer(
                 WebGl2RenderingContext::FRAMEBUFFER,
-                Some(self.programs.resources.scratch_framebuffer()),
+                Some(self.resources.scratch_framebuffer()),
             );
             let scratch_size = self.texture_size();
             self.gl.viewport(
@@ -165,7 +164,7 @@ impl WebGlRendererContext<'_> {
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
             self.gl.bind_texture(
                 WebGl2RenderingContext::TEXTURE_2D,
-                Some(self.programs.resources.layer_texture(bindings.target())),
+                Some(self.resources.layer_texture(bindings.target())),
             );
             self.gl
                 .uniform1i(Some(&self.programs.copy_uniforms.source_texture), 0);
@@ -173,13 +172,12 @@ impl WebGlRendererContext<'_> {
         }
 
         self.gl.use_program(Some(&self.programs.filter_program));
-        self.gl
-            .bind_vertex_array(Some(&self.programs.resources.filter_vao));
+        self.gl.bind_vertex_array(Some(&self.resources.filter_vao));
 
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.filter_data_texture),
+            Some(&self.resources.filter_data_texture),
         );
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.filter_data), 0);
@@ -187,7 +185,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(self.programs.resources.scratch_binding_texture()),
+            Some(self.resources.scratch_binding_texture()),
         );
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.original_texture), 2);
@@ -217,7 +215,7 @@ impl WebGlRendererContext<'_> {
         self.gl.depth_mask(false);
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            Some(self.programs.resources.layer_framebuffer(output)),
+            Some(self.resources.layer_framebuffer(output)),
         );
         let target_texture_size = self.texture_size();
         self.gl.viewport(
@@ -230,14 +228,14 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(self.programs.resources.layer_texture(input)),
+            Some(self.resources.layer_texture(input)),
         );
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.source_texture), 1);
 
         // TODO: Filter instances ideally should be uploaded once for the whole round (or even once
         // globally), not per pass.
-        self.programs.upload_filter_instances(self.gl, instances);
+        self.resources.upload_filter_instances(self.gl, instances);
         self.draw_instanced_quads(checked_instance_count(instances.len())?);
 
         Ok(())

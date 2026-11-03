@@ -6,7 +6,7 @@
 use crate::render::webgl::WebGlError;
 use crate::render::webgl::gl::resource::Program;
 use crate::render::webgl::passes::{
-    WebGlPrograms, WebGlRendererContext, checked_instance_count, initialize_packed_u32_attribs,
+    WebGlRendererContext, checked_instance_count, initialize_packed_u32_attribs,
     required_uniform_location,
 };
 use crate::render::webgl::resources::WebGlResources;
@@ -26,11 +26,11 @@ pub(crate) struct BlendUniforms {
     alphas_texture: WebGlUniformLocation,
 }
 
-impl WebGlPrograms {
+impl WebGlResources {
     fn upload_blend_instances(&self, gl: &WebGl2RenderingContext, instances: &[GpuBlendInstance]) {
         gl.bind_buffer(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            Some(&self.resources.blend_instance_buffer),
+            Some(&self.blend_instance_buffer),
         );
         gl.buffer_data_with_u8_array(
             WebGl2RenderingContext::ARRAY_BUFFER,
@@ -83,8 +83,7 @@ impl WebGlRendererContext<'_> {
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
         self.gl.depth_mask(false);
-        self.gl
-            .bind_vertex_array(Some(&self.programs.resources.blend_vao));
+        self.gl.bind_vertex_array(Some(&self.resources.blend_vao));
 
         self.scratch_buffers.blend_instances.clear();
         for blend in blends.iter() {
@@ -102,13 +101,13 @@ impl WebGlRendererContext<'_> {
                     .push(GpuBlendInstance::new(blend, None, texture_size));
             }
         }
-        self.programs
+        self.resources
             .upload_blend_instances(self.gl, &self.scratch_buffers.blend_instances);
         let instance_count = checked_instance_count(self.scratch_buffers.blend_instances.len())?;
 
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            Some(self.programs.resources.scratch_framebuffer()),
+            Some(self.resources.scratch_framebuffer()),
         );
         self.gl.viewport(
             0,
@@ -121,7 +120,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.alphas_texture),
+            Some(&self.resources.alphas_texture),
         );
         self.gl
             .uniform1i(Some(&self.programs.blend_uniforms.alphas_texture), 2);
@@ -130,8 +129,7 @@ impl WebGlRendererContext<'_> {
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
             Some(
-                self.programs
-                    .resources
+                self.resources
                     .layer_texture(bindings.layer_id(TextureParity::Even)),
             ),
         );
@@ -142,8 +140,7 @@ impl WebGlRendererContext<'_> {
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
             Some(
-                self.programs
-                    .resources
+                self.resources
                     .layer_texture(bindings.layer_id(TextureParity::Odd)),
             ),
         );
@@ -160,7 +157,7 @@ impl WebGlRendererContext<'_> {
                 .copied()
                 .map(GpuBlendInstance::copy_from_scratch),
         );
-        self.programs
+        self.resources
             .upload_copy_instances(self.gl, &self.scratch_buffers.copy_instances);
 
         self.gl.disable(WebGl2RenderingContext::BLEND);
@@ -169,7 +166,7 @@ impl WebGlRendererContext<'_> {
         self.gl.depth_mask(false);
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            Some(self.programs.resources.layer_framebuffer(bindings.target())),
+            Some(self.resources.layer_framebuffer(bindings.target())),
         );
         self.gl.viewport(
             0,
@@ -177,14 +174,13 @@ impl WebGlRendererContext<'_> {
             i32::from(texture_size.width()),
             i32::from(texture_size.height()),
         );
-        self.gl
-            .bind_vertex_array(Some(&self.programs.resources.copy_vao));
+        self.gl.bind_vertex_array(Some(&self.resources.copy_vao));
         self.gl.use_program(Some(&self.programs.copy_program));
 
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(self.programs.resources.scratch_binding_texture()),
+            Some(self.resources.scratch_binding_texture()),
         );
         self.gl
             .uniform1i(Some(&self.programs.copy_uniforms.source_texture), 0);

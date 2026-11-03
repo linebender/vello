@@ -19,11 +19,9 @@ use crate::render::webgl::{
     WebGlError, WebGlOperation, WebGlResultExt, WebGlShaderProgramOperation, WebGlShaderStage,
 };
 use crate::{
-    RenderSettings, RenderSize, Resources,
+    RenderSettings, Resources,
     render::common::{DeviceLimits, SharedCore},
 };
-use alloc::vec;
-use alloc::vec::Vec;
 use core::cell::Cell;
 use core::time::Duration;
 use vello_gpu_shaders::{blend, copy, filter as filter_shader, render};
@@ -65,7 +63,6 @@ pub enum WebGlRendererInitStatus {
 pub struct WebGlRendererInit {
     shaders: WebGlShaders,
     resources: WebGlResources,
-    encoded_paints_data: Vec<u8>,
     core: SharedCore,
 }
 
@@ -203,12 +200,10 @@ impl WebGlRenderer {
         initialize_filter_vao(gl, &webgl_resources);
         initialize_blend_vao(gl, &webgl_resources);
         initialize_copy_vao(gl, &webgl_resources);
-        let encoded_paints_data = vec![0; (resource_texture_dimension_2d << 4) as usize];
 
         let init = WebGlRendererInit {
             shaders,
             resources: webgl_resources,
-            encoded_paints_data,
             core,
         };
 
@@ -394,7 +389,6 @@ impl WebGlRendererInit {
         let Self {
             shaders,
             resources,
-            encoded_paints_data,
             core,
         } = self;
         let WebGlShaders {
@@ -439,18 +433,14 @@ impl WebGlRendererInit {
             copy_program,
             copy_uniforms,
             shader_compilation_stats,
-            resources,
-            render_size: RenderSize {
-                width: 0,
-                height: 0,
-            },
-            negate_ndc: false,
-            scene_offset: (0, 0),
-            encoded_paints_data,
-            filter_data: Vec::new(),
         };
 
-        Ok(WebGlRenderer { programs, gl, core })
+        Ok(WebGlRenderer {
+            programs,
+            resources,
+            gl,
+            core,
+        })
     }
 }
 

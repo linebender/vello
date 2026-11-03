@@ -17,16 +17,16 @@ impl WebGlRendererContext<'_> {
             DrawPassTarget::Root(_) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    self.programs.resources.root_framebuffer(),
+                    self.resources.root_framebuffer(),
                 );
                 (
-                    self.programs.render_size.width,
-                    self.programs.render_size.height,
+                    self.resources.render_size.width,
+                    self.resources.render_size.height,
                 )
             }
             DrawPassTarget::Layer(target) => {
                 let size = self.texture_size();
-                let framebuffer = self.programs.resources.layer_framebuffer(target);
+                let framebuffer = self.resources.layer_framebuffer(target);
                 self.gl
                     .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(framebuffer));
                 (size.width(), size.height())

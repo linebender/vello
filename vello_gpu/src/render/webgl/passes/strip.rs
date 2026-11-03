@@ -6,7 +6,7 @@
 use crate::draw::{EXTERNAL_TEXTURE_SLOT_COUNT, ExternalTextureBindings, ExternalTextureRun};
 use crate::render::webgl::gl::resource::Program;
 use crate::render::webgl::passes::{
-    WebGlPrograms, WebGlRendererContext, checked_instance_count, required_uniform_location,
+    WebGlRendererContext, checked_instance_count, required_uniform_location,
 };
 use crate::render::webgl::resources::{WebGlResources, create_external_sampler};
 use crate::render::webgl::{WebGlError, WebGlOperation, WebGlShaderInterfaceOperation};
@@ -44,7 +44,7 @@ pub(crate) struct StripUniforms {
     external_textures: [WebGlUniformLocation; EXTERNAL_TEXTURE_SLOT_COUNT],
 }
 
-impl WebGlPrograms {
+impl WebGlResources {
     /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
     fn upload_strip_pair(
         &mut self,
@@ -58,7 +58,7 @@ impl WebGlPrograms {
 
         gl.bind_buffer(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            Some(&self.resources.strips_buffer),
+            Some(&self.strips_buffer),
         );
 
         let opaque_len = size_of_val(opaque_strips);
@@ -262,7 +262,7 @@ impl WebGlRendererContext<'_> {
                 .active_texture(WebGl2RenderingContext::TEXTURE0 + texture_unit);
             let (texture, sampler_key): (&WebGlTexture, ExternalSampler) = match texture_source {
                 Some(TextureSourceId::Atlas(atlas_id)) => (
-                    &self.programs.resources.atlas_textures[atlas_id.as_u32() as usize],
+                    &self.resources.atlas_textures[atlas_id.as_u32() as usize],
                     ExternalSampler::DEFAULT,
                 ),
                 Some(TextureSourceId::External(texture_id, sampler)) => (
@@ -274,13 +274,13 @@ impl WebGlRendererContext<'_> {
                     sampler,
                 ),
                 None => (
-                    &self.programs.resources.placeholder_external_texture,
+                    &self.resources.placeholder_external_texture,
                     ExternalSampler::DEFAULT,
                 ),
             };
             self.gl
                 .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(texture));
-            let sampler = match self.programs.resources.external_samplers.entry(sampler_key) {
+            let sampler = match self.resources.external_samplers.entry(sampler_key) {
                 Entry::Occupied(entry) => entry.into_mut(),
                 Entry::Vacant(entry) => {
                     entry.insert(create_external_sampler(self.gl, sampler_key)?)
@@ -325,33 +325,33 @@ impl WebGlRendererContext<'_> {
             DrawPassTarget::Root(_) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    self.programs.resources.root_framebuffer(),
+                    self.resources.root_framebuffer(),
                 );
-                let width = self.programs.render_size.width;
-                let height = self.programs.render_size.height;
+                let width = self.resources.render_size.width;
+                let height = self.resources.render_size.height;
                 self.gl.viewport(0, 0, i32::from(width), i32::from(height));
 
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     self.programs.strip_uniforms.config_vs_block_index,
-                    Some(&self.programs.resources.view_config_buffer),
+                    Some(&self.resources.view_config_buffer),
                 );
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     self.programs.strip_uniforms.config_fs_block_index,
-                    Some(&self.programs.resources.view_config_buffer),
+                    Some(&self.resources.view_config_buffer),
                 );
             }
             DrawPassTarget::Layer(id) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    Some(self.programs.resources.layer_framebuffer(*id)),
+                    Some(self.resources.layer_framebuffer(*id)),
                 );
                 let size = self.texture_size();
                 self.gl
                     .viewport(0, 0, i32::from(size.width()), i32::from(size.height()));
 
-                let buf = &self.programs.resources.layer_config_buffer;
+                let buf = &self.resources.layer_config_buffer;
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     self.programs.strip_uniforms.config_vs_block_index,
@@ -371,14 +371,13 @@ impl WebGlRendererContext<'_> {
         self.gl.use_program(Some(&self.programs.strip_program));
 
         // Set up attributes.
-        self.gl
-            .bind_vertex_array(Some(&self.programs.resources.strip_vao));
+        self.gl.bind_vertex_array(Some(&self.resources.strip_vao));
 
         // Bind textures.
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.alphas_texture),
+            Some(&self.resources.alphas_texture),
         );
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
@@ -387,8 +386,8 @@ impl WebGlRendererContext<'_> {
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
             Some(child_layer_texture.map_or_else(
-                || &self.programs.resources.placeholder_external_texture,
-                |id| self.programs.resources.layer_texture(id),
+                || &self.resources.placeholder_external_texture,
+                |id| self.resources.layer_texture(id),
             )),
         );
         self.gl
@@ -398,7 +397,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.encoded_paints_texture),
+            Some(&self.resources.encoded_paints_texture),
         );
         self.gl.uniform1i(
             Some(&self.programs.strip_uniforms.encoded_paints_texture_fs),
@@ -413,7 +412,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE3);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.gradient_texture),
+            Some(&self.resources.gradient_texture),
         );
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 3);
@@ -439,7 +438,7 @@ impl WebGlRendererContext<'_> {
         // that possibility in the future.
         let enable_opaque = self.use_depth_buffer && target.enable_opaque();
 
-        self.programs
+        self.resources
             .upload_strip_pair(self.gl, opaque_strips, alpha_strips);
         let opaque_count = checked_instance_count(opaque_count)?;
         let alpha_count = checked_instance_count(alpha_count)?;
@@ -450,8 +449,8 @@ impl WebGlRendererContext<'_> {
             self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
 
             // Clear depth buffer on first use per frame.
-            if !self.programs.resources.depth_cleared_this_frame {
-                self.programs.resources.depth_cleared_this_frame = true;
+            if !self.resources.depth_cleared_this_frame {
+                self.resources.depth_cleared_this_frame = true;
                 self.gl.clear_depth(1.0);
                 self.gl.clear(WebGl2RenderingContext::DEPTH_BUFFER_BIT);
             }

@@ -21,7 +21,7 @@ use crate::render::webgl::resources::WebGlResources;
 use crate::render::webgl::{WebGlError, WebGlOperation, WebGlShaderInterfaceOperation};
 use crate::util::RangedSlice;
 use crate::{
-    ClearSettings, GpuStrip, RenderSize,
+    ClearSettings, GpuStrip,
     blend::BlendStrip,
     filter::FilterPassPlan,
     render::common::ScratchBuffers,
@@ -31,14 +31,11 @@ use crate::{
         RootTarget,
     },
 };
-use alloc::vec::Vec;
 use vello_common::color::AlphaColor;
 use vello_common::geometry::{RectU16, SizeU16};
 use web_sys::{WebGl2RenderingContext, WebGlUniformLocation};
 
-/// Contains the WebGL programs and resources for rendering.
-// TODO: Split the compiled programs from the resource state, so that `resources` no longer
-// depends on `passes` and can sit underneath it.
+/// Contains the compiled WebGL programs.
 #[derive(Debug)]
 pub(crate) struct WebGlPrograms {
     /// Program for rendering strips.
@@ -59,18 +56,6 @@ pub(crate) struct WebGlPrograms {
     pub(crate) copy_uniforms: CopyUniforms,
     /// Shader compilation stats.
     pub(crate) shader_compilation_stats: ShaderCompilationStats,
-    /// WebGL resources for rendering.
-    pub(crate) resources: WebGlResources,
-    /// Dimensions of the rendering target.
-    pub(crate) render_size: RenderSize,
-    /// Whether the last config buffer upload had NDC Y negation enabled.
-    pub(crate) negate_ndc: bool,
-    /// Offset of the scene within the rendering target.
-    pub(crate) scene_offset: (i32, i32),
-    /// Scratch buffer for staging encoded paints texture data.
-    pub(crate) encoded_paints_data: Vec<u8>,
-    /// Scratch buffer for staging filter data texture data.
-    pub(crate) filter_data: Vec<u8>,
 }
 
 pub(crate) fn required_uniform_location(
@@ -104,7 +89,8 @@ pub(crate) fn initialize_packed_u32_attribs(gl: &WebGl2RenderingContext, count: 
 // the GPU must finish drawing before the next `upload_strip_pair` can be executed (effectively pausing
 // execution). Investigate a buffer pool or creating a new buffer per pass.
 pub(crate) struct WebGlRendererContext<'a> {
-    pub(crate) programs: &'a mut WebGlPrograms,
+    pub(crate) programs: &'a WebGlPrograms,
+    pub(crate) resources: &'a mut WebGlResources,
     pub(crate) gl: &'a WebGl2RenderingContext,
     pub(crate) texture_bindings: &'a WebGlTextureBindings,
     pub(crate) scratch_buffers: &'a mut ScratchBuffers,
@@ -131,7 +117,7 @@ impl WebGlRendererContext<'_> {
     }
 
     fn texture_size(&self) -> SizeU16 {
-        self.programs.resources.texture_size
+        self.resources.texture_size
     }
 }
 
