@@ -13,6 +13,7 @@ use crate::render::webgl::passes::copy::{get_copy_uniforms, initialize_copy_vao}
 use crate::render::webgl::passes::filter::{get_filter_pass_uniforms, initialize_filter_vao};
 use crate::render::webgl::passes::strip::{get_strip_uniforms, initialize_strip_vao};
 use crate::render::webgl::resources::{WebGlResources, create_webgl_resources};
+use crate::render::webgl::target::REQUIRED_DEPTH_BITS;
 use crate::render::webgl::{
     IncompatibleContextReason, IncompatiblePrecompiledShadersReason, WebGlContextOperation,
     WebGlError, WebGlOperation, WebGlResultExt, WebGlShaderProgramOperation, WebGlShaderStage,
@@ -34,8 +35,6 @@ extern "C" {
     #[wasm_bindgen(js_namespace = performance, js_name = now)]
     fn performance_now() -> f64;
 }
-/// Depth precision required to preserve painter order during opaque-strip rendering.
-pub(crate) const REQUIRED_DEPTH_BITS: u32 = 24;
 
 /// Query the WebGL context for the max texture size.
 pub(crate) fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> Result<u32, WebGlError> {

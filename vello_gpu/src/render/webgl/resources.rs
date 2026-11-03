@@ -5,7 +5,7 @@
 
 use crate::render::webgl::gl::resource::{Buffer, Framebuffer, Sampler, Texture, VertexArray};
 use crate::render::webgl::passes::WebGlPrograms;
-use crate::render::webgl::target::WebGlTextureTarget;
+use crate::render::webgl::target::{WebGlTextureTarget, create_framebuffer_for_texture};
 use crate::render::webgl::{
     WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResultExt,
 };
@@ -874,25 +874,6 @@ pub(crate) fn create_atlas_texture(
         WebGl2RenderingContext::NEAREST,
         WebGl2RenderingContext::NEAREST,
     )
-}
-
-/// Create a framebuffer for a texture.
-pub(crate) fn create_framebuffer_for_texture(
-    gl: &WebGl2RenderingContext,
-    texture: &WebGlTexture,
-) -> Result<Framebuffer, WebGlError> {
-    let framebuffer = Framebuffer::new(gl)?;
-    gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
-
-    gl.framebuffer_texture_2d(
-        WebGl2RenderingContext::FRAMEBUFFER,
-        WebGl2RenderingContext::COLOR_ATTACHMENT0,
-        WebGl2RenderingContext::TEXTURE_2D,
-        Some(texture),
-        0,
-    );
-
-    Ok(framebuffer)
 }
 
 /// Upload full rows of RGBA32UI data into immutable texture storage.

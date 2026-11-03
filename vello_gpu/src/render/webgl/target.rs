@@ -5,13 +5,14 @@
 
 use crate::RenderSize;
 use crate::render::webgl::gl::resource::Framebuffer;
-use crate::render::webgl::init::REQUIRED_DEPTH_BITS;
-use crate::render::webgl::resources::create_framebuffer_for_texture;
 use crate::render::webgl::{
     InvalidTextureTargetReason, WebGlContextOperation, WebGlError, WebGlOperation, WebGlResultExt,
 };
 use alloc::rc::Rc;
 use web_sys::{WebGl2RenderingContext, WebGlRenderbuffer, WebGlTexture};
+
+/// Depth precision required to preserve painter order during opaque-strip rendering.
+pub(crate) const REQUIRED_DEPTH_BITS: u32 = 24;
 
 /// What [`WebGlRenderer::render`] renders into.
 ///
@@ -150,4 +151,23 @@ pub(crate) fn validate_bound_texture_target(
     }
 
     Ok(())
+}
+
+/// Create a framebuffer for a texture.
+pub(crate) fn create_framebuffer_for_texture(
+    gl: &WebGl2RenderingContext,
+    texture: &WebGlTexture,
+) -> Result<Framebuffer, WebGlError> {
+    let framebuffer = Framebuffer::new(gl)?;
+    gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
+
+    gl.framebuffer_texture_2d(
+        WebGl2RenderingContext::FRAMEBUFFER,
+        WebGl2RenderingContext::COLOR_ATTACHMENT0,
+        WebGl2RenderingContext::TEXTURE_2D,
+        Some(texture),
+        0,
+    );
+
+    Ok(framebuffer)
 }
