@@ -37,6 +37,8 @@ use vello_common::geometry::{RectU16, SizeU16};
 use web_sys::{WebGl2RenderingContext, WebGlUniformLocation};
 
 /// Contains the WebGL programs and resources for rendering.
+// TODO: Split the compiled programs from the resource state, so that `resources` no longer
+// depends on `passes` and can sit underneath it.
 #[derive(Debug)]
 pub(crate) struct WebGlPrograms {
     /// Program for rendering strips.
