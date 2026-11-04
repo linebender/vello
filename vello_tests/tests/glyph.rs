@@ -198,6 +198,30 @@ fn glyphs_emboldened(ctx: &mut impl Renderer) {
         .unwrap();
 }
 
+#[vello_test(width = 760, height = 140)]
+fn glyphs_emboldened_unhinted(ctx: &mut impl Renderer) {
+    let font_size: f32 = 44_f32;
+    let (font, glyphs) = layout_glyphs_roboto("this is regular and emboldened text", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
+
+    let (font, glyphs) = layout_glyphs_roboto("this is regular and emboldened text", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size) + 58.0)));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .font_embolden(FontEmbolden::new(Diagonal2::new(1.0, 1.0)))
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
+}
+
 #[vello_test(width = 300, height = 70, glyph)]
 fn glyphs_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
