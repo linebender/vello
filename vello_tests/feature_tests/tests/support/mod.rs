@@ -84,9 +84,8 @@ impl ProbeRenderer for CpuProbeContext<'_> {
         self.0.fill_rect(rect);
     }
 
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
-        self.0
-            .fill_blurred_rounded_rect(rect, radius, std_dev, invert);
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        self.0.fill_blurred_rounded_rect(rect, radius, std_dev);
     }
 
     fn push_layer(&mut self, blend_mode: Option<BlendMode>, opacity: Option<f32>) {

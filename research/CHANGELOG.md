@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Changed
+
+- Breaking change: `Scene::draw_blurred_rounded_rect_in` now has an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. Use `false` to preserve the previous behavior. `vello_encoding::Encoding::encode_blurred_rounded_rect` has the same new parameter. ([#1718][] by [@nicoburns][])
+
 ### Fixed
 
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
@@ -483,6 +487,7 @@ This release has an [MSRV][] of 1.75.
 [#1638]: https://github.com/linebender/vello/pull/1638
 [#1643]: https://github.com/linebender/vello/pull/1643
 [#1700]: https://github.com/linebender/vello/pull/1700
+[#1718]: https://github.com/linebender/vello/pull/1718
 [#1774]: https://github.com/linebender/vello/pull/1774
 [#1777]: https://github.com/linebender/vello/pull/1777
 [#1847]: https://github.com/linebender/vello/pull/1847
