@@ -172,8 +172,8 @@ impl<S: Simd> Iterator for AlphaCalculator<S> {
         let d_neg = x0.max(y0).min(r.v0);
         let d = d_pos + d_neg - r.r1;
         let z = r.scale
-            * (f32x8::compute_erf7(self.simd, r.std_dev_inv * (r.min_edge + d))
-                - f32x8::compute_erf7(self.simd, r.std_dev_inv * d));
+            * (f32x8::compute_erf7(self.simd, r.recip_erf_scale * (r.min_edge + d))
+                - f32x8::compute_erf7(self.simd, r.recip_erf_scale * d));
 
         self.cur_pos += 2.0 * self.x_advance;
 
@@ -186,7 +186,7 @@ struct SimdRoundedBlurredRect<S: Simd> {
     pub exponent: f32,
     pub recip_exponent: f32,
     pub scale: f32x8<S>,
-    pub std_dev_inv: f32x8<S>,
+    pub recip_erf_scale: f32x8<S>,
     pub min_edge: f32x8<S>,
     pub w: f32x8<S>,
     pub h: f32x8<S>,
@@ -209,7 +209,7 @@ impl<S: Simd> SimdRoundedBlurredRect<S> {
         let recip_exponent = encoded.recip_exponent;
         let scale = f32x8::splat(s, encoded.scale);
         let min_edge = f32x8::splat(s, encoded.min_edge);
-        let std_dev_inv = f32x8::splat(s, encoded.std_dev_inv);
+        let recip_erf_scale = f32x8::splat(s, encoded.recip_erf_scale);
         let v0 = f32x8::splat(s, 0.0);
         let v1 = f32x8::splat(s, 0.5);
 
@@ -217,7 +217,7 @@ impl<S: Simd> SimdRoundedBlurredRect<S> {
             exponent,
             recip_exponent,
             scale,
-            std_dev_inv,
+            recip_erf_scale,
             min_edge,
             w,
             v0,

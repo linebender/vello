@@ -896,7 +896,7 @@ pub struct EncodedBlurredRoundedRectangle {
     /// An component for computing the blur effect.
     pub scale: f32,
     /// An component for computing the blur effect.
-    pub std_dev_inv: f32,
+    pub recip_erf_scale: f32,
     /// An component for computing the blur effect.
     pub min_edge: f32,
     /// An component for computing the blur effect.
@@ -958,27 +958,27 @@ impl EncodeExt for BlurredRoundedRectangle {
         let radius = self.radius.min(0.5 * width.min(height));
 
         // To avoid divide by 0; potentially should be a bigger number for antialiasing.
-        let std_dev = self.std_dev.max(1e-6);
+        let erf_scale = self.std_dev.max(1e-6);
 
         let min_edge = width.min(height);
         let rmax = 0.5 * min_edge;
-        let r0 = radius.hypot(std_dev * 1.15).min(rmax);
-        let r1 = radius.hypot(std_dev * 2.0).min(rmax);
+        let r0 = radius.hypot(erf_scale * 1.15).min(rmax);
+        let r1 = radius.hypot(erf_scale * 2.0).min(rmax);
 
         let exponent = 2.0 * r1 / r0;
 
-        let std_dev_inv = std_dev.recip();
+        let recip_erf_scale = erf_scale.recip();
 
         // Pull in long end (make less eccentric).
         let delta = 1.25
-            * std_dev
-            * (exp(-(0.5 * std_dev_inv * width).powi(2))
-                - exp(-(0.5 * std_dev_inv * height).powi(2)));
+            * erf_scale
+            * (exp(-(0.5 * recip_erf_scale * width).powi(2))
+                - exp(-(0.5 * recip_erf_scale * height).powi(2)));
         let w = width + delta.min(0.0);
         let h = height - delta.max(0.0);
 
         let recip_exponent = exponent.recip();
-        let scale = 0.5 * compute_erf7(std_dev_inv * 0.5 * (w.max(h) - 0.5 * radius));
+        let scale = 0.5 * compute_erf7(recip_erf_scale * 0.5 * (w.max(h) - 0.5 * radius));
 
         let encoded = EncodedBlurredRoundedRectangle {
             exponent,
@@ -987,7 +987,7 @@ impl EncodeExt for BlurredRoundedRectangle {
             height,
             scale,
             r1,
-            std_dev_inv,
+            recip_erf_scale,
             min_edge,
             invert: self.invert,
             color: PremulColor::from_alpha_color(self.color),
