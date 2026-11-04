@@ -435,6 +435,13 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         style: Style,
         renderer: &mut impl crate::GlyphRenderer,
     ) -> Result<(), GlyphRenderError> {
+        // Zero-size text is invisible. Hinting can still give its outlines a
+        // non-zero area, so skip it instead of drawing a speck.
+        let font_size = self.prepared_run.draw_props.font_size;
+        if font_size.is_nan() || font_size <= 0.0 {
+            return Ok(());
+        }
+
         let font_ref = self.prepared_run.font.as_skrifa();
 
         let outlines = font_ref.outline_glyphs();
@@ -2533,6 +2540,37 @@ mod tests {
     #[test]
     fn outline_glyph_is_not_cached_when_atlas_cache_is_disabled() {
         ensure_no_cache(TestGlyphKind::Outline, Style::Fill, false);
+    }
+
+    #[test]
+    fn zero_size_glyphs_are_not_drawn() {
+        let font = test_font(TestGlyphKind::Outline);
+        let glyph = test_glyph(&font, TestGlyphKind::Outline);
+        let mut resources = TestResources::default();
+
+        for hint in [false, true] {
+            let transform = Affine::translate((0.0, 20.0));
+            let mut run = GlyphRun {
+                font: font.clone(),
+                font_size: 0.0,
+                font_embolden: FontEmbolden::default(),
+                transform,
+                scene_paint_transform: transform,
+                glyph_transform: None,
+                normalized_coords: &[],
+                hint,
+            }
+            .build(
+                core::iter::once(glyph),
+                resources.prep_cache.as_mut(),
+                AtlasCacher::Enabled(&mut resources.glyph_atlas, &mut resources.image_cache),
+            );
+
+            assert_eq!(run.fill_glyphs(&mut resources.renderer), Ok(()));
+        }
+
+        assert_eq!(resources.glyph_atlas.len(), 0);
+        assert_eq!(resources.glyph_atlas.cache_misses(), 0);
     }
 
     #[test]
