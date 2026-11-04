@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::renderer::Renderer;
+use vello_common::blurred_rounded_rect::painted_rect;
 use vello_common::color::palette::css::{BLACK, PALE_GOLDENROD, REBECCA_PURPLE};
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, RoundedRect, Shape, Vec2};
@@ -89,9 +90,8 @@ fn blurred_rounded_rect_thin(ctx: &mut impl Renderer) {
 
 fn inverse_rect_with(ctx: &mut impl Renderer, radius: f32, std_dev: f32, affine: Affine) {
     let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
-    // Extend the path to the blur kernel, so the fully covered area outside of `rect` is painted.
-    let kernel_size = 2.5 * f64::from(std_dev);
-    let path = rect.inflate(kernel_size, kernel_size).to_path(0.1);
+    // Extend the path to the blur's extent, so the fully covered area outside of `rect` is painted.
+    let path = painted_rect(rect, std_dev).to_path(0.1);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.set_transform(affine);
     ctx.fill_blurred_rounded_rect_in(&path, &rect, radius, std_dev, true);

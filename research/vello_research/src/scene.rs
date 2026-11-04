@@ -241,6 +241,9 @@ impl Scene {
     }
 
     /// Draw a rounded rectangle blurred with a gaussian filter.
+    ///
+    /// The blur is painted up to three standard deviations beyond `rect`. Negative and NaN
+    /// values of `std_dev` are treated as zero.
     pub fn draw_blurred_rounded_rect(
         &mut self,
         transform: Affine,
@@ -251,7 +254,7 @@ impl Scene {
     ) {
         // The impulse response of a gaussian filter is infinite.
         // For performance reason we cut off the filter at some extent where the response is close to zero.
-        let kernel_size = 2.5 * std_dev;
+        let kernel_size = 3.0 * std_dev.max(0.0);
 
         let shape: Rect = rect.inflate(kernel_size, kernel_size);
         self.draw_blurred_rounded_rect_in(&shape, transform, rect, brush, radius, std_dev, false);
@@ -269,14 +272,14 @@ impl Scene {
     /// are treated as zero.
     ///
     /// When `invert` is `false`, `brush` is painted with the coverage (`alpha`) of the blurred
-    /// rounded rectangle. Points which are more than approximately 2.5 times `std_dev` outside
+    /// rounded rectangle. Points which are more than approximately 3 times `std_dev` outside
     /// of the edges of `rect` will not be perceptibly painted to, but calculations will still
     /// be performed for them. So for performance reasons, `shape` should not extend further
     /// than that.
     ///
     /// When `invert` is `true`, the inverse (`1 - alpha`) of that coverage is painted instead.
     /// The coverage then falls off towards the inside of `rect`, and is effectively full at
-    /// all points of `shape` which are more than approximately 2.5 times `std_dev` outside of
+    /// all points of `shape` which are more than approximately 3 times `std_dev` outside of
     /// the edges of `rect`. This means that the extent of the painted area is determined only
     /// by `shape`, which can extend as far beyond `rect` as is needed.
     /// This can be used to implement inset box shadows, by using the box as `shape`, the box
