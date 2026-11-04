@@ -190,3 +190,10 @@ codegen-units = 1
 inherits = "release"
 debug = true
 strip = "none"
+
+# Used by CI tests: release speed with debug assertions and overflow checks.
+# Run locally with `cargo test --profile ci`.
+[profile.ci]
+inherits = "release"
+debug-assertions = true
+overflow-checks = true
