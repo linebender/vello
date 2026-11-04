@@ -155,7 +155,7 @@ pub(crate) struct FilterPairBindGroups {
     copy_source: BindGroup,
 }
 
-impl Programs {
+impl GpuResources {
     pub(crate) fn create_filter_data_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Filter Data Texture"),
@@ -191,6 +191,7 @@ impl Programs {
     pub(crate) fn maybe_resize_filter_tex(
         &mut self,
         device: &Device,
+        programs: &Programs,
         resource_texture_dimension_2d: u32,
         filter_context: &FilterContext,
     ) {
@@ -200,10 +201,10 @@ impl Programs {
             return;
         };
         debug_assert!(
-            self.resources.filter_data_texture.width() == resource_texture_dimension_2d,
+            self.filter_data_texture.width() == resource_texture_dimension_2d,
             "Filter texture width must match resource texture dimensions"
         );
-        let current_filter_height = self.resources.filter_data_texture.height();
+        let current_filter_height = self.filter_data_texture.height();
         if required_filter_height > current_filter_height {
             let required_filter_size =
                 (resource_texture_dimension_2d * required_filter_height) << 4;
@@ -214,12 +215,11 @@ impl Programs {
                 resource_texture_dimension_2d,
                 required_filter_height,
             );
-            self.resources.filter_data_texture = filter_texture;
-            self.resources.filter_base_bind_group = Self::create_filter_base_bind_group(
+            self.filter_data_texture = filter_texture;
+            self.filter_base_bind_group = Self::create_filter_base_bind_group(
                 device,
-                &self.filter.bind_group_layout,
+                &programs.filter.bind_group_layout,
                 &self
-                    .resources
                     .filter_data_texture
                     .create_view(&TextureViewDescriptor::default()),
             );
@@ -234,7 +234,7 @@ impl Programs {
         if filter_context.is_empty() {
             return;
         }
-        let texture = &self.resources.filter_data_texture;
+        let texture = &self.filter_data_texture;
         let rows = filter_context.total_texels().div_ceil(texture.width());
         let data = &mut self.filter_data[..(rows * texture.width() * 16) as usize];
 
@@ -250,9 +250,8 @@ impl RendererContext<'_> {
         plan: &FilterPassPlan,
         bindings: FilterPassBindings,
     ) {
-        let resources = &self.programs.resources;
         if !self
-            .programs
+            .resources
             .filter_pair_bind_groups
             .contains_key(&bindings)
         {
@@ -262,7 +261,7 @@ impl RendererContext<'_> {
                 TextureParity::Even => [target, temporary],
                 TextureParity::Odd => [temporary, target],
             };
-            let layer_views = resources.layer_views(layer_ids);
+            let layer_views = self.resources.layer_views(layer_ids);
             let inputs = layer_views.map(|view| {
                 create_filter_input_bind_group(
                     self.device,
@@ -274,9 +273,9 @@ impl RendererContext<'_> {
             let copy_source = Programs::create_copy_bind_group(
                 self.device,
                 &self.programs.copy.bind_group_layout,
-                resources.layer_view(target),
+                self.resources.layer_view(target),
             );
-            self.programs.filter_pair_bind_groups.insert(
+            self.resources.filter_pair_bind_groups.insert(
                 bindings,
                 FilterPairBindGroups {
                     inputs,
@@ -284,7 +283,8 @@ impl RendererContext<'_> {
                 },
             );
         }
-        let filter_pair_bind_groups = &self.programs.filter_pair_bind_groups[&bindings];
+        let resources = &*self.resources;
+        let filter_pair_bind_groups = &resources.filter_pair_bind_groups[&bindings];
 
         if let Some(copy_pass) = plan.copy_pass() {
             encode_copy_pass(

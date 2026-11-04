@@ -12,7 +12,6 @@ use crate::{
     schedule::round::BlendOp,
     target::{BlendPassBindings, TextureParity},
 };
-use hashbrown::hash_map::Entry;
 use wgpu::{
     BindGroup, BindGroupLayout, Device, RenderPassColorAttachment, RenderPassDescriptor,
     RenderPipeline, TextureView, TextureViewDescriptor, util::DeviceExt,
@@ -141,24 +140,29 @@ impl RendererContext<'_> {
         bindings: BlendPassBindings,
     ) {
         let texture_size = self.texture_size();
-        let resources = &self.programs.resources;
-        let blend_layer_bind_group = match self.programs.blend_layer_bind_groups.entry(bindings) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                let alphas_texture_view = resources
-                    .alphas_texture
-                    .create_view(&TextureViewDescriptor::default());
-                entry.insert(Programs::create_blend_layer_bind_group(
-                    self.device,
-                    &self.programs.blend.bind_group_layout,
-                    resources.layer_views([
-                        bindings.layer_id(TextureParity::Even),
-                        bindings.layer_id(TextureParity::Odd),
-                    ]),
-                    &alphas_texture_view,
-                ))
-            }
-        };
+        if !self
+            .resources
+            .blend_layer_bind_groups
+            .contains_key(&bindings)
+        {
+            let alphas_texture_view = self
+                .resources
+                .alphas_texture
+                .create_view(&TextureViewDescriptor::default());
+            let bind_group = Programs::create_blend_layer_bind_group(
+                self.device,
+                &self.programs.blend.bind_group_layout,
+                self.resources.layer_views([
+                    bindings.layer_id(TextureParity::Even),
+                    bindings.layer_id(TextureParity::Odd),
+                ]),
+                &alphas_texture_view,
+            );
+            self.resources
+                .blend_layer_bind_groups
+                .insert(bindings, bind_group);
+        }
+        let blend_layer_bind_group = &self.resources.blend_layer_bind_groups[&bindings];
 
         self.scratch_buffers.blend_instances.clear();
 
@@ -191,7 +195,7 @@ impl RendererContext<'_> {
             let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Blend To Scratch"),
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    view: self.programs.resources.scratch_view(),
+                    view: self.resources.scratch_view(),
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -205,7 +209,7 @@ impl RendererContext<'_> {
                 multiview_mask: None,
             });
             render_pass.set_pipeline(&self.programs.blend.pipeline);
-            render_pass.set_bind_group(0, &*blend_layer_bind_group, &[]);
+            render_pass.set_bind_group(0, blend_layer_bind_group, &[]);
             render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
             render_pass.draw(0..4, 0..instance_count);
         }
@@ -223,8 +227,8 @@ impl RendererContext<'_> {
             self.encoder,
             &self.programs.copy.pipeline,
             &self.scratch_buffers.copy_instances,
-            &self.programs.resources.scratch_copy_bind_group,
-            self.programs.resources.layer_view(bindings.target()),
+            &self.resources.scratch_copy_bind_group,
+            self.resources.layer_view(bindings.target()),
             "Copy Blend Scratch To Layer",
         );
     }
