@@ -206,10 +206,6 @@ impl GpuResources {
         );
         let current_filter_height = self.filter_data_texture.height();
         if required_filter_height > current_filter_height {
-            let required_filter_size =
-                (resource_texture_dimension_2d * required_filter_height) << 4;
-            self.filter_data.resize(required_filter_size as usize, 0);
-
             let filter_texture = Self::create_filter_data_texture(
                 device,
                 resource_texture_dimension_2d,
@@ -235,12 +231,8 @@ impl GpuResources {
             return;
         }
         let texture = &self.filter_data_texture;
-        let rows = filter_context.total_texels().div_ceil(texture.width());
-        let data = &mut self.filter_data[..(rows * texture.width() * 16) as usize];
-
-        filter_context.serialize_to_buffer(data);
-
-        self.staging_belt.upload_texture(encoder, texture, data, 16);
+        self.staging_belt
+            .upload_texture(encoder, texture, filter_context.as_bytes(), 16);
     }
 }
 

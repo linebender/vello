@@ -22,7 +22,6 @@ use crate::{
     schedule::Schedule,
     target::{BlendPassBindings, FilterPassBindings, LayerTextureId},
 };
-use alloc::vec;
 use alloc::vec::Vec;
 use core::{fmt::Debug, num::NonZeroU64};
 use hashbrown::HashMap;
@@ -85,12 +84,23 @@ impl UploadStagingBelt {
         data: &[u8],
         bytes_per_texel: u32,
     ) {
-        if data.is_empty() {
+        self.upload_texture_chunks(encoder, texture, data.len(), bytes_per_texel, [data]);
+    }
+
+    pub(crate) fn upload_texture_chunks<'a>(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        texture: &Texture,
+        data_len: usize,
+        bytes_per_texel: u32,
+        chunks: impl IntoIterator<Item = &'a [u8]>,
+    ) {
+        if data_len == 0 {
             return;
         }
 
         let bytes_per_row = texture.width() * bytes_per_texel;
-        let rows = data.len().div_ceil(bytes_per_row as usize) as u32;
+        let rows = data_len.div_ceil(bytes_per_row as usize) as u32;
         let size = NonZeroU64::new(u64::from(rows) * u64::from(bytes_per_row)).unwrap();
         self.frame_allocated += size.get();
         let slice = self
@@ -101,9 +111,16 @@ impl UploadStagingBelt {
                 .get_mapped_range_mut()
                 .expect("staging buffer must be mapped");
 
-            // Any data beyond `data.len` will never be sampled, so we don't need to
-            // pad it out and can just leave whatever was there already.
-            view.slice(..data.len()).copy_from_slice(data);
+            let mut offset = 0;
+            for chunk in chunks {
+                view.slice(offset..offset + chunk.len())
+                    .copy_from_slice(chunk);
+                offset += chunk.len();
+            }
+            debug_assert_eq!(
+                offset, data_len,
+                "mismatched between uploaded chunks size vs provided len"
+            );
         }
 
         encoder.copy_buffer_to_texture(
@@ -222,10 +239,6 @@ pub(crate) struct GpuResources {
     pub(crate) render_size: RenderSize,
     /// Offset of the scene within the rendering target.
     pub(crate) scene_offset: (i32, i32),
-    /// Scratch buffer for staging encoded paints texture data.
-    pub(crate) encoded_paints_data: Vec<u8>,
-    /// Scratch buffer for staging filter data texture data.
-    pub(crate) filter_data: Vec<u8>,
     /// Whether the depth buffer has been cleared this frame.
     pub(crate) depth_cleared_this_frame: bool,
 }
@@ -301,11 +314,6 @@ impl GpuResources {
             );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
-        let encoded_paints_data = vec![
-            0;
-            ((resource_texture_dimension_2d * INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT) << 4)
-                as usize
-        ];
         let encoded_paints_texture = Self::create_encoded_paints_texture(
             device,
             resource_texture_dimension_2d,
@@ -331,11 +339,6 @@ impl GpuResources {
 
         // TODO: We really should deduplicate handling of this this with encoded paints texture.
         const INITIAL_FILTER_TEXTURE_HEIGHT: u32 = 1;
-        let filter_data = vec![
-            0_u8;
-            ((resource_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4)
-                as usize
-        ];
         let filter_data_texture = Self::create_filter_data_texture(
             device,
             resource_texture_dimension_2d,
@@ -384,8 +387,6 @@ impl GpuResources {
                 height: render_target_config.height,
             },
             scene_offset: (0, 0),
-            encoded_paints_data,
-            filter_data,
             depth_cleared_this_frame: false,
         }
     }
@@ -798,10 +799,6 @@ impl GpuResources {
                 required_encoded_paints_height <= resource_texture_dimension_2d,
                 "Encoded paints texture height exceeds resource texture dimensions"
             );
-            let required_encoded_paints_size =
-                (resource_texture_dimension_2d * required_encoded_paints_height) << 4;
-            self.encoded_paints_data
-                .resize(required_encoded_paints_size as usize, 0);
             let encoded_paints_texture = Self::create_encoded_paints_texture(
                 device,
                 resource_texture_dimension_2d,
@@ -928,12 +925,14 @@ impl GpuResources {
         }
 
         let texture = &self.encoded_paints_texture;
-        let rows = paint_idxs.last().unwrap().div_ceil(texture.width());
-        let data = &mut self.encoded_paints_data[..(rows * texture.width() * 16) as usize];
-
-        GpuEncodedPaint::serialize_to_buffer(encoded_paints, data);
-
-        self.staging_belt.upload_texture(encoder, texture, data, 16);
+        let data_len = *paint_idxs.last().unwrap() as usize * 16;
+        self.staging_belt.upload_texture_chunks(
+            encoder,
+            texture,
+            data_len,
+            16,
+            encoded_paints.iter().map(GpuEncodedPaint::as_bytes),
+        );
     }
 
     /// Upload gradient data to the texture.

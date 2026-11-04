@@ -92,7 +92,8 @@ impl GpuEncodedPaint {
         }
     }
 
-    /// Serialize paint enums directly into the provided buffer. Returns the number of bytes written.
+    /// Serialize paint enums directly into the provided buffer.
+    #[cfg(feature = "webgl")]
     pub(crate) fn serialize_to_buffer(paints: &[Self], buffer: &mut [u8]) {
         let mut offset = 0;
         for paint in paints {
