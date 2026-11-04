@@ -1183,8 +1183,10 @@ fn main(
 
                 let blur = read_blur_rect(cmd_ix);
 
+                // The approximation is fitted to a blur by exp(-(x / erf_scale)^2), whose standard
+                // deviation is erf_scale / sqrt(2).
                 // Avoid division by 0
-                let erf_scale = max(blur.std_dev, 1e-5);
+                let erf_scale = sqrt(2.0) * max(blur.std_dev, 1e-5);
                 let inv_erf_scale = 1.0 / erf_scale;
                 
                 let min_edge = min(blur.width, blur.height);

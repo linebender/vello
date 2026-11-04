@@ -18,6 +18,7 @@ use alloc::vec::Vec;
 use bytemuck::Pod;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
+use core::f32::consts::SQRT_2;
 use core::hash::{Hash, Hasher};
 use fearless_simd::{Simd, SimdBase, SimdFloat, SimdFrom, f32x4, f32x16, mask32x16};
 use fearless_simd_macros::simd;
@@ -895,7 +896,7 @@ pub struct EncodedBlurredRoundedRectangle {
     pub recip_exponent: f32,
     /// An component for computing the blur effect.
     pub scale: f32,
-    /// An component for computing the blur effect.
+    /// `1 / (std_dev * √2)`, the factor the blur's `erf` terms scale a distance by.
     pub recip_erf_scale: f32,
     /// An component for computing the blur effect.
     pub min_edge: f32,
@@ -957,8 +958,10 @@ impl EncodeExt for BlurredRoundedRectangle {
         let height = rect.height() as f32;
         let radius = self.radius.min(0.5 * width.min(height));
 
+        // The approximation (https://git.sr.ht/~raph/blurrr/tree/master/src/distfield.rs) is fitted
+        // to a blur by `exp(-(x / erf_scale)^2)`, whose standard deviation is `erf_scale / √2`.
         // To avoid divide by 0; potentially should be a bigger number for antialiasing.
-        let erf_scale = self.std_dev.max(1e-6);
+        let erf_scale = SQRT_2 * self.std_dev.max(1e-6);
 
         let min_edge = width.min(height);
         let rmax = 0.5 * min_edge;
