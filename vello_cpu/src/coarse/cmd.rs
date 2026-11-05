@@ -120,6 +120,8 @@ pub struct PaintFillAttrs {
     pub thread_idx: u8,
     /// See the comment in `CommandBucketer::bucket_commands`.
     pub origin: (u16, u16),
+    /// The target's top-left in render context coordinates, used to sample `mask`.
+    pub mask_origin: (i32, i32),
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +129,8 @@ pub(crate) struct LayerFillAttrs {
     pub(crate) blend_mode: BlendMode,
     pub(crate) opacity: f32,
     pub(crate) mask: Option<Mask>,
+    /// See [`PaintFillAttrs::mask_origin`].
+    pub(crate) mask_origin: (i32, i32),
     pub(crate) draw_id: u32,
     /// In case there is any alpha associated with the layer command, this stores
     /// the index of the thread that stores the alpha.

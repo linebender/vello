@@ -189,8 +189,8 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     fn blend(
         simd: S,
         dest: &mut [Self::Numeric],
-        mut start_x: u16,
-        start_y: u16,
+        mut start_x: i32,
+        start_y: i32,
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
         alphas: Option<&[u8]>,
@@ -199,43 +199,36 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         let alpha_iter = alphas.map(|a| bytemuck::cast_slice::<u8, [u8; 4]>(a).iter().copied());
 
         let mask_iter = mask.map(|m| {
-            let width = m.width();
-            let height = m.height();
+            let width = i32::from(m.width());
+            let height = i32::from(m.height());
+            let sample = move |x: i32, y: i32| {
+                if (0..width).contains(&x) && (0..height).contains(&y) {
+                    m.sample(x as u16, y as u16)
+                } else {
+                    255
+                }
+            };
 
             core::iter::from_fn(move || {
-                let samples = if start_x < width && start_y + 3 < height {
-                    // All in bounds, sample directly
-                    [
-                        m.sample(start_x, start_y),
-                        m.sample(start_x, start_y + 1),
-                        m.sample(start_x, start_y + 2),
-                        m.sample(start_x, start_y + 3),
-                    ]
-                } else {
-                    // Fallback: check each individually
-                    [
-                        if start_x < width && start_y < height {
-                            m.sample(start_x, start_y)
-                        } else {
-                            255
-                        },
-                        if start_x < width && start_y + 1 < height {
-                            m.sample(start_x, start_y + 1)
-                        } else {
-                            255
-                        },
-                        if start_x < width && start_y + 2 < height {
-                            m.sample(start_x, start_y + 2)
-                        } else {
-                            255
-                        },
-                        if start_x < width && start_y + 3 < height {
-                            m.sample(start_x, start_y + 3)
-                        } else {
-                            255
-                        },
-                    ]
-                };
+                let samples =
+                    if (0..width).contains(&start_x) && start_y >= 0 && start_y + 3 < height {
+                        // All in bounds, sample directly
+                        let (x, y) = (start_x as u16, start_y as u16);
+                        [
+                            m.sample(x, y),
+                            m.sample(x, y + 1),
+                            m.sample(x, y + 2),
+                            m.sample(x, y + 3),
+                        ]
+                    } else {
+                        // Fallback: check each individually
+                        [
+                            sample(start_x, start_y),
+                            sample(start_x, start_y + 1),
+                            sample(start_x, start_y + 2),
+                            sample(start_x, start_y + 3),
+                        ]
+                    };
 
                 start_x += 1;
 
