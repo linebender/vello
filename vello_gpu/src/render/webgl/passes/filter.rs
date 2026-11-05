@@ -31,18 +31,10 @@ impl WebGlResources {
         gl: &WebGl2RenderingContext,
         filter_context: &FilterContext,
     ) -> Result<(), WebGlError> {
-        let resource_texture_dimension_2d = self.resource_texture_dimension_2d;
-
-        self.filter_data_texture.ensure_bytes(
-            filter_context.as_bytes().len(),
-            |format, width, height| {
-                assert!(
-                    height <= resource_texture_dimension_2d,
-                    "Filter texture height exceeds resource texture dimensions"
-                );
-                create_data_texture(gl, format, width, height, resource_texture_dimension_2d)
-            },
-        )?;
+        self.filter_data_texture
+            .ensure_bytes(filter_context.as_bytes().len(), |format, width, height| {
+                create_data_texture(gl, format, width, height)
+            })?;
 
         Ok(())
     }

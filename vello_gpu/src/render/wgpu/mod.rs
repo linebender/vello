@@ -409,7 +409,7 @@ impl Renderer {
             scene_offset,
             &self.scene_preparer.paint_idxs,
             &self.scene_preparer.schedule_storage.filter_context,
-        );
+        )?;
 
         self.resources
             .strips_arena

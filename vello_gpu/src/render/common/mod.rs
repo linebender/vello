@@ -7,7 +7,7 @@ mod data_texture;
 pub(crate) mod paint;
 mod scene_preparer;
 
-pub(crate) use self::data_texture::{DataTexture, DataTextureFormat};
+pub(crate) use self::data_texture::{DataTexture, DataTextureFormat, DataTextureTooLarge};
 pub(crate) use self::scene_preparer::ScenePreparer;
 #[cfg(all(feature = "wgpu", feature = "wgpu_external_texture"))]
 pub(crate) use paint::encode_wgpu_external_texture_paint;
