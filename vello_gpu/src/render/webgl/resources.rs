@@ -172,8 +172,8 @@ impl WebGlResources {
     ) -> Result<(), WebGlError> {
         let resource_texture_dimension_2d = self.resource_texture_dimension_2d;
 
-        self.maybe_resize_alphas_tex(gl, resource_texture_dimension_2d, alphas.len())?;
-        self.maybe_resize_encoded_paints_tex(gl, resource_texture_dimension_2d, paint_idxs)?;
+        self.maybe_resize_alphas_tex(gl, alphas.len())?;
+        self.maybe_resize_encoded_paints_tex(gl, paint_idxs)?;
         self.maybe_resize_filter_data_tex(gl, filter_context)?;
         let negate_ndc = DrawPassTarget::Root(root_target).negate_ndc();
         self.maybe_update_config_buffer(
@@ -189,7 +189,7 @@ impl WebGlResources {
         self.upload_filter_data_texture(gl, filter_context)?;
 
         if gradient_cache.has_changed() {
-            self.maybe_resize_gradient_tex(gl, resource_texture_dimension_2d, gradient_cache)?;
+            self.maybe_resize_gradient_tex(gl, gradient_cache)?;
             self.upload_gradient_texture(gl, gradient_cache)?;
             gradient_cache.mark_synced();
         }
@@ -282,12 +282,11 @@ impl WebGlResources {
     fn maybe_resize_alphas_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
-        resource_texture_dimension_2d: u32,
         alphas_len: usize,
     ) -> Result<(), WebGlError> {
         self.alphas_texture
             .ensure_bytes(alphas_len, |format, width, height| {
-                create_data_texture(gl, format, width, height, resource_texture_dimension_2d)
+                create_data_texture(gl, format, width, height)
             })?;
 
         Ok(())
@@ -297,15 +296,12 @@ impl WebGlResources {
     fn maybe_resize_encoded_paints_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
-        resource_texture_dimension_2d: u32,
         paint_idxs: &[u32],
     ) -> Result<(), WebGlError> {
-        self.encoded_paints_texture.ensure_texels(
-            *paint_idxs.last().unwrap(),
-            |format, width, height| {
-                create_data_texture(gl, format, width, height, resource_texture_dimension_2d)
-            },
-        )?;
+        self.encoded_paints_texture
+            .ensure_texels(*paint_idxs.last().unwrap(), |format, width, height| {
+                create_data_texture(gl, format, width, height)
+            })?;
 
         Ok(())
     }
@@ -314,19 +310,16 @@ impl WebGlResources {
     fn maybe_resize_gradient_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
-        resource_texture_dimension_2d: u32,
         gradient_cache: &GradientRampCache,
     ) -> Result<(), WebGlError> {
         if gradient_cache.is_empty() {
             return Ok(());
         }
 
-        self.gradient_texture.ensure_bytes(
-            gradient_cache.luts_size(),
-            |format, width, height| {
-                create_data_texture(gl, format, width, height, resource_texture_dimension_2d)
-            },
-        )?;
+        self.gradient_texture
+            .ensure_bytes(gradient_cache.luts_size(), |format, width, height| {
+                create_data_texture(gl, format, width, height)
+            })?;
 
         Ok(())
     }
@@ -494,35 +487,6 @@ pub(crate) fn create_texture_storage(
     Ok(texture)
 }
 
-/// Validate that a resource texture fits within its configured dimension limit.
-fn validate_resource_texture_size(
-    width: u32,
-    height: u32,
-    max_dimension: u32,
-) -> Result<(), WebGlError> {
-    if width > max_dimension || height > max_dimension {
-        return Err(WebGlError::ResourceTextureTooLarge {
-            width,
-            height,
-            max_dimension,
-        });
-    }
-
-    Ok(())
-}
-
-/// Create a zero-initialized data texture of `format`, failing if it exceeds `max_dimension`.
-pub(crate) fn create_data_texture(
-    gl: &WebGl2RenderingContext,
-    format: DataTextureFormat,
-    width: u32,
-    height: u32,
-    max_dimension: u32,
-) -> Result<Texture, WebGlError> {
-    validate_resource_texture_size(width, height, max_dimension)?;
-    create_data_texture_storage(gl, format, width, height)
-}
-
 fn create_placeholder_data_texture(
     gl: &WebGl2RenderingContext,
     format: DataTextureFormat,
@@ -541,11 +505,11 @@ fn create_placeholder_texture(
     gl: &WebGl2RenderingContext,
     format: DataTextureFormat,
 ) -> Result<Texture, WebGlError> {
-    create_data_texture_storage(gl, format, 1, 1)
+    create_data_texture(gl, format, 1, 1)
 }
 
 /// Create a zero-initialized texture of `format` backed by immutable storage (`texStorage2D`).
-fn create_data_texture_storage(
+pub(crate) fn create_data_texture(
     gl: &WebGl2RenderingContext,
     format: DataTextureFormat,
     width: u32,
@@ -927,22 +891,4 @@ fn upload_rgba32ui_rows(
     ))?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resource_texture_size_must_fit_dimension_limit() {
-        assert!(validate_resource_texture_size(4096, 4096, 4096).is_ok());
-        assert!(matches!(
-            validate_resource_texture_size(4096, 4097, 4096),
-            Err(WebGlError::ResourceTextureTooLarge {
-                width: 4096,
-                height: 4097,
-                max_dimension: 4096,
-            })
-        ));
-    }
 }

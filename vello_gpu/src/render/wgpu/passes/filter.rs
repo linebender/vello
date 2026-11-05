@@ -3,6 +3,7 @@
 
 //! The filter pass.
 
+use crate::RenderError;
 use crate::render::wgpu::passes::copy::encode_copy_pass;
 use crate::render::wgpu::passes::{Programs, RendererContext};
 use crate::render::wgpu::resources::GpuResources;
@@ -160,26 +161,22 @@ impl GpuResources {
         &mut self,
         device: &Device,
         programs: &Programs,
-        resource_texture_dimension_2d: u32,
         filter_context: &FilterContext,
-    ) {
-        self.filter_data_texture.grow_bytes(
+    ) -> Result<bool, RenderError> {
+        let layout = &programs.filter.bind_group_layout;
+        self.filter_data_texture.ensure_bytes(
             filter_context.as_bytes().len(),
             |format, width, height| {
-                assert!(
-                    height <= resource_texture_dimension_2d,
-                    "Filter texture height exceeds resource texture dimensions"
-                );
-                Self::create_bound_data_texture(
+                Ok(Self::create_bound_data_texture(
                     device,
                     "Filter Data",
-                    &programs.filter.bind_group_layout,
+                    layout,
                     format,
                     width,
                     height,
-                )
+                ))
             },
-        );
+        )
     }
 
     pub(crate) fn upload_filter_texture(
