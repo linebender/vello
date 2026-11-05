@@ -12,9 +12,9 @@ use crate::{
 };
 use core::fmt::Debug;
 use wgpu::{
-    BindGroup, BindGroupLayout, ColorTargetState, ColorWrites, CommandEncoder, Device, Extent3d,
+    BindGroup, BindGroupLayout, ColorTargetState, ColorWrites, CommandEncoder, Device,
     PipelineCompilationOptions, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
-    Sampler, Texture, TextureView, TextureViewDescriptor, util::DeviceExt,
+    Sampler, TextureView, util::DeviceExt,
 };
 
 /// Bind group layouts, sampler and pipeline of the filter pass.
@@ -156,38 +156,6 @@ pub(crate) struct FilterPairBindGroups {
 }
 
 impl GpuResources {
-    pub(crate) fn create_filter_data_texture(device: &Device, width: u32, height: u32) -> Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Filter Data Texture"),
-            size: Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        })
-    }
-
-    pub(crate) fn create_filter_base_bind_group(
-        device: &Device,
-        filter_bind_group_layout: &BindGroupLayout,
-        filter_texture_view: &TextureView,
-    ) -> BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Filter Base Bind Group"),
-            layout: filter_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(filter_texture_view),
-            }],
-        })
-    }
-
     pub(crate) fn maybe_resize_filter_tex(
         &mut self,
         device: &Device,
@@ -195,31 +163,23 @@ impl GpuResources {
         resource_texture_dimension_2d: u32,
         filter_context: &FilterContext,
     ) {
-        let Some(required_filter_height) =
-            filter_context.required_filter_data_height(resource_texture_dimension_2d)
-        else {
-            return;
-        };
-        debug_assert!(
-            self.filter_data_texture.width() == resource_texture_dimension_2d,
-            "Filter texture width must match resource texture dimensions"
+        self.filter_data_texture.grow_bytes(
+            filter_context.as_bytes().len(),
+            |format, width, height| {
+                assert!(
+                    height <= resource_texture_dimension_2d,
+                    "Filter texture height exceeds resource texture dimensions"
+                );
+                Self::create_bound_data_texture(
+                    device,
+                    "Filter Data",
+                    &programs.filter.bind_group_layout,
+                    format,
+                    width,
+                    height,
+                )
+            },
         );
-        let current_filter_height = self.filter_data_texture.height();
-        if required_filter_height > current_filter_height {
-            let filter_texture = Self::create_filter_data_texture(
-                device,
-                resource_texture_dimension_2d,
-                required_filter_height,
-            );
-            self.filter_data_texture = filter_texture;
-            self.filter_base_bind_group = Self::create_filter_base_bind_group(
-                device,
-                &programs.filter.bind_group_layout,
-                &self
-                    .filter_data_texture
-                    .create_view(&TextureViewDescriptor::default()),
-            );
-        }
     }
 
     pub(crate) fn upload_filter_texture(
@@ -230,9 +190,8 @@ impl GpuResources {
         if filter_context.is_empty() {
             return;
         }
-        let texture = &self.filter_data_texture;
-        self.staging_belt
-            .upload_texture(encoder, texture, filter_context.as_bytes(), 16);
+        self.filter_data_texture
+            .upload(&mut self.staging_belt, encoder, filter_context.as_bytes());
     }
 }
 
@@ -342,7 +301,7 @@ pub(crate) fn encode_filter_pass(
         multiview_mask: None,
     });
     render_pass.set_pipeline(filter_pipeline);
-    render_pass.set_bind_group(0, &resources.filter_base_bind_group, &[]);
+    render_pass.set_bind_group(0, &resources.filter_data_texture.texture().bind_group, &[]);
     render_pass.set_bind_group(1, input_bind_group, &[]);
     render_pass.set_bind_group(2, original_texture_bind_group, &[]);
     render_pass.set_vertex_buffer(0, instance_buffer.slice(..));

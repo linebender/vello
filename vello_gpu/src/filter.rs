@@ -694,39 +694,6 @@ impl FilterContext {
     pub(crate) fn as_bytes(&self) -> &[u8] {
         bytemuck::cast_slice(&self.filters)
     }
-
-    #[cfg(feature = "webgl")]
-    pub(crate) fn serialize_to_buffer(&self, buffer: &mut [u8]) {
-        let src = self.as_bytes();
-        debug_assert!(
-            buffer.len() >= src.len(),
-            "filter data buffer too small: {} < {}",
-            buffer.len(),
-            src.len()
-        );
-        buffer[..src.len()].copy_from_slice(src);
-    }
-
-    /// Calculate the required height for the filter data texture.
-    /// Returns `None` if no filters are present.
-    pub(crate) fn required_filter_data_height(
-        &self,
-        resource_texture_dimension_2d: u32,
-    ) -> Option<u32> {
-        let required_texels = self.total_texels();
-
-        if required_texels == 0 {
-            return None;
-        }
-        let height = required_texels.div_ceil(resource_texture_dimension_2d);
-        // TODO: Turn into error.
-        assert!(
-            height <= resource_texture_dimension_2d,
-            "Filter texture height exceeds resource texture dimensions"
-        );
-
-        Some(height)
-    }
 }
 
 #[cfg(test)]
@@ -785,16 +752,6 @@ mod tests {
             AlphaColor::new([0.0, 0.0, 0.0, 1.0]),
         ))
         .into()
-    }
-
-    #[test]
-    #[should_panic(expected = "Filter texture height exceeds resource texture dimensions")]
-    fn filter_data_height_must_fit_resource_texture_limit() {
-        let context = FilterContext {
-            filters: alloc::vec![gpu_offset()],
-        };
-
-        let _ = context.required_filter_data_height(1);
     }
 
     fn step_layout(plan: &FilterPassPlan) -> Vec<Vec<(u32, u32)>> {
