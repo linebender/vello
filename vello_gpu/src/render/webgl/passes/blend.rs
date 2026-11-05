@@ -120,7 +120,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.resources.alphas_texture),
+            Some(self.resources.alphas_texture.texture()),
         );
         self.gl
             .uniform1i(Some(&self.programs.blend_uniforms.alphas_texture), 2);
