@@ -278,7 +278,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@b0nes164]: https://github.com/b0nes164
 [@conor-93]: https://github.com/conor-93
 [@dipeshbabu]: https://github.com/dipeshbabu
-[@DJMcNab]: https://github.com/waywardmonkeys
+[@DJMcNab]: https://github.com/DJMcNab
 [@grebmeg]: https://github.com/grebmeg
 [@josefguenther]: https://github.com/josefguenther
 [@LaurenzV]: https://github.com/LaurenzV
