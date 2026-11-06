@@ -203,6 +203,14 @@ pub(crate) fn layout_glyphs_noto_colr(text: &str, font_size: f32) -> (FontData, 
     layout_glyphs(text, font_size, font)
 }
 
+pub(crate) fn layout_glyphs_twemoji_colr(text: &str, font_size: f32) -> (FontData, Vec<Glyph>) {
+    const TWEMOJI_FONT: &[u8] =
+        include_bytes!("../../assets/twemoji_mozilla/Twemoji.Mozilla-Subset.ttf");
+    let font = FontData::new(Blob::new(Arc::new(TWEMOJI_FONT)), 0);
+
+    layout_glyphs(text, font_size, font)
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) fn layout_glyphs_apple_color_emoji(
     text: &str,
