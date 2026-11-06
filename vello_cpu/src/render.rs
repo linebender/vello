@@ -191,7 +191,47 @@ impl Default for RenderSettings {
     }
 }
 
+/// A fixed pool that can be moved between successive CPU render contexts.
+///
+/// Holding this value keeps its worker threads alive. Page geometry, paints,
+/// and rasterization buffers belong to each context and are dropped with it.
+#[cfg(feature = "multithreading")]
+#[derive(Debug)]
+pub struct RasterWorkers {
+    pub(crate) pool: Arc<rayon::ThreadPool>,
+}
+
+#[cfg(feature = "multithreading")]
+impl RasterWorkers {
+    /// Start exactly `count` workers, returning an error if startup fails.
+    pub fn new(count: core::num::NonZeroU8) -> std::io::Result<Self> {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(usize::from(count.get()))
+            .build()
+            .map_err(std::io::Error::other)?;
+        Ok(Self {
+            pool: Arc::new(pool),
+        })
+    }
+}
+
 impl RenderContext {
+    /// Move an existing pool into a fresh context for this viewport.
+    #[cfg(feature = "multithreading")]
+    pub fn with_workers(width: u16, height: u16, level: Level, workers: RasterWorkers) -> Self {
+        let num_threads = workers.pool.current_num_threads() as u16;
+        let settings = RenderSettings { level, num_threads };
+        let dispatcher =
+            MultiThreadedDispatcher::with_pool(width, height, num_threads, level, workers.pool);
+        Self::from_dispatcher(width, height, settings, Box::new(dispatcher))
+    }
+
+    /// Consume the scene and recover its workers for another context.
+    /// Returns `None` for a single-threaded context.
+    #[cfg(feature = "multithreading")]
+    pub fn into_workers(self) -> Option<RasterWorkers> {
+        self.dispatcher.into_workers()
+    }
     /// Create a new render context with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
         Self::new_with(width, height, RenderSettings::default())
@@ -215,6 +255,15 @@ impl RenderContext {
         let dispatcher: Box<dyn Dispatcher> =
             { Box::new(SingleThreadedDispatcher::new(width, height, settings.level)) };
 
+        Self::from_dispatcher(width, height, settings, dispatcher)
+    }
+
+    fn from_dispatcher(
+        width: u16,
+        height: u16,
+        settings: RenderSettings,
+        dispatcher: Box<dyn Dispatcher>,
+    ) -> Self {
         let encoded_paints = vec![];
         let temp_path = BezPath::new();
         let aliasing_threshold = None;
@@ -1085,6 +1134,46 @@ impl ImageResolver for ImageRegistry {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "multithreading")]
+    #[test]
+    fn workers_survive_scene_disposal() {
+        use super::{Level, RasterWorkers, RenderSettings};
+        use core::num::NonZeroU8;
+
+        let workers = RasterWorkers::new(NonZeroU8::new(2).unwrap()).unwrap();
+        let ids = workers.pool.broadcast(|_| std::thread::current().id());
+        let level = Level::try_detect().unwrap_or(Level::baseline());
+        let mut first = RenderContext::with_workers(8, 8, level, workers);
+        first.set_paint(RED);
+        first.fill_rect(&Rect::new(0.0, 0.0, 8.0, 8.0));
+        // Consuming an unfinished context also releases its recorded commands.
+        let workers = first.into_workers().unwrap();
+        assert_eq!(workers.pool.broadcast(|_| std::thread::current().id()), ids);
+        let mut second = RenderContext::with_workers(3, 5, level, workers);
+        second.set_paint(BLUE);
+        second.fill_rect(&Rect::new(1.0, 1.0, 2.0, 2.0));
+        second.flush();
+        let mut pixmap = Pixmap::new(3, 5);
+        second.render_with(
+            &mut pixmap,
+            &mut Resources::default(),
+            RasterizerSettings::default(),
+        );
+        assert_eq!(pixmap.data()[4], blue_pixel());
+        assert_eq!(pixmap.data()[0].a, 0);
+        assert!(
+            RenderContext::new_with(
+                1,
+                1,
+                RenderSettings {
+                    level,
+                    num_threads: 0
+                }
+            )
+            .into_workers()
+            .is_none()
+        );
+    }
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
     use crate::{RasterizerSettings, RenderContext, Resources, TargetInit};

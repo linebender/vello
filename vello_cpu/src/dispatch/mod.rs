@@ -8,6 +8,8 @@ pub(crate) mod single_threaded;
 use crate::RasterizerSettings;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
+#[cfg(feature = "multithreading")]
+use alloc::boxed::Box;
 use core::fmt::Debug;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter::FilterData;
@@ -16,6 +18,10 @@ use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
 
 pub(crate) trait Dispatcher: Debug + Send {
+    #[cfg(feature = "multithreading")]
+    fn into_workers(self: Box<Self>) -> Option<crate::RasterWorkers> {
+        None
+    }
     fn has_layers(&self) -> bool;
     fn fill_path(
         &mut self,
