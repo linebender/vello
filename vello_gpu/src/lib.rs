@@ -34,8 +34,8 @@
 //! - `full_image_support` (enabled by default): If this feature is disabled, only
 //!   external textures using `TextureRegion::Full` with nearest or bilinear
 //!   sampling and opacity are supported. Enabling this feature also adds support
-//!   for uploaded images, glyph atlas caching, bicubic sampling, cropped external
-//!   textures, and colored or alpha-mask tints.
+//!   for glyph atlas caching, bicubic sampling, cropped external textures, and
+//!   colored or alpha-mask tints.
 //! - `gradient_sweep` (enabled by default): Enables rendering of sweep gradients
 //! - `wgpu_external_texture` (enabled by default): Adds a WGSL `texture_external`
 //!   binding when the wgpu device has `wgpu::Features::EXTERNAL_TEXTURE` enabled,
@@ -124,21 +124,19 @@ mod text;
 pub(crate) mod draw;
 pub mod util;
 
+pub use render::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(feature = "webgl")]
 pub use render::{
-    AtlasTextureInfo, IncompatibleContextReason, IncompatiblePrecompiledShadersReason,
-    InvalidTextureTargetReason, ShaderCompilationStats, WebGlAtlasWriter, WebGlContextOperation,
-    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlRenderOptions, WebGlRenderTarget,
-    WebGlRenderer, WebGlRendererInit, WebGlRendererInitStatus, WebGlResourceKind,
-    WebGlShaderInterfaceOperation, WebGlShaderProgramOperation, WebGlShaderStage,
-    WebGlTextureBindings, WebGlTextureTarget, WebGlTextureWithDimensions,
+    IncompatibleContextReason, IncompatiblePrecompiledShadersReason, InvalidTextureTargetReason,
+    ShaderCompilationStats, WebGlContextOperation, WebGlDataTransferOperation, WebGlError,
+    WebGlOperation, WebGlRenderOptions, WebGlRenderTarget, WebGlRenderer, WebGlRendererInit,
+    WebGlRendererInitStatus, WebGlResourceKind, WebGlShaderInterfaceOperation,
+    WebGlShaderProgramOperation, WebGlShaderStage, WebGlTextureBindings, WebGlTextureTarget,
 };
 #[cfg(feature = "wgpu")]
 pub use render::{
-    AtlasWriter, RenderOptions, RenderTarget, RenderTargetConfig, Renderer, TextureBinding,
-    TextureBindings,
+    RenderOptions, RenderTarget, RenderTargetConfig, Renderer, TextureBinding, TextureBindings,
 };
-pub use render::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeOperation, WebGlProbeStatus};
 #[cfg(all(feature = "wgpu", feature = "probe"))]
@@ -158,14 +156,12 @@ pub use vello_common::reexports::gpu::*;
 pub use vello_gpu_shaders::webgl_bootstrap;
 
 use thiserror::Error;
+use vello_common::paint::ImageId;
 
 /// Errors that can occur during rendering.
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum RenderError {
-    /// An image atlas allocation failed.
-    #[error("Atlas allocation failed: {0}")]
-    AtlasError(#[from] AtlasError),
     /// A draw referenced a [`TextureId`] that was not provided at render time.
     #[error("Missing texture binding for {0:?}")]
     MissingTextureBinding(TextureId),
@@ -178,9 +174,9 @@ pub enum RenderError {
     /// tint other than opacity.
     #[error("Unsupported sampling of external texture binding {0:?}")]
     UnsupportedExternalTextureSampling(TextureId),
-    /// An image paint referenced an image that has not been uploaded.
-    #[error("Missing image cache entry for {0:?}")]
-    MissingImage(ImageId),
+    /// A glyph paint referenced an atlas entry that does not exist.
+    #[error("Missing atlas entry for {0:?}")]
+    MissingAtlasEntry(ImageId),
     /// An intermediate texture allocation failed.
     #[error(transparent)]
     IntermediateTexture(#[from] IntermediateTextureError),

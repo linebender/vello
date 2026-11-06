@@ -23,10 +23,17 @@ This release has an [MSRV][] of 1.89.
 ### Changed
 
 - Breaking change: The `invert` parameter of `Scene::fill_blurred_rounded_rect` has been removed. Use `Scene::fill_blurred_rounded_rect_in` with `invert` set to `true` instead. ([#1718][] by [@nicoburns][])
+- Breaking change: `MemorySettings::image_atlas_config` has been renamed to `glyph_atlas_config`, as the atlas now only holds cached glyphs. (by [@LaurenzV][])
+- Breaking change: `RenderError::MissingImage` has been renamed to `RenderError::MissingAtlasEntry`. (by [@LaurenzV][])
+- Breaking change: `ImageSource::OpaqueId`, `ImageSource::opaque_id`, and `ImageSource::opaque_id_with_transparency_hint` have been replaced by the hidden `ImageSource::Atlas`, which is only used internally for glyph caching. Use `ImageSource::external_texture` instead. (by [@LaurenzV][])
+
+### Removed
+
+- Breaking change: Uploading images into the renderer's image atlas. `Renderer::upload_image`, `Renderer::destroy_image`, `Renderer::atlas_texture`, `AtlasWriter`, `WebGlRenderer::upload_image`, `WebGlRenderer::destroy_image`, `WebGlRenderer::atlas_texture`, `WebGlRenderer::atlas_info`, `WebGlAtlasWriter`, `WebGlTextureWithDimensions`, `AtlasTextureInfo`, `RenderError::AtlasError`, and `WebGlError::FullImageSupportDisabled` have been removed, and `AtlasError`, `AtlasId`, and `ImageId` are no longer re-exported. Bind images as external textures with `ImageSource::external_texture` instead. The atlas is now only used for glyph caching. (by [@LaurenzV][])
 
 ### Fixed
 
-- The wgpu renderer returns `RenderError::MissingImage` instead of panicking when a scene references an image that isn't in the image cache. (by [@LaurenzV][])
+- The wgpu renderer returns `RenderError::MissingAtlasEntry` instead of panicking when a scene references an atlas entry that doesn't exist. (by [@LaurenzV][])
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
 
 ## [0.3.0][] - 2026-10-02

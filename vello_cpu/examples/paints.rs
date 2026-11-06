@@ -121,8 +121,6 @@ fn pattern() -> Image {
     let pixmap = Pixmap::from_png(Cursor::new(file)).unwrap();
 
     Image {
-        // Note that only ImageSource::Pixmap is currently supported. Don't
-        // use ImageSource::OpaqueId.
         image: ImageSource::Pixmap(Arc::new(pixmap)),
         sampler: ImageSampler {
             x_extend: Extend::Repeat,

@@ -11,7 +11,7 @@
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
 //! any GPU upload step.
 
-use crate::render::{ATLAS_IMAGE_ID_BASE, DEFAULT_GLYPH_ATLAS_SIZE};
+use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
 use crate::{
     Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderContext, RenderMode,
     RenderSettings, Resources, TargetInit, color, kurbo, peniko,
@@ -32,10 +32,6 @@ use peniko::BlendMode;
 use peniko::color::{AlphaColor, Srgb};
 use vello_common::fearless_simd::Level;
 use vello_common::paint::ImageId;
-
-fn atlas_page_image_id(page_index: u32) -> ImageId {
-    ImageId::new(ATLAS_IMAGE_ID_BASE + page_index)
-}
 
 #[derive(Debug)]
 pub(crate) struct GlyphAtlasResources {
@@ -464,7 +460,7 @@ impl glifo::GlyphRenderer for RenderContext {
 
     #[inline]
     fn atlas_image_source(&self, atlas_slot: &AtlasSlot) -> ImageSource {
-        ImageSource::opaque_id(atlas_page_image_id(atlas_slot.page_index))
+        ImageSource::Atlas(ImageId::new(atlas_slot.page_index))
     }
 
     #[inline]
