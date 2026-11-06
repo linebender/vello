@@ -15,15 +15,18 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - `FilterPrimitive::GaussianBlur` blurs each axis by its own standard deviation (`std_deviation_x`, `std_deviation_y`), like SVG's `stdDeviation="x y"`; a blur along one axis only decimates and convolves that axis alone. `FilterPrimitive::gaussian_blur` builds a blur with the same deviation on both axes. ([#1997][] by [@theashraf][])
+- `blurred_rounded_rect::painted_rect`, the rectangle a blurred rounded rectangle is painted in. ([#2062][] by [@YevheniiKotyrlo][])
 
 ### Changed
 
 - Breaking change: `FilterPrimitive::GaussianBlur`'s `std_deviation` is now `std_deviation_x` and `std_deviation_y`, `filter::gaussian_blur::GaussianBlur` carries a decimation plan and kernel per axis, and `DecimationSizer` scales the axes independently through `downscale_axes` and `upscale_axes`. ([#1997][] by [@theashraf][])
 - A blur under a non-uniform scale or skew is scaled per axis instead of by the average scale factor, so its device-space extent follows the transform. ([#1997][] by [@theashraf][])
+- Breaking change: `EncodedBlurredRoundedRectangle::std_dev_inv` is now `recip_erf_scale`, `1 / (std_dev * √2)`. ([#2062][] by [@YevheniiKotyrlo][])
 
 ### Fixed
 
 - Cubics flattened far from the origin now match the same curve flattened near it. ([#2039][] by [@josefguenther][])
+- `BlurredRoundedRectangle`'s encoding blurring with `std_dev / √2` instead of `std_dev`. ([#2062][] by [@YevheniiKotyrlo][])
 
 ## [0.3.0][] - 2026-10-02
 
@@ -290,6 +293,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@upsuper]: https://github.com/upsuper
 [@valadaptive]: https://github.com/valadaptive
 [@waywardmonkeys]: https://github.com/waywardmonkeys
+[@YevheniiKotyrlo]: https://github.com/YevheniiKotyrlo
 
 [#1159]: https://github.com/linebender/vello/pull/1159
 [#1203]: https://github.com/linebender/vello/pull/1203
@@ -384,6 +388,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1962]: https://github.com/linebender/vello/pull/1962
 [#1997]: https://github.com/linebender/vello/pull/1997
 [#2039]: https://github.com/linebender/vello/pull/2039
+[#2062]: https://github.com/linebender/vello/pull/2062
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0

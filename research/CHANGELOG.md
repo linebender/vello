@@ -19,6 +19,7 @@ This release has an [MSRV][] of 1.89.
 ### Fixed
 
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
+- `Scene::draw_blurred_rounded_rect` and `draw_blurred_rounded_rect_in` blurring with `std_dev / √2` instead of `std_dev`; `draw_blurred_rounded_rect` now paints up to `3 * std_dev` beyond the rectangle, and draws it unblurred for a negative or NaN `std_dev`, where a negative one shrank it. ([#2062][] by [@YevheniiKotyrlo][])
 
 ## [0.11.0][] - 2026-10-02
 
@@ -378,6 +379,7 @@ This release has an [MSRV][] of 1.75.
 [@TrueDoctor]: https://github.com/TrueDoctor
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@xStrom]: https://github.com/xStrom
+[@YevheniiKotyrlo]: https://github.com/YevheniiKotyrlo
 [@yutannihilation]: https://github.com/yutannihilation
 [@zlstringham]: https://github.com/zlstringham
 
@@ -495,6 +497,7 @@ This release has an [MSRV][] of 1.75.
 [#1936]: https://github.com/linebender/vello/pull/1936
 [#1939]: https://github.com/linebender/vello/pull/1939
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2062]: https://github.com/linebender/vello/pull/2062
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.11.0...HEAD
 [0.11.0]: https://github.com/linebender/vello/compare/v0.10.0...v0.11.0
