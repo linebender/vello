@@ -7,6 +7,7 @@ use thiserror::Error;
 use web_sys::wasm_bindgen::JsValue;
 
 use crate::RenderError;
+use crate::render::common::DataTextureTooLarge;
 
 /// Errors produced by the WebGL backend.
 #[derive(Error, Debug, Clone)]
@@ -56,6 +57,16 @@ pub enum WebGlError {
     /// A texture target cannot be rendered into.
     #[error("invalid texture target: {0}")]
     InvalidTextureTarget(InvalidTextureTargetReason),
+}
+
+impl From<DataTextureTooLarge> for WebGlError {
+    fn from(error: DataTextureTooLarge) -> Self {
+        Self::ResourceTextureTooLarge {
+            width: error.width,
+            height: error.rows,
+            max_dimension: error.width,
+        }
+    }
 }
 
 /// A fallible operation performed by the WebGL backend.

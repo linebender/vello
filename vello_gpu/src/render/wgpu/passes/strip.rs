@@ -508,6 +508,7 @@ impl RendererContext<'_> {
                 });
             let alphas_texture_view = resources
                 .alphas_texture
+                .texture()
                 .create_view(&TextureViewDescriptor::default());
             let bind_group = Programs::create_strip_bind_group(
                 self.device,
@@ -545,8 +546,12 @@ impl RendererContext<'_> {
             multiview_mask: None,
         });
         render_pass.set_bind_group(0, bind_group, &[]);
-        render_pass.set_bind_group(2, &resources.encoded_paints_bind_group, &[]);
-        render_pass.set_bind_group(3, &resources.gradient_bind_group, &[]);
+        render_pass.set_bind_group(
+            2,
+            &resources.encoded_paints_texture.texture().bind_group,
+            &[],
+        );
+        render_pass.set_bind_group(3, &resources.gradient_texture.texture().bind_group, &[]);
         render_pass.set_vertex_buffer(0, resources.strips_arena.buffer.slice(strips_range.clone()));
 
         let draw_strip_runs = |render_pass: &mut wgpu::RenderPass<'_>, first_instance, count| {

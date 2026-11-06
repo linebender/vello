@@ -91,18 +91,6 @@ impl GpuEncodedPaint {
             Self::BlurredRoundedRect(_) => Self::BLURRED_RECT_TEXELS,
         }
     }
-
-    /// Serialize paint enums directly into the provided buffer.
-    #[cfg(feature = "webgl")]
-    pub(crate) fn serialize_to_buffer(paints: &[Self], buffer: &mut [u8]) {
-        let mut offset = 0;
-        for paint in paints {
-            let paint_bytes = paint.as_bytes();
-            let end_offset = offset + paint_bytes.len();
-            buffer[offset..end_offset].copy_from_slice(paint_bytes);
-            offset = end_offset;
-        }
-    }
 }
 
 /// GPU data for a full external image using native texture sampling.

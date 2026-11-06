@@ -184,6 +184,28 @@ pub enum RenderError {
     /// An intermediate texture allocation failed.
     #[error(transparent)]
     IntermediateTexture(#[from] IntermediateTextureError),
+    /// A resource texture allocation exceeds the supported texture dimensions.
+    #[error(
+        "Resource texture allocation {width}x{height} exceeds maximum dimension {max_dimension}"
+    )]
+    ResourceTextureTooLarge {
+        /// The requested texture width.
+        width: u32,
+        /// The requested texture height.
+        height: u32,
+        /// The maximum supported width or height.
+        max_dimension: u32,
+    },
+}
+
+impl From<render::common::DataTextureTooLarge> for RenderError {
+    fn from(error: render::common::DataTextureTooLarge) -> Self {
+        Self::ResourceTextureTooLarge {
+            width: error.width,
+            height: error.rows,
+            max_dimension: error.width,
+        }
+    }
 }
 
 /// Errors that can occur while allocating intermediate textures.
