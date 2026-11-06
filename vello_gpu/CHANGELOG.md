@@ -28,6 +28,7 @@ This release has an [MSRV][] of 1.89.
 
 - The wgpu renderer returns `RenderError::MissingImage` instead of panicking when a scene references an image that isn't in the image cache. (by [@LaurenzV][])
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
+- `Scene::fill_blurred_rounded_rect` and `fill_blurred_rounded_rect_in` blurring with `std_dev / √2` instead of `std_dev`; `fill_blurred_rounded_rect` now paints up to `3 * std_dev` beyond the rectangle, and a negative `std_dev` draws it unblurred instead of shrinking it. ([#2062][] by [@YevheniiKotyrlo][])
 
 ## [0.3.0][] - 2026-10-02
 
@@ -289,6 +290,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@xStrom]: https://github.com/xStrom
+[@YevheniiKotyrlo]: https://github.com/YevheniiKotyrlo
 [@zlstringham]: https://github.com/zlstringham
 
 [#1203]: https://github.com/linebender/vello/pull/1203
@@ -430,6 +432,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1970]: https://github.com/linebender/vello/pull/1970
 [#1997]: https://github.com/linebender/vello/pull/1997
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2062]: https://github.com/linebender/vello/pull/2062
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0

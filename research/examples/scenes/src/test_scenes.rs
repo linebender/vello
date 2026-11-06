@@ -2029,7 +2029,7 @@ mod impls {
 
         // An emulated box shadow, to demonstrate the use of `draw_blurred_rounded_rect_in`.
         let std_dev = params.time.sin() * 50.0 + 50.0;
-        let kernel_size = 2.5 * std_dev;
+        let kernel_size = 3.0 * std_dev;
 
         // TODO: Add utils to Kurbo for ad-hoc composed shapes
         let shape = BezPath::from_iter(
