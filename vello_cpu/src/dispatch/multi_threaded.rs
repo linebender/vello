@@ -101,6 +101,8 @@ pub(crate) struct MultiThreadedDispatcher {
     /// Since we are rendering the paths on different threads, we need to make sure that they
     /// come back in the right order. The `task_idx` is used to keep track of that order.
     task_idx: u32,
+    // Sent batches, including results waiting for earlier batches in the receiver.
+    in_flight: usize,
     /// The number of threads active in the thread pool.
     num_threads: u16,
     /// The strip generator for the main thread, used for clip path rasterization.
@@ -145,6 +147,7 @@ impl MultiThreadedDispatcher {
             allocation_group: AllocationGroup::default(),
             batch_cost,
             task_idx,
+            in_flight: 0,
             flushed,
             workers,
             clip_context: ClipContext::new(),
@@ -277,21 +280,10 @@ impl MultiThreadedDispatcher {
             allocation_group,
         };
         task_sender.send(task).unwrap();
+        self.in_flight += 1;
         self.record_finished_commands(true);
     }
 
-    // Currently, we record worker-generated commands in two phases:
-    //
-    // The first phase is when we are still processing new draw commands from the client. After each
-    // command, we check whether there are already any generated strips, and if so we register the
-    // recorded commands on the main thread. In this case, we want to abort in case there are no more
-    // commands available to process.
-    //
-    // The second phase is when we are flushing, in which case. even if the queue is empty, we only
-    // want to abort once all workers have closed the channel (and thus there won't be any more
-    // new recoded commands that will be generated).
-    //
-    // This is why we have the `abort_empty` flag.
     fn append_strips(&mut self, strips: &[Strip]) -> Range<usize> {
         // TODO: Maybe we shouldn't do this and just have each worker store their own
         // strips.
@@ -300,10 +292,19 @@ impl MultiThreadedDispatcher {
         start..self.strip_storage.strips.len()
     }
 
+    // When producing, wait for the next ordered result once there are two
+    // outstanding batches per worker. During flush, drain until senders close.
     fn record_finished_commands(&mut self, abort_empty: bool) {
         loop {
-            match self.recorded_command_receiver.as_mut().unwrap().try_recv() {
+            let receiver = self.recorded_command_receiver.as_mut().unwrap();
+            let next = if !abort_empty || self.in_flight >= 2 * usize::from(self.num_threads) {
+                receiver.recv().map_err(|_| TryRecvError::Disconnected)
+            } else {
+                receiver.try_recv()
+            };
+            match next {
                 Ok(mut task) => {
+                    self.in_flight -= 1;
                     let num_tasks = task.allocation_group.recorded_commands.len();
                     for cmd in task.allocation_group.recorded_commands.drain(0..num_tasks) {
                         match cmd {
@@ -372,14 +373,7 @@ impl MultiThreadedDispatcher {
                     // Put the allocation group back so it can be reused in future iterations!
                     self.allocations.put(task.allocation_group);
                 }
-                Err(e) => match e {
-                    TryRecvError::Empty => {
-                        if abort_empty {
-                            return;
-                        }
-                    }
-                    TryRecvError::Disconnected => return,
-                },
+                Err(_) => return,
             }
         }
     }
@@ -948,6 +942,23 @@ mod tests {
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::peniko::{BlendMode, Fill};
     use vello_common::paint::{Paint, PremulColor};
+
+    #[test]
+    fn limits_submitted_batches_until_results_are_recorded() {
+        let mut dispatcher = MultiThreadedDispatcher::new(32, 32, 2, Level::new());
+        for _ in 0..128 {
+            dispatcher.fill_rect_fast(
+                &Rect::new(1., 1., 5., 5.),
+                Paint::Solid(PremulColor::from_alpha_color(BLUE)),
+                BlendMode::default(),
+                None,
+            );
+            dispatcher.flush_tasks();
+            assert!(dispatcher.in_flight < 4);
+        }
+        dispatcher.flush();
+        assert_eq!(dispatcher.in_flight, 0);
+    }
 
     /// Ensure we don't cause a memory leak.
     #[test]
