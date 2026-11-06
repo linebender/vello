@@ -727,9 +727,12 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 
     fn into_workers(self: Box<Self>) -> Option<crate::RasterWorkers> {
-        Some(crate::RasterWorkers {
-            pool: self.thread_pool.clone(),
-        })
+        let pool = self.thread_pool.clone();
+        drop(self);
+        // An unused context can still have worker initialization queued.
+        // Finish earlier broadcasts before returning the pool to its owner.
+        pool.broadcast(|_| ());
+        Some(crate::RasterWorkers { pool })
     }
 }
 
