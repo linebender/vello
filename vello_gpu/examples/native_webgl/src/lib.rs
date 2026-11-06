@@ -14,17 +14,15 @@ mod probe;
 use probe::ProbeIndicator;
 use std::cell::RefCell;
 use std::rc::Rc;
-use vello_common::paint::ImageId;
-use vello_common::{
-    kurbo::{Affine, Vec2},
-    paint::ImageSource,
-};
-use vello_example_scenes::image::ImageScene;
+use vello_common::kurbo::{Affine, Vec2};
+use vello_example_scenes::image::{COWBOY_TEXTURE_ID, FLOWER_TEXTURE_ID, ImageScene};
 use vello_example_scenes::{
     AnyScene,
     performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
 };
-use vello_gpu::{RenderSettings, Resources, Scene, WebGlError, WebGlRendererInit};
+use vello_gpu::{
+    RenderSettings, Resources, Scene, WebGlError, WebGlRendererInit, WebGlTextureBindings,
+};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
@@ -81,6 +79,7 @@ struct AppState {
     width: u32,
     height: u32,
     renderer_wrapper: RendererWrapper,
+    texture_bindings: WebGlTextureBindings,
     probe_indicator: ProbeIndicator,
     performance: PerformancePanel<2>,
     canvas: HtmlCanvasElement,
@@ -117,6 +116,7 @@ impl AppState {
             width,
             height,
             renderer_wrapper,
+            texture_bindings: WebGlTextureBindings::new(),
             probe_indicator,
             performance: PerformancePanel::new(
                 "Vello GPU · native WebGL2",
@@ -144,7 +144,7 @@ impl AppState {
 
         update_page_url(app_state.current_scene);
         app_state.update_title();
-        app_state.upload_images_to_atlas();
+        app_state.upload_images_to_textures();
 
         app_state
     }
@@ -175,7 +175,7 @@ impl AppState {
                 &self.scene,
                 &mut self.renderer_wrapper.resources,
                 vello_gpu::WebGlRenderTarget::DrawingBuffer,
-                &vello_gpu::WebGlTextureBindings::new(),
+                &self.texture_bindings,
                 vello_gpu::WebGlRenderOptions::default(),
             )
             .unwrap();
@@ -328,30 +328,19 @@ impl AppState {
             * self.transform;
     }
 
-    /// Upload images to the WebGL atlas texture
-    /// This is the WebGL analogue of the winit example's `upload_images_to_atlas` function
-    fn upload_images_to_atlas(&mut self) {
-        // 1st example — uploading pixmap directly to WebGL atlas
-        let pixmap1 = ImageScene::read_flower_image();
-        self.renderer_wrapper
-            .renderer
-            .upload_image(&mut self.renderer_wrapper.resources, &pixmap1)
-            .expect("failed to upload pixmap to WebGL atlas");
-
-        // 2nd example — uploading from a WebGL texture
-        let pixmap2 = ImageScene::read_cowboy_image();
-        let texture2 = self.pixmap_to_webgl_texture(&pixmap2);
-        self.renderer_wrapper
-            .renderer
-            .upload_image(&mut self.renderer_wrapper.resources, &texture2)
-            .expect("failed to upload texture to WebGL atlas");
+    fn upload_images_to_textures(&mut self) {
+        for (id, pixmap) in [
+            (FLOWER_TEXTURE_ID, ImageScene::read_flower_image()),
+            (COWBOY_TEXTURE_ID, ImageScene::read_cowboy_image()),
+        ] {
+            let texture = self.pixmap_to_webgl_texture(&pixmap);
+            self.texture_bindings
+                .insert(id, texture, pixmap.width(), pixmap.height());
+        }
     }
 
     /// Convert a pixmap to WebGL texture
-    fn pixmap_to_webgl_texture(
-        &self,
-        pixmap: &vello_gpu::Pixmap,
-    ) -> vello_gpu::WebGlTextureWithDimensions {
+    fn pixmap_to_webgl_texture(&self, pixmap: &vello_gpu::Pixmap) -> web_sys::WebGlTexture {
         let width = pixmap.width();
         let height = pixmap.height();
         let rgba_data = pixmap.data_as_u8_slice();
@@ -396,11 +385,7 @@ impl AppState {
             web_sys::WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
         );
 
-        vello_gpu::WebGlTextureWithDimensions {
-            texture,
-            width,
-            height,
-        }
+        texture
     }
 }
 
@@ -467,10 +452,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     let scenes = {
         let v = vello_example_scenes::get_example_scenes(
             vello_example_scenes::Capabilities::default(),
-            vec![
-                ImageSource::opaque_id(ImageId::new(0)),
-                ImageSource::opaque_id(ImageId::new(1)),
-            ],
+            ImageScene::external_texture_sources(),
         )
         .into_vec();
         v.into_boxed_slice()
@@ -680,7 +662,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             &scene,
             &mut resources,
             vello_gpu::WebGlRenderTarget::DrawingBuffer,
-            &vello_gpu::WebGlTextureBindings::new(),
+            &WebGlTextureBindings::new(),
             vello_gpu::WebGlRenderOptions::default(),
         )
         .unwrap();

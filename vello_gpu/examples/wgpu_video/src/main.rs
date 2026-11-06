@@ -40,12 +40,10 @@ mod macos {
     use skrifa::raw::FileRef;
     use vello_common::color::palette::css::YELLOW;
     use vello_common::kurbo::{Affine, BezPath, Circle, Ellipse, Point, Rect, Shape, Vec2};
-    use vello_common::paint::{Image, ImageId, ImageSource, TextureRegion};
-    use vello_common::peniko::{
-        Blob, Extend, FontData, ImageAlphaType, ImageQuality, ImageSampler,
-    };
-    use vello_common::pixmap::{PixelMetadata, Pixmap};
+    use vello_common::paint::{Image, ImageSource, TextureRegion};
+    use vello_common::peniko::{Blob, Extend, FontData, ImageQuality, ImageSampler};
     use vello_gpu::{RenderOptions, RenderTarget, Resources, Scene, TextureBindings, TextureId};
+    use wgpu::util::DeviceExt;
     use winit::application::ApplicationHandler;
     use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
     use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -68,6 +66,8 @@ mod macos {
 
     /// Still image shown in its own grid cell next to the videos.
     const STATIC_IMAGE: &[u8] = include_bytes!("../../../../assets/splash-flower.jpg");
+    /// Video slots use the texture IDs from zero upwards.
+    const STATIC_IMAGE_TEXTURE_ID: TextureId = TextureId(u64::MAX);
 
     /// Font for the text overlay drawn over the grid.
     const ROBOTO_FONT: &[u8] = include_bytes!("../../../../assets/roboto/Roboto-Regular.ttf");
@@ -140,11 +140,11 @@ mod macos {
                     .create_window(attrs)
                     .expect("Failed to create window"),
             );
-            let (mut render_context, mut resources) = RenderContext::new(window.clone());
+            let (render_context, resources) = RenderContext::new(window.clone());
 
             let slots = build_video_slots(&render_context);
             log::info!("{} video(s) loaded into grid", slots.len());
-            let static_image = StaticImage::upload(&mut render_context, &mut resources);
+            let static_image = StaticImage::upload(&render_context);
 
             let size = window.inner_size();
             let scene = Scene::new(
@@ -377,8 +377,13 @@ mod macos {
             }
 
             if cols >= 2 {
-                self.static_image
-                    .draw(&mut self.scene, self.transform, cell_w, cell_h);
+                self.static_image.draw(
+                    &mut self.scene,
+                    &mut bindings,
+                    self.transform,
+                    cell_w,
+                    cell_h,
+                );
             }
 
             // The overlay uses the same transform, so it moves with the grid.
@@ -539,47 +544,63 @@ mod macos {
         slots
     }
 
-    /// [`STATIC_IMAGE`] after uploading to Vello's image atlas. Drawn in the free space
-    /// between the first two cells of the top row, without moving any video.
+    /// [`STATIC_IMAGE`] uploaded to a texture that is bound under [`STATIC_IMAGE_TEXTURE_ID`].
+    /// Drawn in the free space between the first two cells of the top row, without moving any
+    /// video.
     struct StaticImage {
-        id: ImageId,
+        view: wgpu::TextureView,
         width: u16,
         height: u16,
     }
 
     impl StaticImage {
-        fn upload(render_context: &mut RenderContext<'_>, resources: &mut Resources) -> Self {
+        fn upload(render_context: &RenderContext<'_>) -> Self {
             let decoded = image::load_from_memory(STATIC_IMAGE)
                 .expect("splash-flower.jpg is a valid JPEG")
                 .into_rgba8();
             let width = u16::try_from(decoded.width()).expect("image width fits in u16");
             let height = u16::try_from(decoded.height()).expect("image height fits in u16");
-            let pixmap = Pixmap::from_parts(
-                decoded.into_raw(),
+
+            let texture = render_context.device.create_texture_with_data(
+                &render_context.queue,
+                &wgpu::TextureDescriptor {
+                    label: Some("vello_gpu_wgpu_video static image"),
+                    size: wgpu::Extent3d {
+                        width: u32::from(width),
+                        height: u32::from(height),
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                },
+                wgpu::util::TextureDataOrder::LayerMajor,
+                &decoded,
+            );
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            Self {
+                view,
                 width,
                 height,
-                PixelMetadata::new(ImageAlphaType::Alpha, false),
-            );
-
-            let mut encoder =
-                render_context
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("vello_gpu_wgpu_video image upload"),
-                    });
-            let id = render_context
-                .renderer
-                .upload_image(resources, &mut encoder, &pixmap);
-            render_context.submit(encoder.finish());
-
-            Self { id, width, height }
+            }
         }
 
         /// The clip shapes in the first two cells are a circle and a triangle, both
         /// centered in their cell and no wider than `cell_h`. That leaves a strip
         /// `cell_w - cell_h` wide around the boundary between the two cells, which the
         /// image is fitted into. Draws nothing if the cells are too narrow for a gap.
-        fn draw(&self, scene: &mut Scene, transform: Affine, cell_w: f64, cell_h: f64) {
+        fn draw(
+            &self,
+            scene: &mut Scene,
+            bindings: &mut TextureBindings,
+            transform: Affine,
+            cell_w: f64,
+            cell_h: f64,
+        ) {
             // Keep a little space between the image and the videos on either side.
             const MARGIN: f64 = 0.9;
             let gap_w = cell_w - cell_h;
@@ -593,10 +614,15 @@ mod macos {
             let tx = cell_w - w * scale * 0.5;
             let ty = (cell_h - h * scale) * 0.5;
 
+            bindings.insert(STATIC_IMAGE_TEXTURE_ID, self.view.clone());
             scene.set_transform(transform * Affine::translate((tx, ty)) * Affine::scale(scale));
             scene.set_paint_transform(Affine::IDENTITY);
             scene.set_paint(Image {
-                image: ImageSource::opaque_id_with_transparency_hint(self.id, false),
+                image: ImageSource::external_texture(
+                    STATIC_IMAGE_TEXTURE_ID,
+                    TextureRegion::Full,
+                    false,
+                ),
                 sampler: ImageSampler {
                     x_extend: Extend::Pad,
                     y_extend: Extend::Pad,

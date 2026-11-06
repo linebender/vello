@@ -89,14 +89,11 @@ pub enum TextureRegion {
 pub enum ImageSource {
     /// Pixmap pixels travel with the scene packet.
     Pixmap(Arc<Pixmap>),
-    // TODO: Explore whether we can merge opaque ID and external texture in some form?
-    /// Pixmap pixels were registered earlier; this is just a handle.
-    OpaqueId {
-        /// The image handle.
-        id: ImageId,
-        /// Whether the image may contain non-opaque pixels.
-        may_have_transparency: bool,
-    },
+    /// An entry in a renderer's internal glyph atlas.
+    ///
+    /// This is used by the glyph caching backends and should not be constructed manually.
+    #[doc(hidden)]
+    Atlas(ImageId),
     /// An externally owned texture supplied to the renderer at render time.
     ExternalTexture {
         /// Opaque external texture handle.
@@ -109,26 +106,6 @@ pub enum ImageSource {
 }
 
 impl ImageSource {
-    /// Create an [`ImageSource`] from a pre-registered image handle.
-    ///
-    /// Conservatively assumes the image may have non-opaque pixels.
-    /// Use [`Self::opaque_id_with_transparency_hint`] when you know the image is fully opaque.
-    pub fn opaque_id(id: ImageId) -> Self {
-        Self::OpaqueId {
-            id,
-            may_have_transparency: true,
-        }
-    }
-
-    /// Create an [`ImageSource`] from a pre-registered image handle,
-    /// with an explicit hint about whether the image may have non-opaque pixels.
-    pub fn opaque_id_with_transparency_hint(id: ImageId, may_have_transparency: bool) -> Self {
-        Self::OpaqueId {
-            id,
-            may_have_transparency,
-        }
-    }
-
     /// Create an image source backed by a texture supplied to the renderer at render time.
     ///
     /// # Panics
@@ -155,11 +132,8 @@ impl ImageSource {
     pub fn may_have_transparency(&self) -> bool {
         match self {
             Self::Pixmap(p) => p.may_have_transparency(),
-            Self::OpaqueId {
-                may_have_transparency,
-                ..
-            }
-            | Self::ExternalTexture {
+            Self::Atlas(_) => true,
+            Self::ExternalTexture {
                 may_have_transparency,
                 ..
             } => *may_have_transparency,
@@ -214,12 +188,12 @@ impl ImageSource {
 /// An image.
 pub type Image = peniko::ImageBrush<ImageSource>;
 
-/// Trait for resolving opaque image IDs to pixmaps at rasterization time.
+/// Trait for resolving atlas image IDs to pixmaps at rasterization time.
 ///
-/// This allows delaying the resolution of `ImageSource::OpaqueId` until the
-/// image is actually needed during rasterization, enabling patterns like
-/// dynamic sprite atlases where the image data may be updated between
-/// encoding and rendering.
+/// This allows delaying the resolution of `ImageSource::Atlas` until the
+/// image is actually needed during rasterization, so that the atlas may be
+/// updated between encoding and rendering.
+#[doc(hidden)]
 pub trait ImageResolver: Send + Sync {
     /// Resolve an `ImageId` to its pixmap data.
     ///
@@ -232,6 +206,7 @@ pub trait ImageResolver: Send + Sync {
 
 /// A no-op image resolver that always returns `None`.
 #[derive(Debug, Clone, Copy, Default)]
+#[doc(hidden)]
 pub struct NoOpImageResolver;
 
 impl ImageResolver for NoOpImageResolver {

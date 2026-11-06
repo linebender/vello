@@ -105,9 +105,7 @@ pub mod reexports {
         pub use crate::filter_effects;
         pub use crate::geometry;
         pub use crate::mask::Mask;
-        pub use crate::paint::{
-            Image, ImageId, ImageSource, PaintType, TextureRegion, Tint, TintMode,
-        };
+        pub use crate::paint::{Image, ImageSource, PaintType, TextureRegion, Tint, TintMode};
         pub use crate::pixmap::{PixelMetadata, Pixels, Pixmap};
         pub use crate::render_state::RenderState;
         pub use crate::transforms::Transforms;
@@ -127,8 +125,7 @@ pub mod reexports {
         pub use crate::TextureId;
         pub use crate::geometry::{RectU16, SizeU16};
         pub use crate::multi_atlas::{
-            AllocationStrategy, AtlasConfig, AtlasError, AtlasId, AtlasLayerDiagnostics,
-            AtlasSpaceDiagnostics,
+            AllocationStrategy, AtlasConfig, AtlasLayerDiagnostics, AtlasSpaceDiagnostics,
         };
         #[cfg(feature = "probe")]
         pub use crate::probe::{

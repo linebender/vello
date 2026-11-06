@@ -53,8 +53,8 @@ preprocessing and GPU rendering:
 - `full_image_support` (enabled by default): If this feature is disabled, only
   external textures using `TextureRegion::Full` with nearest or bilinear
   sampling and opacity are supported. Enabling this feature also adds support
-  for uploaded images, glyph atlas caching, bicubic sampling, cropped external
-  textures, and colored or alpha-mask tints.
+  for glyph atlas caching, bicubic sampling, cropped external textures, and
+  colored or alpha-mask tints.
 - `gradient_sweep` (enabled by default): Enables rendering of sweep gradients
 - `wgpu_external_texture` (enabled by default): Adds a WGSL `texture_external`
   binding when the wgpu device has `wgpu::Features::EXTERNAL_TEXTURE` enabled,

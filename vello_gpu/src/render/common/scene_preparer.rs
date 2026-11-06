@@ -45,7 +45,7 @@ impl ScenePreparer {
         device_limits: &DeviceLimits,
     ) -> (Self, Resources) {
         settings.memory_settings.normalize(device_limits);
-        let resources = Resources::new(settings.memory_settings.image_atlas_config);
+        let resources = Resources::new(settings.memory_settings.glyph_atlas_config);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
         // Estimate the maximum number of gradient cache entries based on the resource texture
         // dimension and the maximum gradient LUT size - worst case scenario.
@@ -115,9 +115,10 @@ impl ScenePreparer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             let gpu_paint = match paint {
                 EncodedPaint::Image(img) => match &img.source {
-                    ImageSource::OpaqueId { id, .. } => {
-                        let image_resource =
-                            image_cache.get(*id).ok_or(RenderError::MissingImage(*id))?;
+                    ImageSource::Atlas(id) => {
+                        let image_resource = image_cache
+                            .get(*id)
+                            .ok_or(RenderError::MissingAtlasEntry(*id))?;
                         encode_image_paint(img, image_resource)
                     }
                     ImageSource::ExternalTexture {

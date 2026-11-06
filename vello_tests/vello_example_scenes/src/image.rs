@@ -10,11 +10,19 @@ use vello_common::peniko::{ImageAlphaType, ImageFormat, ImageSampler};
 use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_common::{
     kurbo::{Affine, Rect},
-    paint::{Image, ImageSource},
+    paint::{Image, ImageSource, TextureRegion},
     peniko::{Extend, ImageQuality},
 };
+use vello_gpu::TextureId;
 
 use crate::{ExampleScene, RenderingContext};
+
+/// The [`TextureId`] under which [`ImageScene::external_texture_sources`] expects the flower
+/// image (see [`ImageScene::read_flower_image`]) to be bound at render time.
+pub const FLOWER_TEXTURE_ID: TextureId = TextureId(1);
+/// The [`TextureId`] under which [`ImageScene::external_texture_sources`] expects the cowboy
+/// image (see [`ImageScene::read_cowboy_image`]) to be bound at render time.
+pub const COWBOY_TEXTURE_ID: TextureId = TextureId(2);
 
 /// Image scene state
 #[derive(Debug, Default)]
@@ -174,6 +182,15 @@ impl ExampleScene for ImageScene {
 }
 
 impl ImageScene {
+    /// The flower and cowboy images as external textures bound under [`FLOWER_TEXTURE_ID`] and
+    /// [`COWBOY_TEXTURE_ID`].
+    pub fn external_texture_sources() -> Vec<ImageSource> {
+        vec![
+            ImageSource::external_texture(FLOWER_TEXTURE_ID, TextureRegion::Full, false),
+            ImageSource::external_texture(COWBOY_TEXTURE_ID, TextureRegion::Full, true),
+        ]
+    }
+
     /// Read the flower image
     pub fn read_flower_image() -> Pixmap {
         let image_data = include_bytes!("../../../assets/splash-flower.jpg");

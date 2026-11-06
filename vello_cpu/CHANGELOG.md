@@ -20,6 +20,11 @@ This release has an [MSRV][] of 1.89.
 ### Changed
 
 - Breaking change: The `invert` parameter of `RenderContext::fill_blurred_rounded_rect` has been removed. Use `RenderContext::fill_blurred_rounded_rect_in` with `invert` set to `true` instead. ([#1718][] by [@nicoburns][])
+- Breaking change: `ImageSource::OpaqueId`, `ImageSource::opaque_id`, and `ImageSource::opaque_id_with_transparency_hint` have been replaced by the hidden `ImageSource::Atlas`, which is only used internally for glyph caching. Use `ImageSource::Pixmap` instead. (by [@LaurenzV][])
+
+### Removed
+
+- Breaking change: The image registry (`Resources::register_image`, `Resources::destroy_image`, `Resources::resolve_image`, and `Resources::clear_images`), and the `ImageId` re-export. Use `ImageSource::Pixmap` instead. (by [@LaurenzV][])
 
 ### Fixed
 
