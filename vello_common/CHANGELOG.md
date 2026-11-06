@@ -20,6 +20,7 @@ This release has an [MSRV][] of 1.89.
 
 - Breaking change: `FilterPrimitive::GaussianBlur`'s `std_deviation` is now `std_deviation_x` and `std_deviation_y`, `filter::gaussian_blur::GaussianBlur` carries a decimation plan and kernel per axis, and `DecimationSizer` scales the axes independently through `downscale_axes` and `upscale_axes`. ([#1997][] by [@theashraf][])
 - A blur under a non-uniform scale or skew is scaled per axis instead of by the average scale factor, so its device-space extent follows the transform. ([#1997][] by [@theashraf][])
+- Breaking change: In `ClipState`, and in a `ClipContext` made with the new `ClipContext::new_lazy`, rectangular clips pushed onto the viewport or onto another rectangular clip generate their strips lazily, for the tile rows of each path drawn through them. Their `PathDataRef` has empty strips and the rectangle in the new `lazy_rect` field, which `intersect` handles. `ClipContext::new` keeps the previous behavior. ([#1989][] by [@Thenewmanator15][])
 
 ### Fixed
 
@@ -284,6 +285,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
 [@taj-p]: https://github.com/taj-p
+[@Thenewmanator15]: https://github.com/Thenewmanator15
 [@theashraf]: https://github.com/theashraf
 [@tomcur]: https://github.com/tomcur
 [@tronical]: https://github.com/tronical
@@ -382,6 +384,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1932]: https://github.com/linebender/vello/pull/1932
 [#1949]: https://github.com/linebender/vello/pull/1949
 [#1962]: https://github.com/linebender/vello/pull/1962
+[#1989]: https://github.com/linebender/vello/pull/1989
 [#1997]: https://github.com/linebender/vello/pull/1997
 [#2039]: https://github.com/linebender/vello/pull/2039
 
