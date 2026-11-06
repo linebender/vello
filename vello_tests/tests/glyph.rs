@@ -824,7 +824,7 @@ fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
         ctx,
         Affine::translate((0., 50.)),
         enable_caching,
-        DrawMode::Fill,
+        DrawMode::Stroke,
     );
 }
 
