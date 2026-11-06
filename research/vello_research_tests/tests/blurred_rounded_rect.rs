@@ -13,7 +13,7 @@ use vello::Scene;
 use vello::kurbo::{Affine, BezPath, Circle, Point, Rect, RoundedRect, Shape, Vec2};
 use vello::peniko::Fill;
 use vello::peniko::color::palette;
-use vello_research_tests::{TestParams, snapshot_test_sync};
+use vello_research_tests::{TestParams, render_then_debug_sync, snapshot_test_sync};
 
 fn snapshot_blurred_rounded_rect(
     name: &str,
@@ -249,6 +249,51 @@ fn blurred_rounded_rect_with_transform_cpu() {
         Affine::rotate_about(45.0_f64.to_radians(), Point::new(50.0, 50.0)),
         true,
     );
+}
+
+fn blurred_rounded_rect_flipped_corners(use_cpu: bool) {
+    let params = TestParams {
+        use_cpu,
+        base_color: Some(palette::css::WHITE),
+        ..TestParams::new("blurred_rounded_rect_flipped_corners", 100, 100)
+    };
+
+    let mut scene = Scene::new();
+    scene.draw_blurred_rounded_rect(
+        Affine::IDENTITY,
+        Rect::new(20.0, 20.0, 80.0, 80.0),
+        palette::css::REBECCA_PURPLE,
+        10.0,
+        8.0,
+    );
+    let normalized = render_then_debug_sync(&scene, &params).unwrap();
+
+    let mut scene = Scene::new();
+    scene.draw_blurred_rounded_rect(
+        Affine::IDENTITY,
+        Rect::new(80.0, 80.0, 20.0, 20.0),
+        palette::css::REBECCA_PURPLE,
+        10.0,
+        8.0,
+    );
+    let flipped = render_then_debug_sync(&scene, &params).unwrap();
+
+    assert!(
+        normalized.data.as_ref() == flipped.data.as_ref(),
+        "flipped rectangle rendered differently from its normalized form"
+    );
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn blurred_rounded_rect_flipped_corners_gpu() {
+    blurred_rounded_rect_flipped_corners(false);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn blurred_rounded_rect_flipped_corners_cpu() {
+    blurred_rounded_rect_flipped_corners(true);
 }
 
 fn snapshot_inverse_blurred_rounded_rect(
