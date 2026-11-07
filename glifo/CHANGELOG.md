@@ -15,6 +15,7 @@ This release has an [MSRV][] of 1.89.
 ### Fixed
 
 - Synthetic emboldening of unhinted glyphs being scaled down to almost nothing. `FontEmbolden` amounts are now in pixels at the run's font size and scale with the run transform. ([#2049][] by [@nicoburns][])
+- A cached bitmap glyph (a CBDT or sbix PNG strike) had its PNG decoded on every draw; the atlas is now looked up before decoding. ([#2067][] by [@butterflyfish][])
 
 ## [0.4.0][] - 2026-10-02
 
@@ -71,6 +72,7 @@ The first release of Glifo!
 
 Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@conor-93][], [@grebmeg][], [@jrmoulton][], [@LaurenzV][], [@nicoburns][], [@oscargus][], [@taj-p][], and [@xStrom][].
 
+[@butterflyfish]: https://github.com/butterflyfish
 [@conor-93]: https://github.com/conor-93
 [@grebmeg]: https://github.com/grebmeg
 [@jrmoulton]: https://github.com/jrmoulton
@@ -91,6 +93,7 @@ Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@con
 [#1944]: https://github.com/linebender/vello/pull/1944
 [#1970]: https://github.com/linebender/vello/pull/1970
 [#2049]: https://github.com/linebender/vello/pull/2049
+[#2067]: https://github.com/linebender/vello/pull/2067
 
 [Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.4.0...HEAD
 [0.4.0]: https://github.com/linebender/vello/compare/glifo-v0.3.0...glifo-v0.4.0
