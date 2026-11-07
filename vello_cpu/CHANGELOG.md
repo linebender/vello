@@ -17,11 +17,13 @@ This release has an [MSRV][] of 1.89.
 - `RenderContext::reset_with`, which resets a render context to a new size and can free the memory it grew in the same step, configured by `ResetOptions`. (by [@LaurenzV][])
 - Linear filter chains. (by [@LaurenzV][])
 - `Resources::with_hint_cache_config` and a re-export of `HintCacheConfig`, which set how many glyph hinting instances the resources cache. (by [@grebmeg][])
+- Masks that cover only part of the render context, placed with `Mask::with_offset`. Outside of the pixels a mask covers, nothing of the masked content is painted. ([#2068][] by [@yhay81][])
 
 ### Changed
 
 - Breaking change: `RenderContext::reset_and_resize` and `RenderContext::reset_and_shrink` have been removed in favor of `RenderContext::reset_with`. (by [@LaurenzV][])
 - Rendering with `TargetInit::SrcOver` skips strip rows that contain no draws, so updating a few glyphs no longer rewrites the whole atlas page. (by [@grebmeg][])
+- `set_mask` with a mask smaller than the render context now hides what lies outside of it instead of painting it unmasked, and `push_layer` no longer ignores a mask of another size. ([#2068][] by [@yhay81][])
 
 ## [0.4.0][] - 2026-11-11
 
@@ -301,6 +303,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@yezhizhen]: https://github.com/yezhizhen
+[@yhay81]: https://github.com/yhay81
 [@zlstringham]: https://github.com/zlstringham
 
 [#1159]: https://github.com/linebender/vello/pull/1159
@@ -387,6 +390,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#2028]: https://github.com/linebender/vello/pull/2028
 [#2032]: https://github.com/linebender/vello/pull/2032
 [#2061]: https://github.com/linebender/vello/pull/2061
+[#2068]: https://github.com/linebender/vello/pull/2068
 [#2073]: https://github.com/linebender/vello/pull/2073
 [#2075]: https://github.com/linebender/vello/pull/2075
 [#2078]: https://github.com/linebender/vello/pull/2078
