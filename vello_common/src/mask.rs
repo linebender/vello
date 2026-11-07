@@ -7,16 +7,22 @@ use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct MaskRepr {
     data: Vec<u8>,
+    x: u16,
+    y: u16,
     width: u16,
     height: u16,
 }
 
-// Note that we are on purpose storing width and height inside the `Arc`
-// to reduce the memory footprint of the struct.
+// Note that we are on purpose storing the offset, width and height inside the
+// `Arc` to reduce the memory footprint of the struct.
 /// A mask.
+///
+/// A mask covers `width * height` pixels of the render context, starting at
+/// its [offset](Self::with_offset), which is `(0, 0)` by default. Outside of
+/// these pixels, its value is 0.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mask(Arc<MaskRepr>);
 
@@ -49,6 +55,8 @@ impl Mask {
 
         Self(Arc::new(MaskRepr {
             data,
+            x: 0,
+            y: 0,
             width,
             height,
         }))
@@ -82,9 +90,32 @@ impl Mask {
 
         Self(Arc::new(MaskRepr {
             data,
+            x: 0,
+            y: 0,
             width: pixmap.width(),
             height: pixmap.height(),
         }))
+    }
+
+    /// Place the top-left pixel of the mask at `(x, y)` of the render context.
+    ///
+    /// This allows a mask to cover only the part of the render context where
+    /// it is needed. If this mask shares its data with clones of it, the data
+    /// is copied.
+    #[must_use]
+    pub fn with_offset(mut self, x: u16, y: u16) -> Self {
+        let repr = Arc::make_mut(&mut self.0);
+        repr.x = x;
+        repr.y = y;
+
+        self
+    }
+
+    /// Return the pixel of the render context where the top-left pixel of the
+    /// mask is placed.
+    #[inline(always)]
+    pub fn offset(&self) -> (u16, u16) {
+        (self.0.x, self.0.y)
     }
 
     /// Return the width of the mask.
@@ -99,7 +130,14 @@ impl Mask {
         self.0.height
     }
 
-    /// Sample the value at a specific location.
+    /// Return the `width * height` values of the mask in row-major order.
+    #[inline(always)]
+    pub fn data(&self) -> &[u8] {
+        &self.0.data
+    }
+
+    /// Sample the value at a specific location, relative to the top-left pixel
+    /// of the mask.
     ///
     /// This function might panic or yield a wrong result if the location
     /// is out-of-bounds.
@@ -112,5 +150,21 @@ impl Mask {
         );
 
         repr.data[y as usize * repr.width as usize + x as usize]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Mask;
+    use alloc::vec;
+
+    #[test]
+    fn with_offset_leaves_clones_unchanged() {
+        let mask = Mask::from_parts(vec![1], 1, 1);
+        let shifted = mask.clone().with_offset(2, 3);
+
+        assert_eq!(mask.offset(), (0, 0));
+        assert_eq!(shifted.offset(), (2, 3));
+        assert_eq!(shifted.sample(0, 0), 1);
     }
 }

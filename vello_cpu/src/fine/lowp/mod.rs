@@ -16,7 +16,9 @@ mod image;
 use crate::filter::context::ScratchBuffer;
 use crate::filter::filter_lowp;
 use crate::fine::lowp::image::{BilinearImagePainter, PlainBilinearImagePainter};
-use crate::fine::{COLOR_COMPONENTS, FineKernel, Painter, Splat4thExt, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{
+    COLOR_COMPONENTS, FineKernel, Painter, Splat4thExt, StripMask, TILE_HEIGHT_COMPONENTS,
+};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use crate::util::NormalizedMulExt;
@@ -238,25 +240,12 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         let alpha_iter = alphas.map(|a| cast_slice::<u8, [u8; 8]>(a).iter().copied());
 
         let mask_iter = mask.map(|m| {
-            iter::from_fn(|| {
-                let sample = |x: u16, y: u16| {
-                    if x < m.width() && y < m.height() {
-                        m.sample(x, y)
-                    } else {
-                        255
-                    }
-                };
+            let mask = StripMask::new(m, start_y);
 
-                let samples = [
-                    sample(start_x, start_y),
-                    sample(start_x, start_y + 1),
-                    sample(start_x, start_y + 2),
-                    sample(start_x, start_y + 3),
-                    sample(start_x + 1, start_y),
-                    sample(start_x + 1, start_y + 1),
-                    sample(start_x + 1, start_y + 2),
-                    sample(start_x + 1, start_y + 3),
-                ];
+            iter::from_fn(move || {
+                let [s1, s2, s3, s4] = mask.column(start_x);
+                let [s5, s6, s7, s8] = mask.column(start_x + 1);
+                let samples = [s1, s2, s3, s4, s5, s6, s7, s8];
 
                 start_x += 2;
 
