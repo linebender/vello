@@ -64,4 +64,6 @@ mod webgl_texture_target;
 mod wgpu_external_texture;
 #[cfg(not(target_arch = "wasm32"))]
 mod wgpu_probe;
+#[cfg(not(target_arch = "wasm32"))]
+mod wgpu_resource_texture;
 mod wide_tile;

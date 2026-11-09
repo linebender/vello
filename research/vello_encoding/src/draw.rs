@@ -182,6 +182,14 @@ pub struct DrawBlurRoundedRect {
     /// Rectangle corner radius.
     pub radius: f32,
     /// Standard deviation of gaussian filter.
+    ///
+    /// The magnitude is the standard deviation; the sign bit encodes whether to paint the
+    /// inverse (`1 - alpha`) of the blur coverage (sign bit clear = normal, set = inverse).
+    /// Note that this means that an inverse blur with a standard deviation of zero is
+    /// encoded as `-0.0`.
+    ///
+    /// [`Encoding::encode_blurred_rounded_rect`](crate::Encoding::encode_blurred_rounded_rect)
+    /// produces this encoding from a standard deviation and an `invert` flag.
     pub std_dev: f32,
 }
 

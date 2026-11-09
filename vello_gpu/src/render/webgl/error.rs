@@ -7,6 +7,7 @@ use thiserror::Error;
 use web_sys::wasm_bindgen::JsValue;
 
 use crate::RenderError;
+use crate::render::common::DataTextureTooLarge;
 
 /// Errors produced by the WebGL backend.
 #[derive(Error, Debug, Clone)]
@@ -35,18 +36,6 @@ pub enum WebGlError {
     /// A render pass contains too many instances for WebGL.
     #[error("too many instances")]
     TooManyInstances,
-    /// A resource texture allocation exceeds the supported texture dimensions.
-    #[error(
-        "resource texture allocation {width}x{height} exceeds maximum dimension {max_dimension}"
-    )]
-    ResourceTextureTooLarge {
-        /// The requested texture width.
-        width: u32,
-        /// The requested texture height.
-        height: u32,
-        /// The maximum supported width or height.
-        max_dimension: u32,
-    },
     /// The WebGL context is incompatible with the renderer.
     #[error("incompatible WebGL context: {0}")]
     IncompatibleContext(IncompatibleContextReason),
@@ -56,6 +45,12 @@ pub enum WebGlError {
     /// A texture target cannot be rendered into.
     #[error("invalid texture target: {0}")]
     InvalidTextureTarget(InvalidTextureTargetReason),
+}
+
+impl From<DataTextureTooLarge> for WebGlError {
+    fn from(error: DataTextureTooLarge) -> Self {
+        Self::Render(error.into())
+    }
 }
 
 /// A fallible operation performed by the WebGL backend.

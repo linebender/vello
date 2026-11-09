@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Fixed
+
+- Synthetic emboldening of unhinted glyphs being scaled down to almost nothing. `FontEmbolden` amounts are now in pixels at the run's font size and scale with the run transform. ([#2049][] by [@nicoburns][])
+
 ## [0.4.0][] - 2026-10-02
 
 This release has an [MSRV][] of 1.89.
@@ -86,6 +90,7 @@ Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@con
 [#1939]: https://github.com/linebender/vello/pull/1939
 [#1944]: https://github.com/linebender/vello/pull/1944
 [#1970]: https://github.com/linebender/vello/pull/1970
+[#2049]: https://github.com/linebender/vello/pull/2049
 
 [Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.4.0...HEAD
 [0.4.0]: https://github.com/linebender/vello/compare/glifo-v0.3.0...glifo-v0.4.0

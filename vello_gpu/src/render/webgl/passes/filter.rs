@@ -9,9 +9,7 @@ use crate::render::webgl::passes::{
     WebGlRendererContext, checked_instance_count, initialize_packed_u32_attribs,
     required_uniform_location,
 };
-use crate::render::webgl::resources::{
-    WebGlResources, create_data_texture_storage, upload_rgba32ui_rows,
-};
+use crate::render::webgl::resources::{WebGlResources, create_data_texture};
 use crate::{
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
     target::{FilterPassBindings, LayerTextureId},
@@ -33,25 +31,10 @@ impl WebGlResources {
         gl: &WebGl2RenderingContext,
         filter_context: &FilterContext,
     ) -> Result<(), WebGlError> {
-        let resource_texture_dimension_2d = self.resource_texture_dimension_2d;
-
-        let Some(required_height) =
-            filter_context.required_filter_data_height(resource_texture_dimension_2d)
-        else {
-            return Ok(());
-        };
-
-        if required_height > self.filter_data_texture_height {
-            let required_size = (resource_texture_dimension_2d * required_height) << 4;
-            self.filter_data.resize(required_size as usize, 0);
-            self.filter_data_texture = create_data_texture_storage(
-                gl,
-                WebGl2RenderingContext::RGBA32UI,
-                resource_texture_dimension_2d,
-                required_height,
-            )?;
-            self.filter_data_texture_height = required_height;
-        }
+        self.filter_data_texture
+            .ensure_bytes(filter_context.as_bytes().len(), |format, width, height| {
+                create_data_texture(gl, format, width, height)
+            })?;
 
         Ok(())
     }
@@ -66,21 +49,8 @@ impl WebGlResources {
             return Ok(());
         }
 
-        let width = self.resource_texture_dimension_2d;
-        let used_height = filter_context
-            .required_filter_data_height(width)
-            .expect("non-empty filter context must have a data height");
-        let used_size = ((width * used_height) << 4) as usize;
-        filter_context.serialize_to_buffer(&mut self.filter_data);
-        upload_rgba32ui_rows(
-            gl,
-            &self.filter_data_texture,
-            bytemuck::cast_slice::<u8, u32>(&self.filter_data[..used_size]),
-            width,
-            used_height,
-        )?;
-
-        Ok(())
+        self.filter_data_texture
+            .upload_chunks(gl, &mut self.staging, [filter_context.as_bytes()])
     }
 
     fn upload_filter_instances(
@@ -177,7 +147,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.resources.filter_data_texture),
+            Some(self.resources.filter_data_texture.texture()),
         );
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.filter_data), 0);

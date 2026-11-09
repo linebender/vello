@@ -8,7 +8,7 @@ use crate::renderer::Renderer;
 use crate::util::layout_glyphs_apple_color_emoji;
 use crate::util::{
     layout_glyphs_noto_cbtf, layout_glyphs_noto_colr, layout_glyphs_roboto,
-    stops_blue_green_red_yellow,
+    layout_glyphs_twemoji_colr, stops_blue_green_red_yellow,
 };
 use glifo::{FontEmbolden, Glyph};
 use std::f64::consts::FRAC_PI_4;
@@ -194,6 +194,30 @@ fn glyphs_emboldened(ctx: &mut impl Renderer) {
         .font_size(font_size)
         .font_embolden(FontEmbolden::new(Diagonal2::new(1.0, 1.0)))
         .hint(true)
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
+}
+
+#[vello_test(width = 760, height = 140)]
+fn glyphs_emboldened_unhinted(ctx: &mut impl Renderer) {
+    let font_size: f32 = 44_f32;
+    let (font, glyphs) = layout_glyphs_roboto("this is regular and emboldened text", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
+
+    let (font, glyphs) = layout_glyphs_roboto("this is regular and emboldened text", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size) + 58.0)));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .font_embolden(FontEmbolden::new(Diagonal2::new(1.0, 1.0)))
+        .hint(false)
         .fill_glyphs(glyphs.into_iter())
         .unwrap();
 }
@@ -800,7 +824,7 @@ fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
         ctx,
         Affine::translate((0., 50.)),
         enable_caching,
-        DrawMode::Fill,
+        DrawMode::Stroke,
     );
 }
 
@@ -920,6 +944,26 @@ fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer, enable_c
         enable_caching,
         DrawMode::Fill,
     );
+}
+
+#[vello_test(
+    width = 50,
+    height = 16,
+    cpu_u8_tolerance = 1,
+    gpu_tolerance = 2,
+    glyph
+)]
+fn glyphs_colr_twemoji_edge_aliasing(ctx: &mut impl Renderer, enable_caching: bool) {
+    let font_size: f32 = 12_f32;
+    let (font, glyphs) = layout_glyphs_twemoji_colr("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(Affine::translate((0., 13.)));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .atlas_cache(enable_caching)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
 }
 
 #[vello_test(width = 250, height = 70, skip_gpu, cpu_u8_tolerance = 1)]

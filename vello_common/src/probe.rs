@@ -195,7 +195,7 @@ pub trait ProbeRenderer {
     fn set_paint(&mut self, paint: PaintType);
     fn fill_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool);
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     fn push_layer(&mut self, blend_mode: Option<BlendMode>, opacity: Option<f32>);
     fn push_filter_layer(&mut self, filter: Filter);
     fn pop_layer(&mut self);
@@ -425,7 +425,7 @@ fn draw_probe_element(
         ProbeFeature::DropShadow => draw_drop_shadow_rect(ctx, cell),
         ProbeFeature::BlurredRoundedRect => {
             ctx.set_paint(css::REBECCA_PURPLE.into());
-            ctx.fill_blurred_rounded_rect(&centered_rect(cell, 8.0, 8.0), 2.0, 0.75, false);
+            ctx.fill_blurred_rounded_rect(&centered_rect(cell, 8.0, 8.0), 2.0, 0.75);
         }
         ProbeFeature::RadialGradient => {
             let rect = centered_rect(cell, RECT_SIZE, RECT_SIZE);

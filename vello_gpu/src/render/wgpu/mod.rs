@@ -33,6 +33,7 @@ use core::fmt::Debug;
 use glifo::PendingClearRect;
 use hashbrown::HashMap;
 use passes::{Programs, RendererContext};
+use resources::GpuResources;
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
@@ -112,8 +113,10 @@ pub struct Renderer {
     device: Device,
     /// The queue of `device`.
     queue: Queue,
-    /// Programs for rendering.
+    /// Pipelines and bind group layouts of the render passes.
     programs: Programs,
+    /// GPU resources for rendering.
+    resources: GpuResources,
     /// Encodes scenes and schedules their rendering.
     scene_preparer: ScenePreparer,
     /// Format of the render target that the pipelines are created for.
@@ -159,17 +162,24 @@ impl Renderer {
         let (scene_preparer, resources) = ScenePreparer::new(&mut settings, &device_limits);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
 
+        let programs = Programs::new(
+            device,
+            render_target_config,
+            settings.pipeline_cache.as_ref(),
+        );
+        let gpu_resources = GpuResources::new(
+            device,
+            &programs,
+            &resources.image_cache,
+            render_target_config,
+            scene_preparer.layers_config,
+            resource_texture_dimension_2d,
+        );
         let renderer = Self {
             device: device.clone(),
             queue: queue.clone(),
-            programs: Programs::new(
-                device,
-                &resources.image_cache,
-                render_target_config,
-                scene_preparer.layers_config,
-                resource_texture_dimension_2d,
-                settings.pipeline_cache.as_ref(),
-            ),
+            programs,
+            resources: gpu_resources,
             scene_preparer,
             target_format: render_target_config.format,
             #[cfg(feature = "text")]
@@ -305,11 +315,8 @@ impl Renderer {
                 label: Some("Render to Atlas Encoder"),
             });
 
-        Programs::maybe_create_atlas_textures(
-            &self.device,
-            &mut self.programs.resources,
-            atlas_count,
-        );
+        self.resources
+            .maybe_create_atlas_textures(&self.device, atlas_count);
 
         let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
@@ -317,8 +324,7 @@ impl Renderer {
             height: atlas_height,
         };
 
-        let layer_view =
-            self.programs.resources.atlas_texture_views[atlas_id.as_u32() as usize].clone();
+        let layer_view = self.resources.atlas_texture_views[atlas_id.as_u32() as usize].clone();
 
         let dummy_image_cache = self
             .scene_preparer
@@ -348,13 +354,8 @@ impl Renderer {
 
     fn current_allocations(&self) -> IntermediateTextureAllocations {
         IntermediateTextureAllocations {
-            layer_pages: self
-                .programs
-                .resources
-                .layer_textures
-                .each_ref()
-                .map(Vec::len),
-            scratch: self.programs.resources.scratch_texture.is_some(),
+            layer_pages: self.resources.layer_textures.each_ref().map(Vec::len),
+            scratch: self.resources.scratch_texture.is_some(),
         }
     }
 
@@ -373,7 +374,8 @@ impl Renderer {
         texture_bindings: &TextureBindings,
         scene_offset: (i32, i32),
     ) -> Result<(), RenderError> {
-        self.programs.depth_cleared_this_frame = false;
+        self.resources.depth_cleared_this_frame = false;
+        self.scene_preparer.gradient_cache.maintain();
         let current_allocations = self.current_allocations();
         let schedule = self.scene_preparer.prepare(
             scene,
@@ -385,20 +387,21 @@ impl Renderer {
                 scene_offset,
             ),
             depth_view.is_some(),
-            self.programs.resources.texture_size,
+            self.resources.texture_size,
             current_allocations,
             |id, image, region| texture_bindings.encode_paint(id, image, region, view.texture()),
         )?;
-        self.programs
-            .prepare_intermediate_textures(&self.device, &schedule);
+        self.resources
+            .prepare_intermediate_textures(&self.device, &self.programs, &schedule);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
         let draw_buffers = &self.scene_preparer.schedule_storage.buffers.draw_buffers;
         let strip_count = draw_buffers.opaque.strips().len() + draw_buffers.strips.len();
         let strip_bytes = (strip_count * size_of::<GpuStrip>()) as u64;
-        self.programs.prepare(
+        self.resources.prepare(
             &self.device,
+            &self.programs,
             encoder,
             &mut self.scene_preparer.gradient_cache,
             &self.scene_preparer.encoded_paints,
@@ -407,14 +410,15 @@ impl Renderer {
             scene_offset,
             &self.scene_preparer.paint_idxs,
             &self.scene_preparer.schedule_storage.filter_context,
-        );
+        )?;
 
-        self.programs
+        self.resources
             .strips_arena
             .begin_frame(&self.device, strip_bytes);
 
         let mut ctx = RendererContext {
-            programs: &mut self.programs,
+            programs: &self.programs,
+            resources: &mut self.resources,
             device: &self.device,
             encoder,
             view,
@@ -437,9 +441,7 @@ impl Renderer {
 
         ctx.finish_root_clear();
 
-        self.scene_preparer.gradient_cache.maintain();
-
-        self.programs
+        self.resources
             .staging_belt
             .belt
             .finish_and_recall_on_submit(encoder);
@@ -503,14 +505,11 @@ impl Renderer {
     ) {
         let image_resource = image_cache.get(image_id).expect("Image resource not found");
 
-        Programs::maybe_create_atlas_textures(
-            &self.device,
-            &mut self.programs.resources,
-            image_cache.atlas_count() as u32,
-        );
+        self.resources
+            .maybe_create_atlas_textures(&self.device, image_cache.atlas_count() as u32);
         let offset = offset_override.unwrap_or(image_resource.offset);
         let atlas_texture =
-            &self.programs.resources.atlas_textures[image_resource.atlas_id.as_u32() as usize];
+            &self.resources.atlas_textures[image_resource.atlas_id.as_u32() as usize];
         writer.write_to_atlas(
             &self.device,
             &self.queue,
@@ -547,8 +546,7 @@ impl Renderer {
 
     /// Returns an individual image atlas texture.
     pub fn atlas_texture(&self, atlas_id: AtlasId) -> &Texture {
-        self.programs
-            .resources
+        self.resources
             .atlas_textures
             .get(atlas_id.as_u32() as usize)
             .unwrap()
@@ -563,8 +561,7 @@ impl Renderer {
         width: u16,
         height: u16,
     ) {
-        let layer_view =
-            self.programs.resources.atlas_texture_views[atlas_id.as_u32() as usize].clone();
+        let layer_view = self.resources.atlas_texture_views[atlas_id.as_u32() as usize].clone();
 
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear Atlas Region"),

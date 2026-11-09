@@ -3,22 +3,31 @@
 
 //! Creation and growth of the renderer's GPU resources.
 
+use crate::draw::EXTERNAL_TEXTURE_SLOT_COUNT;
+use crate::render::wgpu::RenderTargetConfig;
 use crate::render::wgpu::passes::Programs;
-use crate::render::wgpu::passes::filter::create_filter_original_texture_bind_group;
+use crate::render::wgpu::passes::filter::{
+    FilterPairBindGroups, create_filter_original_texture_bind_group,
+};
+use crate::render::wgpu::passes::strip::StripTargetKind;
 use crate::{
-    RenderSize,
+    LayersConfig, RenderSize,
     filter::FilterContext,
     gradient_cache::GradientRampCache,
     paint::{ExternalSampler, SamplerAddress, SamplerFilter},
     render::{
         Config,
-        common::{GpuEncodedPaint, ScratchTexture},
+        common::{DataTexture, DataTextureFormat, GpuEncodedPaint, ScratchTexture},
     },
     schedule::Schedule,
-    target::LayerTextureId,
+    target::{BlendPassBindings, FilterPassBindings, LayerTextureId},
 };
+use crate::{RenderError, ResourceTexture};
 use alloc::vec::Vec;
-use core::{fmt::Debug, num::NonZeroU64};
+use core::{borrow::Borrow, fmt::Debug, num::NonZeroU64};
+use hashbrown::HashMap;
+use vello_common::image_cache::ImageCache;
+use vello_common::multi_atlas::AtlasConfig;
 use vello_common::{geometry::SizeU16, tile::Tile};
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferViewMut, COPY_BUFFER_ALIGNMENT,
@@ -76,12 +85,23 @@ impl UploadStagingBelt {
         data: &[u8],
         bytes_per_texel: u32,
     ) {
-        if data.is_empty() {
+        self.upload_texture_chunks(encoder, texture, data.len(), bytes_per_texel, [data]);
+    }
+
+    pub(crate) fn upload_texture_chunks<'a>(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        texture: &Texture,
+        data_len: usize,
+        bytes_per_texel: u32,
+        chunks: impl IntoIterator<Item = &'a [u8]>,
+    ) {
+        if data_len == 0 {
             return;
         }
 
         let bytes_per_row = texture.width() * bytes_per_texel;
-        let rows = data.len().div_ceil(bytes_per_row as usize) as u32;
+        let rows = data_len.div_ceil(bytes_per_row as usize) as u32;
         let size = NonZeroU64::new(u64::from(rows) * u64::from(bytes_per_row)).unwrap();
         self.frame_allocated += size.get();
         let slice = self
@@ -92,9 +112,16 @@ impl UploadStagingBelt {
                 .get_mapped_range_mut()
                 .expect("staging buffer must be mapped");
 
-            // Any data beyond `data.len` will never be sampled, so we don't need to
-            // pad it out and can just leave whatever was there already.
-            view.slice(..data.len()).copy_from_slice(data);
+            let mut offset = 0;
+            for chunk in chunks {
+                view.slice(offset..offset + chunk.len())
+                    .copy_from_slice(chunk);
+                offset += chunk.len();
+            }
+            debug_assert_eq!(
+                offset, data_len,
+                "mismatched between uploaded chunks size vs provided len"
+            );
         }
 
         encoder.copy_buffer_to_texture(
@@ -152,11 +179,68 @@ impl StripBufferArena {
     }
 }
 
+impl From<DataTextureFormat> for wgpu::TextureFormat {
+    fn from(format: DataTextureFormat) -> Self {
+        match format {
+            DataTextureFormat::Rgba8 => Self::Rgba8Unorm,
+            DataTextureFormat::Rgba32Uint => Self::Rgba32Uint,
+        }
+    }
+}
+
+/// A texture and a bind group that binds it as the only entry of its layout.
+#[derive(Debug)]
+pub(crate) struct BoundTexture {
+    pub(crate) texture: Texture,
+    pub(crate) bind_group: BindGroup,
+}
+
+impl Borrow<Texture> for BoundTexture {
+    fn borrow(&self) -> &Texture {
+        &self.texture
+    }
+}
+
+impl<T: Borrow<Texture>> DataTexture<T> {
+    /// Upload `data` to the texture, starting at its first row.
+    pub(crate) fn upload(
+        &self,
+        staging_belt: &mut UploadStagingBelt,
+        encoder: &mut CommandEncoder,
+        data: &[u8],
+    ) {
+        staging_belt.upload_texture(
+            encoder,
+            self.texture().borrow(),
+            data,
+            self.format().bytes_per_texel(),
+        );
+    }
+
+    /// `texels` must match the total size of `chunks`.
+    pub(crate) fn upload_chunks<'a>(
+        &self,
+        staging_belt: &mut UploadStagingBelt,
+        encoder: &mut CommandEncoder,
+        texels: u32,
+        chunks: impl IntoIterator<Item = &'a [u8]>,
+    ) {
+        let bytes_per_texel = self.format().bytes_per_texel();
+        staging_belt.upload_texture_chunks(
+            encoder,
+            self.texture().borrow(),
+            texels as usize * bytes_per_texel as usize,
+            bytes_per_texel,
+            chunks,
+        );
+    }
+}
+
 /// Contains all GPU resources needed for rendering
 #[derive(Debug)]
 pub(crate) struct GpuResources {
     /// Alpha texture.
-    pub(crate) alphas_texture: Texture,
+    pub(crate) alphas_texture: DataTexture<Texture>,
     /// Maximum width or height of packed resource textures.
     pub(crate) resource_texture_dimension_2d: u32,
     /// One 2D texture per image atlas.
@@ -170,17 +254,11 @@ pub(crate) struct GpuResources {
     /// Bind group used when a draw does not sample an external texture.
     pub(crate) empty_external_texture_bind_group: BindGroup,
     /// Texture for encoded paints
-    pub(crate) encoded_paints_texture: Texture,
-    /// Bind group for encoded paints
-    pub(crate) encoded_paints_bind_group: BindGroup,
+    pub(crate) encoded_paints_texture: DataTexture<BoundTexture>,
     /// Texture for gradient lookup table
-    pub(crate) gradient_texture: Texture,
-    /// Bind group for gradient texture
-    pub(crate) gradient_bind_group: BindGroup,
+    pub(crate) gradient_texture: DataTexture<BoundTexture>,
     /// Texture holding serialized `GpuFilterData` for all filter layers.
-    pub(crate) filter_data_texture: Texture,
-    /// Bind group for the filter data texture.
-    pub(crate) filter_base_bind_group: BindGroup,
+    pub(crate) filter_data_texture: DataTexture<BoundTexture>,
     /// Intermediate texture size.
     pub(crate) texture_size: SizeU16,
     /// Root config buffer.
@@ -196,9 +274,161 @@ pub(crate) struct GpuResources {
     pub(crate) filter_original_bind_group: BindGroup,
     /// Copy bind group.
     pub(crate) scratch_copy_bind_group: BindGroup,
+    /// Native image samplers shared by external texture slots.
+    pub(crate) external_samplers: HashMap<ExternalSampler, Sampler>,
+    /// Strip bind group cache.
+    pub(crate) strip_layer_bind_groups:
+        HashMap<(StripTargetKind, Option<LayerTextureId>), BindGroup>,
+    /// Blend bind group cache.
+    pub(crate) blend_layer_bind_groups: HashMap<BlendPassBindings, BindGroup>,
+    /// Filter bind group cache.
+    pub(crate) filter_pair_bind_groups: HashMap<FilterPassBindings, FilterPairBindGroups>,
+    /// Arena holding all [`GpuStrip`](crate::GpuStrip) data.
+    pub(crate) strips_arena: StripBufferArena,
+    /// Shared staging memory for buffer and texture uploads.
+    pub(crate) staging_belt: UploadStagingBelt,
+    /// Dimensions of the rendering target
+    pub(crate) render_size: RenderSize,
+    /// Offset of the scene within the rendering target.
+    pub(crate) scene_offset: (i32, i32),
+    /// Whether the depth buffer has been cleared this frame.
+    pub(crate) depth_cleared_this_frame: bool,
 }
 
 impl GpuResources {
+    pub(crate) fn new(
+        device: &Device,
+        programs: &Programs,
+        image_cache: &ImageCache,
+        render_target_config: &RenderTargetConfig,
+        layer_config: LayersConfig,
+        resource_texture_dimension_2d: u32,
+    ) -> Self {
+        let texture_size = layer_config.min_texture_size;
+
+        // The empty bind group needs a sampler even before any external image is drawn.
+        let mut external_samplers = HashMap::new();
+        external_samplers.insert(
+            ExternalSampler::DEFAULT,
+            Self::create_external_sampler(device, ExternalSampler::DEFAULT),
+        );
+
+        let layer_textures: [Vec<TextureView>; 2] = core::array::from_fn(|_| Vec::new());
+        let scratch_texture = None;
+        let placeholder_external_texture_view = Self::create_placeholder_external_texture(device);
+        let filter_original_bind_group = create_filter_original_texture_bind_group(
+            device,
+            &programs.filter.input_bind_group_layouts[1],
+            &placeholder_external_texture_view,
+        );
+        let layer_config_buffer = Self::create_config_buffer(
+            device,
+            u32::from(texture_size.width()),
+            u32::from(texture_size.height()),
+            resource_texture_dimension_2d,
+        );
+
+        let alphas_texture = Self::new_data_texture(
+            device,
+            "Alpha Texture",
+            ResourceTexture::Alphas,
+            DataTextureFormat::Rgba32Uint,
+            resource_texture_dimension_2d,
+        );
+        let view_config_buffer = Self::create_config_buffer(
+            device,
+            u32::from(render_target_config.width),
+            u32::from(render_target_config.height),
+            resource_texture_dimension_2d,
+        );
+
+        let AtlasConfig {
+            atlas_size: (atlas_width, atlas_height),
+            initial_atlas_count,
+            ..
+        } = image_cache.atlas_manager().config();
+        let atlas_size = (*atlas_width, *atlas_height);
+        let atlas_textures: Vec<_> = (0..*initial_atlas_count)
+            .map(|_| Self::create_atlas_texture(device, *atlas_width, *atlas_height))
+            .collect();
+        let atlas_texture_views = atlas_textures
+            .iter()
+            .map(|texture| texture.create_view(&TextureViewDescriptor::default()))
+            .collect();
+        let empty_external_texture_bind_group =
+            Programs::create_external_texture_bind_group(
+                device,
+                &programs.strip.external_texture_bind_group_layout,
+                [&placeholder_external_texture_view; EXTERNAL_TEXTURE_SLOT_COUNT],
+                [&external_samplers[&ExternalSampler::DEFAULT]; EXTERNAL_TEXTURE_SLOT_COUNT],
+                programs.strip.wgpu_external_textures.then_some(
+                    wgpu::BindingResource::TextureView(&placeholder_external_texture_view),
+                ),
+            );
+
+        let encoded_paints_texture = Self::new_bound_data_texture(
+            device,
+            "Encoded Paints",
+            &programs.encoded_paints_bind_group_layout,
+            ResourceTexture::EncodedPaints,
+            DataTextureFormat::Rgba32Uint,
+            resource_texture_dimension_2d,
+        );
+        let gradient_texture = Self::new_bound_data_texture(
+            device,
+            "Gradient",
+            &programs.gradient_bind_group_layout,
+            ResourceTexture::Gradients,
+            DataTextureFormat::Rgba8,
+            resource_texture_dimension_2d,
+        );
+        let filter_data_texture = Self::new_bound_data_texture(
+            device,
+            "Filter Data",
+            &programs.filter.bind_group_layout,
+            ResourceTexture::FilterData,
+            DataTextureFormat::Rgba32Uint,
+            resource_texture_dimension_2d,
+        );
+        let scratch_copy_bind_group = Programs::create_copy_bind_group(
+            device,
+            &programs.copy.bind_group_layout,
+            &placeholder_external_texture_view,
+        );
+
+        Self {
+            layer_textures,
+            scratch_texture,
+            filter_original_bind_group,
+            scratch_copy_bind_group,
+            layer_config_buffer,
+            alphas_texture,
+            resource_texture_dimension_2d,
+            atlas_textures,
+            atlas_texture_views,
+            atlas_size,
+            placeholder_external_texture_view,
+            empty_external_texture_bind_group,
+            encoded_paints_texture,
+            gradient_texture,
+            filter_data_texture,
+            texture_size,
+            view_config_buffer,
+            external_samplers,
+            strip_layer_bind_groups: HashMap::new(),
+            blend_layer_bind_groups: HashMap::new(),
+            filter_pair_bind_groups: HashMap::new(),
+            strips_arena: StripBufferArena::new(device),
+            staging_belt: UploadStagingBelt::new(device),
+            render_size: RenderSize {
+                width: render_target_config.width,
+                height: render_target_config.height,
+            },
+            scene_offset: (0, 0),
+            depth_cleared_this_frame: false,
+        }
+    }
+
     pub(crate) fn layer_views(&self, layer_ids: [LayerTextureId; 2]) -> [&TextureView; 2] {
         layer_ids.map(|id| self.layer_view(id))
     }
@@ -216,7 +446,7 @@ impl GpuResources {
 
 pub(crate) const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
 
-impl Programs {
+impl GpuResources {
     fn create_intermediate_texture(
         device: &Device,
         size: SizeU16,
@@ -240,25 +470,30 @@ impl Programs {
         texture.create_view(&TextureViewDescriptor::default())
     }
 
-    pub(crate) fn prepare_intermediate_textures(&mut self, device: &Device, schedule: &Schedule) {
+    pub(crate) fn prepare_intermediate_textures(
+        &mut self,
+        device: &Device,
+        programs: &Programs,
+        schedule: &Schedule,
+    ) {
         let requirements = schedule.intermediate_texture_requirements();
         let texture_size = requirements.size;
-        let current_size = self.resources.texture_size;
+        let current_size = self.texture_size;
         let allocations = requirements.allocations;
         let layer_pages = allocations.layer_pages;
         let scratch_required = allocations.scratch;
         let size_changed = current_size != texture_size;
 
         if size_changed {
-            self.resources.layer_config_buffer = Self::create_config_buffer(
+            self.layer_config_buffer = Self::create_config_buffer(
                 device,
                 u32::from(texture_size.width()),
                 u32::from(texture_size.height()),
-                self.resources.resource_texture_dimension_2d,
+                self.resource_texture_dimension_2d,
             );
         }
 
-        for (index, textures) in self.resources.layer_textures.iter_mut().enumerate() {
+        for (index, textures) in self.layer_textures.iter_mut().enumerate() {
             let required_page_count = layer_pages[index];
             // Note: Currently, `texture_size` only grows across frames, so if this condition
             // is true it means that the new required size is larger than what we currently have.
@@ -280,22 +515,24 @@ impl Programs {
                 )
             }));
         }
-        let scratch_changed = (self.resources.scratch_texture.is_some() && size_changed)
-            || (self.resources.scratch_texture.is_none() && scratch_required);
+        let scratch_changed = (self.scratch_texture.is_some() && size_changed)
+            || (self.scratch_texture.is_none() && scratch_required);
         if scratch_changed {
-            self.resources.scratch_texture = Some(ScratchTexture::new(
-                Self::create_intermediate_texture(device, texture_size, "Scratch Texture"),
-            ));
+            self.scratch_texture = Some(ScratchTexture::new(Self::create_intermediate_texture(
+                device,
+                texture_size,
+                "Scratch Texture",
+            )));
         }
 
-        self.resources.texture_size = texture_size;
+        self.texture_size = texture_size;
 
         if size_changed {
             self.clear_layer_bind_group_caches();
         }
 
         if scratch_changed {
-            self.update_scratch_bind_groups(device);
+            self.update_scratch_bind_groups(device, programs);
         }
     }
 
@@ -305,18 +542,21 @@ impl Programs {
         self.filter_pair_bind_groups.clear();
     }
 
-    fn update_scratch_bind_groups(&mut self, device: &Device) {
-        let scratch_view = self.resources.scratch_view();
+    fn update_scratch_bind_groups(&mut self, device: &Device, programs: &Programs) {
+        let scratch_view = self.scratch_view();
         let filter_original_bind_group = create_filter_original_texture_bind_group(
             device,
-            &self.filter.input_bind_group_layouts[1],
+            &programs.filter.input_bind_group_layouts[1],
             scratch_view,
         );
-        let scratch_copy_bind_group =
-            Self::create_copy_bind_group(device, &self.copy.bind_group_layout, scratch_view);
+        let scratch_copy_bind_group = Programs::create_copy_bind_group(
+            device,
+            &programs.copy.bind_group_layout,
+            scratch_view,
+        );
 
-        self.resources.filter_original_bind_group = filter_original_bind_group;
-        self.resources.scratch_copy_bind_group = scratch_copy_bind_group;
+        self.filter_original_bind_group = filter_original_bind_group;
+        self.scratch_copy_bind_group = scratch_copy_bind_group;
     }
 
     pub(crate) fn create_config_buffer(
@@ -341,9 +581,72 @@ impl Programs {
         })
     }
 
-    pub(crate) fn create_alphas_texture(device: &Device, width: u32, height: u32) -> Texture {
+    fn new_data_texture(
+        device: &Device,
+        label: &'static str,
+        kind: ResourceTexture,
+        format: DataTextureFormat,
+        width: u32,
+    ) -> DataTexture<Texture> {
+        DataTexture::new(
+            Self::create_data_texture(device, label, format, width, 1),
+            kind,
+            format,
+            width,
+            1,
+        )
+    }
+
+    fn new_bound_data_texture(
+        device: &Device,
+        label: &'static str,
+        layout: &BindGroupLayout,
+        kind: ResourceTexture,
+        format: DataTextureFormat,
+        width: u32,
+    ) -> DataTexture<BoundTexture> {
+        DataTexture::new(
+            Self::create_bound_data_texture(device, label, layout, format, width, 1),
+            kind,
+            format,
+            width,
+            1,
+        )
+    }
+
+    pub(crate) fn create_bound_data_texture(
+        device: &Device,
+        label: &'static str,
+        layout: &BindGroupLayout,
+        format: DataTextureFormat,
+        width: u32,
+        height: u32,
+    ) -> BoundTexture {
+        let texture = Self::create_data_texture(device, label, format, width, height);
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
+        });
+        BoundTexture {
+            texture,
+            bind_group,
+        }
+    }
+
+    fn create_data_texture(
+        device: &Device,
+        label: &'static str,
+        format: DataTextureFormat,
+        width: u32,
+        height: u32,
+    ) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Alpha Texture"),
+            label: Some(label),
             size: Extent3d {
                 width,
                 height,
@@ -352,7 +655,7 @@ impl Programs {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Uint,
+            format: format.into(),
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         })
@@ -418,106 +721,6 @@ impl Programs {
         })
     }
 
-    pub(crate) fn create_encoded_paints_bind_group_layout(device: &Device) -> BindGroupLayout {
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Encoded Paints Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Uint,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            }],
-        })
-    }
-
-    pub(crate) fn create_gradient_bind_group_layout(device: &Device) -> BindGroupLayout {
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Gradient Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            }],
-        })
-    }
-
-    pub(crate) fn create_encoded_paints_texture(
-        device: &Device,
-        width: u32,
-        height: u32,
-    ) -> Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Encoded Paints Texture"),
-            size: Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        })
-    }
-
-    pub(crate) fn create_encoded_paints_bind_group(
-        device: &Device,
-        encoded_paints_bind_group_layout: &BindGroupLayout,
-        encoded_paints_texture_view: &TextureView,
-    ) -> BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Encoded Paints Bind Group"),
-            layout: encoded_paints_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(encoded_paints_texture_view),
-            }],
-        })
-    }
-
-    pub(crate) fn create_gradient_texture(device: &Device, width: u32, height: u32) -> Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Gradient Texture"),
-            size: Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        })
-    }
-
-    pub(crate) fn create_gradient_bind_group(
-        device: &Device,
-        gradient_bind_group_layout: &BindGroupLayout,
-        gradient_texture_view: &TextureView,
-    ) -> BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Gradient Bind Group"),
-            layout: gradient_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(gradient_texture_view),
-            }],
-        })
-    }
-
     /// Prepare GPU buffers for rendering, given alphas.
     ///
     /// Specifically, updates the alpha texture with `alphas` and the config buffer when
@@ -525,6 +728,7 @@ impl Programs {
     pub(crate) fn prepare(
         &mut self,
         device: &Device,
+        programs: &Programs,
         encoder: &mut CommandEncoder,
         gradient_cache: &mut GradientRampCache,
         encoded_paints: &[GpuEncodedPaint],
@@ -533,12 +737,15 @@ impl Programs {
         scene_offset: (i32, i32),
         paint_idxs: &[u32],
         filter_context: &FilterContext,
-    ) {
-        let resource_texture_dimension_2d = self.resources.resource_texture_dimension_2d;
+    ) -> Result<(), RenderError> {
+        let resource_texture_dimension_2d = self.resource_texture_dimension_2d;
         self.staging_belt.prepare(device);
-        self.maybe_resize_alphas_tex(device, resource_texture_dimension_2d, alphas.len());
-        self.maybe_resize_encoded_paints_tex(device, resource_texture_dimension_2d, paint_idxs);
-        self.maybe_resize_filter_tex(device, resource_texture_dimension_2d, filter_context);
+        self.maybe_resize_alphas_tex(device, alphas.len())?;
+        self.maybe_resize_encoded_paints_tex(device, programs, paint_idxs)?;
+        self.maybe_resize_filter_tex(device, programs, filter_context)?;
+        if gradient_cache.has_changed() {
+            self.maybe_resize_gradient_tex(device, programs, gradient_cache)?;
+        }
         self.maybe_update_config_buffer(
             encoder,
             resource_texture_dimension_2d,
@@ -551,126 +758,82 @@ impl Programs {
         self.upload_filter_texture(encoder, filter_context);
 
         if gradient_cache.has_changed() {
-            self.maybe_resize_gradient_tex(device, resource_texture_dimension_2d, gradient_cache);
             self.upload_gradient_texture(encoder, gradient_cache);
             gradient_cache.mark_synced();
         }
+
+        Ok(())
     }
 
     /// Update the alpha texture size if needed.
     fn maybe_resize_alphas_tex(
         &mut self,
         device: &Device,
-        resource_texture_dimension_2d: u32,
         alphas_len: usize,
-    ) {
-        let required_alpha_height = u32::try_from(alphas_len)
-            .unwrap()
-            // There are 16 1-byte alpha values per texel.
-            .div_ceil(resource_texture_dimension_2d << 4);
-        debug_assert!(
-            self.resources.alphas_texture.width() == resource_texture_dimension_2d,
-            "Alpha texture width must match resource texture dimensions"
-        );
-        let current_alpha_height = self.resources.alphas_texture.height();
-        if required_alpha_height > current_alpha_height {
-            // We need to resize the alpha texture to fit the new alpha data.
-            assert!(
-                required_alpha_height <= resource_texture_dimension_2d,
-                "Alpha texture height exceeds resource texture dimensions"
-            );
-
-            // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
-            let alphas_texture = Self::create_alphas_texture(
-                device,
-                resource_texture_dimension_2d,
-                required_alpha_height,
-            );
-            self.resources.alphas_texture = alphas_texture;
+    ) -> Result<(), RenderError> {
+        let resized = self
+            .alphas_texture
+            .ensure_bytes(alphas_len, |format, width, height| {
+                // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
+                Ok::<_, RenderError>(Self::create_data_texture(
+                    device,
+                    "Alpha Texture",
+                    format,
+                    width,
+                    height,
+                ))
+            })?;
+        if resized {
             self.strip_layer_bind_groups.clear();
             self.blend_layer_bind_groups.clear();
         }
+
+        Ok(())
     }
 
     /// Update the encoded paints texture size if needed.
     fn maybe_resize_encoded_paints_tex(
         &mut self,
         device: &Device,
-        resource_texture_dimension_2d: u32,
+        programs: &Programs,
         paint_idxs: &[u32],
-    ) {
-        let required_texels = paint_idxs.last().unwrap();
-        let required_encoded_paints_height =
-            required_texels.div_ceil(resource_texture_dimension_2d);
-        debug_assert!(
-            self.resources.encoded_paints_texture.width() == resource_texture_dimension_2d,
-            "Encoded paints texture width must match resource texture dimensions"
-        );
-        let current_encoded_paints_height = self.resources.encoded_paints_texture.height();
-        if required_encoded_paints_height > current_encoded_paints_height {
-            assert!(
-                required_encoded_paints_height <= resource_texture_dimension_2d,
-                "Encoded paints texture height exceeds resource texture dimensions"
-            );
-            let required_encoded_paints_size =
-                (resource_texture_dimension_2d * required_encoded_paints_height) << 4;
-            self.encoded_paints_data
-                .resize(required_encoded_paints_size as usize, 0);
-            let encoded_paints_texture = Self::create_encoded_paints_texture(
-                device,
-                resource_texture_dimension_2d,
-                required_encoded_paints_height,
-            );
-            self.resources.encoded_paints_texture = encoded_paints_texture;
+    ) -> Result<(), RenderError> {
+        let layout = &programs.encoded_paints_bind_group_layout;
+        self.encoded_paints_texture.ensure_texels(
+            *paint_idxs.last().unwrap(),
+            |format, width, height| {
+                Ok::<_, RenderError>(Self::create_bound_data_texture(
+                    device,
+                    "Encoded Paints",
+                    layout,
+                    format,
+                    width,
+                    height,
+                ))
+            },
+        )?;
 
-            // Since the encoded paints texture has changed, we need to update the strip bind groups.
-            self.resources.encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
-                device,
-                &self.encoded_paints_bind_group_layout,
-                &self
-                    .resources
-                    .encoded_paints_texture
-                    .create_view(&TextureViewDescriptor::default()),
-            );
-        }
+        Ok(())
     }
 
     /// Update the gradient texture size if needed.
     fn maybe_resize_gradient_tex(
         &mut self,
         device: &Device,
-        resource_texture_dimension_2d: u32,
+        programs: &Programs,
         gradient_cache: &GradientRampCache,
-    ) {
-        let gradient_pixels = (gradient_cache.luts_size() / 4) as u32; // 4 bytes per RGBA8 pixel
-        let required_gradient_height = gradient_pixels.div_ceil(resource_texture_dimension_2d);
-        debug_assert!(
-            self.resources.gradient_texture.width() == resource_texture_dimension_2d,
-            "Gradient texture width must match resource texture dimensions"
-        );
-        let current_gradient_height = self.resources.gradient_texture.height();
-        if required_gradient_height > current_gradient_height {
-            assert!(
-                required_gradient_height <= resource_texture_dimension_2d,
-                "Gradient texture height exceeds resource texture dimensions"
-            );
-            let gradient_texture = Self::create_gradient_texture(
-                device,
-                resource_texture_dimension_2d,
-                required_gradient_height,
-            );
-            self.resources.gradient_texture = gradient_texture;
+    ) -> Result<(), RenderError> {
+        let layout = &programs.gradient_bind_group_layout;
+        self.gradient_texture.ensure_bytes(
+            gradient_cache.luts_size(),
+            |format, width, height| {
+                Ok::<_, RenderError>(Self::create_bound_data_texture(
+                    device, "Gradient", layout, format, width, height,
+                ))
+            },
+        )?;
 
-            // Since the gradient texture has changed, we need to update the gradient bind group.
-            self.resources.gradient_bind_group = Self::create_gradient_bind_group(
-                device,
-                &self.gradient_bind_group_layout,
-                &self
-                    .resources
-                    .gradient_texture
-                    .create_view(&TextureViewDescriptor::default()),
-            );
-        }
+        Ok(())
     }
 
     /// Update config buffer if dimensions or the scene offset changed.
@@ -694,7 +857,7 @@ impl Programs {
             };
             let mut buffer = self.staging_belt.write_buffer(
                 encoder,
-                &self.resources.view_config_buffer,
+                &self.view_config_buffer,
                 0,
                 SIZE_OF_CONFIG,
             );
@@ -707,16 +870,16 @@ impl Programs {
 
     /// Create any newly allocated atlas textures.
     pub(crate) fn maybe_create_atlas_textures(
+        &mut self,
         device: &Device,
-        resources: &mut GpuResources,
         required_atlas_count: u32,
     ) {
-        let (width, height) = resources.atlas_size;
-        while resources.atlas_textures.len() < required_atlas_count as usize {
+        let (width, height) = self.atlas_size;
+        while self.atlas_textures.len() < required_atlas_count as usize {
             let texture = Self::create_atlas_texture(device, width, height);
             let texture_view = texture.create_view(&TextureViewDescriptor::default());
-            resources.atlas_textures.push(texture);
-            resources.atlas_texture_views.push(texture_view);
+            self.atlas_textures.push(texture);
+            self.atlas_texture_views.push(texture_view);
         }
     }
 
@@ -726,9 +889,8 @@ impl Programs {
             return;
         }
 
-        let texture = &self.resources.alphas_texture;
-        self.staging_belt
-            .upload_texture(encoder, texture, alphas, 16);
+        self.alphas_texture
+            .upload(&mut self.staging_belt, encoder, alphas);
     }
 
     /// Upload encoded paints to the texture.
@@ -742,13 +904,12 @@ impl Programs {
             return;
         }
 
-        let texture = &self.resources.encoded_paints_texture;
-        let rows = paint_idxs.last().unwrap().div_ceil(texture.width());
-        let data = &mut self.encoded_paints_data[..(rows * texture.width() * 16) as usize];
-
-        GpuEncodedPaint::serialize_to_buffer(encoded_paints, data);
-
-        self.staging_belt.upload_texture(encoder, texture, data, 16);
+        self.encoded_paints_texture.upload_chunks(
+            &mut self.staging_belt,
+            encoder,
+            *paint_idxs.last().unwrap(),
+            encoded_paints.iter().map(GpuEncodedPaint::as_bytes),
+        );
     }
 
     /// Upload gradient data to the texture.
@@ -761,11 +922,7 @@ impl Programs {
             return;
         }
 
-        self.staging_belt.upload_texture(
-            encoder,
-            &self.resources.gradient_texture,
-            gradient_cache.luts(),
-            4,
-        );
+        self.gradient_texture
+            .upload(&mut self.staging_belt, encoder, gradient_cache.luts());
     }
 }
