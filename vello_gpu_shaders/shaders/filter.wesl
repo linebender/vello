@@ -278,36 +278,36 @@ fn fs_main(
         }
         case PASS_BLUR_V {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
-            var center_weight: f32;
-            var linear_weights: vec3<f32>;
-            var linear_offsets: vec3<f32>;
-            var n_linear_taps: u32;
-            if get_filter_type(filter_texel0) == FILTER_TYPE_GAUSSIAN_BLUR {
-                // A blur carries its own y-axis kernel.
-                let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
-                let filter_texel3 = load_filter_texel(filter_data_offset, 3u);
-                center_weight = get_center_weight_y(filter_texel2);
-                linear_weights = get_linear_weights_y(filter_texel2);
-                linear_offsets = get_linear_offsets_y(filter_texel3);
-                n_linear_taps = get_n_linear_taps_y(filter_texel0);
-            } else {
-                // A drop shadow blurs both axes with the same kernel.
-                let filter_texel1 = load_filter_texel(filter_data_offset, 1u);
-                center_weight = get_center_weight_x(filter_texel0);
-                linear_weights = get_linear_weights_x(filter_texel0, filter_texel1);
-                linear_offsets = get_linear_offsets_x(filter_texel1);
-                n_linear_taps = get_n_linear_taps_x(filter_texel0);
-            }
+            let filter_texel1 = load_filter_texel(filter_data_offset, 1u);
+            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
+            let filter_texel3 = load_filter_texel(filter_data_offset, 3u);
+            let use_y_kernel = get_filter_type(filter_texel0) == FILTER_TYPE_GAUSSIAN_BLUR;
             return gaussian_blur(
                     source_texture,
                     linear_sampler,
                     source_origin,
                     rel_coord,
                     BLUR_VERTICAL,
-                    center_weight,
-                    linear_weights,
-                    linear_offsets,
-                    n_linear_taps,
+                    select(
+                        get_center_weight_x(filter_texel0),
+                        get_center_weight_y(filter_texel2),
+                        use_y_kernel,
+                    ),
+                    select(
+                        get_linear_weights_x(filter_texel0, filter_texel1),
+                        get_linear_weights_y(filter_texel2),
+                        use_y_kernel,
+                    ),
+                    select(
+                        get_linear_offsets_x(filter_texel1),
+                        get_linear_offsets_y(filter_texel3),
+                        use_y_kernel,
+                    ),
+                    select(
+                        get_n_linear_taps_x(filter_texel0),
+                        get_n_linear_taps_y(filter_texel0),
+                        use_y_kernel,
+                    ),
                 );
         }
         case PASS_UPSCALE {
