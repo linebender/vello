@@ -3,7 +3,6 @@
 
 //! Creation and growth of the renderer's GPU resources.
 
-use crate::RenderError;
 use crate::draw::EXTERNAL_TEXTURE_SLOT_COUNT;
 use crate::render::wgpu::RenderTargetConfig;
 use crate::render::wgpu::passes::Programs;
@@ -23,6 +22,7 @@ use crate::{
     schedule::Schedule,
     target::{BlendPassBindings, FilterPassBindings, LayerTextureId},
 };
+use crate::{RenderError, ResourceTexture};
 use alloc::vec::Vec;
 use core::{borrow::Borrow, fmt::Debug, num::NonZeroU64};
 use hashbrown::HashMap;
@@ -333,6 +333,7 @@ impl GpuResources {
         let alphas_texture = Self::new_data_texture(
             device,
             "Alpha Texture",
+            ResourceTexture::Alphas,
             DataTextureFormat::Rgba32Uint,
             resource_texture_dimension_2d,
         );
@@ -371,6 +372,7 @@ impl GpuResources {
             device,
             "Encoded Paints",
             &programs.encoded_paints_bind_group_layout,
+            ResourceTexture::EncodedPaints,
             DataTextureFormat::Rgba32Uint,
             resource_texture_dimension_2d,
         );
@@ -378,6 +380,7 @@ impl GpuResources {
             device,
             "Gradient",
             &programs.gradient_bind_group_layout,
+            ResourceTexture::Gradients,
             DataTextureFormat::Rgba8,
             resource_texture_dimension_2d,
         );
@@ -385,6 +388,7 @@ impl GpuResources {
             device,
             "Filter Data",
             &programs.filter.bind_group_layout,
+            ResourceTexture::FilterData,
             DataTextureFormat::Rgba32Uint,
             resource_texture_dimension_2d,
         );
@@ -582,11 +586,13 @@ impl GpuResources {
     fn new_data_texture(
         device: &Device,
         label: &'static str,
+        kind: ResourceTexture,
         format: DataTextureFormat,
         width: u32,
     ) -> DataTexture<Texture> {
         DataTexture::new(
             Self::create_data_texture(device, label, format, width, 1),
+            kind,
             format,
             width,
             1,
@@ -597,11 +603,13 @@ impl GpuResources {
         device: &Device,
         label: &'static str,
         layout: &BindGroupLayout,
+        kind: ResourceTexture,
         format: DataTextureFormat,
         width: u32,
     ) -> DataTexture<BoundTexture> {
         DataTexture::new(
             Self::create_bound_data_texture(device, label, layout, format, width, 1),
+            kind,
             format,
             width,
             1,

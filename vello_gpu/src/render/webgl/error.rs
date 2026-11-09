@@ -36,18 +36,6 @@ pub enum WebGlError {
     /// A render pass contains too many instances for WebGL.
     #[error("too many instances")]
     TooManyInstances,
-    /// A resource texture allocation exceeds the supported texture dimensions.
-    #[error(
-        "resource texture allocation {width}x{height} exceeds maximum dimension {max_dimension}"
-    )]
-    ResourceTextureTooLarge {
-        /// The requested texture width.
-        width: u32,
-        /// The requested texture height.
-        height: u32,
-        /// The maximum supported width or height.
-        max_dimension: u32,
-    },
     /// The WebGL context is incompatible with the renderer.
     #[error("incompatible WebGL context: {0}")]
     IncompatibleContext(IncompatibleContextReason),
@@ -61,11 +49,7 @@ pub enum WebGlError {
 
 impl From<DataTextureTooLarge> for WebGlError {
     fn from(error: DataTextureTooLarge) -> Self {
-        Self::ResourceTextureTooLarge {
-            width: error.width,
-            height: error.rows,
-            max_dimension: error.width,
-        }
+        Self::Render(error.into())
     }
 }
 

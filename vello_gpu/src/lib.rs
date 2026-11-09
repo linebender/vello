@@ -184,28 +184,40 @@ pub enum RenderError {
     /// An intermediate texture allocation failed.
     #[error(transparent)]
     IntermediateTexture(#[from] IntermediateTextureError),
-    /// A resource texture allocation exceeds the supported texture dimensions.
-    #[error(
-        "Resource texture allocation {width}x{height} exceeds maximum dimension {max_dimension}"
-    )]
+    /// A scene's packed data doesn't fit into its resource texture.
+    #[error("{texture:?} data needs {rows} rows, but at most {max_rows} are supported")]
     ResourceTextureTooLarge {
-        /// The requested texture width.
-        width: u32,
-        /// The requested texture height.
-        height: u32,
-        /// The maximum supported width or height.
-        max_dimension: u32,
+        /// The resource texture that overflowed.
+        texture: ResourceTexture,
+        /// The number of rows the data needs.
+        rows: u32,
+        /// The maximum number of rows.
+        max_rows: u32,
     },
 }
 
 impl From<render::common::DataTextureTooLarge> for RenderError {
     fn from(error: render::common::DataTextureTooLarge) -> Self {
         Self::ResourceTextureTooLarge {
-            width: error.width,
-            height: error.rows,
-            max_dimension: error.width,
+            texture: error.texture,
+            rows: error.rows,
+            max_rows: error.max_rows,
         }
     }
+}
+
+/// A texture that the renderer packs scene data into for its shaders to read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ResourceTexture {
+    /// The alpha masks of the scene's strips.
+    Alphas,
+    /// The scene's encoded paints.
+    EncodedPaints,
+    /// The lookup tables of the scene's gradients.
+    Gradients,
+    /// The parameters of the scene's filters.
+    FilterData,
 }
 
 /// Errors that can occur while allocating intermediate textures.

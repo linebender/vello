@@ -9,7 +9,7 @@ use crate::render::webgl::{
     WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResultExt,
 };
 use crate::{
-    LayersConfig, RenderSize,
+    LayersConfig, RenderSize, ResourceTexture,
     filter::FilterContext,
     gradient_cache::GradientRampCache,
     paint::{ExternalSampler, SamplerAddress, SamplerFilter},
@@ -489,11 +489,12 @@ pub(crate) fn create_texture_storage(
 
 fn create_placeholder_data_texture(
     gl: &WebGl2RenderingContext,
+    kind: ResourceTexture,
     format: DataTextureFormat,
     width: u32,
 ) -> Result<DataTexture<Texture>, WebGlError> {
     let texture = create_placeholder_texture(gl, format)?;
-    Ok(DataTexture::new(texture, format, width, 0))
+    Ok(DataTexture::new(texture, kind, format, width, 0))
 }
 
 /// Create a 1x1 placeholder texture of `format`.
@@ -641,6 +642,7 @@ pub(crate) fn create_webgl_resources(
     // Create and configure alpha texture.
     let alphas_texture = create_placeholder_data_texture(
         gl,
+        ResourceTexture::Alphas,
         DataTextureFormat::Rgba32Uint,
         resource_texture_dimension_2d,
     )?;
@@ -662,6 +664,7 @@ pub(crate) fn create_webgl_resources(
     // Create and configure encoded paints texture.
     let encoded_paints_texture = create_placeholder_data_texture(
         gl,
+        ResourceTexture::EncodedPaints,
         DataTextureFormat::Rgba32Uint,
         resource_texture_dimension_2d,
     )?;
@@ -669,6 +672,7 @@ pub(crate) fn create_webgl_resources(
     // Create and configure gradient texture.
     let gradient_texture = create_placeholder_data_texture(
         gl,
+        ResourceTexture::Gradients,
         DataTextureFormat::Rgba8,
         resource_texture_dimension_2d,
     )?;
@@ -679,6 +683,7 @@ pub(crate) fn create_webgl_resources(
     let scratch_texture = None;
     let filter_data_texture = create_placeholder_data_texture(
         gl,
+        ResourceTexture::FilterData,
         DataTextureFormat::Rgba32Uint,
         resource_texture_dimension_2d,
     )?;

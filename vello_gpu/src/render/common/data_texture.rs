@@ -3,6 +3,8 @@
 
 //! Textures that shaders read packed data from.
 
+use crate::ResourceTexture;
+
 /// The texel format of a [`DataTexture`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DataTextureFormat {
@@ -24,6 +26,7 @@ impl DataTextureFormat {
 #[derive(Debug)]
 pub(crate) struct DataTexture<T> {
     texture: T,
+    kind: ResourceTexture,
     format: DataTextureFormat,
     width: u32,
     rows: u32,
@@ -32,15 +35,23 @@ pub(crate) struct DataTexture<T> {
 /// The data for a [`DataTexture`] needs more rows than the texture's width.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DataTextureTooLarge {
-    pub(crate) width: u32,
+    pub(crate) texture: ResourceTexture,
     pub(crate) rows: u32,
+    pub(crate) max_rows: u32,
 }
 
 impl<T> DataTexture<T> {
     /// Wrap `texture`, which is `width` texels wide and has room for `rows` rows of data.
-    pub(crate) fn new(texture: T, format: DataTextureFormat, width: u32, rows: u32) -> Self {
+    pub(crate) fn new(
+        texture: T,
+        kind: ResourceTexture,
+        format: DataTextureFormat,
+        width: u32,
+        rows: u32,
+    ) -> Self {
         Self {
             texture,
+            kind,
             format,
             width,
             rows,
@@ -103,8 +114,9 @@ impl<T> DataTexture<T> {
         // their height.
         if rows > self.width {
             return Err(DataTextureTooLarge {
-                width: self.width,
+                texture: self.kind,
                 rows,
+                max_rows: self.width,
             }
             .into());
         }
@@ -120,7 +132,13 @@ mod tests {
     use super::*;
 
     fn data_texture() -> DataTexture<u32> {
-        DataTexture::new(1, DataTextureFormat::Rgba32Uint, 4, 1)
+        DataTexture::new(
+            1,
+            ResourceTexture::Gradients,
+            DataTextureFormat::Rgba32Uint,
+            4,
+            1,
+        )
     }
 
     #[test]
@@ -146,7 +164,14 @@ mod tests {
     fn rejects_more_rows_than_width() {
         let mut texture = data_texture();
         let grown = texture.ensure_texels::<DataTextureTooLarge>(17, |_, _, _| unreachable!());
-        assert_eq!(grown, Err(DataTextureTooLarge { width: 4, rows: 5 }));
+        assert_eq!(
+            grown,
+            Err(DataTextureTooLarge {
+                texture: ResourceTexture::Gradients,
+                rows: 5,
+                max_rows: 4,
+            })
+        );
         assert_eq!(*texture.texture(), 1);
         assert_eq!(texture.rows, 1);
     }

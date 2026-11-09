@@ -23,12 +23,13 @@ This release has an [MSRV][] of 1.89.
 ### Changed
 
 - Breaking change: The `invert` parameter of `Scene::fill_blurred_rounded_rect` has been removed. Use `Scene::fill_blurred_rounded_rect_in` with `invert` set to `true` instead. ([#1718][] by [@nicoburns][])
+- Breaking change: `WebGlError::ResourceTextureTooLarge` has been removed. The WebGL renderer now reports oversized resource textures as `WebGlError::Render(RenderError::ResourceTextureTooLarge)`, which names the overflowing `ResourceTexture`. (by [@LaurenzV][])
 
 ### Fixed
 
 - The wgpu renderer returns `RenderError::MissingImage` instead of panicking when a scene references an image that isn't in the image cache. (by [@LaurenzV][])
 - The wgpu renderer returns `RenderError::ResourceTextureTooLarge` instead of panicking when a scene's alpha, paint, gradient or filter data doesn't fit into the supported texture dimensions. (by [@LaurenzV][])
-- The WebGL renderer returns `WebGlError::ResourceTextureTooLarge` instead of panicking when a scene's filter data doesn't fit into the supported texture dimensions. (by [@LaurenzV][])
+- The WebGL renderer returns `RenderError::ResourceTextureTooLarge` instead of panicking when a scene's filter data doesn't fit into the supported texture dimensions. (by [@LaurenzV][])
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
 
 ## [0.3.0][] - 2026-10-02
