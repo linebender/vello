@@ -162,12 +162,12 @@ impl GpuResources {
         device: &Device,
         programs: &Programs,
         filter_context: &FilterContext,
-    ) -> Result<bool, RenderError> {
+    ) -> Result<(), RenderError> {
         let layout = &programs.filter.bind_group_layout;
         self.filter_data_texture.ensure_bytes(
             filter_context.as_bytes().len(),
             |format, width, height| {
-                Ok(Self::create_bound_data_texture(
+                Ok::<_, RenderError>(Self::create_bound_data_texture(
                     device,
                     "Filter Data",
                     layout,
@@ -176,7 +176,9 @@ impl GpuResources {
                     height,
                 ))
             },
-        )
+        )?;
+
+        Ok(())
     }
 
     pub(crate) fn upload_filter_texture(

@@ -799,12 +799,12 @@ impl GpuResources {
         device: &Device,
         programs: &Programs,
         paint_idxs: &[u32],
-    ) -> Result<bool, RenderError> {
+    ) -> Result<(), RenderError> {
         let layout = &programs.encoded_paints_bind_group_layout;
         self.encoded_paints_texture.ensure_texels(
             *paint_idxs.last().unwrap(),
             |format, width, height| {
-                Ok(Self::create_bound_data_texture(
+                Ok::<_, RenderError>(Self::create_bound_data_texture(
                     device,
                     "Encoded Paints",
                     layout,
@@ -813,7 +813,9 @@ impl GpuResources {
                     height,
                 ))
             },
-        )
+        )?;
+
+        Ok(())
     }
 
     /// Update the gradient texture size if needed.
@@ -822,14 +824,18 @@ impl GpuResources {
         device: &Device,
         programs: &Programs,
         gradient_cache: &GradientRampCache,
-    ) -> Result<bool, RenderError> {
+    ) -> Result<(), RenderError> {
         let layout = &programs.gradient_bind_group_layout;
-        self.gradient_texture
-            .ensure_bytes(gradient_cache.luts_size(), |format, width, height| {
-                Ok(Self::create_bound_data_texture(
+        self.gradient_texture.ensure_bytes(
+            gradient_cache.luts_size(),
+            |format, width, height| {
+                Ok::<_, RenderError>(Self::create_bound_data_texture(
                     device, "Gradient", layout, format, width, height,
                 ))
-            })
+            },
+        )?;
+
+        Ok(())
     }
 
     /// Update config buffer if dimensions or the scene offset changed.
