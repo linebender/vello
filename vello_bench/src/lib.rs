@@ -15,6 +15,7 @@ pub mod flatten;
 pub mod glyph;
 pub mod integration;
 pub mod pixmap;
+pub mod registry;
 pub mod sort;
 pub mod strip;
 pub mod tile;

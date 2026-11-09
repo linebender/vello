@@ -4,8 +4,13 @@
 #![allow(missing_docs, reason = "Not needed for benchmarks")]
 #![allow(dead_code, reason = "Might be unused on platforms not supporting SIMD")]
 
-use criterion::{criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
+use vello_bench::registry::CriterionRegistry;
 use vello_bench::{allocator, fine, flatten, glyph, integration, pixmap, sort, strip, tile};
+
+fn flatten_fills(c: &mut Criterion) {
+    flatten::flatten(&mut CriterionRegistry(c));
+}
 
 criterion_group!(allocator_bench, allocator::allocator);
 criterion_group!(pixmap_bench, pixmap::pixmap);
@@ -17,7 +22,7 @@ criterion_group!(fine_rounded_blurred_rect, fine::rounded_blurred_rect);
 criterion_group!(fine_blend, fine::blend);
 criterion_group!(fine_image, fine::image);
 criterion_group!(tile, tile::tile);
-criterion_group!(flatten, flatten::flatten);
+criterion_group!(flatten, flatten_fills);
 criterion_group!(strokes, flatten::strokes);
 criterion_group!(render_strips, strip::render_strips);
 criterion_group!(render_strips_cull, strip::render_strips_cull);
