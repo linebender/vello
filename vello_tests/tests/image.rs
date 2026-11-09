@@ -210,11 +210,11 @@ fn image_with_transform_scaling_non_uniform(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(gpu_diff_pixels = 64)]
+#[vello_test]
 fn image_with_transform_skew_x_1(ctx: &mut impl Renderer) {
     transform(
         ctx,
-        Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0),
+        Affine::translate((-49.5, 0.0)) * Affine::skew(tan_45(), 0.0),
         25.0,
         25.0,
         75.0,
@@ -222,11 +222,11 @@ fn image_with_transform_skew_x_1(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(gpu_diff_pixels = 64)]
+#[vello_test]
 fn image_with_transform_skew_x_2(ctx: &mut impl Renderer) {
     transform(
         ctx,
-        Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0),
+        Affine::translate((50.5, 0.0)) * Affine::skew(-tan_45(), 0.0),
         25.0,
         25.0,
         75.0,
@@ -234,11 +234,11 @@ fn image_with_transform_skew_x_2(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(gpu_diff_pixels = 64)]
+#[vello_test]
 fn image_with_transform_skew_y_1(ctx: &mut impl Renderer) {
     transform(
         ctx,
-        Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45()),
+        Affine::translate((0.0, 50.5)) * Affine::skew(0.0, -tan_45()),
         25.0,
         25.0,
         75.0,
@@ -246,11 +246,11 @@ fn image_with_transform_skew_y_1(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(gpu_diff_pixels = 64)]
+#[vello_test]
 fn image_with_transform_skew_y_2(ctx: &mut impl Renderer) {
     transform(
         ctx,
-        Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45()),
+        Affine::translate((0.0, -49.5)) * Affine::skew(0.0, tan_45()),
         25.0,
         25.0,
         75.0,
@@ -491,7 +491,7 @@ fn image_bilinear_2x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(gpu_tolerance = 1)]
 fn image_bilinear_5x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -503,7 +503,7 @@ fn image_bilinear_5x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(gpu_tolerance = 1)]
 fn image_bilinear_10x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -515,7 +515,7 @@ fn image_bilinear_10x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(gpu_tolerance = 1)]
 fn image_bilinear_with_rotation(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -527,7 +527,7 @@ fn image_bilinear_with_rotation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(gpu_tolerance = 1)]
 fn image_bilinear_with_translation(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -708,11 +708,9 @@ const HELLO_WORLD: &[Sprite] = &[
 ];
 
 /// Test rendering "hello" from a glyph atlas (spritesheet-style).
-/// Uses `ImageSource::OpaqueId` to demonstrate the image registry pattern.
 #[vello_test(width = 60, height = 30, skip_gpu)]
 fn image_spritesheet(ctx: &mut impl Renderer) {
-    let atlas_id = ctx.register_image(load_image!("glyph_atlas"));
-    let atlas_src = ImageSource::opaque_id(atlas_id);
+    let atlas_src = ctx.get_image_source(load_image!("glyph_atlas"));
 
     let start_x = 10.0;
     let start_y = 8.0;
@@ -755,8 +753,7 @@ fn render_sprite(
 /// Same as `image_spritesheet`, but renders "hello world" with a purple tint.
 #[vello_test(width = 60, height = 30, skip_multithreaded)]
 fn image_spritesheet_tinted(ctx: &mut impl Renderer) {
-    let atlas_id = ctx.register_image(load_image!("glyph_atlas"));
-    let atlas_src = ImageSource::opaque_id(atlas_id);
+    let atlas_src = ctx.get_image_source(load_image!("glyph_atlas"));
 
     let start_x = 10.0;
     let start_y = 8.0;

@@ -221,7 +221,7 @@ impl<'a> PaintResolver<'a> {
 
                             (paint_type, Some(TextureSourceId::External(*id, sampler)))
                         }
-                        ImageSource::OpaqueId { id, .. } => {
+                        ImageSource::Atlas(id) => {
                             let image_resource = self.image_cache.unwrap().get(*id).unwrap();
                             (
                                 PAINT_TYPE_IMAGE,

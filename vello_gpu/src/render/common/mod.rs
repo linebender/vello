@@ -24,10 +24,6 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::record::CommandRecorder;
 
-// TODO: If we want to use native bilinear sampling for uploaded images,
-// we can pass 1 instead of 0 here.
-pub(crate) const IMAGE_PADDING: u16 = 0;
-
 /// Controls how the output target is cleared before drawing.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ClearSettings<'a> {
@@ -150,17 +146,17 @@ pub(crate) struct GpuClearInstance {
 impl MemorySettings {
     pub(crate) fn normalize(&mut self, device_limits: &DeviceLimits) {
         let Self {
-            image_atlas_config,
+            glyph_atlas_config,
             layers_config,
         } = self;
 
-        image_atlas_config.atlas_size = SizeU16::from(image_atlas_config.atlas_size)
+        glyph_atlas_config.atlas_size = SizeU16::from(glyph_atlas_config.atlas_size)
             .clamp(1, device_limits.max_texture_dimension_2d)
             .into();
 
-        image_atlas_config.initial_atlas_count = image_atlas_config
+        glyph_atlas_config.initial_atlas_count = glyph_atlas_config
             .initial_atlas_count
-            .min(image_atlas_config.max_atlases);
+            .min(glyph_atlas_config.max_atlases);
 
         layers_config.min_texture_size = layers_config
             .min_texture_size
@@ -342,7 +338,7 @@ mod tests {
     #[test]
     fn normalize_memory_settings_clamps_atlas_dimensions_to_backend_limits() {
         let mut settings = MemorySettings {
-            image_atlas_config: AtlasConfig {
+            glyph_atlas_config: AtlasConfig {
                 initial_atlas_count: 8,
                 max_atlases: 16,
                 atlas_size: (8192, 2048),
@@ -353,7 +349,7 @@ mod tests {
 
         settings.normalize(&device_limits(4096));
 
-        let config = settings.image_atlas_config;
+        let config = settings.glyph_atlas_config;
         assert_eq!(config.initial_atlas_count, 8);
         assert_eq!(config.max_atlases, 16);
         assert_eq!(config.atlas_size, (4096, 2048));
@@ -368,7 +364,7 @@ mod tests {
     #[test]
     fn normalize_memory_settings_allows_lazy_initial_atlas_allocation() {
         let mut settings = MemorySettings {
-            image_atlas_config: AtlasConfig {
+            glyph_atlas_config: AtlasConfig {
                 initial_atlas_count: 0,
                 atlas_size: (0, 0),
                 ..Default::default()
@@ -378,7 +374,7 @@ mod tests {
 
         settings.normalize(&device_limits(4096));
 
-        let config = settings.image_atlas_config;
+        let config = settings.glyph_atlas_config;
         assert_eq!(config.initial_atlas_count, 0);
         assert_eq!(config.max_atlases, 8);
         assert_eq!(config.atlas_size, (1, 1));

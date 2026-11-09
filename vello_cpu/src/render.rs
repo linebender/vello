@@ -37,25 +37,6 @@ use vello_common::util::into_fast_path_rect;
 
 #[cfg(feature = "text")]
 pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
-// Why do we need this? The reason is that the way uploaded images work in Vello GPU
-// is different from how they work in Vello CPU.
-//
-// In Vello GPU, all images, regardless of whether they are user-uploaded
-// images or cached glyphs, are stored in an image atlas at a certain location. An image ID then
-// uniquely resolves to an atlas page index + a location on that page. Whenever we want to
-// cache a new glyph, we simply allocate a location in the image atlas and then return the image
-// ID associated with that location.
-//
-// On Vello CPU, it works differently: An image ID is associated with a complete pixmap.
-// If a user uploads an image, instead of blitting it into a bigger image atlas, we just
-// store the user-provided pixmap and associate an image ID with the whole pixmap. However,
-// for glyph caching to work we need the same semantics as in Vello GPU. Therefore, we
-// use a marker to determine whether an image ID refers to a normal uploaded image or a cached
-// glyph and apply special handling based on that.
-//
-// All IDs < than this value are reserved for normal images, all IDs >= this value are
-// reserved for atlas pages.
-pub(crate) const ATLAS_IMAGE_ID_BASE: u32 = u32::MAX / 2;
 
 /// Persistent resources required by Vello CPU for rendering.
 ///
@@ -677,10 +658,6 @@ impl RenderContext {
     }
 
     /// Set the current paint.
-    ///
-    /// If the paint is an image with `ImageSource::OpaqueId`, it will be
-    /// resolved to the corresponding pixmap at rasterization time.
-    /// Make sure to register images with [`Resources::register_image`] first.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.state.paint = paint.into();
     }
@@ -1006,75 +983,23 @@ impl RenderContext {
     }
 }
 
-/// Image registry implementation.
-impl Resources {
-    /// Register a pixmap in the image registry and return its [`ImageId`].
-    pub fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        self.image_registry.register(pixmap)
-    }
-
-    /// Remove an image from the registry.
-    pub fn destroy_image(&mut self, id: ImageId) -> bool {
-        self.image_registry.destroy(id)
-    }
-
-    /// Resolve an `ImageId` to its pixmap data.
-    pub fn resolve_image(&self, id: ImageId) -> Option<Arc<Pixmap>> {
-        self.image_registry.resolve(id)
-    }
-
-    /// Clear the image registry.
-    pub fn clear_images(&mut self) {
-        self.image_registry.clear();
-    }
-}
-
 /// Registry that maps opaque [`ImageId`]s to [`Pixmap`] data.
 ///
-/// Used by [`RenderContext`] to resolve `ImageSource::OpaqueId` at rasterization time.
+/// Used by [`RenderContext`] to resolve `ImageSource::Atlas` at rasterization time.
 #[derive(Debug, Default)]
 pub(crate) struct ImageRegistry {
     images: HashMap<u32, Arc<Pixmap>>,
-    next_id: u32,
 }
 
 impl ImageRegistry {
-    fn register(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        let id = self.next_id;
-        assert!(
-            id < ATLAS_IMAGE_ID_BASE,
-            "image registry exhausted non-atlas image IDs"
-        );
-
-        self.next_id += 1;
-        self.images.insert(id, pixmap);
-        ImageId::new(id)
-    }
-
     #[cfg(feature = "text")]
     pub(crate) fn register_atlas_page(&mut self, page_index: u32, pixmap: Arc<Pixmap>) {
-        self.images.insert(
-            ImageId::new(ATLAS_IMAGE_ID_BASE + page_index).as_u32(),
-            pixmap,
-        );
-    }
-
-    pub(crate) fn destroy(&mut self, id: ImageId) -> bool {
-        self.images.remove(&id.as_u32()).is_some()
+        self.images.insert(page_index, pixmap);
     }
 
     #[cfg(feature = "text")]
     pub(crate) fn destroy_atlas_page(&mut self, page_index: u32) -> bool {
-        self.destroy(ImageId::new(ATLAS_IMAGE_ID_BASE + page_index))
-    }
-
-    fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {
-        self.images.get(&id.as_u32()).cloned()
-    }
-
-    fn clear(&mut self) {
-        self.images.clear();
-        self.next_id = 0;
+        self.images.remove(&page_index).is_some()
     }
 }
 

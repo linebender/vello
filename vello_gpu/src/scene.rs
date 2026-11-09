@@ -155,8 +155,8 @@ impl RenderSettings {
 /// Settings controlling usage of GPU memory.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct MemorySettings {
-    /// Configuration for the atlas holding uploaded images.
-    pub image_atlas_config: AtlasConfig,
+    /// Configuration for the atlas holding cached glyphs.
+    pub glyph_atlas_config: AtlasConfig,
     /// Configuration for intermediate layer and scratch textures.
     pub layers_config: LayersConfig,
 }

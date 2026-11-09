@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::SEED;
-use crate::fine::{BENCH_WIDTH, default_blend};
+use crate::fine::{BENCH_WIDTH, NoOpImageResolver, default_blend};
 use criterion::{Bencher, Criterion};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
-use vello_common::paint::{NoOpImageResolver, Paint, PremulColor};
+use vello_common::paint::{Paint, PremulColor};
 use vello_common::tile::Tile;
 use vello_cpu::fine::{Fine, FineKernel, FineResources, PaintFillAttrs};
 use vello_cpu::span::{Span, TileAlignedSpan};

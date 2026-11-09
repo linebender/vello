@@ -99,11 +99,11 @@ impl WebGlTextureBindings {
 
 /// Wrapper for `WebGlTexture` with known dimensions.
 #[derive(Debug, Clone)]
-pub struct WebGlTextureWithDimensions {
+pub(crate) struct WebGlTextureWithDimensions {
     /// The WebGL texture.
-    pub texture: WebGlTexture,
+    pub(crate) texture: WebGlTexture,
     /// The width of the texture.
-    pub width: u16,
+    pub(crate) width: u16,
     /// The height of the texture.
-    pub height: u16,
+    pub(crate) height: u16,
 }
