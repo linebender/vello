@@ -45,3 +45,24 @@ cargo bench -- [TEST NAME FILTER]
 # Compare it against control
 cargo bench --bench main -- --load-baseline new --baseline control
 ```
+
+## Paired comparisons with Tango
+
+Benchmarks written against `vello_bench::registry::Registry` (currently only `flatten`) can also
+run under [Tango](https://github.com/bazhenov/tango). Tango runs the baseline and the candidate
+builds alternately, so both see the same machine noise. This keeps comparisons stable on shared
+machines such as CI runners.
+
+Install [`cargo-export`](https://crates.io/crates/cargo-export) via `cargo install cargo-export`,
+then run these commands from the workspace root:
+
+```shell
+# Build and save the baseline
+cargo export target/benchmarks -- bench -p vello_bench --features tango --bench tango
+# Apply your changes, then compare against the baseline
+cargo bench -p vello_bench --features tango --bench tango -- compare "$PWD/target/benchmarks/tango"
+```
+
+The path must be absolute because `cargo bench` runs from the `vello_bench` directory. Changes
+marked with `*` are statistically significant, and the comparison exits with an error if any are
+found.

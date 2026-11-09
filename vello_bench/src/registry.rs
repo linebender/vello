@@ -3,8 +3,10 @@
 
 //! A backend-independent way to declare benchmarks.
 //!
-//! Benchmarks written against [`Registry`] run under Criterion through [`CriterionRegistry`],
-//! and can be run by other harnesses through further implementations.
+//! Benchmarks written against [`Registry`] run under Criterion through [`CriterionRegistry`]
+//! and, with the `tango` feature, under Tango through [`TangoRegistry`]. Tango runs the
+//! baseline and candidate builds alternately, which keeps comparisons stable on noisy machines
+//! such as CI runners.
 
 use criterion::Criterion;
 
@@ -46,5 +48,44 @@ impl Registry for CriterionRegistry<'_> {
             b.iter(|| routine(&mut state));
         });
         g.finish();
+    }
+}
+
+/// Collects benchmarks for Tango's `tango_benchmarks!`, named `group/name`.
+#[cfg(all(feature = "tango", not(target_arch = "wasm32")))]
+#[derive(Default)]
+#[expect(
+    missing_debug_implementations,
+    reason = "`tango_bench::Benchmark` does not implement `Debug`"
+)]
+pub struct TangoRegistry(Vec<tango_bench::Benchmark>);
+
+#[cfg(all(feature = "tango", not(target_arch = "wasm32")))]
+impl Registry for TangoRegistry {
+    fn bench<S: 'static>(
+        &mut self,
+        group: &str,
+        name: &str,
+        setup: impl Fn() -> S + 'static,
+        routine: impl Fn(&mut S) + 'static,
+    ) {
+        // Tango builds a fresh sampler for every sample, and each one needs its own handle on
+        // the routine.
+        let routine = std::rc::Rc::new(routine);
+        self.0.push(tango_bench::benchmark_fn(
+            format!("{group}/{name}"),
+            move |b| {
+                let mut state = setup();
+                let routine = std::rc::Rc::clone(&routine);
+                b.iter(move || routine(&mut state))
+            },
+        ));
+    }
+}
+
+#[cfg(all(feature = "tango", not(target_arch = "wasm32")))]
+impl tango_bench::IntoBenchmarks for TangoRegistry {
+    fn into_benchmarks(self) -> Vec<tango_bench::Benchmark> {
+        self.0
     }
 }
