@@ -185,7 +185,7 @@ pub enum RenderError {
     #[error(transparent)]
     IntermediateTexture(#[from] IntermediateTextureError),
     /// A scene's packed data doesn't fit into its resource texture.
-    #[error("{texture:?} data needs {rows} rows, but at most {max_rows} are supported")]
+    #[error("{texture:?} texture needs {rows} rows, but at most {max_rows} are supported")]
     ResourceTextureTooLarge {
         /// The resource texture that overflowed.
         texture: ResourceTexture,

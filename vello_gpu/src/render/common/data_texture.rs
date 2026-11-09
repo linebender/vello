@@ -161,6 +161,17 @@ mod tests {
     }
 
     #[test]
+    fn accepts_as_many_rows_as_width() {
+        let mut texture = data_texture();
+        let grown = texture.ensure_texels::<DataTextureTooLarge>(16, |_, width, rows| {
+            assert_eq!((width, rows), (4, 4));
+            Ok(2)
+        });
+        assert_eq!(grown, Ok(true));
+        assert_eq!(*texture.texture(), 2);
+    }
+
+    #[test]
     fn rejects_more_rows_than_width() {
         let mut texture = data_texture();
         let grown = texture.ensure_texels::<DataTextureTooLarge>(17, |_, _, _| unreachable!());

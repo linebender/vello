@@ -112,8 +112,6 @@ impl UploadStagingBelt {
                 .get_mapped_range_mut()
                 .expect("staging buffer must be mapped");
 
-            // Any data beyond `data_len` will never be sampled, so we don't need to
-            // pad it out and can just leave whatever was there already.
             let mut offset = 0;
             for chunk in chunks {
                 view.slice(offset..offset + chunk.len())
