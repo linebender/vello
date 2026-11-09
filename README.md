@@ -126,6 +126,7 @@ Discussion of Vello development happens in the
 public content can be read without logging in.
 
 Contributions are welcome by pull request. The [Rust code of conduct] applies.
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening one.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache 2.0 license, shall be
