@@ -15,6 +15,7 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - Anisotropic Gaussian blur: `FilterPrimitive::GaussianBlur` with a different standard deviation per axis, including blurs along one axis only. ([#1997][] by [@theashraf][])
+- `RenderContext::reset_and_compact` resets a render context and frees the memory it grew. (by [@LaurenzV][])
 - `RenderContext::fill_blurred_rounded_rect_in` for painting a blurred rounded rectangle inside an arbitrary path, with an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. ([#1718][] by [@nicoburns][])
 
 ### Changed
