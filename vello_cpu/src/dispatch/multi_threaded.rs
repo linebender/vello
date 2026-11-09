@@ -18,7 +18,6 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
-use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
 use std::ops::Range;
@@ -302,8 +301,15 @@ impl MultiThreadedDispatcher {
 
     fn record_finished_commands(&mut self, abort_empty: bool) {
         loop {
-            match self.recorded_command_receiver.as_mut().unwrap().try_recv() {
-                Ok(mut task) => {
+            let receiver = self.recorded_command_receiver.as_mut().unwrap();
+            let next = if abort_empty {
+                receiver.try_recv().ok()
+            } else {
+                receiver.recv().ok()
+            };
+
+            match next {
+                Some(mut task) => {
                     let num_tasks = task.allocation_group.recorded_commands.len();
                     for cmd in task.allocation_group.recorded_commands.drain(0..num_tasks) {
                         match cmd {
@@ -372,14 +378,7 @@ impl MultiThreadedDispatcher {
                     // Put the allocation group back so it can be reused in future iterations!
                     self.allocations.put(task.allocation_group);
                 }
-                Err(e) => match e {
-                    TryRecvError::Empty => {
-                        if abort_empty {
-                            return;
-                        }
-                    }
-                    TryRecvError::Disconnected => return,
-                },
+                None => return,
             }
         }
     }
