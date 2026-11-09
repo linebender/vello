@@ -30,6 +30,7 @@ This release has an [MSRV][] of 1.89.
 - The wgpu renderer returns `RenderError::MissingImage` instead of panicking when a scene references an image that isn't in the image cache. (by [@LaurenzV][])
 - The wgpu renderer returns `RenderError::ResourceTextureTooLarge` instead of panicking when a scene's alpha, paint, gradient or filter data doesn't fit into the supported texture dimensions. (by [@LaurenzV][])
 - The WebGL renderer returns `RenderError::ResourceTextureTooLarge` instead of panicking when a scene's filter data doesn't fit into the supported texture dimensions. (by [@LaurenzV][])
+- The WebGL renderer recovers after a scene's gradients don't fit into the gradient texture, instead of returning the same error for every following frame. (by [@LaurenzV][])
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
 
 ## [0.3.0][] - 2026-10-02

@@ -317,6 +317,7 @@ impl WebGlRenderer {
         scene_offset: (i32, i32),
     ) -> Result<(), WebGlError> {
         let use_depth_buffer = self.resources.root_uses_depth_buffer();
+        self.scene_preparer.gradient_cache.maintain();
 
         let current_allocations = self.current_allocations();
         let schedule = self.scene_preparer.prepare(
@@ -392,8 +393,6 @@ impl WebGlRenderer {
                     WebGlDataTransferOperation::FramebufferInvalidation,
                 ))?;
         }
-
-        self.scene_preparer.gradient_cache.maintain();
 
         Ok(())
     }
