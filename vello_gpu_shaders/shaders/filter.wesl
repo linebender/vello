@@ -282,32 +282,36 @@ fn fs_main(
             let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
             let filter_texel3 = load_filter_texel(filter_data_offset, 3u);
             let use_y_kernel = get_filter_type(filter_texel0) == FILTER_TYPE_GAUSSIAN_BLUR;
+            let center_weight = select(
+                    get_center_weight_x(filter_texel0),
+                    get_center_weight_y(filter_texel2),
+                    use_y_kernel,
+                );
+            let linear_weights = select(
+                    get_linear_weights_x(filter_texel0, filter_texel1),
+                    get_linear_weights_y(filter_texel2),
+                    use_y_kernel,
+                );
+            let linear_offsets = select(
+                    get_linear_offsets_x(filter_texel1),
+                    get_linear_offsets_y(filter_texel3),
+                    use_y_kernel,
+                );
+            let n_linear_taps = select(
+                    get_n_linear_taps_x(filter_texel0),
+                    get_n_linear_taps_y(filter_texel0),
+                    use_y_kernel,
+                );
             return gaussian_blur(
                     source_texture,
                     linear_sampler,
                     source_origin,
                     rel_coord,
                     BLUR_VERTICAL,
-                    select(
-                        get_center_weight_x(filter_texel0),
-                        get_center_weight_y(filter_texel2),
-                        use_y_kernel,
-                    ),
-                    select(
-                        get_linear_weights_x(filter_texel0, filter_texel1),
-                        get_linear_weights_y(filter_texel2),
-                        use_y_kernel,
-                    ),
-                    select(
-                        get_linear_offsets_x(filter_texel1),
-                        get_linear_offsets_y(filter_texel3),
-                        use_y_kernel,
-                    ),
-                    select(
-                        get_n_linear_taps_x(filter_texel0),
-                        get_n_linear_taps_y(filter_texel0),
-                        use_y_kernel,
-                    ),
+                    center_weight,
+                    linear_weights,
+                    linear_offsets,
+                    n_linear_taps,
                 );
         }
         case PASS_UPSCALE {
