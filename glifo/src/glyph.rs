@@ -1756,7 +1756,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
 // TODO: Although these are sane defaults, we might want to make them
 // configurable.
 const HINTING_OPTIONS: HintingOptions = HintingOptions {
-    engine: skrifa::outline::Engine::AutoFallback,
+    engine: skrifa::outline::Engine::Auto(None),
     target: skrifa::outline::Target::Smooth {
         mode: skrifa::outline::SmoothMode::Lcd,
         symmetric_rendering: false,
