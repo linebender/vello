@@ -174,7 +174,10 @@ impl Renderer {
             device,
             &programs,
             &resources.image_cache,
-            render_target_config,
+            RenderSize {
+                width: render_target_config.width,
+                height: render_target_config.height,
+            },
             scene_preparer.layers_config,
             resource_texture_dimension_2d,
         );
@@ -214,6 +217,27 @@ impl Renderer {
                 view_formats: &[],
             })
             .create_view(&TextureViewDescriptor::default())
+    }
+
+    /// Free the GPU and CPU memory that the renderer and `resources` grew for earlier scenes.
+    ///
+    /// This also clears the glyph cache, so scenes that drew cached glyphs before this call must be
+    /// recorded again.
+    pub fn compact(&mut self, resources: &mut Resources) {
+        resources.clear();
+        self.scene_preparer.compact();
+        self.resources = GpuResources::new(
+            &self.device,
+            &self.programs,
+            &resources.image_cache,
+            self.resources.render_size,
+            self.scene_preparer.layers_config,
+            self.resources.resource_texture_dimension_2d,
+        );
+        #[cfg(feature = "text")]
+        {
+            self.atlas_clear_scratch = Vec::new();
+        }
     }
 
     /// Render `scene` into `target`, recording the GPU commands into `encoder`.

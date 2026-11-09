@@ -102,6 +102,11 @@ impl GradientRampCache {
         self.evict(entries_to_remove_count);
     }
 
+    /// Remove all entries and free the memory of the packed luts.
+    pub(crate) fn clear(&mut self) {
+        *self = Self::new(self.retained_count, self.level);
+    }
+
     /// Get the size of the packed luts.
     pub(crate) fn luts_size(&self) -> usize {
         self.luts.len()

@@ -4,7 +4,6 @@
 //! Creation and growth of the renderer's GPU resources.
 
 use crate::draw::EXTERNAL_TEXTURE_SLOT_COUNT;
-use crate::render::wgpu::RenderTargetConfig;
 use crate::render::wgpu::passes::Programs;
 use crate::render::wgpu::passes::filter::{
     FilterPairBindGroups, create_filter_original_texture_bind_group,
@@ -300,7 +299,7 @@ impl GpuResources {
         device: &Device,
         programs: &Programs,
         image_cache: &ImageCache,
-        render_target_config: &RenderTargetConfig,
+        render_size: RenderSize,
         layer_config: LayersConfig,
         resource_texture_dimension_2d: u32,
     ) -> Self {
@@ -337,8 +336,8 @@ impl GpuResources {
         );
         let view_config_buffer = Self::create_config_buffer(
             device,
-            u32::from(render_target_config.width),
-            u32::from(render_target_config.height),
+            u32::from(render_size.width),
+            u32::from(render_size.height),
             resource_texture_dimension_2d,
         );
 
@@ -420,10 +419,7 @@ impl GpuResources {
             filter_pair_bind_groups: HashMap::new(),
             strips_arena: StripBufferArena::new(device),
             staging_belt: UploadStagingBelt::new(device),
-            render_size: RenderSize {
-                width: render_target_config.width,
-                height: render_target_config.height,
-            },
+            render_size,
             scene_offset: (0, 0),
             depth_cleared_this_frame: false,
         }

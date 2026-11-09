@@ -33,4 +33,9 @@ impl Resources {
             glyph_resources: None,
         }
     }
+
+    /// Drop all cached glyphs and their atlas allocations.
+    pub(crate) fn clear(&mut self) {
+        *self = Self::new(*self.image_cache.atlas_manager().config());
+    }
 }

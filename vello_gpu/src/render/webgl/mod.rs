@@ -60,7 +60,7 @@ use atlas::write_pixmap_to_atlas;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use passes::{WebGlPrograms, WebGlRendererContext};
-use resources::WebGlResources;
+use resources::{WebGlResources, create_webgl_resources};
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::image_cache::ImageCache;
@@ -139,6 +139,25 @@ impl WebGlRenderer {
         height: u16,
     ) -> Result<WebGlTextureTarget, WebGlError> {
         WebGlTextureTarget::new(&self.gl, texture, depth, width, height)
+    }
+
+    /// Free the GPU and CPU memory that the renderer and `resources` grew for earlier scenes.
+    ///
+    /// This also clears the glyph cache, so scenes that drew cached glyphs before this call must be
+    /// recorded again.
+    pub fn compact(&mut self, resources: &mut Resources) -> Result<(), WebGlError> {
+        let webgl_resources = create_webgl_resources(
+            &self.gl,
+            &resources.image_cache,
+            self.scene_preparer.layers_config,
+            self.resources.resource_texture_dimension_2d,
+            self.resources.drawing_buffer_uses_depth_buffer,
+        )?;
+        self.resources = webgl_resources;
+        self.scene_preparer.compact();
+        resources.clear();
+
+        Ok(())
     }
 
     /// Render `scene` into `target` using WebGL2
