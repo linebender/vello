@@ -375,6 +375,7 @@ impl Renderer {
         scene_offset: (i32, i32),
     ) -> Result<(), RenderError> {
         self.resources.depth_cleared_this_frame = false;
+        self.scene_preparer.gradient_cache.maintain();
         let current_allocations = self.current_allocations();
         let schedule = self.scene_preparer.prepare(
             scene,
@@ -409,7 +410,7 @@ impl Renderer {
             scene_offset,
             &self.scene_preparer.paint_idxs,
             &self.scene_preparer.schedule_storage.filter_context,
-        );
+        )?;
 
         self.resources
             .strips_arena
@@ -439,8 +440,6 @@ impl Renderer {
         .unwrap_or_else(|error| match error {});
 
         ctx.finish_root_clear();
-
-        self.scene_preparer.gradient_cache.maintain();
 
         self.resources
             .staging_belt

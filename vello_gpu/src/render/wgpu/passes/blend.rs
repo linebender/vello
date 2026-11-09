@@ -148,6 +148,7 @@ impl RendererContext<'_> {
             let alphas_texture_view = self
                 .resources
                 .alphas_texture
+                .texture()
                 .create_view(&TextureViewDescriptor::default());
             let bind_group = Programs::create_blend_layer_bind_group(
                 self.device,

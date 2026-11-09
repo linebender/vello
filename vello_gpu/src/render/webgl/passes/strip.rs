@@ -377,7 +377,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.resources.alphas_texture),
+            Some(self.resources.alphas_texture.texture()),
         );
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
@@ -397,7 +397,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.resources.encoded_paints_texture),
+            Some(self.resources.encoded_paints_texture.texture()),
         );
         self.gl.uniform1i(
             Some(&self.programs.strip_uniforms.encoded_paints_texture_fs),
@@ -412,7 +412,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE3);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.resources.gradient_texture),
+            Some(self.resources.gradient_texture.texture()),
         );
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 3);

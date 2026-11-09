@@ -9,18 +9,17 @@ use crate::render::webgl::{
     WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResultExt,
 };
 use crate::{
-    LayersConfig, RenderSize,
+    LayersConfig, RenderSize, ResourceTexture,
     filter::FilterContext,
     gradient_cache::GradientRampCache,
     paint::{ExternalSampler, SamplerAddress, SamplerFilter},
     render::{
         Config,
-        common::{GpuEncodedPaint, ScratchTexture},
+        common::{DataTexture, DataTextureFormat, GpuEncodedPaint, ScratchTexture},
     },
     schedule::Schedule,
     target::{DrawPassTarget, LayerTextureId, RootTarget},
 };
-use alloc::vec;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 use vello_common::image_cache::ImageCache;
@@ -38,9 +37,7 @@ pub(crate) struct WebGlResources {
     /// Buffer for [`GpuStrip`](crate::GpuStrip) data.
     pub(crate) strips_buffer: Buffer,
     /// Texture for alpha values.
-    pub(crate) alphas_texture: Texture,
-    /// Height of alpha texture.
-    alpha_texture_height: u32,
+    pub(crate) alphas_texture: DataTexture<Texture>,
     /// One 2D texture per image atlas.
     pub(crate) atlas_textures: Vec<Texture>,
     /// The render target of each texture in `atlas_textures`.
@@ -48,17 +45,13 @@ pub(crate) struct WebGlResources {
     /// Configured atlas dimensions.
     pub(crate) atlas_size: (u16, u16),
     /// Encoded paints texture for image metadata.
-    pub(crate) encoded_paints_texture: Texture,
-    /// Height of encoded paints texture.
-    encoded_paints_texture_height: u32,
+    pub(crate) encoded_paints_texture: DataTexture<Texture>,
     /// Gradient texture for gradient ramp data.
-    pub(crate) gradient_texture: Texture,
+    pub(crate) gradient_texture: DataTexture<Texture>,
     /// Placeholder texture bound to unoccupied external texture slots.
     pub(crate) placeholder_external_texture: Texture,
     /// Native image samplers shared by external texture slots.
     pub(crate) external_samplers: HashMap<ExternalSampler, Sampler>,
-    /// Height of gradient texture.
-    gradient_texture_height: u32,
 
     /// Config buffer for rendering strips into the root target.
     pub(crate) view_config_buffer: Buffer,
@@ -80,9 +73,7 @@ pub(crate) struct WebGlResources {
     pub(crate) texture_size: SizeU16,
 
     /// RGBA32UI texture storing filter parameters.
-    pub(crate) filter_data_texture: Texture,
-    /// Current height of filter data texture.
-    pub(crate) filter_data_texture_height: u32,
+    pub(crate) filter_data_texture: DataTexture<Texture>,
     /// Per-instance vertex data buffer for filter draws.
     pub(crate) filter_instance_buffer: Buffer,
     /// VAO for filter rendering.
@@ -107,10 +98,8 @@ pub(crate) struct WebGlResources {
     pub(crate) negate_ndc: bool,
     /// Offset of the scene within the rendering target.
     pub(crate) scene_offset: (i32, i32),
-    /// Scratch buffer for staging encoded paints texture data.
-    pub(crate) encoded_paints_data: Vec<u8>,
-    /// Scratch buffer for staging filter data texture data.
-    pub(crate) filter_data: Vec<u8>,
+    /// Scratch memory for data texture uploads.
+    pub(crate) staging: Vec<u8>,
 }
 
 impl WebGlResources {
@@ -183,8 +172,8 @@ impl WebGlResources {
     ) -> Result<(), WebGlError> {
         let resource_texture_dimension_2d = self.resource_texture_dimension_2d;
 
-        self.maybe_resize_alphas_tex(gl, resource_texture_dimension_2d, alphas.len())?;
-        self.maybe_resize_encoded_paints_tex(gl, resource_texture_dimension_2d, paint_idxs)?;
+        self.maybe_resize_alphas_tex(gl, alphas.len())?;
+        self.maybe_resize_encoded_paints_tex(gl, paint_idxs)?;
         self.maybe_resize_filter_data_tex(gl, filter_context)?;
         let negate_ndc = DrawPassTarget::Root(root_target).negate_ndc();
         self.maybe_update_config_buffer(
@@ -196,11 +185,11 @@ impl WebGlResources {
         );
 
         self.upload_alpha_texture(gl, alphas)?;
-        self.upload_encoded_paints_texture(gl, encoded_paints, paint_idxs)?;
+        self.upload_encoded_paints_texture(gl, encoded_paints)?;
         self.upload_filter_data_texture(gl, filter_context)?;
 
         if gradient_cache.has_changed() {
-            self.maybe_resize_gradient_tex(gl, resource_texture_dimension_2d, gradient_cache)?;
+            self.maybe_resize_gradient_tex(gl, gradient_cache)?;
             self.upload_gradient_texture(gl, gradient_cache)?;
             gradient_cache.mark_synced();
         }
@@ -293,30 +282,12 @@ impl WebGlResources {
     fn maybe_resize_alphas_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
-        resource_texture_dimension_2d: u32,
         alphas_len: usize,
     ) -> Result<(), WebGlError> {
-        let required_alpha_height = (alphas_len as u32)
-            // There are 16 1-byte alpha values per texel.
-            .div_ceil(resource_texture_dimension_2d << 4);
-
-        let current_alpha_height = self.alpha_texture_height;
-        if required_alpha_height > current_alpha_height {
-            validate_resource_texture_size(
-                resource_texture_dimension_2d,
-                required_alpha_height,
-                resource_texture_dimension_2d,
-            )?;
-
-            // We need to resize the alpha texture to fit the new alpha data.
-            self.alphas_texture = create_data_texture_storage(
-                gl,
-                WebGl2RenderingContext::RGBA32UI,
-                resource_texture_dimension_2d,
-                required_alpha_height,
-            )?;
-            self.alpha_texture_height = required_alpha_height;
-        }
+        self.alphas_texture
+            .ensure_bytes(alphas_len, |format, width, height| {
+                create_data_texture(gl, format, width, height)
+            })?;
 
         Ok(())
     }
@@ -325,32 +296,12 @@ impl WebGlResources {
     fn maybe_resize_encoded_paints_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
-        resource_texture_dimension_2d: u32,
         paint_idxs: &[u32],
     ) -> Result<(), WebGlError> {
-        let required_texels = paint_idxs.last().unwrap();
-        let required_encoded_paints_height =
-            required_texels.div_ceil(resource_texture_dimension_2d);
-        let current_encoded_paints_height = self.encoded_paints_texture_height;
-        if required_encoded_paints_height > current_encoded_paints_height {
-            validate_resource_texture_size(
-                resource_texture_dimension_2d,
-                required_encoded_paints_height,
-                resource_texture_dimension_2d,
-            )?;
-
-            let required_encoded_paints_size =
-                (resource_texture_dimension_2d * required_encoded_paints_height) << 4;
-            self.encoded_paints_data
-                .resize(required_encoded_paints_size as usize, 0);
-            self.encoded_paints_texture = create_data_texture_storage(
-                gl,
-                WebGl2RenderingContext::RGBA32UI,
-                resource_texture_dimension_2d,
-                required_encoded_paints_height,
-            )?;
-            self.encoded_paints_texture_height = required_encoded_paints_height;
-        }
+        self.encoded_paints_texture
+            .ensure_texels(*paint_idxs.last().unwrap(), |format, width, height| {
+                create_data_texture(gl, format, width, height)
+            })?;
 
         Ok(())
     }
@@ -359,34 +310,16 @@ impl WebGlResources {
     fn maybe_resize_gradient_tex(
         &mut self,
         gl: &WebGl2RenderingContext,
-        resource_texture_dimension_2d: u32,
         gradient_cache: &GradientRampCache,
     ) -> Result<(), WebGlError> {
         if gradient_cache.is_empty() {
             return Ok(());
         }
 
-        let gradient_data_size = gradient_cache.luts_size();
-        // Each texel is RGBA8, so 4 bytes per texel
-        let required_gradient_height =
-            (gradient_data_size as u32).div_ceil(resource_texture_dimension_2d * 4);
-
-        let current_gradient_height = self.gradient_texture_height;
-        if required_gradient_height > current_gradient_height {
-            validate_resource_texture_size(
-                resource_texture_dimension_2d,
-                required_gradient_height,
-                resource_texture_dimension_2d,
-            )?;
-
-            self.gradient_texture = create_data_texture_storage(
-                gl,
-                WebGl2RenderingContext::RGBA8,
-                resource_texture_dimension_2d,
-                required_gradient_height,
-            )?;
-            self.gradient_texture_height = required_gradient_height;
-        }
+        self.gradient_texture
+            .ensure_bytes(gradient_cache.luts_size(), |format, width, height| {
+                create_data_texture(gl, format, width, height)
+            })?;
 
         Ok(())
     }
@@ -444,28 +377,7 @@ impl WebGlResources {
             return Ok(());
         }
 
-        let alpha_texture_width = self.resource_texture_dimension_2d;
-        // There are 16 1-byte alpha values per texel.
-        let used_height = (alphas.len() as u32).div_ceil(alpha_texture_width << 4);
-        let used_size = (alpha_texture_width as usize) * (used_height as usize) * 16;
-
-        let original_len = alphas.len();
-
-        // Temporarily pad the length of the alphas to the end of the last used row.
-        alphas.resize(used_size, 0);
-
-        let result = upload_rgba32ui_rows(
-            gl,
-            &self.alphas_texture,
-            bytemuck::cast_slice::<u8, u32>(alphas),
-            alpha_texture_width,
-            used_height,
-        );
-
-        // Truncate back to the original size.
-        alphas.truncate(original_len);
-
-        result
+        self.alphas_texture.upload(gl, alphas)
     }
 
     /// Upload encoded paints to the texture.
@@ -473,22 +385,12 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         encoded_paints: &[GpuEncodedPaint],
-        paint_idxs: &[u32],
     ) -> Result<(), WebGlError> {
         if !encoded_paints.is_empty() {
-            let encoded_paints_texture_width = self.resource_texture_dimension_2d;
-            let used_texels = *paint_idxs.last().unwrap();
-            let used_height = used_texels.div_ceil(encoded_paints_texture_width);
-            let used_size = ((encoded_paints_texture_width * used_height) << 4) as usize;
-
-            GpuEncodedPaint::serialize_to_buffer(encoded_paints, &mut self.encoded_paints_data);
-
-            upload_rgba32ui_rows(
+            self.encoded_paints_texture.upload_chunks(
                 gl,
-                &self.encoded_paints_texture,
-                bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data[..used_size]),
-                encoded_paints_texture_width,
-                used_height,
+                &mut self.staging,
+                encoded_paints.iter().map(GpuEncodedPaint::as_bytes),
             )?;
         }
 
@@ -505,41 +407,7 @@ impl WebGlResources {
             return Ok(());
         }
 
-        let gradient_texture_width = self.resource_texture_dimension_2d;
-        // Each texel is RGBA8, so 4 bytes per texel. Only the rows covering the LUT cache are
-        // uploaded; see `upload_alpha_texture`.
-        let used_height = (gradient_cache.luts_size() as u32).div_ceil(gradient_texture_width * 4);
-        let used_size = (gradient_texture_width * used_height * 4) as usize;
-
-        // Borrow the luts and pad to the end of the last used row.
-        let luts = gradient_cache.luts_mut();
-        let old_luts_len = luts.len();
-        luts.resize(used_size, 0);
-
-        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.gradient_texture),
-        );
-
-        let result = gl
-            .tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
-                WebGl2RenderingContext::TEXTURE_2D,
-                0,
-                0,
-                0,
-                gradient_texture_width as i32,
-                used_height as i32,
-                WebGl2RenderingContext::RGBA,
-                WebGl2RenderingContext::UNSIGNED_BYTE,
-                Some(luts.as_slice()),
-            )
-            .map_js_error(WebGlOperation::DataTransfer(
-                WebGlDataTransferOperation::TextureUpload,
-            ));
-
-        luts.truncate(old_luts_len);
-        result
+        self.gradient_texture.upload(gl, gradient_cache.luts_mut())
     }
 }
 /// Create a texture with the requested filtering and clamp-to-edge wrapping.
@@ -619,30 +487,39 @@ pub(crate) fn create_texture_storage(
     Ok(texture)
 }
 
-/// Validate that a resource texture fits within its configured dimension limit.
-pub(crate) fn validate_resource_texture_size(
+fn create_placeholder_data_texture(
+    gl: &WebGl2RenderingContext,
+    kind: ResourceTexture,
+    format: DataTextureFormat,
     width: u32,
-    height: u32,
-    max_dimension: u32,
-) -> Result<(), WebGlError> {
-    if width > max_dimension || height > max_dimension {
-        return Err(WebGlError::ResourceTextureTooLarge {
-            width,
-            height,
-            max_dimension,
-        });
-    }
-
-    Ok(())
+) -> Result<DataTexture<Texture>, WebGlError> {
+    let texture = create_placeholder_texture(gl, format)?;
+    Ok(DataTexture::new(texture, kind, format, width, 0))
 }
 
-/// Create a zero-initialized data texture backed by immutable storage (`texStorage2D`).
-pub(crate) fn create_data_texture_storage(
+/// Create a 1x1 placeholder texture of `format`.
+///
+/// A texture with no allocated level is incomplete, and binding an incomplete texture to a sampler
+/// makes the draw call non-renderable: the driver substitutes a black texture for every draw and
+/// browsers log a render warning for each one.
+fn create_placeholder_texture(
     gl: &WebGl2RenderingContext,
-    internal_format: u32,
+    format: DataTextureFormat,
+) -> Result<Texture, WebGlError> {
+    create_data_texture(gl, format, 1, 1)
+}
+
+/// Create a zero-initialized texture of `format` backed by immutable storage (`texStorage2D`).
+pub(crate) fn create_data_texture(
+    gl: &WebGl2RenderingContext,
+    format: DataTextureFormat,
     width: u32,
     height: u32,
 ) -> Result<Texture, WebGlError> {
+    let internal_format = match format {
+        DataTextureFormat::Rgba8 => WebGl2RenderingContext::RGBA8,
+        DataTextureFormat::Rgba32Uint => WebGl2RenderingContext::RGBA32UI,
+    };
     create_texture_storage(
         gl,
         internal_format,
@@ -651,27 +528,6 @@ pub(crate) fn create_data_texture_storage(
         WebGl2RenderingContext::NEAREST,
         WebGl2RenderingContext::NEAREST,
     )
-}
-
-/// Create a 1x1 RGBA32UI placeholder texture.
-pub(crate) fn create_placeholder_rgba32ui_texture(
-    gl: &WebGl2RenderingContext,
-) -> Result<Texture, WebGlError> {
-    // Allocated storage keeps the placeholder texture complete when no data is available.
-    create_data_texture_storage(gl, WebGl2RenderingContext::RGBA32UI, 1, 1)
-}
-
-/// Create a 1x1 RGBA8 placeholder texture.
-///
-/// A texture with no allocated level is incomplete, and binding an incomplete texture to a sampler
-/// makes the draw call non-renderable: the driver substitutes a black texture for every draw and
-/// browsers log a render warning for each one. Data textures are only uploaded when a scene has
-/// data for them, so allocate a minimal level 0 up front to keep them complete for scenes that
-/// don't.
-pub(crate) fn create_placeholder_rgba8_texture(
-    gl: &WebGl2RenderingContext,
-) -> Result<Texture, WebGlError> {
-    create_data_texture_storage(gl, WebGl2RenderingContext::RGBA8, 1, 1)
 }
 
 pub(crate) fn upload_layer_config_buffer(
@@ -784,7 +640,12 @@ pub(crate) fn create_webgl_resources(
     );
 
     // Create and configure alpha texture.
-    let alphas_texture = create_placeholder_rgba32ui_texture(gl)?;
+    let alphas_texture = create_placeholder_data_texture(
+        gl,
+        ResourceTexture::Alphas,
+        DataTextureFormat::Rgba32Uint,
+        resource_texture_dimension_2d,
+    )?;
 
     let AtlasConfig {
         atlas_size: (atlas_width, atlas_height),
@@ -801,32 +662,44 @@ pub(crate) fn create_webgl_resources(
         .collect::<Result<Vec<_>, _>>()?;
 
     // Create and configure encoded paints texture.
-    let encoded_paints_texture = create_placeholder_rgba32ui_texture(gl)?;
+    let encoded_paints_texture = create_placeholder_data_texture(
+        gl,
+        ResourceTexture::EncodedPaints,
+        DataTextureFormat::Rgba32Uint,
+        resource_texture_dimension_2d,
+    )?;
 
     // Create and configure gradient texture.
-    let gradient_texture = create_placeholder_rgba8_texture(gl)?;
-    let placeholder_external_texture = create_placeholder_rgba8_texture(gl)?;
+    let gradient_texture = create_placeholder_data_texture(
+        gl,
+        ResourceTexture::Gradients,
+        DataTextureFormat::Rgba8,
+        resource_texture_dimension_2d,
+    )?;
+    let placeholder_external_texture = create_placeholder_texture(gl, DataTextureFormat::Rgba8)?;
     let external_samplers = HashMap::new();
 
     let layer_textures: [Vec<WebGlIntermediateTexture>; 2] = core::array::from_fn(|_| Vec::new());
     let scratch_texture = None;
-    let filter_data_texture = create_placeholder_rgba32ui_texture(gl)?;
+    let filter_data_texture = create_placeholder_data_texture(
+        gl,
+        ResourceTexture::FilterData,
+        DataTextureFormat::Rgba32Uint,
+        resource_texture_dimension_2d,
+    )?;
 
     Ok(WebGlResources {
         quad_index_buffer,
         strip_vao,
         strips_buffer,
         alphas_texture,
-        alpha_texture_height: 0,
         atlas_textures,
         atlas_targets,
         atlas_size,
         encoded_paints_texture,
-        encoded_paints_texture_height: 0,
         gradient_texture,
         placeholder_external_texture,
         external_samplers,
-        gradient_texture_height: 0,
         view_config_buffer,
         drawing_buffer_uses_depth_buffer: use_depth_buffer,
         root_target: None,
@@ -838,7 +711,6 @@ pub(crate) fn create_webgl_resources(
         resource_texture_dimension_2d,
         texture_size,
         filter_data_texture,
-        filter_data_texture_height: 0,
         filter_instance_buffer,
         filter_vao,
         blend_instance_buffer,
@@ -854,8 +726,7 @@ pub(crate) fn create_webgl_resources(
         },
         negate_ndc: false,
         scene_offset: (0, 0),
-        encoded_paints_data: vec![0; (resource_texture_dimension_2d << 4) as usize],
-        filter_data: Vec::new(),
+        staging: Vec::new(),
     })
 }
 
@@ -894,11 +765,87 @@ pub(crate) fn create_atlas_texture(
     )
 }
 
+impl DataTexture<Texture> {
+    /// Upload `data` to the texture, starting at its first row.
+    pub(crate) fn upload(
+        &self,
+        gl: &WebGl2RenderingContext,
+        data: &mut Vec<u8>,
+    ) -> Result<(), WebGlError> {
+        let rows = self.rows_for_bytes(data.len());
+        let original_len = data.len();
+        data.resize(self.rows_len(rows), 0);
+        let (texture, width) = (self.texture(), self.width());
+        let result = match self.format() {
+            DataTextureFormat::Rgba8 => upload_rgba8_rows(gl, texture, data, width, rows),
+            DataTextureFormat::Rgba32Uint => upload_rgba32ui_rows(
+                gl,
+                texture,
+                bytemuck::cast_slice::<u8, u32>(data),
+                width,
+                rows,
+            ),
+        };
+        data.truncate(original_len);
+
+        result
+    }
+
+    pub(crate) fn upload_chunks<'a>(
+        &self,
+        gl: &WebGl2RenderingContext,
+        staging: &mut Vec<u8>,
+        chunks: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Result<(), WebGlError> {
+        staging.clear();
+        for chunk in chunks {
+            staging.extend_from_slice(chunk);
+        }
+        self.upload(gl, staging)
+    }
+}
+
+/// Upload full rows of RGBA8 data into immutable texture storage.
+///
+/// `data` must contain exactly `width * rows * 4` bytes.
+/// Texels outside the uploaded rows remain unchanged.
+// TODO: Merge with upload_rgba32ui_rows somehow.
+fn upload_rgba8_rows(
+    gl: &WebGl2RenderingContext,
+    texture: &WebGlTexture,
+    data: &[u8],
+    width: u32,
+    rows: u32,
+) -> Result<(), WebGlError> {
+    debug_assert_eq!(
+        data.len(),
+        (width * rows * 4) as usize,
+        "row upload data must cover exactly the uploaded region"
+    );
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(texture));
+
+    gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        0,
+        0,
+        width as i32,
+        rows as i32,
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(data),
+    )
+    .map_js_error(WebGlOperation::DataTransfer(
+        WebGlDataTransferOperation::TextureUpload,
+    ))
+}
+
 /// Upload full rows of RGBA32UI data into immutable texture storage.
 ///
 /// `data` must contain exactly `width * rows * 4` `u32` values.
 /// Texels outside the uploaded rows remain unchanged.
-pub(crate) fn upload_rgba32ui_rows(
+fn upload_rgba32ui_rows(
     gl: &WebGl2RenderingContext,
     texture: &WebGlTexture,
     data: &[u32],
@@ -949,22 +896,4 @@ pub(crate) fn upload_rgba32ui_rows(
     ))?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resource_texture_size_must_fit_dimension_limit() {
-        assert!(validate_resource_texture_size(4096, 4096, 4096).is_ok());
-        assert!(matches!(
-            validate_resource_texture_size(4096, 4097, 4096),
-            Err(WebGlError::ResourceTextureTooLarge {
-                width: 4096,
-                height: 4097,
-                max_dimension: 4096,
-            })
-        ));
-    }
 }
