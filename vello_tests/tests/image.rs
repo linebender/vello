@@ -174,11 +174,19 @@ fn image_with_transform_scale_and_translate(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(ignore = "fails in Windows CI for some reason.")]
+/// Center for the 45° rotation tests.
+///
+/// Rotating about a texel corner such as (50, 50) maps the pixel centers on both diagonals
+/// through it exactly onto texel edges, so nearest-neighbor sampling picks a texel based on
+/// rounding that differs between backends and platforms. About a pixel center, every sample
+/// stays at least 0.006 texels away from an edge.
+const ROTATION_CENTER: Point = Point::new(50.5, 50.5);
+
+#[vello_test]
 fn image_with_transform_rotate_1(ctx: &mut impl Renderer) {
     transform(
         ctx,
-        Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
+        Affine::rotate_about(PI / 4.0, ROTATION_CENTER),
         25.0,
         25.0,
         75.0,
@@ -186,11 +194,11 @@ fn image_with_transform_rotate_1(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(ignore = "fails in Windows CI for some reason.")]
+#[vello_test]
 fn image_with_transform_rotate_2(ctx: &mut impl Renderer) {
     transform(
         ctx,
-        Affine::rotate_about(-PI / 4.0, Point::new(50.0, 50.0)),
+        Affine::rotate_about(-PI / 4.0, ROTATION_CENTER),
         25.0,
         25.0,
         75.0,
