@@ -23,6 +23,7 @@ This release has an [MSRV][] of 1.89.
 
 ### Fixed
 
+- `RenderContext::reset` now clears the filter effect set with `set_filter_effect`. (by [@LaurenzV][])
 - `Color` and `Luminosity` blending rendering some gray colors as black, caused by a division by zero in `clip_color`. ([#2000][] by [@zlstringham][])
 
 ## [0.3.0][] - 2026-10-02

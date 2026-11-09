@@ -801,6 +801,7 @@ impl RenderContext {
         self.root_transforms.reset();
         self.state.reset();
         self.aliasing_threshold = None;
+        self.filter = None;
     }
 
     /// Push a new clip path to the clip stack.
@@ -1095,6 +1096,7 @@ mod tests {
     use glifo::Glyph;
     use vello_common::color::PremulRgba8;
     use vello_common::color::palette::css::{BLUE, RED};
+    use vello_common::filter_effects::{Filter, FilterPrimitive};
     use vello_common::kurbo::{Rect, Shape};
     use vello_common::peniko::ImageAlphaType;
     use vello_common::pixmap::{PixelMetadata, Pixmap, PixmapMut};
@@ -1247,13 +1249,17 @@ mod tests {
     }
 
     #[test]
-    fn reset_restores_default_aliasing_threshold() {
+    fn reset_restores_default_state() {
         let mut ctx = RenderContext::new(4, 4);
         ctx.set_aliasing_threshold(Some(128));
+        ctx.set_filter_effect(Filter::from_primitive(FilterPrimitive::Flood {
+            color: RED,
+        }));
 
         ctx.reset();
 
         assert_eq!(ctx.aliasing_threshold, None);
+        assert!(ctx.filter.is_none());
     }
 
     #[test]
