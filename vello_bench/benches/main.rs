@@ -4,49 +4,30 @@
 #![allow(missing_docs, reason = "Not needed for benchmarks")]
 #![allow(dead_code, reason = "Might be unused on platforms not supporting SIMD")]
 
-use criterion::{Criterion, criterion_group, criterion_main};
-use vello_bench::registry::CriterionRegistry;
+use vello_bench::registry::Registry;
 use vello_bench::{allocator, fine, flatten, glyph, integration, pixmap, sort, strip, tile};
 
-fn flatten_fills(c: &mut Criterion) {
-    flatten::flatten(&mut CriterionRegistry(c));
+fn benchmarks() -> Registry {
+    let mut r = Registry::default();
+    pixmap::pixmap(&mut r);
+    allocator::allocator(&mut r);
+    tile::tile(&mut r);
+    strip::render_strips(&mut r);
+    strip::render_strips_cull(&mut r);
+    strip::render_rect(&mut r);
+    flatten::flatten(&mut r);
+    flatten::strokes(&mut r);
+    glyph::glyph(&mut r);
+    fine::fill(&mut r);
+    fine::strip(&mut r);
+    fine::pack(&mut r);
+    fine::gradient(&mut r);
+    fine::rounded_blurred_rect(&mut r);
+    fine::blend(&mut r);
+    fine::image(&mut r);
+    sort::sort(&mut r);
+    integration::images(&mut r);
+    r
 }
 
-criterion_group!(allocator_bench, allocator::allocator);
-criterion_group!(pixmap_bench, pixmap::pixmap);
-criterion_group!(fine_solid, fine::fill);
-criterion_group!(fine_strip, fine::strip);
-criterion_group!(fine_pack, fine::pack);
-criterion_group!(fine_gradient, fine::gradient);
-criterion_group!(fine_rounded_blurred_rect, fine::rounded_blurred_rect);
-criterion_group!(fine_blend, fine::blend);
-criterion_group!(fine_image, fine::image);
-criterion_group!(tile, tile::tile);
-criterion_group!(flatten, flatten_fills);
-criterion_group!(strokes, flatten::strokes);
-criterion_group!(render_strips, strip::render_strips);
-criterion_group!(render_strips_cull, strip::render_strips_cull);
-criterion_group!(render_rect, strip::render_rect);
-criterion_group!(glyph, glyph::glyph);
-criterion_group!(sort_tiles, sort::sort);
-criterion_group!(integration_bench, integration::images);
-criterion_main!(
-    pixmap_bench,
-    allocator_bench,
-    tile,
-    render_strips,
-    render_strips_cull,
-    render_rect,
-    flatten,
-    strokes,
-    glyph,
-    fine_solid,
-    fine_strip,
-    fine_pack,
-    fine_gradient,
-    fine_rounded_blurred_rect,
-    fine_blend,
-    fine_image,
-    sort_tiles,
-    integration_bench
-);
+tango_bench::tango_benchmarks!(benchmarks());

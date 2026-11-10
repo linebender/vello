@@ -1,91 +1,102 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! A backend-independent way to declare benchmarks.
+//! Benchmark registration for [Tango](https://github.com/bazhenov/tango).
 //!
-//! Benchmarks written against [`Registry`] run under Criterion through [`CriterionRegistry`]
-//! and, with the `tango` feature, under Tango through [`TangoRegistry`]. Tango runs the
-//! baseline and candidate builds alternately, which keeps comparisons stable on noisy machines
-//! such as CI runners.
+//! Tango runs the baseline and candidate builds alternately, each in its own process, so noise
+//! that hits both sides cancels out. This keeps comparisons stable on noisy machines such as CI
+//! runners.
 
-use criterion::Criterion;
+use std::cell::RefCell;
+use std::hint::black_box;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
-/// Collects benchmarks for a specific harness.
-pub trait Registry {
-    /// Registers the benchmark `group/name`.
-    ///
-    /// `setup` builds the state that `routine` reuses across iterations, and is not measured.
-    /// Harnesses may call it more than once, for example once per sample, so it must not
-    /// depend on being called only once. Only `routine` is timed.
-    fn bench<S: 'static>(
-        &mut self,
-        group: &str,
-        name: &str,
-        setup: impl Fn() -> S + 'static,
-        routine: impl Fn(&mut S) + 'static,
-    );
-}
+use tango_bench::{Benchmark, ErasedSampler, IntoBenchmarks};
 
-/// Registers benchmarks with Criterion, using the same benchmark IDs as a hand-written
-/// `benchmark_group(group).bench_function(name, ..)`, so existing baselines stay comparable.
-#[expect(
-    missing_debug_implementations,
-    reason = "`Criterion` does not implement `Debug`"
-)]
-pub struct CriterionRegistry<'a>(pub &'a mut Criterion);
-
-impl Registry for CriterionRegistry<'_> {
-    fn bench<S: 'static>(
-        &mut self,
-        group: &str,
-        name: &str,
-        setup: impl Fn() -> S + 'static,
-        routine: impl Fn(&mut S) + 'static,
-    ) {
-        let mut g = self.0.benchmark_group(group);
-        g.bench_function(name, |b| {
-            let mut state = setup();
-            b.iter(|| routine(&mut state));
-        });
-        g.finish();
-    }
-}
-
-/// Collects benchmarks for Tango's `tango_benchmarks!`, named `group/name`.
-#[cfg(all(feature = "tango", not(target_arch = "wasm32")))]
+/// Collects benchmarks for `tango_benchmarks!`.
 #[derive(Default)]
 #[expect(
     missing_debug_implementations,
     reason = "`tango_bench::Benchmark` does not implement `Debug`"
 )]
-pub struct TangoRegistry(Vec<tango_bench::Benchmark>);
+pub struct Registry(Vec<Benchmark>);
 
-#[cfg(all(feature = "tango", not(target_arch = "wasm32")))]
-impl Registry for TangoRegistry {
-    fn bench<S: 'static>(
-        &mut self,
-        group: &str,
-        name: &str,
-        setup: impl Fn() -> S + 'static,
-        routine: impl Fn(&mut S) + 'static,
-    ) {
-        // Tango builds a fresh sampler for every sample, and each one needs its own handle on
-        // the routine.
-        let routine = std::rc::Rc::new(routine);
-        self.0.push(tango_bench::benchmark_fn(
-            format!("{group}/{name}"),
-            move |b| {
-                let mut state = setup();
-                let routine = std::rc::Rc::clone(&routine);
-                b.iter(move || routine(&mut state))
-            },
-        ));
+impl Registry {
+    /// Registers a benchmark.
+    ///
+    /// `routine` is called once per sample. It builds any state it needs, which is not measured,
+    /// and then must call exactly one of the [`Bencher`] methods, which times the iterations.
+    pub fn bench(&mut self, name: impl Into<String>, routine: impl FnMut(&mut Bencher) + 'static) {
+        // Tango asks for a new sampler for every sample, and they all share the routine.
+        let routine = Rc::new(RefCell::new(routine));
+        self.0.push(tango_bench::benchmark_fn(name, move |_| {
+            Box::new(Sampler(Rc::clone(&routine)))
+        }));
     }
 }
 
-#[cfg(all(feature = "tango", not(target_arch = "wasm32")))]
-impl tango_bench::IntoBenchmarks for TangoRegistry {
-    fn into_benchmarks(self) -> Vec<tango_bench::Benchmark> {
+impl IntoBenchmarks for Registry {
+    fn into_benchmarks(self) -> Vec<Benchmark> {
         self.0
+    }
+}
+
+struct Sampler<F>(Rc<RefCell<F>>);
+
+impl<F: FnMut(&mut Bencher)> ErasedSampler for Sampler<F> {
+    fn measure(&mut self, iterations: usize) -> u64 {
+        let mut bencher = Bencher {
+            iterations,
+            elapsed: None,
+        };
+        (self.0.borrow_mut())(&mut bencher);
+        let elapsed = bencher
+            .elapsed
+            .expect("the benchmark routine must call a `Bencher` method");
+        u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX)
+    }
+}
+
+/// Times the iterations of a single sample.
+#[derive(Debug)]
+pub struct Bencher {
+    iterations: usize,
+    elapsed: Option<Duration>,
+}
+
+impl Bencher {
+    /// Times `routine` over all iterations of the sample.
+    pub fn iter<O>(&mut self, mut routine: impl FnMut() -> O) {
+        let start = Instant::now();
+        for _ in 0..self.iterations {
+            black_box(routine());
+        }
+        self.elapsed = Some(start.elapsed());
+    }
+
+    /// Times `routine` with a fresh input from `setup` on every iteration.
+    ///
+    /// Neither `setup` nor dropping the output is timed. Each iteration is timed separately, so
+    /// prefer [`Bencher::iter`] for routines that take less than a few microseconds.
+    pub fn iter_batched<I, O>(
+        &mut self,
+        mut setup: impl FnMut() -> I,
+        mut routine: impl FnMut(I) -> O,
+    ) {
+        let mut elapsed = Duration::ZERO;
+        for _ in 0..self.iterations {
+            let input = setup();
+            let start = Instant::now();
+            let output = black_box(routine(black_box(input)));
+            elapsed += start.elapsed();
+            drop(output);
+        }
+        self.elapsed = Some(elapsed);
+    }
+
+    /// Lets `routine` run and time the given number of iterations itself.
+    pub fn iter_custom(&mut self, routine: impl FnOnce(u64) -> Duration) {
+        self.elapsed = Some(routine(self.iterations as u64));
     }
 }

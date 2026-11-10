@@ -56,7 +56,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Example
 /// ```ignore
 /// #[vello_bench]
-/// pub fn transparent_short<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
+/// pub fn transparent_short<F: FineType>(b: &mut Bencher, fine: &mut Fine<F>) {
 ///     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.3)));
 ///     let width = 32;
 ///

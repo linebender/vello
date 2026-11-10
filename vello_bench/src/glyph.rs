@@ -1,9 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use criterion::Criterion;
 use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, GlyphRun, Layout, LayoutContext,
     PositionedLayoutItem,
@@ -11,12 +11,12 @@ use parley::{
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Glyph, RenderContext, RenderSettings, Resources};
 
-pub fn glyph(c: &mut Criterion) {
+use crate::registry::Registry;
+
+pub fn glyph(r: &mut Registry) {
     if !crate::EXTENDED {
         return;
     }
-
-    let mut g = c.benchmark_group("glyph");
 
     const WIDTH: u16 = 256;
     const HEIGHT: u16 = 256;
@@ -35,12 +35,14 @@ pub fn glyph(c: &mut Criterion) {
     };
 
     let settings = RenderSettings::default();
-    let layout = layout_for(TEXT, 1.0);
+    let layout = Rc::new(layout_for(TEXT, 1.0));
 
     for (hint_name, hint) in [("hinted", true), ("unhinted", false)] {
-        g.bench_function(format!("cached_{hint_name}"), |b| {
+        let cached_layout = Rc::clone(&layout);
+        r.bench(format!("glyph/cached_{hint_name}"), move |b| {
+            let layout = &*cached_layout;
             let mut renderer = GlyphBenchRenderer::new(WIDTH, HEIGHT, settings);
-            render_layout(&mut renderer, &layout, hint, true);
+            render_layout(&mut renderer, layout, hint, true);
 
             b.iter_custom(|iters| {
                 let mut total_time = Duration::from_nanos(0);
@@ -49,7 +51,7 @@ pub fn glyph(c: &mut Criterion) {
                     renderer.reset();
 
                     let start = Instant::now();
-                    render_layout(&mut renderer, &layout, hint, true);
+                    render_layout(&mut renderer, layout, hint, true);
                     total_time += start.elapsed();
                 }
                 total_time
@@ -59,9 +61,11 @@ pub fn glyph(c: &mut Criterion) {
         // Note that even for `uncached`, the outline and hint cache will still be used. This benchmark
         // is only for testing the difference between having atlas caching enabled and disabled.
 
-        g.bench_function(format!("uncached_{hint_name}"), |b| {
+        let uncached_layout = Rc::clone(&layout);
+        r.bench(format!("glyph/uncached_{hint_name}"), move |b| {
+            let layout = &*uncached_layout;
             let mut renderer = GlyphBenchRenderer::new(WIDTH, HEIGHT, settings);
-            render_layout(&mut renderer, &layout, hint, false);
+            render_layout(&mut renderer, layout, hint, false);
 
             b.iter_custom(|iters| {
                 let mut total_time = Duration::from_nanos(0);
@@ -69,7 +73,7 @@ pub fn glyph(c: &mut Criterion) {
                     renderer.reset();
 
                     let start = Instant::now();
-                    render_layout(&mut renderer, &layout, hint, false);
+                    render_layout(&mut renderer, layout, hint, false);
                     total_time += start.elapsed();
                 }
                 total_time

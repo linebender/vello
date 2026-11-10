@@ -5,7 +5,6 @@
 
 use std::sync::Arc;
 
-use criterion::Criterion;
 use vello_common::kurbo::{Affine, Rect};
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::ImageSampler;
@@ -13,13 +12,13 @@ use vello_common::peniko::{Extend, ImageAlphaType, ImageQuality};
 use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_cpu::{RenderContext, Resources};
 
+use crate::registry::Registry;
+
 /// Image scene rendering benchmark.
-pub fn images(c: &mut Criterion) {
+pub fn images(r: &mut Registry) {
     if !crate::EXTENDED {
         return;
     }
-
-    let mut g = c.benchmark_group("images");
 
     let flower_image = load_flower_image();
 
@@ -33,7 +32,7 @@ pub fn images(c: &mut Criterion) {
     let original_height = f64::from(image_pixmap.height());
     let image_count = VIEWPORT_WIDTH / 256;
 
-    g.bench_function("overlapping", |b| {
+    r.bench("images/overlapping", move |b| {
         let mut renderer = RenderContext::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
         let mut resources = Resources::default();
         let mut pixmap = Pixmap::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
@@ -64,8 +63,6 @@ pub fn images(c: &mut Criterion) {
             std::hint::black_box(&pixmap);
         });
     });
-
-    g.finish();
 }
 
 fn load_flower_image() -> ImageSource {

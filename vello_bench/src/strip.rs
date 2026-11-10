@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::data::get_data_items;
-use criterion::Criterion;
+use crate::registry::Registry;
 use vello_common::fearless_simd::Level;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, Rect, Shape};
@@ -32,16 +32,14 @@ pub fn shift_lines_50_percent(lines: &[Line]) -> Vec<Line> {
     shifted
 }
 
-pub fn render_strips(c: &mut Criterion) {
-    let mut g = c.benchmark_group("render_strips");
-    g.sample_size(50);
-
+pub fn render_strips(r: &mut Registry) {
     macro_rules! strip_single {
         ($item:expr, $level:expr, $suffix:expr) => {
             let lines = $item.lines();
             let tiles = $item.sorted_tiles();
 
-            g.bench_function(format!("{}_{}", $item.name.clone(), $suffix), |b| {
+            let name = format!("render_strips/{}_{}", $item.name, $suffix);
+            r.bench(name, move |b| {
                 let mut strip_buf = vec![];
                 let mut alpha_buf = vec![];
 
@@ -72,16 +70,12 @@ pub fn render_strips(c: &mut Criterion) {
             strip_single!(item, simd_level, "simd");
         }
     }
-    g.finish();
 }
 
-pub fn render_strips_cull(c: &mut Criterion) {
+pub fn render_strips_cull(r: &mut Registry) {
     if !crate::EXTENDED {
         return;
     }
-
-    let mut g_cull = c.benchmark_group("render_strips_culled50");
-    g_cull.sample_size(50);
 
     for item in get_data_items() {
         let simd_level = Level::new();
@@ -95,7 +89,7 @@ pub fn render_strips_cull(c: &mut Criterion) {
         tiler.make_tiles_analytic_aa(simd_level, &shifted_lines, item.width, item.height);
         tiler.sort_tiles();
 
-        g_cull.bench_function(item.name.clone().to_string(), |b| {
+        r.bench(format!("render_strips_culled50/{}", item.name), move |b| {
             let mut strip_buf = vec![];
             let mut alpha_buf = vec![];
 
@@ -116,13 +110,9 @@ pub fn render_strips_cull(c: &mut Criterion) {
             });
         });
     }
-    g_cull.finish();
 }
 
-pub fn render_rect(c: &mut Criterion) {
-    let mut g = c.benchmark_group("render_rect");
-    g.sample_size(50);
-
+pub fn render_rect(r: &mut Registry) {
     let level = Level::new();
 
     for (name, size) in [("small", 20_u16), ("medium", 300), ("large", 1200)] {
@@ -133,7 +123,7 @@ pub fn render_rect(c: &mut Criterion) {
         let rect = Rect::new(10.0, 10.0, f64::from(size) + 10.0, f64::from(size) + 10.0);
         let viewport_size = size + 20;
 
-        g.bench_function(name, |b| {
+        r.bench(format!("render_rect/{name}"), move |b| {
             let mut generator = StripGenerator::new(viewport_size, viewport_size, level);
             let mut storage = StripStorage::default();
 
@@ -145,7 +135,7 @@ pub fn render_rect(c: &mut Criterion) {
             });
         });
 
-        g.bench_function(format!("{name}_via_path"), |b| {
+        r.bench(format!("render_rect/{name}_via_path"), move |b| {
             let mut generator = StripGenerator::new(viewport_size, viewport_size, level);
             let mut storage = StripStorage::default();
 
@@ -164,6 +154,4 @@ pub fn render_rect(c: &mut Criterion) {
             });
         });
     }
-
-    g.finish();
 }

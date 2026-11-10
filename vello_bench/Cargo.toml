@@ -16,30 +16,19 @@ test = false
 vello_common = { workspace = true }
 vello_cpu = { workspace = true }
 vello_dev_macros = { workspace = true }
-criterion = { workspace = true }
 image = { workspace = true, features = ["jpeg"] }
 parley = { version = "0.11.0", default-features = true }
 rand = { workspace = true, features = ["small_rng"] }
 smallvec = { workspace = true }
+tango-bench = "0.9.0"
 usvg = { workspace = true }
-
-# Tango spawns the baseline and candidate benchmarks as child processes, which wasm32 lacks.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tango-bench = { version = "0.9.0", optional = true }
 
 [features]
 extended = []
-# Enables the `tango` bench target for paired comparisons against a baseline build.
-tango = ["dep:tango-bench"]
 
 [[bench]]
 name = "main"
 harness = false
-
-[[bench]]
-name = "tango"
-harness = false
-required-features = ["tango"]
 
 [[test]]
 name = "allocations"

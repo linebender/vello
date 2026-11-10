@@ -20,7 +20,8 @@ env:
   FEATURES_DEPENDING_ON_STD: "std,default,png,pico_svg,multithreading,probe"
   # List of packages that can not target Wasm.
   # `vello_research_tests` uses `nv-flip`, which doesn't support Wasm.
-  NO_WASM_PKGS: "--exclude vello_research_tests --exclude xtask"
+  # `vello_bench` uses Tango, which runs benchmarks in child processes.
+  NO_WASM_PKGS: "--exclude vello_research_tests --exclude vello_bench --exclude xtask"
   # See https://github.com/linebender/vello/pull/1958, this value needs to be
   # large enough so no single test run exceeds it.
   # Keep in sync with the 1200s timeout in `vello_tests/webdriver.json`.
