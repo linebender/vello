@@ -4,7 +4,7 @@
 use crate::load_image;
 use crate::renderer::Renderer;
 use smallvec::smallvec;
-use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, ORANGE, RED, YELLOW};
+use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, ORANGE, RED, WHITE, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::{Image, ImageSource};
@@ -21,6 +21,11 @@ fn cowboy_img(ctx: &mut impl Renderer) -> ImageSource {
 // The outputs have been compared visually with tiny-skia, and except for two cases (where tiny-skia
 // is wrong), the overall visual effect looks the same.
 fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
+    // Draw the white background as part of the scene, so that the blend layer blends against it.
+    // A cleared target background is isolated from blending.
+    ctx.set_paint(WHITE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
     let rect = Rect::new(0.0, 0.0, 80.0, 80.0);
 
     let gradient = Gradient {
@@ -73,32 +78,32 @@ fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
     ctx.pop_layer();
 }
 
-#[vello_test(gpu_tolerance = 1)]
+#[vello_test(transparent, gpu_tolerance = 1)]
 fn mix_normal(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Normal, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, gpu_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1, gpu_tolerance = 1)]
 fn mix_multiply(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Multiply, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1)]
 fn mix_screen(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Screen, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, gpu_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1, gpu_tolerance = 1)]
 fn mix_darken(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Darken, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, gpu_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1, gpu_tolerance = 1)]
 fn mix_lighten(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Lighten, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 4, gpu_tolerance = 5)]
+#[vello_test(transparent, cpu_u8_tolerance = 4, gpu_tolerance = 5)]
 fn mix_color_dodge(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorDodge, Compose::SrcOver));
 }
@@ -112,52 +117,52 @@ fn mix_color_dodge(ctx: &mut impl Renderer) {
 //  f32:  1.0 - ((1.0 - 0.8784314) / 0.125) = 0.027451038 (RGB value of around 7)
 //  u8/u16:  255 - (((255 - 224) * 255) / 31) = 0
 // And therefore a very large difference for that one component.
-#[vello_test(cpu_u8_tolerance = 5, gpu_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 5, gpu_tolerance = 1)]
 fn mix_color_burn(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorBurn, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, gpu_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1, gpu_tolerance = 1)]
 fn mix_hard_light(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::HardLight, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1)]
 fn mix_soft_light(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::SoftLight, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1)]
 fn mix_difference(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Difference, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1)]
 fn mix_exclusion(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Exclusion, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, gpu_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1, gpu_tolerance = 1)]
 fn mix_overlay(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Overlay, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1)]
 fn mix_hue(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Hue, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1)]
 fn mix_saturation(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Saturation, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 2, gpu_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 2, gpu_tolerance = 1)]
 fn mix_color(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Color, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, gpu_tolerance = 1)]
+#[vello_test(transparent, cpu_u8_tolerance = 1, gpu_tolerance = 1)]
 fn mix_luminosity(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Luminosity, Compose::SrcOver));
 }

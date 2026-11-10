@@ -5,7 +5,7 @@ use core::ops::Deref;
 
 use crate::{WebGlError, WebGlOperation, WebGlResourceKind, WebGlShaderStage};
 
-use super::{
+use web_sys::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlSampler, WebGlShader,
     WebGlTexture, WebGlVertexArrayObject,
 };
@@ -33,7 +33,7 @@ pub(crate) struct Resource<T: GlResource> {
 // unique ownership and we don't end up deleting the same resource
 // twice.
 impl<T: GlResource> Resource<T> {
-    pub(super) fn new(gl: &WebGl2RenderingContext) -> Result<Self, WebGlError> {
+    pub(crate) fn new(gl: &WebGl2RenderingContext) -> Result<Self, WebGlError> {
         let raw = T::create(gl).ok_or(WebGlError::OperationFailed {
             operation: WebGlOperation::ResourceCreation(T::KIND),
             message: None,
@@ -46,7 +46,7 @@ impl<T: GlResource> Resource<T> {
     }
 
     /// Takes ownership of a resource created elsewhere, which is deleted when this is dropped.
-    pub(super) fn from_raw(gl: &WebGl2RenderingContext, raw: T) -> Self {
+    pub(crate) fn from_raw(gl: &WebGl2RenderingContext, raw: T) -> Self {
         Self {
             gl: gl.clone(),
             raw,
@@ -69,7 +69,7 @@ impl<T: GlResource> Deref for Resource<T> {
 }
 
 #[derive(Debug)]
-pub(crate) struct WebGlVertexShader(pub(super) WebGlShader);
+pub(crate) struct WebGlVertexShader(pub(crate) WebGlShader);
 
 impl Deref for WebGlVertexShader {
     type Target = WebGlShader;
@@ -80,7 +80,7 @@ impl Deref for WebGlVertexShader {
 }
 
 #[derive(Debug)]
-pub(crate) struct WebGlFragmentShader(pub(super) WebGlShader);
+pub(crate) struct WebGlFragmentShader(pub(crate) WebGlShader);
 
 impl Deref for WebGlFragmentShader {
     type Target = WebGlShader;

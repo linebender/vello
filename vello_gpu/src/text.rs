@@ -12,7 +12,7 @@
 
 use core::ops::RangeInclusive;
 
-use crate::{AtlasId, Resources, Scene};
+use crate::{Resources, Scene};
 use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 use glifo::renderer::replay_atlas_commands;
 use glifo::{
@@ -23,7 +23,7 @@ use peniko::BlendMode;
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, BezPath, Rect};
-use vello_common::multi_atlas::AtlasConfig;
+use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::paint::{Image, ImageSource, PaintType};
 use vello_common::peniko;
 
@@ -361,7 +361,7 @@ impl glifo::GlyphRenderer for Scene {
 
     #[inline]
     fn atlas_image_source(&self, atlas_slot: &AtlasSlot) -> ImageSource {
-        ImageSource::opaque_id(atlas_slot.image_id)
+        ImageSource::Atlas(atlas_slot.image_id)
     }
 
     #[inline]

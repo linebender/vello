@@ -1,10 +1,10 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::render::webgl::resource::{Buffer, Framebuffer, Renderbuffer, SyncFence};
+use crate::render::webgl::gl::resource::{Buffer, Framebuffer, Renderbuffer, SyncFence};
+use crate::render::webgl::resources::create_texture_storage;
 use crate::render::webgl::{
     WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlTextureBindings,
-    create_texture_storage,
 };
 use crate::target::RootTarget;
 use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlError, WebGlRenderer};
@@ -86,7 +86,7 @@ impl WebGlRenderer {
         let render_size = RenderSize { width, height };
         // Check whether the canvas framebuffer was configured by the user to
         // hold a depth buffer, and apply the same to the probe.
-        let use_depth_buffer = self.programs.resources.drawing_buffer_uses_depth_buffer;
+        let use_depth_buffer = self.resources.drawing_buffer_uses_depth_buffer;
 
         let probe_texture = create_texture_storage(
             &self.gl,

@@ -1,12 +1,12 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::fine::default_blend;
+use crate::fine::{NoOpImageResolver, default_blend};
 use criterion::{Bencher, Criterion};
 use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
-use vello_common::paint::{NoOpImageResolver, Paint, PremulColor};
+use vello_common::paint::{Paint, PremulColor};
 use vello_common::peniko::BlendMode;
 use vello_cpu::fine::{Fine, FineKernel, FineResources, PaintFillAttrs};
 use vello_cpu::span::{Span, TileAlignedSpan};

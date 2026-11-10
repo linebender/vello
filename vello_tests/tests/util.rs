@@ -11,9 +11,10 @@ use smallvec::smallvec;
 use std::sync::Arc;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
-use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
+use vello_common::kurbo::{BezPath, Join, Point, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_cpu::{Level, RenderMode};
+use vello_gpu::{ClearSettings, TargetInit};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
@@ -138,10 +139,7 @@ pub(crate) fn get_ctx_with_depth_buffer<T: Renderer>(
     );
 
     if !transparent {
-        let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
-
-        ctx.set_paint(WHITE);
-        ctx.fill_path(&path);
+        ctx.set_target_init(TargetInit::Clear(ClearSettings::Viewport { color: WHITE }));
     }
 
     ctx
@@ -199,6 +197,14 @@ pub(crate) fn layout_glyphs_noto_colr(text: &str, font_size: f32) -> (FontData, 
     const NOTO_FONT: &[u8] =
         include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
     let font = FontData::new(Blob::new(Arc::new(NOTO_FONT)), 0);
+
+    layout_glyphs(text, font_size, font)
+}
+
+pub(crate) fn layout_glyphs_twemoji_colr(text: &str, font_size: f32) -> (FontData, Vec<Glyph>) {
+    const TWEMOJI_FONT: &[u8] =
+        include_bytes!("../../assets/twemoji_mozilla/Twemoji.Mozilla-Subset.ttf");
+    let font = FontData::new(Blob::new(Arc::new(TWEMOJI_FONT)), 0);
 
     layout_glyphs(text, font_size, font)
 }

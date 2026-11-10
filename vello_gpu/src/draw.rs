@@ -754,7 +754,7 @@ mod tests {
 
     fn atlas_image(image_id: ImageId) -> EncodedPaint {
         EncodedPaint::Image(EncodedImage {
-            source: ImageSource::opaque_id(image_id),
+            source: ImageSource::Atlas(image_id),
             sampler: ImageSampler {
                 x_extend: Extend::Pad,
                 y_extend: Extend::Pad,

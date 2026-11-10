@@ -9,7 +9,7 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageId, ImageSource, PaintType, TextureRegion, Tint};
+use vello_common::paint::{ImageSource, PaintType, TextureRegion, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{
@@ -52,7 +52,15 @@ pub trait Renderer: Sized {
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool);
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
+    fn fill_blurred_rounded_rect_in(
+        &mut self,
+        path: &BezPath,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+        invert: bool,
+    );
     fn stroke_rect(&mut self, rect: &Rect);
     fn glyph_run(
         &mut self,
@@ -88,13 +96,13 @@ pub trait Renderer: Sized {
     fn set_filter_effect(&mut self, filter: Filter);
     fn reset_filter_effect(&mut self);
     fn reset(&mut self);
+    fn reset_and_shrink(&mut self);
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>);
     fn set_offset(&mut self, offset: (i32, i32));
     fn render(&mut self);
     fn snapshot(&mut self) -> Pixmap;
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
-    fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId;
 }
 
 pub struct CpuRenderer {
@@ -143,9 +151,20 @@ impl Renderer for CpuRenderer {
         self.ctx.fill_rect(rect);
     }
 
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        self.ctx.fill_blurred_rounded_rect(rect, radius, std_dev);
+    }
+
+    fn fill_blurred_rounded_rect_in(
+        &mut self,
+        path: &BezPath,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+        invert: bool,
+    ) {
         self.ctx
-            .fill_blurred_rounded_rect(rect, radius, std_dev, invert);
+            .fill_blurred_rounded_rect_in(path, rect, radius, std_dev, invert);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
@@ -292,6 +311,10 @@ impl Renderer for CpuRenderer {
         self.ctx.reset();
     }
 
+    fn reset_and_shrink(&mut self) {
+        self.ctx.reset_and_shrink();
+    }
+
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>) {
         self.target_init = target_init;
     }
@@ -335,12 +358,7 @@ impl Renderer for CpuRenderer {
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        let id = self.resources.register_image(Arc::clone(&pixmap));
-        ImageSource::opaque_id_with_transparency_hint(id, pixmap.may_have_transparency())
-    }
-
-    fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        self.resources.register_image(pixmap)
+        ImageSource::Pixmap(pixmap)
     }
 }
 
@@ -488,21 +506,6 @@ impl GpuRenderer {
             self.gpu_test_guard = Some(WGPU_TEST_MUTEX.lock().unwrap());
         }
     }
-
-    fn upload_image_with_resources(
-        &mut self,
-        pixmap: &Arc<Pixmap>,
-        label: &'static str,
-    ) -> ImageId {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
-        let image_id = self
-            .renderer
-            .upload_image(&mut self.resources, &mut encoder, pixmap);
-        self.queue.submit([encoder.finish()]);
-        image_id
-    }
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
@@ -558,9 +561,20 @@ impl Renderer for GpuRenderer {
         self.scene.fill_rect(rect);
     }
 
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        self.scene.fill_blurred_rounded_rect(rect, radius, std_dev);
+    }
+
+    fn fill_blurred_rounded_rect_in(
+        &mut self,
+        path: &BezPath,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+        invert: bool,
+    ) {
         self.scene
-            .fill_blurred_rounded_rect(rect, radius, std_dev, invert);
+            .fill_blurred_rounded_rect_in(path, rect, radius, std_dev, invert);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
@@ -671,6 +685,12 @@ impl Renderer for GpuRenderer {
 
     fn reset(&mut self) {
         self.scene.reset();
+    }
+
+    fn reset_and_shrink(&mut self) {
+        self.lock_gpu_test();
+        self.scene.reset_and_shrink();
+        self.renderer.reset_and_shrink(&mut self.resources);
     }
 
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>) {
@@ -852,12 +872,9 @@ impl Renderer for GpuRenderer {
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        let image_id = self.upload_image_with_resources(&pixmap, "Upload Test Image");
-        ImageSource::opaque_id_with_transparency_hint(image_id, pixmap.may_have_transparency())
-    }
-
-    fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        self.upload_image_with_resources(&pixmap, "Register Test Image")
+        let may_have_transparency = pixmap.may_have_transparency();
+        let texture_id = self.register_external_texture(pixmap);
+        ImageSource::external_texture(texture_id, TextureRegion::Full, may_have_transparency)
     }
 }
 
@@ -997,12 +1014,6 @@ impl GpuRenderer {
             depth.as_ref(),
         ));
     }
-
-    fn upload_image(&mut self, pixmap: &Arc<Pixmap>) -> ImageId {
-        self.renderer
-            .upload_image(&mut self.resources, pixmap)
-            .unwrap()
-    }
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -1093,9 +1104,20 @@ impl Renderer for GpuRenderer {
         self.scene.fill_rect(rect);
     }
 
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        self.scene.fill_blurred_rounded_rect(rect, radius, std_dev);
+    }
+
+    fn fill_blurred_rounded_rect_in(
+        &mut self,
+        path: &BezPath,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+        invert: bool,
+    ) {
         self.scene
-            .fill_blurred_rounded_rect(rect, radius, std_dev, invert);
+            .fill_blurred_rounded_rect_in(path, rect, radius, std_dev, invert);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
@@ -1201,6 +1223,11 @@ impl Renderer for GpuRenderer {
 
     fn reset(&mut self) {
         self.scene.reset();
+    }
+
+    fn reset_and_shrink(&mut self) {
+        self.scene.reset_and_shrink();
+        self.renderer.reset_and_shrink(&mut self.resources).unwrap();
     }
 
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>) {
@@ -1314,12 +1341,9 @@ impl Renderer for GpuRenderer {
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        let image_id = self.upload_image(&pixmap);
-        ImageSource::opaque_id_with_transparency_hint(image_id, pixmap.may_have_transparency())
-    }
-
-    fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        self.upload_image(&pixmap)
+        let may_have_transparency = pixmap.may_have_transparency();
+        let texture_id = self.register_external_texture(pixmap);
+        ImageSource::external_texture(texture_id, TextureRegion::Full, may_have_transparency)
     }
 }
 
@@ -1341,5 +1365,9 @@ fn apply_rect_clear(pixmap: &mut Pixmap, color: AlphaColor<Srgb>, rects: &[RectU
             let end = y * width + usize::from(rect.x1);
             data[start..end].fill(color);
         }
+    }
+
+    if color.a != 255 {
+        pixmap.set_may_have_transparency(true);
     }
 }

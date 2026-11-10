@@ -15,9 +15,21 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - Anisotropic Gaussian blur: `FilterPrimitive::GaussianBlur` with a different standard deviation per axis, including blurs along one axis only. ([#1997][] by [@theashraf][])
+- `RenderContext::reset_and_shrink` resets a render context and frees the memory it grew. (by [@LaurenzV][])
+- `RenderContext::fill_blurred_rounded_rect_in` for painting a blurred rounded rectangle inside an arbitrary path, with an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. ([#1718][] by [@nicoburns][])
+
+### Changed
+
+- Breaking change: The `invert` parameter of `RenderContext::fill_blurred_rounded_rect` has been removed. Use `RenderContext::fill_blurred_rounded_rect_in` with `invert` set to `true` instead. ([#1718][] by [@nicoburns][])
+- Breaking change: `ImageSource::OpaqueId`, `ImageSource::opaque_id`, and `ImageSource::opaque_id_with_transparency_hint` have been replaced by the hidden `ImageSource::Atlas`, which is only used internally for glyph caching. Use `ImageSource::Pixmap` instead. (by [@LaurenzV][])
+
+### Removed
+
+- Breaking change: The image registry (`Resources::register_image`, `Resources::destroy_image`, `Resources::resolve_image`, and `Resources::clear_images`), and the `ImageId` re-export. Use `ImageSource::Pixmap` instead. (by [@LaurenzV][])
 
 ### Fixed
 
+- `RenderContext::reset` now clears the filter effect set with `set_filter_effect`. (by [@LaurenzV][])
 - `Color` and `Luminosity` blending rendering some gray colors as black, caused by a division by zero in `clip_color`. ([#2000][] by [@zlstringham][])
 
 ## [0.3.0][] - 2026-10-02
@@ -315,6 +327,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1703]: https://github.com/linebender/vello/pull/1703
 [#1705]: https://github.com/linebender/vello/pull/1705
 [#1715]: https://github.com/linebender/vello/pull/1715
+[#1718]: https://github.com/linebender/vello/pull/1718
 [#1720]: https://github.com/linebender/vello/pull/1720
 [#1723]: https://github.com/linebender/vello/pull/1723
 [#1726]: https://github.com/linebender/vello/pull/1726

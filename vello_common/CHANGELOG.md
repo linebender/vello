@@ -20,6 +20,7 @@ This release has an [MSRV][] of 1.89.
 
 - Breaking change: `FilterPrimitive::GaussianBlur`'s `std_deviation` is now `std_deviation_x` and `std_deviation_y`, `filter::gaussian_blur::GaussianBlur` carries a decimation plan and kernel per axis, and `DecimationSizer` scales the axes independently through `downscale_axes` and `upscale_axes`. ([#1997][] by [@theashraf][])
 - A blur under a non-uniform scale or skew is scaled per axis instead of by the average scale factor, so its device-space extent follows the transform. ([#1997][] by [@theashraf][])
+- Breaking change: `ImageSource::OpaqueId`, `ImageSource::opaque_id`, and `ImageSource::opaque_id_with_transparency_hint` have been replaced by the hidden `ImageSource::Atlas`, which is only used internally for glyph caching. `ImageResolver` is now hidden as well, and `NoOpImageResolver` has been removed. Use `ImageSource::Pixmap` or `ImageSource::external_texture` instead. (by [@LaurenzV][])
 - Breaking change: In `ClipState`, and in a `ClipContext` made with the new `ClipContext::new_lazy`, rectangular clips pushed onto the viewport or onto another rectangular clip generate their strips lazily, for the tile rows of each path drawn through them. Their `PathDataRef` has empty strips and the rectangle in the new `lazy_rect` field, which `intersect` handles. `ClipContext::new` keeps the previous behavior. ([#1989][] by [@Thenewmanator15][])
 
 ### Fixed
@@ -279,7 +280,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@b0nes164]: https://github.com/b0nes164
 [@conor-93]: https://github.com/conor-93
 [@dipeshbabu]: https://github.com/dipeshbabu
-[@DJMcNab]: https://github.com/waywardmonkeys
+[@DJMcNab]: https://github.com/DJMcNab
 [@grebmeg]: https://github.com/grebmeg
 [@josefguenther]: https://github.com/josefguenther
 [@LaurenzV]: https://github.com/LaurenzV

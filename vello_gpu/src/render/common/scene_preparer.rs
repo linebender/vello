@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Renderer state and steps shared by all backends.
+//! Scene preparation shared by all backends.
 
 use super::paint::{
     GpuEncodedPaint, encode_blurred_rounded_rect_paint, encode_gradient_paint, encode_image_paint,
@@ -22,9 +22,9 @@ use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::image_cache::ImageCache;
 use vello_common::paint::{ImageSource, TextureRegion};
 
-/// Renderer state that doesn't depend on the backend.
+/// Encodes the paints of a scene for the GPU and schedules the passes that render it.
 #[derive(Debug)]
-pub(crate) struct SharedCore {
+pub(crate) struct ScenePreparer {
     /// GPU encodings of the scene's encoded paints, in the same order.
     pub(crate) encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
@@ -37,22 +37,22 @@ pub(crate) struct SharedCore {
     pub(crate) layers_config: LayersConfig,
 }
 
-impl SharedCore {
-    /// Normalizes the memory settings in `settings` to `device_limits`, then creates the renderer
-    /// state and the persistent resources.
+impl ScenePreparer {
+    /// Normalizes the memory settings in `settings` to `device_limits`, then creates the scene
+    /// preparer and the persistent resources.
     pub(crate) fn new(
         settings: &mut RenderSettings,
         device_limits: &DeviceLimits,
     ) -> (Self, Resources) {
         settings.memory_settings.normalize(device_limits);
-        let resources = Resources::new(settings.memory_settings.image_atlas_config);
+        let resources = Resources::new(settings.memory_settings.glyph_atlas_config);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
         // Estimate the maximum number of gradient cache entries based on the resource texture
         // dimension and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size = resource_texture_dimension_2d * resource_texture_dimension_2d
             / u32::try_from(MAX_GRADIENT_LUT_SIZE).unwrap();
 
-        let core = Self {
+        let scene_preparer = Self {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gradient_cache: GradientRampCache::new(max_gradient_cache_size, settings.level),
@@ -62,7 +62,16 @@ impl SharedCore {
             layers_config: settings.memory_settings.layers_config,
         };
 
-        (core, resources)
+        (scene_preparer, resources)
+    }
+
+    /// Free the memory retained from scenes prepared earlier.
+    pub(crate) fn reset_and_shrink(&mut self) {
+        self.encoded_paints = Vec::new();
+        self.paint_idxs = Vec::new();
+        self.gradient_cache.clear();
+        self.schedule_storage = ScheduleStorage::default();
+        self.scratch_buffers = ScratchBuffers::default();
     }
 
     /// Encodes the paints of `scene` for the GPU and schedules the passes that render it.
@@ -115,9 +124,10 @@ impl SharedCore {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             let gpu_paint = match paint {
                 EncodedPaint::Image(img) => match &img.source {
-                    ImageSource::OpaqueId { id, .. } => {
-                        let image_resource =
-                            image_cache.get(*id).ok_or(RenderError::MissingImage(*id))?;
+                    ImageSource::Atlas(id) => {
+                        let image_resource = image_cache
+                            .get(*id)
+                            .ok_or(RenderError::MissingAtlasEntry(*id))?;
                         encode_image_paint(img, image_resource)
                     }
                     ImageSource::ExternalTexture {

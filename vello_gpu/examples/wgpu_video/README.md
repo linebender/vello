@@ -14,7 +14,7 @@ performs the YCbCr → RGB conversion when Vello's shader loads from the externa
 texture; there is no CPU-side or GPU-side intermediate RGBA copy. The
 plane textures are zero-copy — backed by the same `IOSurface`s VT decoded into.
 All videos play simultaneously in a grid layout. A still image
-(`assets/splash-flower.jpg`, uploaded once with `Renderer::upload_image`) sits in the
+(`assets/splash-flower.jpg`, uploaded once to a texture bound as an external texture) sits in the
 free space between the first two videos of the top row. A large yellow "Vello GPU" text
 overlay is rendered on top of the grid using `Scene::glyph_run` with the bundled
 Roboto font, and inherits the user's pan / zoom / rotation.

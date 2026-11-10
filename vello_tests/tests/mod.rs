@@ -42,8 +42,6 @@ mod gpu_depth;
 mod gpu_schedule;
 mod gradient;
 mod image;
-#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-mod image_atlas;
 mod issues;
 mod layer;
 mod mask;
@@ -52,6 +50,7 @@ mod offset;
 mod opacity;
 use vello_tests::renderer;
 mod scenes;
+mod shrink;
 mod target;
 #[macro_use]
 mod util;
@@ -64,4 +63,8 @@ mod webgl_texture_target;
 mod wgpu_external_texture;
 #[cfg(not(target_arch = "wasm32"))]
 mod wgpu_probe;
+#[cfg(not(target_arch = "wasm32"))]
+mod wgpu_resource_texture;
+#[cfg(not(target_arch = "wasm32"))]
+mod wgpu_texture_target;
 mod wide_tile;
