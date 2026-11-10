@@ -10,12 +10,10 @@ use std::env;
 use std::sync::Arc;
 use std::time::Instant;
 use vello_common::kurbo::{Affine, Point};
-use vello_common::paint::ImageId;
-use vello_common::paint::ImageSource;
-use vello_example_scenes::image::ImageScene;
+use vello_example_scenes::image::{COWBOY_TEXTURE_ID, FLOWER_TEXTURE_ID, ImageScene};
 use vello_example_scenes::spritesheet::{SPRITESHEET_TEXTURE_ID, SpritesheetScene};
 use vello_example_scenes::{AnyScene, Capabilities, get_example_scenes};
-use vello_gpu::{Pixmap, RenderSize, Renderer, Resources, Scene, TextureBindings};
+use vello_gpu::{Pixmap, RenderSize, Renderer, Resources, Scene, TextureBindings, TextureId};
 use wgpu::CurrentSurfaceTexture;
 use winit::{
     application::ApplicationHandler,
@@ -32,8 +30,7 @@ struct App<'s> {
     scenes: Box<[AnyScene<Scene>]>,
     current_scene: usize,
     renderers: Vec<Option<(Renderer, Resources, RenderSize, wgpu::TextureView)>>,
-    uploaded_images: Vec<bool>,
-    spritesheet_textures: Vec<Option<wgpu::Texture>>,
+    external_textures: Vec<Option<[(TextureId, wgpu::Texture); 3]>>,
     render_state: RenderState<'s>,
     scene: Scene,
     transform: Affine,
@@ -64,10 +61,7 @@ fn main() {
                 }
             }
         }
-        let img_sources = vec![
-            ImageSource::opaque_id_with_transparency_hint(ImageId::new(0), false),
-            ImageSource::opaque_id(ImageId::new(1)),
-        ];
+        let img_sources = ImageScene::external_texture_sources();
         let capabilities = Capabilities {
             external_textures: true,
         };
@@ -86,10 +80,7 @@ fn main() {
             Capabilities {
                 external_textures: true,
             },
-            vec![
-                ImageSource::opaque_id(ImageId::new(0)),
-                ImageSource::opaque_id(ImageId::new(1)),
-            ],
+            ImageScene::external_texture_sources(),
         ),
         0,
     );
@@ -98,8 +89,7 @@ fn main() {
     let mut app = App {
         context: RenderContext::new(),
         renderers: vec![],
-        uploaded_images: vec![],
-        spritesheet_textures: vec![],
+        external_textures: vec![],
         scenes,
         current_scene: start_scene_index,
         render_state: RenderState::Suspended(None),
@@ -161,15 +151,12 @@ impl ApplicationHandler for App<'_> {
 
         self.renderers
             .resize_with(self.context.devices.len(), || None);
-        self.uploaded_images
-            .resize(self.context.devices.len(), false);
-        self.spritesheet_textures
+        self.external_textures
             .resize_with(self.context.devices.len(), || None);
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
-        self.upload_images_to_atlas(surface.dev_id);
-        self.ensure_spritesheet_uploaded(surface.dev_id);
+        self.ensure_textures_uploaded(surface.dev_id);
 
         self.render_state = RenderState::Active {
             surface: Box::new(surface),
@@ -377,9 +364,9 @@ impl ApplicationHandler for App<'_> {
                             label: Some("Vello Render to Surface pass"),
                         });
                 let mut texture_bindings = TextureBindings::new();
-                if let Some(texture) = self.spritesheet_textures[surface.dev_id].as_ref() {
+                for (id, texture) in self.external_textures[surface.dev_id].iter().flatten() {
                     texture_bindings.insert(
-                        SPRITESHEET_TEXTURE_ID,
+                        *id,
                         texture.create_view(&wgpu::TextureViewDescriptor::default()),
                     );
                 }
@@ -419,44 +406,22 @@ impl ApplicationHandler for App<'_> {
 }
 
 impl App<'_> {
-    fn upload_images_to_atlas(&mut self, device_id: usize) {
-        if self.uploaded_images[device_id] {
-            return;
-        }
-
-        let device_handle = &self.context.devices[device_id];
-        let mut encoder =
-            device_handle
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Upload Image pass"),
-                });
-
-        // 1st example — uploading pixmap directly
-        let pixmap1 = ImageScene::read_flower_image();
-        let (renderer, resources, ..) = self.renderers[device_id].as_mut().unwrap();
-        renderer.upload_image(resources, &mut encoder, &pixmap1);
-
-        // 2nd example — uploading from a texture (for cases where you already have a texture)
-        let pixmap2 = ImageScene::read_cowboy_image();
-        let texture2 =
-            self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &pixmap2);
-        let (renderer, resources, ..) = self.renderers[device_id].as_mut().unwrap();
-        renderer.upload_image(resources, &mut encoder, &texture2);
-
-        device_handle.queue.submit([encoder.finish()]);
-        self.uploaded_images[device_id] = true;
-    }
-
-    fn ensure_spritesheet_uploaded(&mut self, device_id: usize) {
-        if self.spritesheet_textures[device_id].is_some() {
+    fn ensure_textures_uploaded(&mut self, device_id: usize) {
+        if self.external_textures[device_id].is_some() {
             return;
         }
         let device_handle = &self.context.devices[device_id];
-        let pixmap = SpritesheetScene::read_spritesheet();
-        let texture =
-            self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &pixmap);
-        self.spritesheet_textures[device_id] = Some(texture);
+        let textures = [
+            (FLOWER_TEXTURE_ID, ImageScene::read_flower_image()),
+            (COWBOY_TEXTURE_ID, ImageScene::read_cowboy_image()),
+            (SPRITESHEET_TEXTURE_ID, SpritesheetScene::read_spritesheet()),
+        ]
+        .map(|(id, pixmap)| {
+            let texture =
+                self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &pixmap);
+            (id, texture)
+        });
+        self.external_textures[device_id] = Some(textures);
     }
 
     fn upload_image_to_texture(

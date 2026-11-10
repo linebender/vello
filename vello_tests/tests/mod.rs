@@ -42,8 +42,6 @@ mod gpu_depth;
 mod gpu_schedule;
 mod gradient;
 mod image;
-#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-mod image_atlas;
 mod issues;
 mod layer;
 mod mask;
@@ -66,4 +64,6 @@ mod wgpu_external_texture;
 mod wgpu_probe;
 #[cfg(not(target_arch = "wasm32"))]
 mod wgpu_resource_texture;
+#[cfg(not(target_arch = "wasm32"))]
+mod wgpu_texture_target;
 mod wide_tile;

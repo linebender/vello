@@ -23,9 +23,9 @@ pub struct Resources {
 }
 
 impl Resources {
-    pub(crate) fn new(image_atlas_config: AtlasConfig) -> Self {
+    pub(crate) fn new(glyph_atlas_config: AtlasConfig) -> Self {
         Self {
-            image_cache: ImageCache::new_with_config(image_atlas_config),
+            image_cache: ImageCache::new_with_config(glyph_atlas_config),
             #[cfg(feature = "text")]
             glyph_prep_cache: GlyphPrepCache::default(),
             // Will be initialized lazily.

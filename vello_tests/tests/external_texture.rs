@@ -17,6 +17,7 @@ mod tests {
 
     use crate::load_image;
     use crate::renderer::Renderer;
+    use crate::util::layout_glyphs_roboto;
 
     const SPRITES: [RectU16; 4] = [
         // Checkmark.
@@ -106,18 +107,17 @@ mod tests {
         ));
     }
 
-    fn draw_atlas_rect(ctx: &mut impl Renderer, image: ImageSource, rect: Rect) {
-        ctx.set_paint_transform(Affine::IDENTITY);
-        ctx.set_paint(Image {
-            image,
-            sampler: ImageSampler {
-                x_extend: Extend::Pad,
-                y_extend: Extend::Pad,
-                quality: ImageQuality::Low,
-                alpha: 1.0,
-            },
-        });
-        ctx.fill_rect(&rect);
+    fn fill_cached_glyph(ctx: &mut impl Renderer, color: AlphaColor<Srgb>, x: f64, y: f64) {
+        let font_size = 32.;
+        let (font, glyphs) = layout_glyphs_roboto("H", font_size);
+        ctx.set_transform(Affine::translate((x, y)));
+        ctx.set_paint(color);
+        ctx.glyph_run(&font)
+            .font_size(font_size)
+            .atlas_cache(true)
+            .fill_glyphs(glyphs.into_iter())
+            .unwrap();
+        ctx.set_transform(Affine::IDENTITY);
     }
 
     fn texture_circle(ctx: &mut impl Renderer, texture_id: TextureId, circle: Circle) {
@@ -420,17 +420,14 @@ mod tests {
 
     #[vello_test]
     fn external_texture_atlas_interleaving(ctx: &mut impl Renderer) {
-        let atlas_red = ctx.get_image_source(solid_pixmap(254, 0, 0, 254));
         let external_green = ctx.register_external_texture(solid_pixmap(0, 254, 0, 254));
-        let atlas_blue = ctx.get_image_source(solid_pixmap(0, 0, 254, 254));
         let external_yellow = ctx.register_external_texture(solid_pixmap(254, 254, 0, 254));
-        let atlas_magenta = ctx.get_image_source(solid_pixmap(254, 0, 254, 254));
 
-        draw_atlas_rect(ctx, atlas_red, Rect::new(10., 10., 34., 34.));
+        fill_cached_glyph(ctx, AlphaColor::from_rgba8(254, 0, 0, 254), 10., 34.);
         fill_texture_rect(ctx, external_green, 66., 10., 24., 24., true);
-        draw_atlas_rect(ctx, atlas_blue, Rect::new(38., 38., 62., 62.));
+        fill_cached_glyph(ctx, AlphaColor::from_rgba8(0, 0, 254, 254), 38., 62.);
         fill_texture_rect(ctx, external_yellow, 10., 66., 24., 24., true);
-        draw_atlas_rect(ctx, atlas_magenta, Rect::new(66., 66., 90., 90.));
+        fill_cached_glyph(ctx, AlphaColor::from_rgba8(254, 0, 254, 254), 66., 90.);
     }
 
     #[vello_test]

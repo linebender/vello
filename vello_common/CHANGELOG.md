@@ -20,6 +20,7 @@ This release has an [MSRV][] of 1.89.
 
 - Breaking change: `FilterPrimitive::GaussianBlur`'s `std_deviation` is now `std_deviation_x` and `std_deviation_y`, `filter::gaussian_blur::GaussianBlur` carries a decimation plan and kernel per axis, and `DecimationSizer` scales the axes independently through `downscale_axes` and `upscale_axes`. ([#1997][] by [@theashraf][])
 - A blur under a non-uniform scale or skew is scaled per axis instead of by the average scale factor, so its device-space extent follows the transform. ([#1997][] by [@theashraf][])
+- Breaking change: `ImageSource::OpaqueId`, `ImageSource::opaque_id`, and `ImageSource::opaque_id_with_transparency_hint` have been replaced by the hidden `ImageSource::Atlas`, which is only used internally for glyph caching. `ImageResolver` is now hidden as well, and `NoOpImageResolver` has been removed. Use `ImageSource::Pixmap` or `ImageSource::external_texture` instead. (by [@LaurenzV][])
 
 ### Fixed
 

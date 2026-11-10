@@ -13,15 +13,13 @@ use wgpu::{
     RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, TextureView, util::DeviceExt,
 };
 
-/// Pipelines for clearing rectangles of layer textures, the root target and atlas regions.
+/// Pipelines for clearing rectangles of layer textures and the root target.
 #[derive(Debug)]
 pub(crate) struct ClearPipelines {
     /// Layer-clear pipeline.
     pub(crate) layer: RenderPipeline,
     /// User-target rectangle-clear pipeline.
     pub(crate) root: RenderPipeline,
-    /// Pipeline for clearing atlas regions.
-    pub(crate) atlas: RenderPipeline,
 }
 
 impl ClearPipelines {
@@ -87,48 +85,9 @@ impl ClearPipelines {
         let root_clear_pipeline =
             create_clear_pipeline("Root Clear Pipeline", render_target_config.format);
 
-        // Create atlas clear pipeline
-        let atlas_clear_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Atlas Clear Pipeline Layout"),
-                bind_group_layouts: &[],
-                immediate_size: 0,
-            });
-        // TODO: Change the atlas clear pipeline to use the existing layer clear mechanism.
-        let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Atlas Clear Pipeline"),
-            layout: Some(&atlas_clear_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &clear_shader,
-                // Use a different vertex shader entry point
-                entry_point: Some("vs_main_fullscreen"),
-                buffers: &[],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &clear_shader,
-                entry_point: Some("fs_transparent"),
-                targets: &[Some(ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: pipeline_cache,
-        });
-
         Self {
             layer: clear_pipeline,
             root: root_clear_pipeline,
-            atlas: atlas_clear_pipeline,
         }
     }
 }

@@ -20,6 +20,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+#[cfg(feature = "text")]
 mod atlas;
 mod bindings;
 mod error;
@@ -31,8 +32,7 @@ pub(crate) mod probe;
 mod resources;
 mod target;
 
-pub use atlas::WebGlAtlasWriter;
-pub use bindings::{WebGlTextureBindings, WebGlTextureWithDimensions};
+pub use bindings::WebGlTextureBindings;
 #[cfg(feature = "probe")]
 pub use error::WebGlProbeOperation;
 pub(crate) use error::WebGlResultExt;
@@ -45,25 +45,28 @@ pub use error::{
 pub use init::{ShaderCompilationStats, WebGlRendererInit, WebGlRendererInitStatus};
 pub use target::{WebGlRenderTarget, WebGlTextureTarget};
 
-use crate::render::common::{IMAGE_PADDING, ScenePreparer};
+#[cfg(feature = "text")]
+use crate::RenderError;
+use crate::render::common::ScenePreparer;
 use crate::{
-    ClearSettings, RenderError, RenderSize, Resources, TargetInit,
+    ClearSettings, RenderSize, Resources, TargetInit,
     scene::Scene,
     schedule::IntermediateTextureAllocations,
     target::{DrawPassTarget, RootTarget},
 };
 use alloc::vec::Vec;
 #[cfg(feature = "text")]
+use atlas::write_pixmap_to_atlas;
+#[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use passes::{WebGlPrograms, WebGlRendererContext};
 use resources::WebGlResources;
 use vello_common::color::{AlphaColor, Srgb};
+use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
-use vello_common::{
-    geometry::{RectU16, SizeU16},
-    paint::ImageId,
-};
+#[cfg(feature = "text")]
+use vello_common::{paint::ImageId, pixmap::Pixmap};
 use web_sys::{WebGl2RenderingContext, WebGlRenderbuffer, WebGlTexture};
 
 /// Vello GPU's WebGL2 renderer.
@@ -112,17 +115,6 @@ impl Default for WebGlRenderOptions {
     }
 }
 
-/// Current allocation state of the WebGL image/glyph atlas textures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AtlasTextureInfo {
-    /// Width of each atlas texture.
-    pub width: u16,
-    /// Height of each atlas texture.
-    pub height: u16,
-    /// Number of atlas textures available to the image cache.
-    pub texture_count: u32,
-}
-
 impl WebGlRenderer {
     /// Returns the shaders compiled while creating this renderer and the time spent.
     ///
@@ -160,6 +152,7 @@ impl WebGlRenderer {
     /// To render without any texture bindings, you can pass an empty [`WebGlTextureBindings`].
     ///
     /// [`TextureId`]: vello_common::TextureId
+    /// [`RenderError::MissingTextureBinding`]: crate::RenderError::MissingTextureBinding
     pub fn render(
         &mut self,
         scene: &Scene,
@@ -185,7 +178,7 @@ impl WebGlRenderer {
                     image_cache,
                     upload.image_id,
                     &upload.pixmap,
-                    Some([dst_x, dst_y]),
+                    [dst_x, dst_y],
                 )
             },
         )?;
@@ -240,8 +233,11 @@ impl WebGlRenderer {
     /// `texture_bindings` provides [externally bound textures](`WebGlTextureBindings`)
     /// referenced by the scene. Pass `&WebGlTextureBindings::new()` if the scene does
     /// not use any.
-    #[doc(hidden)]
-    pub fn render_to_atlas(
+    #[cfg_attr(
+        not(feature = "text"),
+        expect(dead_code, reason = "only glyph caching renders into the atlas")
+    )]
+    pub(crate) fn render_to_atlas(
         &mut self,
         scene: &Scene,
         atlas_count: u32,
@@ -404,126 +400,29 @@ impl WebGlRenderer {
         &self.gl
     }
 
-    /// Upload image to cache and atlas in one step. Returns the `ImageId`.
-    ///
-    /// This is the WebGL analogue of the wgpu Renderer's `upload_image` method.
-    /// It allocates space in the image cache and uploads the image data to the atlas texture.
-    ///
-    /// # Errors
-    /// Returns [`WebGlError::FullImageSupportDisabled`] if the `full_image_support` feature
-    /// is disabled, or an error if allocating or uploading the image fails.
-    #[track_caller]
-    pub fn upload_image<T: WebGlAtlasWriter>(
-        &mut self,
-        resources: &mut Resources,
-        writer: &T,
-    ) -> Result<ImageId, WebGlError> {
-        self.upload_image_with(&mut resources.image_cache, writer, IMAGE_PADDING)
-    }
-
-    #[track_caller]
-    pub(crate) fn upload_image_with<T: WebGlAtlasWriter>(
-        &mut self,
-        image_cache: &mut ImageCache,
-        writer: &T,
-        padding: u16,
-    ) -> Result<ImageId, WebGlError> {
-        if !cfg!(feature = "full_image_support") {
-            return Err(WebGlError::FullImageSupportDisabled);
-        }
-
-        let width = writer.width();
-        let height = writer.height();
-        let image_id = image_cache
-            .allocate(width, height, padding)
-            .map_err(RenderError::AtlasError)?;
-
-        if let Err(err) = self.write_to_atlas(image_cache, image_id, writer, None) {
-            image_cache.deallocate(image_id);
-
-            return Err(err);
-        }
-
-        Ok(image_id)
-    }
-
-    /// Write pixel data to an existing atlas allocation.
-    ///
-    /// Unlike [`upload_image`](Self::upload_image), this does not allocate space in the image
-    /// cache. The `image_id` must have been previously allocated (e.g. via
-    /// `ImageCache::allocate`). This is useful for uploading CPU-side pixel data (such as
-    /// bitmap font glyphs) to a pre-allocated atlas region.
-    ///
-    /// If `offset_override` is `Some`, the provided offset is used instead of the
-    /// allocator-assigned position. Pass `None` to use the default atlas offset.
-    pub(crate) fn write_to_atlas<T: WebGlAtlasWriter>(
+    #[cfg(feature = "text")]
+    fn write_to_atlas(
         &mut self,
         image_cache: &ImageCache,
         image_id: ImageId,
-        writer: &T,
-        offset_override: Option<[u16; 2]>,
+        pixmap: &Pixmap,
+        offset: [u16; 2],
     ) -> Result<(), WebGlError> {
         let image_resource = image_cache
             .get(image_id)
-            .ok_or(RenderError::MissingImage(image_id))?;
+            .ok_or(RenderError::MissingAtlasEntry(image_id))?;
 
         self.resources
             .maybe_create_atlas_textures(&self.gl, image_cache.atlas_count() as u32)?;
-        let offset = offset_override.unwrap_or(image_resource.offset);
-        writer.write_to_atlas(
+        write_pixmap_to_atlas(
             &self.gl,
+            pixmap,
             &self.resources.atlas_textures[image_resource.atlas_id.as_u32() as usize],
             offset,
-            writer.width(),
-            writer.height(),
-        )?;
-
-        Ok(())
+        )
     }
 
-    /// Destroy an image from the cache and clear the allocated slot in the atlas.
-    pub fn destroy_image(
-        &mut self,
-        resources: &mut Resources,
-        image_id: ImageId,
-    ) -> Result<(), WebGlError> {
-        if let Some(image_resource) = resources.image_cache.get(image_id) {
-            let padding = image_resource.padding;
-            self.clear_atlas_region(
-                image_resource.atlas_id,
-                [
-                    image_resource.offset[0] - padding,
-                    image_resource.offset[1] - padding,
-                ],
-                image_resource.width + padding * 2,
-                image_resource.height + padding * 2,
-            )?;
-
-            let _ = resources.image_cache.deallocate(image_id);
-        }
-
-        Ok(())
-    }
-
-    /// Returns an individual image atlas texture.
-    pub fn atlas_texture(&self, atlas_id: AtlasId) -> &WebGlTexture {
-        self.resources
-            .atlas_textures
-            .get(atlas_id.as_u32() as usize)
-            .map(|texture| &**texture)
-            .unwrap()
-    }
-
-    /// Returns the current allocation state of the image/glyph atlas texture.
-    pub fn atlas_info(&self) -> AtlasTextureInfo {
-        let resources = &self.resources;
-        AtlasTextureInfo {
-            width: resources.atlas_size.0,
-            height: resources.atlas_size.1,
-            texture_count: u32::try_from(resources.atlas_textures.len()).unwrap(),
-        }
-    }
-
+    #[cfg(feature = "text")]
     /// Clear a specific region of an atlas texture.
     fn clear_atlas_region(
         &mut self,
