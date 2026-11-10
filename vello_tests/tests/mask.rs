@@ -57,6 +57,20 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     }
 }
 
+/// The pixels that `example_mask` paints, as a mask whose top-left pixel is at `(x, y)`.
+fn cropped_example_mask(alpha_mask: bool, x: u16, y: u16) -> Mask {
+    let mask = example_mask(alpha_mask);
+    let mut data = Vec::with_capacity(80 * 80);
+
+    for y in 10..90 {
+        for x in 10..90 {
+            data.push(mask.sample(x, y));
+        }
+    }
+
+    Mask::from_parts(data, 80, 80).with_offset(x, y)
+}
+
 fn mask(ctx: &mut impl Renderer, alpha_mask: bool) {
     let mask = example_mask(alpha_mask);
 
@@ -87,4 +101,35 @@ fn mask_non_isolated(ctx: &mut impl Renderer) {
     ctx.set_mask(mask);
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+}
+
+fn mask_offset(ctx: &mut impl Renderer, non_isolated: bool) {
+    // The mask extends past the bottom-right corner of the render context.
+    let mask = cropped_example_mask(false, 40, 40);
+
+    ctx.set_paint(BLACK);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
+    if non_isolated {
+        ctx.set_mask(mask);
+    } else {
+        ctx.push_mask_layer(mask);
+    }
+
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
+    if !non_isolated {
+        ctx.pop_layer();
+    }
+}
+
+#[vello_test]
+fn mask_offset_layer(ctx: &mut impl Renderer) {
+    mask_offset(ctx, false);
+}
+
+#[vello_test(skip_gpu)]
+fn mask_offset_non_isolated(ctx: &mut impl Renderer) {
+    mask_offset(ctx, true);
 }

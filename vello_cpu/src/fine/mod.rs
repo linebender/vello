@@ -65,6 +65,43 @@ pub(crate) const COLOR_COMPONENTS: usize = 4;
 /// Number of color components in a single column of a tile (height * components).
 pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_COMPONENTS;
 
+/// A mask, sampled in the four rows of a strip.
+#[derive(Clone, Copy)]
+pub(crate) struct StripMask<'a> {
+    x: usize,
+    /// The row of the mask in each row of the strip, which is empty if the mask doesn't cover it.
+    rows: [&'a [u8]; 4],
+}
+
+impl<'a> StripMask<'a> {
+    /// Sample `mask` in the four rows of the render context starting at `y`.
+    pub(crate) fn new(mask: &'a Mask, y: u16) -> Self {
+        let (mask_x, mask_y) = mask.offset();
+        let width = usize::from(mask.width());
+        let row = |offset: u16| -> &'a [u8] {
+            (usize::from(y) + usize::from(offset))
+                .checked_sub(usize::from(mask_y))
+                .filter(|y| *y < usize::from(mask.height()))
+                .map_or(&[], |y| &mask.data()[y * width..][..width])
+        };
+
+        Self {
+            x: usize::from(mask_x),
+            rows: [row(0), row(1), row(2), row(3)],
+        }
+    }
+
+    /// Return the values of the mask in column `x` of the render context, from
+    /// top to bottom. They are 0 where the mask doesn't cover the column.
+    #[inline(always)]
+    pub(crate) fn column(&self, x: u16) -> [u8; 4] {
+        // Wraps to a value past the end of every row if `x` is left of the mask.
+        let x = usize::from(x).wrapping_sub(self.x);
+
+        self.rows.map(|row| row.get(x).copied().unwrap_or(0))
+    }
+}
+
 /// Trait for numeric types used in fine rasterization.
 ///
 /// This trait abstracts over `f32` and `u8` to allow the same rendering logic
@@ -794,24 +831,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let width = span.pixel_width();
         let target = self.blend_buffers.last_mut().unwrap();
         let target = &mut target[Self::scratch_range(span)];
-        let y = u32::from(row_y) + u32x4::from_slice(self.simd, &[0, 1, 2, 3]);
+        let mask = StripMask::new(mask, row_y);
         let iter = (x..x.saturating_add(width)).map(|x| {
-            let x_in_range = x < mask.width();
-
-            macro_rules! sample {
-                ($idx:expr) => {
-                    if x_in_range && (y[$idx] as u16) < mask.height() {
-                        mask.sample(x, y[$idx] as u16)
-                    } else {
-                        0
-                    }
-                };
-            }
-
-            let s1 = sample!(0);
-            let s2 = sample!(1);
-            let s3 = sample!(2);
-            let s4 = sample!(3);
+            let [s1, s2, s3, s4] = mask.column(x);
 
             let samples = u8x16::from_slice(
                 self.simd,

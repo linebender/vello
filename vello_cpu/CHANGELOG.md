@@ -16,10 +16,12 @@ This release has an [MSRV][] of 1.89.
 
 - Anisotropic Gaussian blur: `FilterPrimitive::GaussianBlur` with a different standard deviation per axis, including blurs along one axis only. ([#1997][] by [@theashraf][])
 - `RenderContext::fill_blurred_rounded_rect_in` for painting a blurred rounded rectangle inside an arbitrary path, with an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. ([#1718][] by [@nicoburns][])
+- Masks that cover only part of the render context, placed with `Mask::with_offset`. Outside of the pixels a mask covers, nothing of the masked content is painted. ([#2068][] by [@yhay81][])
 
 ### Changed
 
 - Breaking change: The `invert` parameter of `RenderContext::fill_blurred_rounded_rect` has been removed. Use `RenderContext::fill_blurred_rounded_rect_in` with `invert` set to `true` instead. ([#1718][] by [@nicoburns][])
+- `set_mask` with a mask smaller than the render context now hides what lies outside of it instead of painting it unmasked, and `push_layer` no longer ignores a mask of another size. ([#2068][] by [@yhay81][])
 
 ### Fixed
 
@@ -274,6 +276,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@yezhizhen]: https://github.com/yezhizhen
+[@yhay81]: https://github.com/yhay81
 [@zlstringham]: https://github.com/zlstringham
 
 [#1159]: https://github.com/linebender/vello/pull/1159
@@ -355,6 +358,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1970]: https://github.com/linebender/vello/pull/1970
 [#1997]: https://github.com/linebender/vello/pull/1997
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2068]: https://github.com/linebender/vello/pull/2068
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0

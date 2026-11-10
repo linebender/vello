@@ -15,6 +15,7 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - `FilterPrimitive::GaussianBlur` blurs each axis by its own standard deviation (`std_deviation_x`, `std_deviation_y`), like SVG's `stdDeviation="x y"`; a blur along one axis only decimates and convolves that axis alone. `FilterPrimitive::gaussian_blur` builds a blur with the same deviation on both axes. ([#1997][] by [@theashraf][])
+- `Mask::with_offset` places a mask at a pixel of the render context, so that it can cover only part of it. `Mask::offset` and `Mask::data` return its offset and its values. ([#2068][] by [@yhay81][])
 
 ### Changed
 
@@ -290,6 +291,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@upsuper]: https://github.com/upsuper
 [@valadaptive]: https://github.com/valadaptive
 [@waywardmonkeys]: https://github.com/waywardmonkeys
+[@yhay81]: https://github.com/yhay81
 
 [#1159]: https://github.com/linebender/vello/pull/1159
 [#1203]: https://github.com/linebender/vello/pull/1203
@@ -384,6 +386,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1962]: https://github.com/linebender/vello/pull/1962
 [#1997]: https://github.com/linebender/vello/pull/1997
 [#2039]: https://github.com/linebender/vello/pull/2039
+[#2068]: https://github.com/linebender/vello/pull/2068
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0

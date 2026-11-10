@@ -550,9 +550,8 @@ impl RenderContext {
 
     /// Push a new layer with the given properties.
     ///
-    /// Note that the mask, if provided, needs to have the same size as the render context. Otherwise,
-    /// it will be ignored. In addition to that, the mask will not be affected by the current
-    /// transformation matrix in place.
+    /// Note that the mask, if provided, will not be affected by the current transformation matrix
+    /// in place. Outside of the pixels that the mask covers, nothing of the layer is visible.
     ///
     /// # Panics
     ///
@@ -565,8 +564,6 @@ impl RenderContext {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
-        let mask = mask.filter(|m| !(m.width() != self.width || m.height() != self.height));
-
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0).clamp(0.0, 1.0);
         let layer_transform = self
@@ -616,9 +613,9 @@ impl RenderContext {
         self.push_layer(None, None, Some(opacity), None, None);
     }
 
-    /// Push a new mask layer. The mask needs to have the same dimensions as the
-    /// render context. The mask will not be affected by the current transform
-    /// in place.
+    /// Push a new mask layer. The mask will not be affected by the current
+    /// transform in place, and outside of the pixels that it covers, nothing of
+    /// the layer is visible.
     ///
     /// See the explanation in the [masking](https://github.com/linebender/vello/blob/main/vello_cpu/examples/masking.rs)
     /// example for how this method differs from `set_mask`.
@@ -734,9 +731,9 @@ impl RenderContext {
         self.state.fill_rule = fill_rule;
     }
 
-    /// Set the mask to use for path-painting operations. The mask needs to
-    /// have the same dimensions as the render context. The mask will not be
-    /// affected by the current transform in place.
+    /// Set the mask to use for path-painting operations. The mask will not be
+    /// affected by the current transform in place, and outside of the pixels
+    /// that it covers, nothing is painted.
     ///
     /// See the explanation in the [masking](https://github.com/linebender/vello/blob/main/vello_cpu/examples/masking.rs)
     /// example for how this method differs from `push_mask_layer`.
