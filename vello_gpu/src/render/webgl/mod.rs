@@ -141,11 +141,12 @@ impl WebGlRenderer {
         WebGlTextureTarget::new(&self.gl, texture, depth, width, height)
     }
 
-    /// Free the GPU and CPU memory that the renderer and `resources` grew for earlier scenes.
+    /// Reset the renderer and `resources` and free the memory they grew for earlier scenes.
     ///
-    /// This also clears the glyph cache, so scenes that drew cached glyphs before this call must be
-    /// recorded again.
-    pub fn compact(&mut self, resources: &mut Resources) -> Result<(), WebGlError> {
+    /// Unlike [`Scene::reset`](crate::Scene::reset), this is not meant to be called every
+    /// frame. Scenes recorded before this call, including ones not yet rendered, must be recorded
+    /// again; rendering them afterwards may draw the wrong glyphs.
+    pub fn reset_and_shrink(&mut self, resources: &mut Resources) -> Result<(), WebGlError> {
         let webgl_resources = create_webgl_resources(
             &self.gl,
             &resources.image_cache,
@@ -154,7 +155,7 @@ impl WebGlRenderer {
             self.resources.drawing_buffer_uses_depth_buffer,
         )?;
         self.resources = webgl_resources;
-        self.scene_preparer.compact();
+        self.scene_preparer.reset_and_shrink();
         resources.clear();
 
         Ok(())

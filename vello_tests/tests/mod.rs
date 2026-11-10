@@ -33,7 +33,6 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 mod basic;
 mod blurred_rounded_rect;
 mod clip;
-mod compact;
 mod compose;
 mod external_texture;
 mod filter;
@@ -51,6 +50,7 @@ mod offset;
 mod opacity;
 use vello_tests::renderer;
 mod scenes;
+mod shrink;
 mod target;
 #[macro_use]
 mod util;

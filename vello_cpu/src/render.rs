@@ -782,7 +782,7 @@ impl RenderContext {
     }
 
     /// Reset the render context and free the memory it grew for earlier contents.
-    pub fn reset_and_compact(&mut self) {
+    pub fn reset_and_shrink(&mut self) {
         *self = Self::new_with(self.width, self.height, self.render_settings);
     }
 

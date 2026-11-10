@@ -66,7 +66,7 @@ impl ScenePreparer {
     }
 
     /// Free the memory retained from scenes prepared earlier.
-    pub(crate) fn compact(&mut self) {
+    pub(crate) fn reset_and_shrink(&mut self) {
         self.encoded_paints = Vec::new();
         self.paint_idxs = Vec::new();
         self.gradient_cache.clear();

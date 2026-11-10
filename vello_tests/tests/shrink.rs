@@ -22,7 +22,7 @@ fn tile(index: u8) -> Rect {
 // TODO: Add tests so we can actually measure the memory consumption too.
 
 #[vello_test(transparent, gpu_tolerance = 1, width = 300)]
-fn compact_between_scenes(ctx: &mut impl Renderer) {
+fn shrink_between_scenes(ctx: &mut impl Renderer) {
     ctx.set_paint(
         Gradient::new_sweep((150.0, 50.0), 0.0, 360.0)
             .with_stops(&[DEEP_PINK, GOLD, DEEP_PINK][..]),
@@ -31,7 +31,7 @@ fn compact_between_scenes(ctx: &mut impl Renderer) {
     ctx.flush();
     ctx.render();
 
-    ctx.compact();
+    ctx.reset_and_shrink();
 
     let linear = tile(0);
     ctx.set_paint(
@@ -96,18 +96,18 @@ fn draw_glyph_card(ctx: &mut impl Renderer, enable_caching: bool, text: &str) {
 }
 
 #[vello_test(transparent, width = 160, glyph)]
-fn compact_reuses_gradient_and_glyphs(ctx: &mut impl Renderer, enable_caching: bool) {
+fn shrink_reuses_gradient_and_glyphs(ctx: &mut impl Renderer, enable_caching: bool) {
     draw_glyph_card(ctx, enable_caching, "AB");
     ctx.flush();
     ctx.render();
 
-    ctx.compact();
+    ctx.reset_and_shrink();
 
     draw_glyph_card(ctx, enable_caching, "AC");
 }
 
 #[vello_test(gpu_tolerance = 1, width = 300)]
-fn compact_regrows_layer_textures(ctx: &mut impl Renderer) {
+fn shrink_regrows_layer_textures(ctx: &mut impl Renderer) {
     let canvas = Rect::new(0.0, 0.0, 300.0, 100.0);
     ctx.push_opacity_layer(0.9);
     ctx.push_clip_layer(&canvas.to_path(0.1));
@@ -121,7 +121,7 @@ fn compact_regrows_layer_textures(ctx: &mut impl Renderer) {
     ctx.flush();
     ctx.render();
 
-    ctx.compact();
+    ctx.reset_and_shrink();
 
     let card = Rect::new(12.0, 18.0, 288.0, 82.0);
     ctx.push_clip_layer(&card.to_path(0.1));
