@@ -241,26 +241,6 @@ fn fs_main(
                     vec2<bool>(true, true),
                 );
         }
-        case PASS_DOWNSCALE_X {
-            return downscale(
-                    source_texture,
-                    linear_sampler,
-                    position,
-                    source_origin,
-                    dest_origin,
-                    vec2<bool>(true, false),
-                );
-        }
-        case PASS_DOWNSCALE_Y {
-            return downscale(
-                    source_texture,
-                    linear_sampler,
-                    position,
-                    source_origin,
-                    dest_origin,
-                    vec2<bool>(false, true),
-                );
-        }
         case PASS_BLUR_H {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
             let filter_texel1 = load_filter_texel(filter_data_offset, 1u);
@@ -324,6 +304,41 @@ fn fs_main(
                     vec2<bool>(true, true),
                 );
         }
+        case PASS_COMPOSITE_DROP_SHADOW {
+            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
+            return composite_drop_shadow(
+                    source_texture,
+                    original_texture,
+                    source_origin,
+                    original_origin,
+                    rel_coord,
+                    filter_texel2,
+                );
+        }
+        case PASS_COLORIZE {
+            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
+            return colorize_drop_shadow(source_texture, source_origin, rel_coord, filter_texel2);
+        }
+        case PASS_DOWNSCALE_X {
+            return downscale(
+                    source_texture,
+                    linear_sampler,
+                    position,
+                    source_origin,
+                    dest_origin,
+                    vec2<bool>(true, false),
+                );
+        }
+        case PASS_DOWNSCALE_Y {
+            return downscale(
+                    source_texture,
+                    linear_sampler,
+                    position,
+                    source_origin,
+                    dest_origin,
+                    vec2<bool>(false, true),
+                );
+        }
         case PASS_UPSCALE_X {
             return upscale(
                     source_texture,
@@ -343,21 +358,6 @@ fn fs_main(
                     dest_origin,
                     vec2<bool>(false, true),
                 );
-        }
-        case PASS_COMPOSITE_DROP_SHADOW {
-            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
-            return composite_drop_shadow(
-                    source_texture,
-                    original_texture,
-                    source_origin,
-                    original_origin,
-                    rel_coord,
-                    filter_texel2,
-                );
-        }
-        case PASS_COLORIZE {
-            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
-            return colorize_drop_shadow(source_texture, source_origin, rel_coord, filter_texel2);
         }
         // Shouldn't be reached.
         default { return vec4<f32>(0.0); }
