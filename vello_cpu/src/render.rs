@@ -781,6 +781,11 @@ impl RenderContext {
         self.filter = None;
     }
 
+    /// Reset the render context and free the memory it grew for earlier contents.
+    pub fn reset_and_shrink(&mut self) {
+        *self = Self::new_with(self.width, self.height, self.render_settings);
+    }
+
     /// Push a new clip path to the clip stack.
     ///
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/vello_cpu/examples)

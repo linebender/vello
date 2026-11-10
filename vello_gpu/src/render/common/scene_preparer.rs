@@ -65,6 +65,15 @@ impl ScenePreparer {
         (scene_preparer, resources)
     }
 
+    /// Free the memory retained from scenes prepared earlier.
+    pub(crate) fn reset_and_shrink(&mut self) {
+        self.encoded_paints = Vec::new();
+        self.paint_idxs = Vec::new();
+        self.gradient_cache.clear();
+        self.schedule_storage = ScheduleStorage::default();
+        self.scratch_buffers = ScratchBuffers::default();
+    }
+
     /// Encodes the paints of `scene` for the GPU and schedules the passes that render it.
     ///
     /// `encode_external_texture` encodes image paints that sample an external texture, given the

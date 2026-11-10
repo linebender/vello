@@ -8,10 +8,10 @@ use crate::render::webgl::gl::resource::{
     FragmentShader, Program, VertexShader, WebGlFragmentShader, WebGlVertexShader,
 };
 use crate::render::webgl::passes::WebGlPrograms;
-use crate::render::webgl::passes::blend::{get_blend_uniforms, initialize_blend_vao};
-use crate::render::webgl::passes::copy::{get_copy_uniforms, initialize_copy_vao};
-use crate::render::webgl::passes::filter::{get_filter_pass_uniforms, initialize_filter_vao};
-use crate::render::webgl::passes::strip::{get_strip_uniforms, initialize_strip_vao};
+use crate::render::webgl::passes::blend::get_blend_uniforms;
+use crate::render::webgl::passes::copy::get_copy_uniforms;
+use crate::render::webgl::passes::filter::get_filter_pass_uniforms;
+use crate::render::webgl::passes::strip::get_strip_uniforms;
 use crate::render::webgl::resources::{WebGlResources, create_webgl_resources};
 use crate::render::webgl::target::REQUIRED_DEPTH_BITS;
 use crate::render::webgl::{
@@ -196,10 +196,6 @@ impl WebGlRenderer {
             resource_texture_dimension_2d,
             shaders.use_depth_buffer,
         )?;
-        initialize_strip_vao(gl, &webgl_resources);
-        initialize_filter_vao(gl, &webgl_resources);
-        initialize_blend_vao(gl, &webgl_resources);
-        initialize_copy_vao(gl, &webgl_resources);
 
         let init = WebGlRendererInit {
             shaders,

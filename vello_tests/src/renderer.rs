@@ -96,6 +96,7 @@ pub trait Renderer: Sized {
     fn set_filter_effect(&mut self, filter: Filter);
     fn reset_filter_effect(&mut self);
     fn reset(&mut self);
+    fn reset_and_shrink(&mut self);
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>);
     fn set_offset(&mut self, offset: (i32, i32));
     fn render(&mut self);
@@ -308,6 +309,10 @@ impl Renderer for CpuRenderer {
 
     fn reset(&mut self) {
         self.ctx.reset();
+    }
+
+    fn reset_and_shrink(&mut self) {
+        self.ctx.reset_and_shrink();
     }
 
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>) {
@@ -680,6 +685,12 @@ impl Renderer for GpuRenderer {
 
     fn reset(&mut self) {
         self.scene.reset();
+    }
+
+    fn reset_and_shrink(&mut self) {
+        self.lock_gpu_test();
+        self.scene.reset_and_shrink();
+        self.renderer.reset_and_shrink(&mut self.resources);
     }
 
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>) {
@@ -1212,6 +1223,11 @@ impl Renderer for GpuRenderer {
 
     fn reset(&mut self) {
         self.scene.reset();
+    }
+
+    fn reset_and_shrink(&mut self) {
+        self.scene.reset_and_shrink();
+        self.renderer.reset_and_shrink(&mut self.resources).unwrap();
     }
 
     fn set_target_init(&mut self, target_init: GpuTargetInit<'static>) {

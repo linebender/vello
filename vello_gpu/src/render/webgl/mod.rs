@@ -60,7 +60,7 @@ use atlas::write_pixmap_to_atlas;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use passes::{WebGlPrograms, WebGlRendererContext};
-use resources::WebGlResources;
+use resources::{WebGlResources, create_webgl_resources};
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::image_cache::ImageCache;
@@ -139,6 +139,26 @@ impl WebGlRenderer {
         height: u16,
     ) -> Result<WebGlTextureTarget, WebGlError> {
         WebGlTextureTarget::new(&self.gl, texture, depth, width, height)
+    }
+
+    /// Reset the renderer and `resources` and free the memory they grew for earlier scenes.
+    ///
+    /// Unlike [`Scene::reset`](crate::Scene::reset), this is not meant to be called every
+    /// frame. Scenes recorded before this call, including ones not yet rendered, must be recorded
+    /// again; rendering them afterwards may draw the wrong glyphs.
+    pub fn reset_and_shrink(&mut self, resources: &mut Resources) -> Result<(), WebGlError> {
+        let webgl_resources = create_webgl_resources(
+            &self.gl,
+            &resources.image_cache,
+            self.scene_preparer.layers_config,
+            self.resources.resource_texture_dimension_2d,
+            self.resources.drawing_buffer_uses_depth_buffer,
+        )?;
+        self.resources = webgl_resources;
+        self.scene_preparer.reset_and_shrink();
+        resources.clear();
+
+        Ok(())
     }
 
     /// Render `scene` into `target` using WebGL2

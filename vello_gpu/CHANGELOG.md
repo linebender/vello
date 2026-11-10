@@ -18,6 +18,8 @@ This release has an [MSRV][] of 1.89.
 - `WebGlRenderer::begin_with_precompiled` adopts the canvas, WebGL context, and shader programs set up by the JavaScript module in `vello_gpu_shaders::webgl_bootstrap::JS_MODULE`, so compilation can start before the WebAssembly module is downloaded and instantiated. Programs that can't be adopted are reported with `WebGlError::IncompatiblePrecompiledShaders`. The module quotes the property names the renderer reads, so it can be bundled with minifiers that rename properties.
 - `WebGlRendererInit::is_ready` for non-blocking readiness checks. WebGL initialization now flushes compile commands immediately, so compilation starts even if the caller keeps the main thread busy.
 - Anisotropic Gaussian blur: `FilterPrimitive::GaussianBlur` with a different standard deviation per axis, including blurs along one axis only. ([#1997][] by [@theashraf][])
+- `Renderer::reset_and_shrink` and `WebGlRenderer::reset_and_shrink` reset the renderer and its `Resources` and free the textures, buffers and caches they grew for earlier scenes, including all cached glyphs. (by [@LaurenzV][])
+- `Scene::reset_and_shrink` resets a scene and frees the memory it grew. (by [@LaurenzV][])
 - `Scene::fill_blurred_rounded_rect_in` for painting a blurred rounded rectangle inside an arbitrary path, with an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. ([#1718][] by [@nicoburns][])
 
 ### Changed

@@ -50,6 +50,7 @@ mod offset;
 mod opacity;
 use vello_tests::renderer;
 mod scenes;
+mod shrink;
 mod target;
 #[macro_use]
 mod util;
