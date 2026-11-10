@@ -92,7 +92,7 @@ fn get_blurred_rounded_rect_scale(texel2: vec4<u32>) -> f32 {
     return bitcast<f32>(texel2.z);
 }
 
-fn get_blurred_rounded_rect_std_dev_inv(texel2: vec4<u32>) -> f32 {
+fn get_blurred_rounded_rect_recip_erf_scale(texel2: vec4<u32>) -> f32 {
     return bitcast<f32>(texel2.w);
 }
 
@@ -145,7 +145,7 @@ fn calculate_blurred_rounded_rect(
     let exponent = get_blurred_rounded_rect_exponent(texel2);
     let recip_exponent = get_blurred_rounded_rect_recip_exponent(texel2);
     let scale = get_blurred_rounded_rect_scale(texel2);
-    let std_dev_inv = get_blurred_rounded_rect_std_dev_inv(texel2);
+    let recip_erf_scale = get_blurred_rounded_rect_recip_erf_scale(texel2);
     let min_edge = get_blurred_rounded_rect_min_edge(texel3);
     let w = get_blurred_rounded_rect_w(texel3);
     let h = get_blurred_rounded_rect_h(texel3);
@@ -166,7 +166,8 @@ fn calculate_blurred_rounded_rect(
     let d_pos = pow(pow(x1, exponent) + pow(y1, exponent), recip_exponent);
     let d_neg = min(max(x0, y0), 0.0);
     let d = d_pos + d_neg - r1;
-    let blur_coverage = scale * (erf7(std_dev_inv * (min_edge + d)) - erf7(std_dev_inv * d));
+    let blur_coverage = scale
+        * (erf7(recip_erf_scale * (min_edge + d)) - erf7(recip_erf_scale * d));
 
     // Invert alpha when `invert` flag is set
     let blur_alpha = select(blur_coverage, 1.0 - blur_coverage, invert != 0u);

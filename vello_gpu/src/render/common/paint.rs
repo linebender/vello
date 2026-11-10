@@ -191,7 +191,7 @@ pub(crate) struct GpuBlurredRoundedRect {
     pub color: u32,
     /// Whether to paint the inverse (`1 - alpha`) of the blur coverage
     pub invert: u32,
-    /// Blur parameters: exponent, reciprocal exponent, scale, and inverse standard deviation.
+    /// Blur parameters: exponent, reciprocal exponent, scale, and reciprocal erf scale.
     pub params0: [f32; 4],
     /// Blur parameters: minimum edge length, adjusted width, adjusted height, and outer radius.
     pub params1: [f32; 4],
@@ -476,7 +476,7 @@ pub(crate) fn encode_blurred_rounded_rect_paint(
             rect.exponent,
             rect.recip_exponent,
             rect.scale,
-            rect.std_dev_inv,
+            rect.recip_erf_scale,
         ],
         params1: [rect.min_edge, rect.w, rect.h, rect.r1],
         size: [rect.width, rect.height],

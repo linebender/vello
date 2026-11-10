@@ -1183,24 +1183,26 @@ fn main(
 
                 let blur = read_blur_rect(cmd_ix);
 
+                // The approximation is fitted to a blur by exp(-(x / erf_scale)^2), whose standard
+                // deviation is erf_scale / sqrt(2).
                 // Avoid division by 0
-                let std_dev = max(blur.std_dev, 1e-5);
-                let inv_std_dev = 1.0 / std_dev;
+                let erf_scale = sqrt(2.0) * max(blur.std_dev, 1e-5);
+                let inv_erf_scale = 1.0 / erf_scale;
                 
                 let min_edge = min(blur.width, blur.height);
                 let radius_max = 0.5 * min_edge;
-                let r0 = min(hypot(blur.radius, std_dev * 1.15), radius_max);
-                let r1 = min(hypot(blur.radius, std_dev * 2.0), radius_max);
+                let r0 = min(hypot(blur.radius, erf_scale * 1.15), radius_max);
+                let r1 = min(hypot(blur.radius, erf_scale * 2.0), radius_max);
 
                 let exponent = 2.0 * r1 / r0;
                 let inv_exponent = 1.0 / exponent;
                 
                 // Pull in long end (make less eccentric).
-                let delta = 1.25 * std_dev * (exp(-pow(0.5 * inv_std_dev * blur.width, 2.0)) - exp(-pow(0.5 * inv_std_dev * blur.height, 2.0)));
+                let delta = 1.25 * erf_scale * (exp(-pow(0.5 * inv_erf_scale * blur.width, 2.0)) - exp(-pow(0.5 * inv_erf_scale * blur.height, 2.0)));
                 let width = blur.width + min(delta, 0.0);
                 let height = blur.height - max(delta, 0.0);
 
-                let scale = 0.5 * erf7(inv_std_dev * 0.5 * (max(width, height) - 0.5 * blur.radius));
+                let scale = 0.5 * erf7(inv_erf_scale * 0.5 * (max(width, height) - 0.5 * blur.radius));
 
                 let blur_rgba = unpack4x8unorm(blur.rgba_color);
 
@@ -1220,7 +1222,7 @@ fn main(
                     let d_pos = pow(pow(x1, exponent) + pow(y1, exponent), inv_exponent);
                     let d_neg = min(max(x0, y0), 0.0);
                     let d = d_pos + d_neg - r1;
-                    let blur_coverage = scale * (erf7(inv_std_dev * (min_edge + d)) - erf7(inv_std_dev * d));
+                    let blur_coverage = scale * (erf7(inv_erf_scale * (min_edge + d)) - erf7(inv_erf_scale * d));
                     // When `invert` is set, paint the inverse (1 - alpha) coverage, used to
                     // implement inset box shadows.
                     let alpha = select(blur_coverage, 1.0 - blur_coverage, blur.invert != 0u);

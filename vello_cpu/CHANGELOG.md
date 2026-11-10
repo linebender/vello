@@ -24,6 +24,7 @@ This release has an [MSRV][] of 1.89.
 ### Fixed
 
 - `Color` and `Luminosity` blending rendering some gray colors as black, caused by a division by zero in `clip_color`. ([#2000][] by [@zlstringham][])
+- `RenderContext::fill_blurred_rounded_rect` and `fill_blurred_rounded_rect_in` blurring with `std_dev / √2` instead of `std_dev`; `fill_blurred_rounded_rect` now paints up to `3 * std_dev` beyond the rectangle, and a negative or NaN `std_dev` draws it unblurred instead of shrinking it or drawing nothing. ([#2062][] by [@YevheniiKotyrlo][])
 
 ## [0.3.0][] - 2026-10-02
 
@@ -273,6 +274,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [@tronical]: https://github.com/tronical
 [@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
+[@YevheniiKotyrlo]: https://github.com/YevheniiKotyrlo
 [@yezhizhen]: https://github.com/yezhizhen
 [@zlstringham]: https://github.com/zlstringham
 
@@ -355,6 +357,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1970]: https://github.com/linebender/vello/pull/1970
 [#1997]: https://github.com/linebender/vello/pull/1997
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2062]: https://github.com/linebender/vello/pull/2062
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0
