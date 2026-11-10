@@ -618,43 +618,12 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             // ── Bitmap Glyphs ────────────────────────────────────────────
             let mut bitmap_unavailable_reason = None;
-            let bitmap_data: Option<(skrifa::bitmap::BitmapGlyph<'_>, Pixmap)> = bitmaps
-                .glyph_for_size(Size::new(draw_props.font_size), glyph_id)
-                .and_then(|g| match g.data {
-                    #[cfg(feature = "png")]
-                    BitmapData::Png(data) => match Pixmap::from_png(std::io::Cursor::new(data)) {
-                        Ok(pixmap) => Some((g, pixmap)),
-                        Err(_) => {
-                            bitmap_unavailable_reason = Some(GlyphSkipReason::BitmapDecodeFailed);
-                            None
-                        }
-                    },
-                    #[cfg(not(feature = "png"))]
-                    BitmapData::Png(_) => {
-                        bitmap_unavailable_reason = Some(GlyphSkipReason::PngSupportDisabled);
-                        None
-                    }
-                    // The others are not worth implementing for now (unless we can find a test case),
-                    // they should be very rare.
-                    BitmapData::Bgra(_) | BitmapData::Mask(_) => {
-                        bitmap_unavailable_reason = Some(GlyphSkipReason::UnsupportedBitmapFormat);
-                        None
-                    }
-                });
-
-            if let Some((bitmap_glyph, pixmap)) = bitmap_data {
+            if let Some(bitmap_glyph) =
+                bitmaps.glyph_for_size(Size::new(draw_props.font_size), glyph_id)
+            {
                 // Bitmaps use the strike's own ppem, not the run's, because the
                 // image was pre-rendered at that specific size.
                 let bitmap_ppem = bitmap_glyph.ppem_x;
-                let outline_transform = calculate_bitmap_transform(
-                    glyph,
-                    &pixmap,
-                    draw_props,
-                    draw_props.font_size,
-                    font_info.upem,
-                    &bitmap_glyph,
-                    is_apple_color_emoji,
-                );
 
                 // Bitmaps are not hinted and have no sub-pixel offset or
                 // context color; variation coords are irrelevant for fixed strikes.
@@ -675,9 +644,20 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     var_coords: SmallVec::new(),
                 });
 
+                // The atlas slot has the decoded image's size, so a cache hit
+                // never needs to decode the image again.
                 if let Some(ref key) = cache_key
                     && let Some(cached_slot) = self.atlas_cacher.get(key)
                 {
+                    let outline_transform = calculate_bitmap_transform(
+                        glyph,
+                        cached_slot.height,
+                        draw_props,
+                        draw_props.font_size,
+                        font_info.upem,
+                        &bitmap_glyph,
+                        is_apple_color_emoji,
+                    );
                     render_cached_glyph(
                         renderer,
                         cached_slot,
@@ -687,30 +667,45 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     continue;
                 }
 
-                // Cache miss — wrap the decoded pixmap for rendering.
-                let glyph_type = create_bitmap_glyph(pixmap);
+                match decode_bitmap(&bitmap_glyph) {
+                    Ok(pixmap) => {
+                        let outline_transform = calculate_bitmap_transform(
+                            glyph,
+                            pixmap.height(),
+                            draw_props,
+                            draw_props.font_size,
+                            font_info.upem,
+                            &bitmap_glyph,
+                            is_apple_color_emoji,
+                        );
 
-                let prepared_glyph = PreparedGlyph {
-                    glyph_type,
-                    outline_transform,
-                    relative_paint_transform: Affine::IDENTITY,
-                    cache_key,
-                };
-                match style {
-                    Style::Fill => fill_glyph(
-                        renderer,
-                        prepared_glyph,
-                        &mut self.atlas_cacher,
-                        &mut outline_cache_session,
-                    ),
-                    Style::Stroke => stroke_glyph(
-                        renderer,
-                        prepared_glyph,
-                        &mut self.atlas_cacher,
-                        &mut outline_cache_session,
-                    ),
+                        // Cache miss — wrap the decoded pixmap for rendering.
+                        let glyph_type = create_bitmap_glyph(pixmap);
+
+                        let prepared_glyph = PreparedGlyph {
+                            glyph_type,
+                            outline_transform,
+                            relative_paint_transform: Affine::IDENTITY,
+                            cache_key,
+                        };
+                        match style {
+                            Style::Fill => fill_glyph(
+                                renderer,
+                                prepared_glyph,
+                                &mut self.atlas_cacher,
+                                &mut outline_cache_session,
+                            ),
+                            Style::Stroke => stroke_glyph(
+                                renderer,
+                                prepared_glyph,
+                                &mut self.atlas_cacher,
+                                &mut outline_cache_session,
+                            ),
+                        }
+                        continue;
+                    }
+                    Err(reason) => bitmap_unavailable_reason = Some(reason),
                 }
-                continue;
             }
 
             // ── Outline Glyphs ──────────────────────────────────────────
@@ -1314,6 +1309,22 @@ fn calculate_outline_transform(
     Affine::new(final_transform)
 }
 
+/// Decode a bitmap glyph's image.
+fn decode_bitmap(
+    bitmap_glyph: &skrifa::bitmap::BitmapGlyph<'_>,
+) -> Result<Pixmap, GlyphSkipReason> {
+    match &bitmap_glyph.data {
+        #[cfg(feature = "png")]
+        BitmapData::Png(data) => Pixmap::from_png(std::io::Cursor::new(*data))
+            .map_err(|_| GlyphSkipReason::BitmapDecodeFailed),
+        #[cfg(not(feature = "png"))]
+        BitmapData::Png(_) => Err(GlyphSkipReason::PngSupportDisabled),
+        // The others are not worth implementing for now (unless we can find a test case),
+        // they should be very rare.
+        BitmapData::Bgra(_) | BitmapData::Mask(_) => Err(GlyphSkipReason::UnsupportedBitmapFormat),
+    }
+}
+
 /// Create bitmap glyph data.
 ///
 /// This wraps the pixmap in a `GlyphType::Bitmap` with its display area,
@@ -1344,7 +1355,7 @@ fn create_bitmap_glyph(pixmap: Pixmap) -> GlyphType<'static> {
 /// - Special handling for Apple Color Emoji
 fn calculate_bitmap_transform(
     glyph: Glyph,
-    pixmap: &Pixmap,
+    pixmap_height: u16,
     draw_props: DrawProps,
     font_size: f32,
     upem: f32,
@@ -1371,7 +1382,7 @@ fn calculate_bitmap_transform(
         Origin::TopLeft => Vec2::default(),
         Origin::BottomLeft => Vec2 {
             x: 0.,
-            y: -f64::from(pixmap.height()),
+            y: -f64::from(pixmap_height),
         },
     };
 

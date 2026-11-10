@@ -764,6 +764,20 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer, enable_caching: bool) {
         .unwrap();
 }
 
+// Repeated glyphs are drawn from the atlas once the first one is cached.
+#[vello_test(width = 250, height = 70, skip_gpu, glyph, cpu_u8_tolerance = 1)]
+fn glyphs_bitmap_noto_repeated(ctx: &mut impl Renderer, enable_caching: bool) {
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs_noto_cbtf("✅👀✅👀", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .atlas_cache(enable_caching)
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DrawMode {
     Fill,
@@ -1010,7 +1024,27 @@ fn glyphs_bitmap_sbix_cff(ctx: &mut impl Renderer, enable_caching: bool) {
     );
 }
 
+// Sbix strikes are placed from their bottom-left corner, which depends on the image height.
+#[vello_test(width = 288, height = 240, skip_gpu, glyph)]
+fn glyphs_bitmap_sbix_glyf_repeated(ctx: &mut impl Renderer, enable_caching: bool) {
+    draw_sbix_grid_with(
+        ctx,
+        enable_caching,
+        include_bytes!("../../assets/sbix/sbix.ttf"),
+        |i| i % 7 + 2,
+    );
+}
+
 fn draw_sbix_grid(ctx: &mut impl Renderer, enable_caching: bool, font_data: &'static [u8]) {
+    draw_sbix_grid_with(ctx, enable_caching, font_data, |i| i + 2);
+}
+
+fn draw_sbix_grid_with(
+    ctx: &mut impl Renderer,
+    enable_caching: bool,
+    font_data: &'static [u8],
+    glyph_id: fn(u32) -> u32,
+) {
     let font = FontData::new(Blob::new(Arc::new(font_data)), 0);
 
     ctx.set_paint(WHITE);
@@ -1026,7 +1060,7 @@ fn draw_sbix_grid(ctx: &mut impl Renderer, enable_caching: bool, font_data: &'st
     }
 
     let glyphs = (0..28).map(|i| Glyph {
-        id: i + 2,
+        id: glyph_id(i),
         x: (i % 6) as f32 * 48.0 - 34.0,
         y: (i / 6) as f32 * 48.0 + 106.0,
     });
