@@ -1383,4 +1383,8 @@ fn apply_rect_clear(pixmap: &mut Pixmap, color: AlphaColor<Srgb>, rects: &[RectU
             data[start..end].fill(color);
         }
     }
+
+    if color.a != 255 {
+        pixmap.set_may_have_transparency(true);
+    }
 }
