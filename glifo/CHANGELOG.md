@@ -15,6 +15,7 @@ This release has an [MSRV][] of 1.89.
 ### Fixed
 
 - Synthetic emboldening of unhinted glyphs being scaled down to almost nothing. `FontEmbolden` amounts are now in pixels at the run's font size and scale with the run transform. ([#2049][] by [@nicoburns][])
+- Glyph runs with a zero font size being drawn. Hinting could give their glyphs a visible speck of ink. They are now skipped. (by [@nicoburns][])
 
 ## [0.4.0][] - 2026-10-02
 
