@@ -166,8 +166,14 @@ impl TextureBindings {
 
     /// Get a texture binding.
     #[inline]
-    pub(crate) fn get(&self, texture_id: TextureId) -> Option<&TextureBinding> {
+    pub fn get(&self, texture_id: TextureId) -> Option<&TextureBinding> {
         self.bindings.get(&texture_id)
+    }
+
+    /// Returns `true` if a texture is bound to `texture_id`.
+    #[inline]
+    pub fn contains(&self, texture_id: TextureId) -> bool {
+        self.bindings.contains_key(&texture_id)
     }
 
     /// Remove a texture binding.

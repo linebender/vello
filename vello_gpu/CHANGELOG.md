@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- `TextureBindings::get`, `TextureBindings::contains` and `WebGlTextureBindings::contains` for checking which textures are bound. ([#2082][] by [@nicoburns][])
+
 ## [0.4.0][] - 2026-11-11
 
 This release has an [MSRV][] of 1.89.
@@ -483,6 +487,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#2061]: https://github.com/linebender/vello/pull/2061
 [#2070]: https://github.com/linebender/vello/pull/2070
 [#2078]: https://github.com/linebender/vello/pull/2078
+[#2082]: https://github.com/linebender/vello/pull/2082
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.4.0...HEAD
 [0.4.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...sparse-strips-v0.4.0
