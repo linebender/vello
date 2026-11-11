@@ -4,6 +4,7 @@
 use alloc::{format, string::String};
 use core::fmt;
 use thiserror::Error;
+use web_sys::WebGl2RenderingContext;
 use web_sys::wasm_bindgen::JsValue;
 
 use crate::RenderError;
@@ -19,6 +20,9 @@ pub enum WebGlError {
     /// A WebGL2 context could not be created for the canvas.
     #[error("WebGL2 context unavailable")]
     ContextUnavailable,
+    /// The WebGL2 context was lost.
+    #[error("WebGL context lost")]
+    ContextLost,
     /// A WebGL operation failed.
     #[error(
         "WebGL operation failed while {operation:?}{suffix}",
@@ -47,6 +51,46 @@ pub enum WebGlError {
 impl From<DataTextureTooLarge> for WebGlError {
     fn from(error: DataTextureTooLarge) -> Self {
         Self::Render(error.into())
+    }
+}
+
+/// A [`WebGlError`] that may have been caused by a lost context.
+///
+/// It can only be turned into a [`WebGlError`] through [`UncheckedWebGlError::check`], so public
+/// methods can't return it without checking for context loss.
+#[derive(Debug)]
+pub(crate) struct UncheckedWebGlError(WebGlError);
+
+impl UncheckedWebGlError {
+    pub(crate) fn check(self, gl: &WebGl2RenderingContext) -> WebGlError {
+        if gl.is_context_lost() {
+            WebGlError::ContextLost
+        } else {
+            self.0
+        }
+    }
+
+    /// For errors from before a WebGL context exists, which can't be caused by context loss.
+    pub(crate) fn without_context(self) -> WebGlError {
+        self.0
+    }
+}
+
+impl From<WebGlError> for UncheckedWebGlError {
+    fn from(error: WebGlError) -> Self {
+        Self(error)
+    }
+}
+
+impl From<RenderError> for UncheckedWebGlError {
+    fn from(error: RenderError) -> Self {
+        Self(error.into())
+    }
+}
+
+impl From<DataTextureTooLarge> for UncheckedWebGlError {
+    fn from(error: DataTextureTooLarge) -> Self {
+        Self(error.into())
     }
 }
 
@@ -214,16 +258,33 @@ pub enum IncompatiblePrecompiledShadersReason {
 /// Converts JavaScript exceptions into WebGL operation errors.
 pub(crate) trait WebGlResultExt<T> {
     /// Attach the WebGL operation that produced this JavaScript result.
-    fn map_js_error(self, operation: WebGlOperation) -> Result<T, WebGlError>;
+    fn map_js_error(self, operation: WebGlOperation) -> Result<T, UncheckedWebGlError>;
 }
 
 impl<T> WebGlResultExt<T> for Result<T, JsValue> {
-    fn map_js_error(self, operation: WebGlOperation) -> Result<T, WebGlError> {
-        self.map_err(|value| WebGlError::OperationFailed {
-            operation,
-            message: Some(value.as_string().unwrap_or_else(|| format!("{value:?}"))),
+    fn map_js_error(self, operation: WebGlOperation) -> Result<T, UncheckedWebGlError> {
+        self.map_err(|value| {
+            WebGlError::OperationFailed {
+                operation,
+                message: Some(value.as_string().unwrap_or_else(|| format!("{value:?}"))),
+            }
+            .into()
         })
     }
+}
+
+/// Converts the result of a WebGL query for an integer.
+pub(crate) fn query_u32(value: Result<JsValue, JsValue>) -> Result<u32, UncheckedWebGlError> {
+    let operation = WebGlOperation::Context(WebGlContextOperation::Query);
+    let value = value
+        .map_js_error(operation)?
+        .as_f64()
+        .ok_or(WebGlError::OperationFailed {
+            operation,
+            message: None,
+        })?;
+
+    Ok(value as u32)
 }
 
 struct FramebufferStatus(u32);

@@ -3,6 +3,7 @@
 
 use core::ops::Deref;
 
+use crate::render::webgl::UncheckedWebGlError;
 use crate::{WebGlError, WebGlOperation, WebGlResourceKind, WebGlShaderStage};
 
 use web_sys::{
@@ -33,7 +34,7 @@ pub(crate) struct Resource<T: GlResource> {
 // unique ownership and we don't end up deleting the same resource
 // twice.
 impl<T: GlResource> Resource<T> {
-    pub(crate) fn new(gl: &WebGl2RenderingContext) -> Result<Self, WebGlError> {
+    pub(crate) fn new(gl: &WebGl2RenderingContext) -> Result<Self, UncheckedWebGlError> {
         let raw = T::create(gl).ok_or(WebGlError::OperationFailed {
             operation: WebGlOperation::ResourceCreation(T::KIND),
             message: None,

@@ -166,7 +166,7 @@ async fn webgl_pending_renderer_init_completes() {
 /// Loads `vello_gpu_shaders`' JavaScript module the way a page would before the WASM binary, then
 /// calls its `compileVelloShaders` on `canvas` with `context_attributes`.
 #[cfg(feature = "webgl")]
-async fn compile_shaders_from_javascript(
+pub(crate) async fn compile_shaders_from_javascript(
     canvas: &web_sys::HtmlCanvasElement,
     context_attributes: &wasm_bindgen::JsValue,
 ) -> wasm_bindgen::JsValue {

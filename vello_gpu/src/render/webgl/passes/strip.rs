@@ -9,7 +9,9 @@ use crate::render::webgl::passes::{
     WebGlRendererContext, checked_instance_count, required_uniform_location,
 };
 use crate::render::webgl::resources::{WebGlResources, create_external_sampler};
-use crate::render::webgl::{WebGlError, WebGlOperation, WebGlShaderInterfaceOperation};
+use crate::render::webgl::{
+    UncheckedWebGlError, WebGlError, WebGlOperation, WebGlShaderInterfaceOperation,
+};
 use crate::util::RangedSlice;
 use crate::{
     GpuStrip, RenderError,
@@ -98,7 +100,7 @@ impl WebGlResources {
 pub(crate) fn get_strip_uniforms(
     gl: &WebGl2RenderingContext,
     program: &Program,
-) -> Result<StripUniforms, WebGlError> {
+) -> Result<StripUniforms, UncheckedWebGlError> {
     let config_vs_name = render::vertex::CONFIG;
     let config_vs_block_index = gl.get_uniform_block_index(program, config_vs_name);
 
@@ -109,14 +111,16 @@ pub(crate) fn get_strip_uniforms(
         return Err(WebGlError::OperationFailed {
             operation: WebGlOperation::ShaderInterface(WebGlShaderInterfaceOperation::UniformBlock),
             message: Some(config_vs_name.into()),
-        });
+        }
+        .into());
     }
 
     if config_fs_block_index == WebGl2RenderingContext::INVALID_INDEX {
         return Err(WebGlError::OperationFailed {
             operation: WebGlOperation::ShaderInterface(WebGlShaderInterfaceOperation::UniformBlock),
             message: Some(config_fs_name.into()),
-        });
+        }
+        .into());
     }
 
     // Bind uniform blocks to binding points.
@@ -204,7 +208,7 @@ impl WebGlRendererContext<'_> {
         external_texture_runs: &[ExternalTextureRun],
         first_instance: i32,
         count: i32,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         if count == 0 {
             return Ok(());
         }
@@ -254,7 +258,7 @@ impl WebGlRendererContext<'_> {
     fn bind_external_textures(
         &mut self,
         bindings: &ExternalTextureBindings,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         for (slot, texture_source) in bindings.as_array().into_iter().enumerate() {
             let texture_unit = EXTERNAL_TEXTURE_UNIT_START + u32::try_from(slot).unwrap();
 
@@ -315,7 +319,7 @@ impl WebGlRendererContext<'_> {
         external_texture_runs: &[ExternalTextureRun],
         target: DrawPassTarget,
         child_layer_texture: Option<LayerTextureId>,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         let opaque_count = opaque_strips.len();
         let alpha_count = alpha_strips.len();
         if opaque_count == 0 && alpha_count == 0 {

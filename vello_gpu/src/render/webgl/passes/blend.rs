@@ -3,7 +3,7 @@
 
 //! The blend pass.
 
-use crate::render::webgl::WebGlError;
+use crate::render::webgl::UncheckedWebGlError;
 use crate::render::webgl::gl::resource::Program;
 use crate::render::webgl::passes::{
     WebGlRendererContext, checked_instance_count, initialize_packed_u32_attribs,
@@ -43,7 +43,7 @@ impl WebGlResources {
 pub(crate) fn get_blend_uniforms(
     gl: &WebGl2RenderingContext,
     program: &Program,
-) -> Result<BlendUniforms, WebGlError> {
+) -> Result<BlendUniforms, UncheckedWebGlError> {
     Ok(BlendUniforms {
         layer_texture_0: required_uniform_location(gl, program, blend::fragment::LAYER_TEXTURE_0)?,
         layer_texture_1: required_uniform_location(gl, program, blend::fragment::LAYER_TEXTURE_1)?,
@@ -77,7 +77,7 @@ impl WebGlRendererContext<'_> {
         blends: RangedSlice<'_, BlendOp>,
         blend_strips: &[BlendStrip],
         bindings: BlendPassBindings,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         let texture_size = self.texture_size();
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);

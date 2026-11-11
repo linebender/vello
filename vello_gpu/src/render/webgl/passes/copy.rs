@@ -4,7 +4,7 @@
 //! The copy pass.
 
 use crate::copy::GpuCopyInstance;
-use crate::render::webgl::WebGlError;
+use crate::render::webgl::UncheckedWebGlError;
 use crate::render::webgl::gl::resource::Program;
 use crate::render::webgl::passes::{initialize_packed_u32_attribs, required_uniform_location};
 use crate::render::webgl::resources::WebGlResources;
@@ -37,7 +37,7 @@ impl WebGlResources {
 pub(crate) fn get_copy_uniforms(
     gl: &WebGl2RenderingContext,
     program: &Program,
-) -> Result<CopyUniforms, WebGlError> {
+) -> Result<CopyUniforms, UncheckedWebGlError> {
     Ok(CopyUniforms {
         source_texture: required_uniform_location(gl, program, copy::fragment::SOURCE_TEXTURE)?,
     })

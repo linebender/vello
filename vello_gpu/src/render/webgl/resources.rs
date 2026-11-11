@@ -10,7 +10,7 @@ use crate::render::webgl::passes::{
 };
 use crate::render::webgl::target::{WebGlTextureTarget, create_framebuffer_for_texture};
 use crate::render::webgl::{
-    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResultExt,
+    UncheckedWebGlError, WebGlDataTransferOperation, WebGlOperation, WebGlResultExt,
 };
 use crate::{
     LayersConfig, RenderSize, ResourceTexture,
@@ -173,7 +173,7 @@ impl WebGlResources {
         paint_idxs: &[u32],
         filter_context: &FilterContext,
         root_target: RootTarget,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         let resource_texture_dimension_2d = self.resource_texture_dimension_2d;
 
         self.maybe_resize_alphas_tex(gl, alphas.len())?;
@@ -205,7 +205,7 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         schedule: &Schedule,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         let current_size = self.texture_size;
         let requirements = schedule.intermediate_texture_requirements();
         let texture_size = requirements.size;
@@ -270,7 +270,7 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         required_atlas_count: u32,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         let (width, height) = self.atlas_size;
         while self.atlas_textures.len() < required_atlas_count as usize {
             let texture = create_atlas_texture(gl, width, height)?;
@@ -287,7 +287,7 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         alphas_len: usize,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         self.alphas_texture
             .ensure_bytes(alphas_len, |format, width, height| {
                 create_data_texture(gl, format, width, height)
@@ -301,7 +301,7 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         paint_idxs: &[u32],
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         self.encoded_paints_texture
             .ensure_texels(*paint_idxs.last().unwrap(), |format, width, height| {
                 create_data_texture(gl, format, width, height)
@@ -315,7 +315,7 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         gradient_cache: &GradientRampCache,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         if gradient_cache.is_empty() {
             return Ok(());
         }
@@ -376,7 +376,7 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         alphas: &mut Vec<u8>,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         if alphas.is_empty() {
             return Ok(());
         }
@@ -389,7 +389,7 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         encoded_paints: &[GpuEncodedPaint],
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         if !encoded_paints.is_empty() {
             self.encoded_paints_texture.upload_chunks(
                 gl,
@@ -406,7 +406,7 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         gradient_cache: &mut GradientRampCache,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         if gradient_cache.is_empty() {
             return Ok(());
         }
@@ -419,7 +419,7 @@ pub(crate) fn create_texture(
     gl: &WebGl2RenderingContext,
     min_filter: u32,
     mag_filter: u32,
-) -> Result<Texture, WebGlError> {
+) -> Result<Texture, UncheckedWebGlError> {
     create_texture_inner(
         gl,
         WebGl2RenderingContext::TEXTURE_2D,
@@ -433,7 +433,7 @@ pub(crate) fn create_texture_inner(
     target: u32,
     min_filter: u32,
     mag_filter: u32,
-) -> Result<Texture, WebGlError> {
+) -> Result<Texture, UncheckedWebGlError> {
     let texture = Texture::new(gl)?;
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(target, Some(&texture));
@@ -476,7 +476,7 @@ pub(crate) fn create_texture_storage(
     height: u32,
     min_filter: u32,
     mag_filter: u32,
-) -> Result<Texture, WebGlError> {
+) -> Result<Texture, UncheckedWebGlError> {
     let texture = create_texture(gl, min_filter, mag_filter)?;
     // `create_texture` leaves the new texture bound on the active texture unit.
     // Prefer `texStorage2D` over `texImage2D` for potentially better performance; see
@@ -496,7 +496,7 @@ fn create_placeholder_data_texture(
     kind: ResourceTexture,
     format: DataTextureFormat,
     width: u32,
-) -> Result<DataTexture<Texture>, WebGlError> {
+) -> Result<DataTexture<Texture>, UncheckedWebGlError> {
     let texture = create_placeholder_texture(gl, format)?;
     Ok(DataTexture::new(texture, kind, format, width, 0))
 }
@@ -509,7 +509,7 @@ fn create_placeholder_data_texture(
 fn create_placeholder_texture(
     gl: &WebGl2RenderingContext,
     format: DataTextureFormat,
-) -> Result<Texture, WebGlError> {
+) -> Result<Texture, UncheckedWebGlError> {
     create_data_texture(gl, format, 1, 1)
 }
 
@@ -519,7 +519,7 @@ pub(crate) fn create_data_texture(
     format: DataTextureFormat,
     width: u32,
     height: u32,
-) -> Result<Texture, WebGlError> {
+) -> Result<Texture, UncheckedWebGlError> {
     let internal_format = match format {
         DataTextureFormat::Rgba8 => WebGl2RenderingContext::RGBA8,
         DataTextureFormat::Rgba32Uint => WebGl2RenderingContext::RGBA32UI,
@@ -563,7 +563,7 @@ pub(crate) fn upload_layer_config_buffer(
 pub(crate) fn create_external_sampler(
     gl: &WebGl2RenderingContext,
     key: ExternalSampler,
-) -> Result<Sampler, WebGlError> {
+) -> Result<Sampler, UncheckedWebGlError> {
     let sampler = Sampler::new(gl)?;
 
     let filter = match key.filter {
@@ -599,7 +599,7 @@ pub(crate) fn create_webgl_resources(
     layer_config: LayersConfig,
     resource_texture_dimension_2d: u32,
     use_depth_buffer: bool,
-) -> Result<WebGlResources, WebGlError> {
+) -> Result<WebGlResources, UncheckedWebGlError> {
     let quad_index_buffer = Buffer::new(gl)?;
     let strip_vao = VertexArray::new(gl)?;
     // We use u16 for the indices instead of u8 due to better compatibility, to avoid overhead
@@ -743,7 +743,7 @@ pub(crate) fn create_webgl_resources(
 pub(crate) fn create_intermediate_texture(
     gl: &WebGl2RenderingContext,
     size: SizeU16,
-) -> Result<WebGlIntermediateTexture, WebGlError> {
+) -> Result<WebGlIntermediateTexture, UncheckedWebGlError> {
     let texture = create_texture_storage(
         gl,
         WebGl2RenderingContext::RGBA8,
@@ -764,7 +764,7 @@ pub(crate) fn create_atlas_texture(
     gl: &WebGl2RenderingContext,
     width: u16,
     height: u16,
-) -> Result<Texture, WebGlError> {
+) -> Result<Texture, UncheckedWebGlError> {
     create_texture_storage(
         gl,
         WebGl2RenderingContext::RGBA8,
@@ -781,7 +781,7 @@ impl DataTexture<Texture> {
         &self,
         gl: &WebGl2RenderingContext,
         data: &mut Vec<u8>,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         let rows = self.rows_for_bytes(data.len());
         let original_len = data.len();
         data.resize(self.rows_len(rows), 0);
@@ -806,7 +806,7 @@ impl DataTexture<Texture> {
         gl: &WebGl2RenderingContext,
         staging: &mut Vec<u8>,
         chunks: impl IntoIterator<Item = &'a [u8]>,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         staging.clear();
         for chunk in chunks {
             staging.extend_from_slice(chunk);
@@ -826,7 +826,7 @@ fn upload_rgba8_rows(
     data: &[u8],
     width: u32,
     rows: u32,
-) -> Result<(), WebGlError> {
+) -> Result<(), UncheckedWebGlError> {
     debug_assert_eq!(
         data.len(),
         (width * rows * 4) as usize,
@@ -861,7 +861,7 @@ fn upload_rgba32ui_rows(
     data: &[u32],
     width: u32,
     rows: u32,
-) -> Result<(), WebGlError> {
+) -> Result<(), UncheckedWebGlError> {
     debug_assert_eq!(
         data.len(),
         (width * rows * 4) as usize,

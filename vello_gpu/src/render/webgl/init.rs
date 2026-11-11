@@ -15,8 +15,9 @@ use crate::render::webgl::passes::strip::get_strip_uniforms;
 use crate::render::webgl::resources::{WebGlResources, create_webgl_resources};
 use crate::render::webgl::target::REQUIRED_DEPTH_BITS;
 use crate::render::webgl::{
-    IncompatibleContextReason, IncompatiblePrecompiledShadersReason, WebGlContextOperation,
-    WebGlError, WebGlOperation, WebGlResultExt, WebGlShaderProgramOperation, WebGlShaderStage,
+    IncompatibleContextReason, IncompatiblePrecompiledShadersReason, UncheckedWebGlError,
+    WebGlContextOperation, WebGlError, WebGlOperation, WebGlResultExt, WebGlShaderProgramOperation,
+    WebGlShaderStage, query_u32,
 };
 use crate::{
     RenderSettings, Resources,
@@ -35,12 +36,10 @@ extern "C" {
 }
 
 /// Query the WebGL context for the max texture size.
-pub(crate) fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> Result<u32, WebGlError> {
-    Ok(gl
-        .get_parameter(WebGl2RenderingContext::MAX_TEXTURE_SIZE)
-        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
-        .as_f64()
-        .unwrap() as u32)
+pub(crate) fn get_max_texture_dimension_2d(
+    gl: &WebGl2RenderingContext,
+) -> Result<u32, UncheckedWebGlError> {
+    query_u32(gl.get_parameter(WebGl2RenderingContext::MAX_TEXTURE_SIZE))
 }
 
 /// Result of polling WebGL renderer initialization.
@@ -147,7 +146,10 @@ impl WebGlRenderer {
         settings: RenderSettings,
         use_depth_buffer: bool,
     ) -> Result<(WebGlRendererInit, Resources), WebGlError> {
-        Self::begin_with_shaders(WebGlShaders::compile(canvas, use_depth_buffer)?, settings)
+        let gl = create_context(canvas, use_depth_buffer)?;
+        WebGlShaders::compile(gl.clone(), use_depth_buffer)
+            .and_then(|shaders| Self::begin_with_shaders(shaders, settings))
+            .map_err(|error| error.check(&gl))
     }
 
     /// Begins creating a WebGL2 renderer from the shader programs that the `compileVelloShaders`
@@ -173,14 +175,17 @@ impl WebGlRenderer {
         precompiled: &JsValue,
         settings: RenderSettings,
     ) -> Result<(WebGlRendererInit, Resources), WebGlError> {
-        Self::begin_with_shaders(WebGlShaders::from_precompiled(precompiled)?, settings)
+        let (gl, canvas) = precompiled_context(precompiled)?;
+        WebGlShaders::from_precompiled(&gl, &canvas, precompiled)
+            .and_then(|shaders| Self::begin_with_shaders(shaders, settings))
+            .map_err(|error| error.check(&gl))
     }
 
     /// Allocates the renderer's persistent resources without waiting for `shaders` to compile.
     fn begin_with_shaders(
         shaders: WebGlShaders,
         mut settings: RenderSettings,
-    ) -> Result<(WebGlRendererInit, Resources), WebGlError> {
+    ) -> Result<(WebGlRendererInit, Resources), UncheckedWebGlError> {
         let gl = &shaders.gl;
         let device_limits = DeviceLimits {
             max_texture_dimension_2d: u16::try_from(get_max_texture_dimension_2d(gl)?)
@@ -230,6 +235,23 @@ pub(crate) fn create_context(
     }
     crate::render::common::maybe_warn_about_webgl_feature_conflict();
 
+    let context_options =
+        context_options(use_depth_buffer).map_err(UncheckedWebGlError::without_context)?;
+    let context = canvas
+        .get_context_with_context_options("webgl2", &context_options)
+        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Create))
+        .map_err(UncheckedWebGlError::without_context)?
+        .ok_or(WebGlError::ContextUnavailable)?;
+    let gl = context
+        .dyn_into::<WebGl2RenderingContext>()
+        .expect("Context to be a WebGL2 context");
+
+    configure_context(&gl, use_depth_buffer).map_err(|error| error.check(&gl))?;
+
+    Ok(gl)
+}
+
+fn context_options(use_depth_buffer: bool) -> Result<js_sys::Object, UncheckedWebGlError> {
     // We do our own anti-aliasing, so no need to enable it in the WebGL
     // context.
     let context_options = js_sys::Object::new();
@@ -262,14 +284,13 @@ pub(crate) fn create_context(
     js_sys::Reflect::set(&context_options, &"depth".into(), depth)
         .map_js_error(WebGlOperation::Context(WebGlContextOperation::Configure))?;
 
-    let context = canvas
-        .get_context_with_context_options("webgl2", &context_options)
-        .map_js_error(WebGlOperation::Context(WebGlContextOperation::Create))?
-        .ok_or(WebGlError::ContextUnavailable)?;
-    let gl = context
-        .dyn_into::<WebGl2RenderingContext>()
-        .expect("Context to be a WebGL2 context");
+    Ok(context_options)
+}
 
+fn configure_context(
+    gl: &WebGl2RenderingContext,
+    use_depth_buffer: bool,
+) -> Result<(), UncheckedWebGlError> {
     // See https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_webgl_provoking_vertex_when_its_available
     // for why we need to set this. This has been confirmed by benchmarks, where doing just a
     // couple of draw calls with external textures tanks performance on any
@@ -310,19 +331,16 @@ pub(crate) fn create_context(
         // creating a new one with the correct context_options set.
         // See this comment for why we still care about non-antialiased context:
         // https://github.com/linebender/vello/pull/1546/changes#r3008692535
-        if context_attribute(&gl, "antialias")? {
+        if context_attribute(gl, "antialias")? {
             return Err(WebGlError::IncompatibleContext(
                 IncompatibleContextReason::AntialiasingEnabled,
-            ));
+            )
+            .into());
         }
     }
 
     if use_depth_buffer {
-        let actual_bits = gl
-            .get_parameter(WebGl2RenderingContext::DEPTH_BITS)
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
-            .as_f64()
-            .unwrap() as u32;
+        let actual_bits = query_u32(gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS))?;
 
         if actual_bits < REQUIRED_DEPTH_BITS {
             return Err(WebGlError::IncompatibleContext(
@@ -330,18 +348,19 @@ pub(crate) fn create_context(
                     actual_bits,
                     required_bits: REQUIRED_DEPTH_BITS,
                 },
-            ));
+            )
+            .into());
         }
     }
 
-    Ok(gl)
+    Ok(())
 }
 
 /// Returns a boolean attribute that `gl` was actually created with.
 pub(crate) fn context_attribute(
     gl: &WebGl2RenderingContext,
     name: &str,
-) -> Result<bool, WebGlError> {
+) -> Result<bool, UncheckedWebGlError> {
     let context_attributes = gl
         .get_context_attributes()
         .ok_or(WebGlError::OperationFailed {
@@ -382,6 +401,11 @@ impl WebGlRendererInit {
     ///
     /// This does not block once [`WebGlRendererInit::is_ready`] has returned `true`.
     pub fn finish(self) -> Result<WebGlRenderer, WebGlError> {
+        let gl = self.shaders.gl.clone();
+        self.finish_inner().map_err(|error| error.check(&gl))
+    }
+
+    fn finish_inner(self) -> Result<WebGlRenderer, UncheckedWebGlError> {
         let Self {
             shaders,
             resources,
@@ -455,7 +479,7 @@ impl PendingShaderProgram {
         gl: &WebGl2RenderingContext,
         vertex_src: &str,
         fragment_src: &str,
-    ) -> Result<Self, WebGlError> {
+    ) -> Result<Self, UncheckedWebGlError> {
         let vertex_shader = VertexShader::new(gl)?;
         gl.shader_source(&vertex_shader, vertex_src);
         gl.compile_shader(&vertex_shader);
@@ -487,7 +511,7 @@ impl PendingShaderProgram {
             .unwrap_or(false)
     }
 
-    fn finish(self, gl: &WebGl2RenderingContext) -> Result<Program, WebGlError> {
+    fn finish(self, gl: &WebGl2RenderingContext) -> Result<Program, UncheckedWebGlError> {
         if !gl
             .get_program_parameter(&self.program, WebGl2RenderingContext::LINK_STATUS)
             .as_bool()
@@ -507,7 +531,8 @@ impl PendingShaderProgram {
                         WebGlShaderStage::Vertex,
                     )),
                     message: Some(info),
-                });
+                }
+                .into());
             }
 
             if !gl
@@ -527,7 +552,8 @@ impl PendingShaderProgram {
                         WebGlShaderStage::Fragment,
                     )),
                     message: Some(info),
-                });
+                }
+                .into());
             }
 
             let info = gl
@@ -537,7 +563,8 @@ impl PendingShaderProgram {
             return Err(WebGlError::OperationFailed {
                 operation: WebGlOperation::ShaderProgram(WebGlShaderProgramOperation::Link),
                 message: Some(info),
-            });
+            }
+            .into());
         }
 
         Ok(self.program)
@@ -547,35 +574,28 @@ impl PendingShaderProgram {
 impl WebGlShaders {
     const PROGRAM_COUNT: u32 = 4;
 
-    /// Creates the canvas's WebGL2 context and starts compiling and linking all shader programs,
-    /// returning without waiting for them to finish.
-    fn compile(canvas: &HtmlCanvasElement, use_depth_buffer: bool) -> Result<Self, WebGlError> {
-        let gl = create_context(canvas, use_depth_buffer)?;
+    /// Starts compiling and linking all shader programs, returning without waiting for them to
+    /// finish.
+    fn compile(
+        gl: WebGl2RenderingContext,
+        use_depth_buffer: bool,
+    ) -> Result<Self, UncheckedWebGlError> {
         let (compilation_start_ms, programs) = compile_programs(&gl)?;
 
         Self::from_programs(gl, use_depth_buffer, compilation_start_ms, programs)
     }
 
     /// See [`WebGlRenderer::begin_with_precompiled`].
-    fn from_precompiled(precompiled: &JsValue) -> Result<Self, WebGlError> {
-        let not_a_result = || {
-            WebGlError::IncompatiblePrecompiledShaders(
-                IncompatiblePrecompiledShadersReason::NotCompileVelloShadersResult,
-            )
-        };
-        let context = precompiled_field(precompiled, "gl")
-            .ok()
-            .and_then(|gl| gl.dyn_into::<WebGl2RenderingContext>().ok())
-            .ok_or_else(not_a_result)?;
-        let canvas = context
-            .canvas()
-            .and_then(|canvas| canvas.dyn_into::<HtmlCanvasElement>().ok())
-            .ok_or_else(not_a_result)?;
-        let use_depth_buffer = context_attribute(&context, "depth")?;
+    fn from_precompiled(
+        context: &WebGl2RenderingContext,
+        canvas: &HtmlCanvasElement,
+        precompiled: &JsValue,
+    ) -> Result<Self, UncheckedWebGlError> {
+        let use_depth_buffer = context_attribute(context, "depth")?;
 
         // The canvas already has the context `compileVelloShaders` created, so this validates and
         // returns it rather than creating a new one.
-        let gl = create_context(&canvas, use_depth_buffer)?;
+        let gl = create_context(canvas, use_depth_buffer)?;
         let (compilation_start_ms, programs) = adopt_precompiled_programs(&gl, precompiled)
             .map_err(WebGlError::IncompatiblePrecompiledShaders)?;
 
@@ -587,7 +607,7 @@ impl WebGlShaders {
         use_depth_buffer: bool,
         compilation_start_ms: f64,
         [strip_program, filter_program, blend_program, copy_program]: [PendingShaderProgram; 4],
-    ) -> Result<Self, WebGlError> {
+    ) -> Result<Self, UncheckedWebGlError> {
         let parallel_shader_compile = gl
             .get_extension("KHR_parallel_shader_compile")
             .map_js_error(WebGlOperation::Context(WebGlContextOperation::Extension))?
@@ -629,7 +649,7 @@ impl WebGlShaders {
 /// [`WebGlShaders`]' field order.
 pub(crate) fn compile_programs(
     gl: &WebGl2RenderingContext,
-) -> Result<(f64, [PendingShaderProgram; 4]), WebGlError> {
+) -> Result<(f64, [PendingShaderProgram; 4]), UncheckedWebGlError> {
     // Must be enabled before compiling: besides the completion status polled by
     // `WebGlShaders::is_ready`, enabling it is what makes Chromium compile on background threads.
     gl.get_extension("KHR_parallel_shader_compile")
@@ -703,6 +723,27 @@ pub(crate) fn adopt_precompiled_programs(
             adopt("copy")?,
         ],
     ))
+}
+
+/// Returns the WebGL2 context and canvas of a `compileVelloShaders` result.
+fn precompiled_context(
+    precompiled: &JsValue,
+) -> Result<(WebGl2RenderingContext, HtmlCanvasElement), WebGlError> {
+    let not_a_result = || {
+        WebGlError::IncompatiblePrecompiledShaders(
+            IncompatiblePrecompiledShadersReason::NotCompileVelloShadersResult,
+        )
+    };
+    let context = precompiled_field(precompiled, "gl")
+        .ok()
+        .and_then(|gl| gl.dyn_into::<WebGl2RenderingContext>().ok())
+        .ok_or_else(not_a_result)?;
+    let canvas = context
+        .canvas()
+        .and_then(|canvas| canvas.dyn_into::<HtmlCanvasElement>().ok())
+        .ok_or_else(not_a_result)?;
+
+    Ok((context, canvas))
 }
 
 /// Returns a field of a `compileVelloShaders` result, or of an object nested in it.

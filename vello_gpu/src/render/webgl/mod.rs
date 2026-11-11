@@ -35,13 +35,13 @@ mod target;
 pub use bindings::WebGlTextureBindings;
 #[cfg(feature = "probe")]
 pub use error::WebGlProbeOperation;
-pub(crate) use error::WebGlResultExt;
 pub use error::{
     IncompatibleContextReason, IncompatiblePrecompiledShadersReason, InvalidTextureTargetReason,
     WebGlContextOperation, WebGlDataTransferOperation, WebGlError, WebGlOperation,
     WebGlResourceKind, WebGlShaderInterfaceOperation, WebGlShaderProgramOperation,
     WebGlShaderStage,
 };
+pub(crate) use error::{UncheckedWebGlError, WebGlResultExt, query_u32};
 pub use init::{ShaderCompilationStats, WebGlRendererInit, WebGlRendererInitStatus};
 pub use target::{WebGlRenderTarget, WebGlTextureTarget};
 
@@ -139,6 +139,7 @@ impl WebGlRenderer {
         height: u16,
     ) -> Result<WebGlTextureTarget, WebGlError> {
         WebGlTextureTarget::new(&self.gl, texture, depth, width, height)
+            .map_err(|error| error.check(&self.gl))
     }
 
     /// Reset the renderer and `resources` and free the memory they grew for earlier scenes.
@@ -153,7 +154,8 @@ impl WebGlRenderer {
             self.scene_preparer.layers_config,
             self.resources.resource_texture_dimension_2d,
             self.resources.drawing_buffer_uses_depth_buffer,
-        )?;
+        )
+        .map_err(|error| error.check(&self.gl))?;
         self.resources = webgl_resources;
         self.scene_preparer.reset_and_shrink();
         resources.clear();
@@ -181,6 +183,18 @@ impl WebGlRenderer {
         texture_bindings: &WebGlTextureBindings,
         options: WebGlRenderOptions,
     ) -> Result<(), WebGlError> {
+        self.render_inner(scene, resources, target, texture_bindings, options)
+            .map_err(|error| error.check(&self.gl))
+    }
+
+    fn render_inner(
+        &mut self,
+        scene: &Scene,
+        resources: &mut Resources,
+        target: WebGlRenderTarget<'_>,
+        texture_bindings: &WebGlTextureBindings,
+        options: WebGlRenderOptions,
+    ) -> Result<(), UncheckedWebGlError> {
         #[cfg(feature = "text")]
         resources.before_render(
             self,
@@ -264,7 +278,7 @@ impl WebGlRenderer {
         atlas_config: AtlasConfig,
         atlas_id: AtlasId,
         texture_bindings: &WebGlTextureBindings,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         self.resources
             .maybe_create_atlas_textures(&self.gl, atlas_count)?;
 
@@ -303,8 +317,8 @@ impl WebGlRenderer {
     fn render_offscreen(
         &mut self,
         target: &WebGlTextureTarget,
-        render: impl FnOnce(&mut Self) -> Result<(), WebGlError>,
-    ) -> Result<(), WebGlError> {
+        render: impl FnOnce(&mut Self) -> Result<(), UncheckedWebGlError>,
+    ) -> Result<(), UncheckedWebGlError> {
         let previous_target = self.resources.root_target.replace(target.clone());
         let result = render(self);
         self.resources.root_target = previous_target;
@@ -331,7 +345,7 @@ impl WebGlRenderer {
         texture_bindings: &WebGlTextureBindings,
         render_target_texture: Option<&WebGlTexture>,
         scene_offset: (i32, i32),
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         let use_depth_buffer = self.resources.root_uses_depth_buffer();
         self.scene_preparer.gradient_cache.maintain();
 
@@ -427,7 +441,7 @@ impl WebGlRenderer {
         image_id: ImageId,
         pixmap: &Pixmap,
         offset: [u16; 2],
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         let image_resource = image_cache
             .get(image_id)
             .ok_or(RenderError::MissingAtlasEntry(image_id))?;
@@ -450,7 +464,7 @@ impl WebGlRenderer {
         offset: [u16; 2],
         width: u16,
         height: u16,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(&self.resources.atlas_targets[atlas_id.as_u32() as usize].framebuffer),
@@ -482,7 +496,7 @@ impl WebGlRenderer {
 fn clear_atlas_region(
     renderer: &mut WebGlRenderer,
     rect: &PendingClearRect,
-) -> Result<(), WebGlError> {
+) -> Result<(), UncheckedWebGlError> {
     // TODO: Similarly to wgpu, maybe this can be done in a more effective
     // way?
     renderer.clear_atlas_region(

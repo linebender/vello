@@ -4,7 +4,7 @@
 use crate::render::webgl::gl::resource::{Buffer, Framebuffer, Renderbuffer, SyncFence};
 use crate::render::webgl::resources::create_texture_storage;
 use crate::render::webgl::{
-    WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlTextureBindings,
+    UncheckedWebGlError, WebGlOperation, WebGlProbeOperation, WebGlResultExt, WebGlTextureBindings,
 };
 use crate::target::RootTarget;
 use crate::{ClearSettings, RenderError, RenderSize, Scene, TargetInit, WebGlError, WebGlRenderer};
@@ -76,10 +76,14 @@ impl WebGlRenderer {
             return Err(WebGlProbeError::NoElements);
         }
 
-        self.probe_inner(elements).map_err(WebGlProbeError::WebGl)
+        self.probe_inner(elements)
+            .map_err(|error| WebGlProbeError::WebGl(error.check(&self.gl)))
     }
 
-    fn probe_inner(&mut self, elements: &[ProbeFeature]) -> Result<WebGlPendingProbe, WebGlError> {
+    fn probe_inner(
+        &mut self,
+        elements: &[ProbeFeature],
+    ) -> Result<WebGlPendingProbe, UncheckedWebGlError> {
         // Whenever making changes here, make sure to unignore the `webgl_probe_succeeds_` and
         // run them locally!
         let (width, height) = vello_common::probe::canvas_size(elements);
@@ -232,6 +236,10 @@ impl WebGlPendingProbe {
     }
 
     fn finish_failure(&self) -> WebGlProbeError {
+        if self.gl.is_context_lost() {
+            return WebGlProbeError::WebGl(WebGlError::ContextLost);
+        }
+
         WebGlProbeError::FinishFailed(self.gl.get_error())
     }
 }
@@ -258,7 +266,7 @@ fn launch_probe(
     width: u16,
     height: u16,
     elements: &[ProbeFeature],
-) -> Result<WebGlPendingProbe, WebGlError> {
+) -> Result<WebGlPendingProbe, UncheckedWebGlError> {
     let pixel_pack_buffer = Buffer::new(gl)?;
     let byte_len = i32::from(width) * i32::from(height) * 4;
 

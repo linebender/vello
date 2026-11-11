@@ -20,6 +20,7 @@ This release has an [MSRV][] of 1.89.
 - Anisotropic Gaussian blur: `FilterPrimitive::GaussianBlur` with a different standard deviation per axis, including blurs along one axis only. ([#1997][] by [@theashraf][])
 - `Renderer::reset_and_shrink` and `WebGlRenderer::reset_and_shrink` reset the renderer and its `Resources` and free the textures, buffers and caches they grew for earlier scenes, including all cached glyphs. (by [@LaurenzV][])
 - `Scene::reset_and_shrink` resets a scene and frees the memory it grew. (by [@LaurenzV][])
+- `WebGlError::ContextLost`, which WebGL methods now return instead of other errors or panics when the WebGL context has been lost. (by [@LaurenzV][])
 - `Scene::fill_blurred_rounded_rect_in` for painting a blurred rounded rectangle inside an arbitrary path, with an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. ([#1718][] by [@nicoburns][])
 
 ### Changed

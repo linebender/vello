@@ -4,7 +4,7 @@
 //! Writing image data into atlas textures.
 
 use crate::render::webgl::{
-    WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResultExt,
+    UncheckedWebGlError, WebGlDataTransferOperation, WebGlOperation, WebGlResultExt,
 };
 use vello_common::pixmap::Pixmap;
 use web_sys::{WebGl2RenderingContext, WebGlTexture};
@@ -14,7 +14,7 @@ pub(crate) fn write_pixmap_to_atlas(
     pixmap: &Pixmap,
     atlas_texture: &WebGlTexture,
     offset: [u16; 2],
-) -> Result<(), WebGlError> {
+) -> Result<(), UncheckedWebGlError> {
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(atlas_texture));
 

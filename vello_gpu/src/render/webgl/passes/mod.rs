@@ -18,7 +18,9 @@ use crate::render::webgl::passes::copy::CopyUniforms;
 use crate::render::webgl::passes::filter::FilterPassUniforms;
 use crate::render::webgl::passes::strip::StripUniforms;
 use crate::render::webgl::resources::WebGlResources;
-use crate::render::webgl::{WebGlError, WebGlOperation, WebGlShaderInterfaceOperation};
+use crate::render::webgl::{
+    UncheckedWebGlError, WebGlError, WebGlOperation, WebGlShaderInterfaceOperation,
+};
 use crate::util::RangedSlice;
 use crate::{
     ClearSettings, GpuStrip,
@@ -62,12 +64,14 @@ pub(crate) fn required_uniform_location(
     gl: &WebGl2RenderingContext,
     program: &Program,
     name: &'static str,
-) -> Result<WebGlUniformLocation, WebGlError> {
-    gl.get_uniform_location(program, name)
-        .ok_or_else(|| WebGlError::OperationFailed {
+) -> Result<WebGlUniformLocation, UncheckedWebGlError> {
+    gl.get_uniform_location(program, name).ok_or_else(|| {
+        WebGlError::OperationFailed {
             operation: WebGlOperation::ShaderInterface(WebGlShaderInterfaceOperation::Uniform),
             message: Some(name.into()),
-        })
+        }
+        .into()
+    })
 }
 
 pub(crate) fn initialize_packed_u32_attribs(gl: &WebGl2RenderingContext, count: u32, stride: i32) {
@@ -97,8 +101,8 @@ pub(crate) struct WebGlRendererContext<'a> {
     pub(crate) use_depth_buffer: bool,
 }
 
-pub(crate) fn checked_instance_count(value: usize) -> Result<i32, WebGlError> {
-    i32::try_from(value).map_err(|_| WebGlError::TooManyInstances)
+pub(crate) fn checked_instance_count(value: usize) -> Result<i32, UncheckedWebGlError> {
+    i32::try_from(value).map_err(|_| WebGlError::TooManyInstances.into())
 }
 
 impl WebGlRendererContext<'_> {
@@ -122,7 +126,7 @@ impl WebGlRendererContext<'_> {
 }
 
 impl Backend for WebGlRendererContext<'_> {
-    type Error = WebGlError;
+    type Error = UncheckedWebGlError;
 
     fn opaque_draw_pass(
         &mut self,

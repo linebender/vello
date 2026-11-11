@@ -6,7 +6,7 @@
 use crate::RenderSize;
 use crate::render::webgl::gl::resource::Framebuffer;
 use crate::render::webgl::{
-    InvalidTextureTargetReason, WebGlContextOperation, WebGlError, WebGlOperation, WebGlResultExt,
+    InvalidTextureTargetReason, UncheckedWebGlError, WebGlError, query_u32,
 };
 use alloc::rc::Rc;
 use web_sys::{WebGl2RenderingContext, WebGlRenderbuffer, WebGlTexture};
@@ -59,7 +59,7 @@ impl WebGlTextureTarget {
         depth: Option<&WebGlRenderbuffer>,
         width: u16,
         height: u16,
-    ) -> Result<Self, WebGlError> {
+    ) -> Result<Self, UncheckedWebGlError> {
         let framebuffer = create_framebuffer_for_texture(gl, texture)?;
         gl.framebuffer_renderbuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
@@ -85,7 +85,7 @@ impl WebGlTextureTarget {
         texture: &WebGlTexture,
         width: u16,
         height: u16,
-    ) -> Result<Self, WebGlError> {
+    ) -> Result<Self, UncheckedWebGlError> {
         // Unlike `new`, we don't do validation here since we know our atlas framebuffers
         // are valid.
         let framebuffer = create_framebuffer_for_texture(gl, texture)?;
@@ -121,24 +121,21 @@ impl WebGlTextureTarget {
 pub(crate) fn validate_bound_texture_target(
     gl: &WebGl2RenderingContext,
     use_depth_buffer: bool,
-) -> Result<(), WebGlError> {
+) -> Result<(), UncheckedWebGlError> {
     let status = gl.check_framebuffer_status(WebGl2RenderingContext::FRAMEBUFFER);
     if status != WebGl2RenderingContext::FRAMEBUFFER_COMPLETE {
         return Err(WebGlError::InvalidTextureTarget(
             InvalidTextureTargetReason::IncompleteFramebuffer { status },
-        ));
+        )
+        .into());
     }
 
     if use_depth_buffer {
-        let actual_bits = gl
-            .get_framebuffer_attachment_parameter(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                WebGl2RenderingContext::DEPTH_ATTACHMENT,
-                WebGl2RenderingContext::FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE,
-            )
-            .map_js_error(WebGlOperation::Context(WebGlContextOperation::Query))?
-            .as_f64()
-            .unwrap() as u32;
+        let actual_bits = query_u32(gl.get_framebuffer_attachment_parameter(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            WebGl2RenderingContext::DEPTH_ATTACHMENT,
+            WebGl2RenderingContext::FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE,
+        ))?;
 
         if actual_bits < REQUIRED_DEPTH_BITS {
             return Err(WebGlError::InvalidTextureTarget(
@@ -146,7 +143,8 @@ pub(crate) fn validate_bound_texture_target(
                     actual_bits,
                     required_bits: REQUIRED_DEPTH_BITS,
                 },
-            ));
+            )
+            .into());
         }
     }
 
@@ -157,7 +155,7 @@ pub(crate) fn validate_bound_texture_target(
 pub(crate) fn create_framebuffer_for_texture(
     gl: &WebGl2RenderingContext,
     texture: &WebGlTexture,
-) -> Result<Framebuffer, WebGlError> {
+) -> Result<Framebuffer, UncheckedWebGlError> {
     let framebuffer = Framebuffer::new(gl)?;
     gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
 

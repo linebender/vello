@@ -3,7 +3,7 @@
 
 //! The filter pass.
 
-use crate::render::webgl::WebGlError;
+use crate::render::webgl::UncheckedWebGlError;
 use crate::render::webgl::gl::resource::Program;
 use crate::render::webgl::passes::{
     WebGlRendererContext, checked_instance_count, initialize_packed_u32_attribs,
@@ -30,7 +30,7 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         filter_context: &FilterContext,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         self.filter_data_texture
             .ensure_bytes(filter_context.as_bytes().len(), |format, width, height| {
                 create_data_texture(gl, format, width, height)
@@ -44,7 +44,7 @@ impl WebGlResources {
         &mut self,
         gl: &WebGl2RenderingContext,
         filter_context: &FilterContext,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         if filter_context.is_empty() {
             return Ok(());
         }
@@ -73,7 +73,7 @@ impl WebGlResources {
 pub(crate) fn get_filter_pass_uniforms(
     gl: &WebGl2RenderingContext,
     program: &Program,
-) -> Result<FilterPassUniforms, WebGlError> {
+) -> Result<FilterPassUniforms, UncheckedWebGlError> {
     let filter_data = required_uniform_location(gl, program, filter_shader::fragment::FILTER_DATA)?;
     let source_texture =
         required_uniform_location(gl, program, filter_shader::fragment::SOURCE_TEXTURE)?;
@@ -111,7 +111,7 @@ impl WebGlRendererContext<'_> {
         &mut self,
         plan: &FilterPassPlan,
         bindings: FilterPassBindings,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         if let Some(copy_pass) = plan.copy_pass() {
             self.resources.upload_copy_instances(self.gl, copy_pass);
             self.gl.disable(WebGl2RenderingContext::BLEND);
@@ -178,7 +178,7 @@ impl WebGlRendererContext<'_> {
         instances: &[FilterInstanceData],
         input: LayerTextureId,
         output: LayerTextureId,
-    ) -> Result<(), WebGlError> {
+    ) -> Result<(), UncheckedWebGlError> {
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
