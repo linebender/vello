@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- `TextureBindings::get`, `TextureBindings::contains` and `WebGlTextureBindings::contains` for checking which textures are bound. (by [@nicoburns][])
+
 ## [0.4.0][] - 2026-11-11
 
 This release has an [MSRV][] of 1.89.
