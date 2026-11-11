@@ -20,7 +20,7 @@ vello_gpu = { workspace = true, default-features = false, features = ["probe", "
 vello_test_support = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-vello_cpu = { version = "0.3.0", path = "../../vello_cpu", default-features = false, features = [
+vello_cpu = { version = "0.4.0", path = "../../vello_cpu", default-features = false, features = [
     "std",
     "f32_pipeline",
 ] }

@@ -12,12 +12,18 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+## [0.12.0][] - 2026-11-11
+
+This release has an [MSRV][] of 1.89.
+
 ### Changed
 
+- Updated to `skrifa` 0.49. ([#1996][] by [@nicoburns][])
 - Breaking change: `Scene::draw_blurred_rounded_rect_in` now has an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. Use `false` to preserve the previous behavior. `vello_encoding::Encoding::encode_blurred_rounded_rect` has the same new parameter. ([#1718][] by [@nicoburns][])
 
 ### Fixed
 
+- A GPU hang on DX12 with FXC when rendering scenes with many paths. ([#1992][] by [@kong109][])
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
 
 ## [0.11.0][] - 2026-10-02
@@ -361,6 +367,7 @@ This release has an [MSRV][] of 1.75.
 [@jrmoulton]: https://github.com/jrmoulton
 [@Keavon]: https://github.com/Keavon
 [@kmoon2437]: https://github.com/kmoon2437
+[@kong109]: https://github.com/kong109
 [@LaurenzV]: https://github.com/LaurenzV
 [@msiglreith]: https://github.com/msiglreith
 [@nicoburns]: https://github.com/nicoburns
@@ -494,9 +501,12 @@ This release has an [MSRV][] of 1.75.
 [#1909]: https://github.com/linebender/vello/pull/1909
 [#1936]: https://github.com/linebender/vello/pull/1936
 [#1939]: https://github.com/linebender/vello/pull/1939
+[#1992]: https://github.com/linebender/vello/pull/1992
+[#1996]: https://github.com/linebender/vello/pull/1996
 [#2000]: https://github.com/linebender/vello/pull/2000
 
-[Unreleased]: https://github.com/linebender/vello/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/linebender/vello/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/linebender/vello/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/linebender/vello/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/linebender/vello/compare/v0.8.0...v0.9.0

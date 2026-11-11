@@ -1365,7 +1365,7 @@ dependencies = [
 
 [[package]]
 name = "glifo"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
  "core_maths",
@@ -2469,7 +2469,7 @@ dependencies = [
 
 [[package]]
 name = "native_webgl"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
@@ -4605,7 +4605,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vello"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -4638,7 +4638,7 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -4655,7 +4655,7 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
@@ -4692,7 +4692,7 @@ dependencies = [
 
 [[package]]
 name = "vello_encoding"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -4723,7 +4723,7 @@ dependencies = [
 
 [[package]]
 name = "vello_gpu"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -4758,7 +4758,7 @@ dependencies = [
 
 [[package]]
 name = "vello_gpu_shaders"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "naga",
  "wesl",
@@ -4821,7 +4821,7 @@ dependencies = [
 
 [[package]]
 name = "vello_shaders"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "bytemuck",
  "log",
@@ -5063,7 +5063,7 @@ dependencies = [
 
 [[package]]
 name = "wasm_cpu"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "bytemuck",
  "console_error_panic_hook",
@@ -5460,7 +5460,7 @@ dependencies = [
 
 [[package]]
 name = "wgpu_webgl"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
@@ -5478,7 +5478,7 @@ dependencies = [
 
 [[package]]
 name = "wgpu_webgpu"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
