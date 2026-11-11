@@ -15,6 +15,7 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - `Scene::reset_with`, which resets a scene to a new size and can free the memory it grew in the same step, configured by `ResetOptions`. (by [@LaurenzV][])
+- `TextureBindings::get`, `TextureBindings::contains` and `WebGlTextureBindings::contains` for checking which textures are bound. (by [@nicoburns][])
 
 ### Changed
 
