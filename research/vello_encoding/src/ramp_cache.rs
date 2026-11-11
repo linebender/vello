@@ -122,7 +122,8 @@ fn make_ramp(
 ) -> impl Iterator<Item = u32> + '_ {
     let mut last_u = 0.0;
     let mut last_c = stops[0].color.to_alpha_color::<Srgb>();
-    let mut this_u = last_u;
+    // Start at the first stop rather than at 0, so that its color is held up to its offset:
+    let mut this_u = stops[0].offset;
     let mut this_c = last_c;
     let mut j = 0;
     (0..N_SAMPLES).map(move |i| {
@@ -152,4 +153,42 @@ fn make_ramp(
         };
         c.premultiply().to_rgba8().to_u32()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use peniko::color::palette::css::{BLUE, RED};
+
+    fn ramp(stops: &[(f32, peniko::Color)]) -> Vec<u32> {
+        let stops: Vec<ColorStop> = stops.iter().map(|&stop| ColorStop::from(stop)).collect();
+        make_ramp(&stops, InterpolationAlphaSpace::Premultiplied).collect()
+    }
+
+    fn rgba(color: peniko::Color) -> u32 {
+        color.premultiply().to_rgba8().to_u32()
+    }
+
+    fn sample_index(u: f32) -> usize {
+        (u * (N_SAMPLES - 1) as f32) as usize
+    }
+
+    #[test]
+    fn first_stop_color_is_held_before_its_offset() {
+        let ramp = ramp(&[(0.4, RED), (1.0, BLUE)]);
+        for (i, &sample) in ramp[..=sample_index(0.4)].iter().enumerate() {
+            assert_eq!(sample, rgba(RED), "sample {i} is before the first stop");
+        }
+        assert_ne!(ramp[sample_index(0.7)], rgba(RED));
+        assert_eq!(ramp[N_SAMPLES - 1], rgba(BLUE));
+    }
+
+    #[test]
+    fn last_stop_color_is_held_after_its_offset() {
+        let ramp = ramp(&[(0.0, RED), (0.6, BLUE)]);
+        assert_eq!(ramp[0], rgba(RED));
+        for (i, &sample) in ramp.iter().enumerate().skip(sample_index(0.6) + 1) {
+            assert_eq!(sample, rgba(BLUE), "sample {i} is after the last stop");
+        }
+    }
 }
