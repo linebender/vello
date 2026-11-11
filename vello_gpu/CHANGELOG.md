@@ -15,7 +15,7 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - `Scene::reset_with`, which resets a scene to a new size and can free the memory it grew in the same step, configured by `ResetOptions`. (by [@LaurenzV][])
-- `TextureBindings::get`, `TextureBindings::contains` and `WebGlTextureBindings::contains` for checking which textures are bound. (by [@nicoburns][])
+- `TextureBindings::get`, `TextureBindings::contains` and `WebGlTextureBindings::contains` for checking which textures are bound. ([#2082][] by [@nicoburns][])
 
 ### Changed
 
@@ -493,6 +493,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#2061]: https://github.com/linebender/vello/pull/2061
 [#2070]: https://github.com/linebender/vello/pull/2070
 [#2078]: https://github.com/linebender/vello/pull/2078
+[#2082]: https://github.com/linebender/vello/pull/2082
 [#2086]: https://github.com/linebender/vello/pull/2086
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.4.0...HEAD
