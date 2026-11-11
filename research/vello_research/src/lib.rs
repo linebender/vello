@@ -153,7 +153,7 @@ use low_level::{FullShaders, Recording, Render};
 use thiserror::Error;
 
 #[cfg(feature = "wgpu")]
-use debug::DebugLayers;
+pub use debug::DebugLayers;
 #[cfg(feature = "wgpu")]
 use vello_encoding::{BumpAllocators, Resolver};
 #[cfg(feature = "wgpu")]
