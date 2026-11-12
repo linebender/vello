@@ -19,7 +19,9 @@ use vello_example_scenes::{
     image::{COWBOY_TEXTURE_ID, FLOWER_TEXTURE_ID, ImageScene},
     performance::{FrameTiming, PerformancePanel, PerformanceStage, now},
 };
-use vello_gpu::{Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene, TextureBindings};
+use vello_gpu::{
+    Pixmap, RenderSettings, RenderTargetConfig, Renderer, ResetOptions, Scene, TextureBindings,
+};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 use wgpu::CurrentSurfaceTexture;
@@ -306,7 +308,10 @@ impl AppState {
         self.width = width;
         self.height = height;
 
-        self.scene.reset_and_resize(width as u16, height as u16);
+        self.scene.reset_with(ResetOptions {
+            size: Some((width as u16, height as u16)),
+            ..Default::default()
+        });
         self.renderer_wrapper.resize(width, height);
         self.performance.reset();
     }
