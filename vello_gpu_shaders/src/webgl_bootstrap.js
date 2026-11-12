@@ -7,8 +7,9 @@
 // `vello_tests` checks the attributes. `webgl_bootstrap.d.ts` declares this file's exports for
 // TypeScript, so update it whenever they change.
 //
-// `vello_gpu` reads the result's properties by name, so they're quoted, including the `PROGRAMS`
-// keys: minifiers that rename properties leave quoted property names alone.
+// `vello_gpu` reads the result's properties by name, so they're computed keys, including the
+// `PROGRAMS` keys: minifiers that rename properties leave them alone, and unlike plain quoted keys,
+// formatters and lint fixes don't rewrite them to unquoted names.
 
 /**
  * Creates the canvas's WebGL2 context and starts compiling Vello's shader programs without
@@ -52,14 +53,19 @@ export function compileVelloShaders(canvas, contextAttributes = {}) {
     gl.attachShader(program, fragmentShader);
     gl.linkProgram(program);
     programs[name] = {
-      "program": program,
-      "vertexShader": vertexShader,
-      "fragmentShader": fragmentShader,
+      ["program"]: program,
+      ["vertexShader"]: vertexShader,
+      ["fragmentShader"]: fragmentShader,
     };
   }
   // Browsers may buffer WebGL commands until the next flush, which would delay compilation
   // until the page yields.
   gl.flush();
 
-  return { "moduleHash": MODULE_HASH, "startTime": startTime, "gl": gl, "programs": programs };
+  return {
+    ["moduleHash"]: MODULE_HASH,
+    ["startTime"]: startTime,
+    ["gl"]: gl,
+    ["programs"]: programs,
+  };
 }
