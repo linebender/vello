@@ -713,10 +713,6 @@ impl RenderContext {
     }
 
     /// Set the current paint.
-    ///
-    /// If the paint is an image with `ImageSource::OpaqueId`, it will be
-    /// resolved to the corresponding pixmap at rasterization time.
-    /// Make sure to register images with [`Resources::register_image`] first.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.state.paint = paint.into();
     }
@@ -837,6 +833,12 @@ impl RenderContext {
         self.root_transforms.reset();
         self.state.reset();
         self.aliasing_threshold = None;
+        self.filter = None;
+    }
+
+    /// Reset the render context and free the memory it grew for earlier contents.
+    pub fn reset_and_shrink(&mut self) {
+        *self = Self::new_with(self.width, self.height, self.render_settings);
     }
 
     /// Push a new clip path to the clip stack.
@@ -1041,75 +1043,23 @@ impl RenderContext {
     }
 }
 
-/// Image registry implementation.
-impl Resources {
-    /// Register a pixmap in the image registry and return its [`ImageId`].
-    pub fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        self.image_registry.register(pixmap)
-    }
-
-    /// Remove an image from the registry.
-    pub fn destroy_image(&mut self, id: ImageId) -> bool {
-        self.image_registry.destroy(id)
-    }
-
-    /// Resolve an `ImageId` to its pixmap data.
-    pub fn resolve_image(&self, id: ImageId) -> Option<Arc<Pixmap>> {
-        self.image_registry.resolve(id)
-    }
-
-    /// Clear the image registry.
-    pub fn clear_images(&mut self) {
-        self.image_registry.clear();
-    }
-}
-
 /// Registry that maps opaque [`ImageId`]s to [`Pixmap`] data.
 ///
-/// Used by [`RenderContext`] to resolve `ImageSource::OpaqueId` at rasterization time.
+/// Used by [`RenderContext`] to resolve `ImageSource::Atlas` at rasterization time.
 #[derive(Debug, Default)]
 pub(crate) struct ImageRegistry {
     images: HashMap<u32, Arc<Pixmap>>,
-    next_id: u32,
 }
 
 impl ImageRegistry {
-    fn register(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        let id = self.next_id;
-        assert!(
-            id < ATLAS_IMAGE_ID_BASE,
-            "image registry exhausted non-atlas image IDs"
-        );
-
-        self.next_id += 1;
-        self.images.insert(id, pixmap);
-        ImageId::new(id)
-    }
-
     #[cfg(feature = "text")]
     pub(crate) fn register_atlas_page(&mut self, page_index: u32, pixmap: Arc<Pixmap>) {
-        self.images.insert(
-            ImageId::new(ATLAS_IMAGE_ID_BASE + page_index).as_u32(),
-            pixmap,
-        );
-    }
-
-    pub(crate) fn destroy(&mut self, id: ImageId) -> bool {
-        self.images.remove(&id.as_u32()).is_some()
+        self.images.insert(page_index, pixmap);
     }
 
     #[cfg(feature = "text")]
     pub(crate) fn destroy_atlas_page(&mut self, page_index: u32) -> bool {
-        self.destroy(ImageId::new(ATLAS_IMAGE_ID_BASE + page_index))
-    }
-
-    fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {
-        self.images.get(&id.as_u32()).cloned()
-    }
-
-    fn clear(&mut self) {
-        self.images.clear();
-        self.next_id = 0;
+        self.images.remove(&page_index).is_some()
     }
 }
 
@@ -1135,6 +1085,7 @@ mod tests {
         PremulRgba8,
         palette::css::{BLUE, RED},
     };
+    use vello_common::filter_effects::{Filter, FilterPrimitive};
     use vello_common::kurbo::{Rect, Shape};
     use vello_common::peniko::ImageAlphaType;
     use vello_common::pixmap::{PixelMetadata, Pixmap, PixmapMut};
@@ -1287,13 +1238,17 @@ mod tests {
     }
 
     #[test]
-    fn reset_restores_default_aliasing_threshold() {
+    fn reset_restores_default_state() {
         let mut ctx = RenderContext::new(4, 4);
         ctx.set_aliasing_threshold(Some(128));
+        ctx.set_filter_effect(Filter::from_primitive(FilterPrimitive::Flood {
+            color: RED,
+        }));
 
         ctx.reset();
 
         assert_eq!(ctx.aliasing_threshold, None);
+        assert!(ctx.filter.is_none());
     }
 
     #[test]

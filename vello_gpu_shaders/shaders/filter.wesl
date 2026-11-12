@@ -241,26 +241,6 @@ fn fs_main(
                     vec2<bool>(true, true),
                 );
         }
-        case PASS_DOWNSCALE_X {
-            return downscale(
-                    source_texture,
-                    linear_sampler,
-                    position,
-                    source_origin,
-                    dest_origin,
-                    vec2<bool>(true, false),
-                );
-        }
-        case PASS_DOWNSCALE_Y {
-            return downscale(
-                    source_texture,
-                    linear_sampler,
-                    position,
-                    source_origin,
-                    dest_origin,
-                    vec2<bool>(false, true),
-                );
-        }
         case PASS_BLUR_H {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
             let filter_texel1 = load_filter_texel(filter_data_offset, 1u);
@@ -278,26 +258,30 @@ fn fs_main(
         }
         case PASS_BLUR_V {
             let filter_texel0 = load_filter_texel(filter_data_offset, 0u);
-            var center_weight: f32;
-            var linear_weights: vec3<f32>;
-            var linear_offsets: vec3<f32>;
-            var n_linear_taps: u32;
-            if get_filter_type(filter_texel0) == FILTER_TYPE_GAUSSIAN_BLUR {
-                // A blur carries its own y-axis kernel.
-                let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
-                let filter_texel3 = load_filter_texel(filter_data_offset, 3u);
-                center_weight = get_center_weight_y(filter_texel2);
-                linear_weights = get_linear_weights_y(filter_texel2);
-                linear_offsets = get_linear_offsets_y(filter_texel3);
-                n_linear_taps = get_n_linear_taps_y(filter_texel0);
-            } else {
-                // A drop shadow blurs both axes with the same kernel.
-                let filter_texel1 = load_filter_texel(filter_data_offset, 1u);
-                center_weight = get_center_weight_x(filter_texel0);
-                linear_weights = get_linear_weights_x(filter_texel0, filter_texel1);
-                linear_offsets = get_linear_offsets_x(filter_texel1);
-                n_linear_taps = get_n_linear_taps_x(filter_texel0);
-            }
+            let filter_texel1 = load_filter_texel(filter_data_offset, 1u);
+            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
+            let filter_texel3 = load_filter_texel(filter_data_offset, 3u);
+            let use_y_kernel = get_filter_type(filter_texel0) == FILTER_TYPE_GAUSSIAN_BLUR;
+            let center_weight = select(
+                    get_center_weight_x(filter_texel0),
+                    get_center_weight_y(filter_texel2),
+                    use_y_kernel,
+                );
+            let linear_weights = select(
+                    get_linear_weights_x(filter_texel0, filter_texel1),
+                    get_linear_weights_y(filter_texel2),
+                    use_y_kernel,
+                );
+            let linear_offsets = select(
+                    get_linear_offsets_x(filter_texel1),
+                    get_linear_offsets_y(filter_texel3),
+                    use_y_kernel,
+                );
+            let n_linear_taps = select(
+                    get_n_linear_taps_x(filter_texel0),
+                    get_n_linear_taps_y(filter_texel0),
+                    use_y_kernel,
+                );
             return gaussian_blur(
                     source_texture,
                     linear_sampler,
@@ -320,6 +304,41 @@ fn fs_main(
                     vec2<bool>(true, true),
                 );
         }
+        case PASS_COMPOSITE_DROP_SHADOW {
+            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
+            return composite_drop_shadow(
+                    source_texture,
+                    original_texture,
+                    source_origin,
+                    original_origin,
+                    rel_coord,
+                    filter_texel2,
+                );
+        }
+        case PASS_COLORIZE {
+            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
+            return colorize_drop_shadow(source_texture, source_origin, rel_coord, filter_texel2);
+        }
+        case PASS_DOWNSCALE_X {
+            return downscale(
+                    source_texture,
+                    linear_sampler,
+                    position,
+                    source_origin,
+                    dest_origin,
+                    vec2<bool>(true, false),
+                );
+        }
+        case PASS_DOWNSCALE_Y {
+            return downscale(
+                    source_texture,
+                    linear_sampler,
+                    position,
+                    source_origin,
+                    dest_origin,
+                    vec2<bool>(false, true),
+                );
+        }
         case PASS_UPSCALE_X {
             return upscale(
                     source_texture,
@@ -339,21 +358,6 @@ fn fs_main(
                     dest_origin,
                     vec2<bool>(false, true),
                 );
-        }
-        case PASS_COMPOSITE_DROP_SHADOW {
-            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
-            return composite_drop_shadow(
-                    source_texture,
-                    original_texture,
-                    source_origin,
-                    original_origin,
-                    rel_coord,
-                    filter_texel2,
-                );
-        }
-        case PASS_COLORIZE {
-            let filter_texel2 = load_filter_texel(filter_data_offset, 2u);
-            return colorize_drop_shadow(source_texture, source_origin, rel_coord, filter_texel2);
         }
         // Shouldn't be reached.
         default { return vec4<f32>(0.0); }

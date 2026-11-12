@@ -4,6 +4,10 @@
 //! Creation and growth of the renderer's GPU resources.
 
 use crate::render::webgl::gl::resource::{Buffer, Framebuffer, Sampler, Texture, VertexArray};
+use crate::render::webgl::passes::{
+    blend::initialize_blend_vao, copy::initialize_copy_vao, filter::initialize_filter_vao,
+    strip::initialize_strip_vao,
+};
 use crate::render::webgl::target::{WebGlTextureTarget, create_framebuffer_for_texture};
 use crate::render::webgl::{
     WebGlDataTransferOperation, WebGlError, WebGlOperation, WebGlResultExt,
@@ -688,7 +692,7 @@ pub(crate) fn create_webgl_resources(
         resource_texture_dimension_2d,
     )?;
 
-    Ok(WebGlResources {
+    let resources = WebGlResources {
         quad_index_buffer,
         strip_vao,
         strips_buffer,
@@ -727,7 +731,13 @@ pub(crate) fn create_webgl_resources(
         negate_ndc: false,
         scene_offset: (0, 0),
         staging: Vec::new(),
-    })
+    };
+    initialize_strip_vao(gl, &resources);
+    initialize_filter_vao(gl, &resources);
+    initialize_blend_vao(gl, &resources);
+    initialize_copy_vao(gl, &resources);
+
+    Ok(resources)
 }
 
 pub(crate) fn create_intermediate_texture(

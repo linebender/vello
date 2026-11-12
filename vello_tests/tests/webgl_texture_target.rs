@@ -7,13 +7,16 @@
 use vello_common::color::palette::css::{BLUE, RED};
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::Rect;
+use vello_common::paint::{Image, ImageSource, TextureRegion};
+use vello_common::peniko::ImageSampler;
 use vello_gpu::{
-    RenderSettings, Resources, Scene, WebGlRenderOptions, WebGlRenderTarget, WebGlRenderer,
-    WebGlTextureBindings,
+    RenderError, RenderSettings, Resources, Scene, TextureId, WebGlError, WebGlRenderOptions,
+    WebGlRenderTarget, WebGlRenderer, WebGlTextureBindings,
 };
 use vello_tests::renderer::{TestTextureTarget, create_webgl_depth_buffer, read_webgl_pixels};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
+use web_sys::WebGl2RenderingContext;
 
 const SIZE: u16 = 8;
 
@@ -108,4 +111,48 @@ fn texture_target_clears_shared_depth_buffer() {
     }
 
     assert_all(&second.read_pixels(&gl), BLUE);
+}
+
+#[wasm_bindgen_test]
+fn texture_target_rejects_sampling_from_itself() {
+    let (mut renderer, mut resources) = renderer();
+    let gl = renderer.gl_context().clone();
+    let texture = gl.create_texture().unwrap();
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
+    gl.tex_storage_2d(
+        WebGl2RenderingContext::TEXTURE_2D,
+        1,
+        WebGl2RenderingContext::RGBA8,
+        SIZE.into(),
+        SIZE.into(),
+    );
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
+    let target = renderer
+        .create_texture_target(&texture, None, SIZE, SIZE)
+        .unwrap();
+    let texture_id = TextureId(0);
+    let mut bindings = WebGlTextureBindings::new();
+    bindings.insert(texture_id, texture, SIZE, SIZE);
+
+    let mut scene = Scene::new(SIZE, SIZE);
+    scene.set_paint(Image {
+        image: ImageSource::external_texture(texture_id, TextureRegion::Full, false),
+        sampler: ImageSampler::default(),
+    });
+    scene.fill_rect(&Rect::new(0.0, 0.0, f64::from(SIZE), f64::from(SIZE)));
+
+    let result = renderer.render(
+        &scene,
+        &mut resources,
+        WebGlRenderTarget::Texture(&target),
+        &bindings,
+        WebGlRenderOptions::default(),
+    );
+    assert!(
+        matches!(
+            result,
+            Err(WebGlError::Render(RenderError::TextureFeedbackLoop(id))) if id == texture_id
+        ),
+        "sampling from the render target should fail, got {result:?}"
+    );
 }

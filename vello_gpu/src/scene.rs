@@ -155,8 +155,8 @@ impl RenderSettings {
 /// Settings controlling usage of GPU memory.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct MemorySettings {
-    /// Configuration for the atlas holding uploaded images.
-    pub image_atlas_config: AtlasConfig,
+    /// Configuration for the atlas holding cached glyphs.
+    pub glyph_atlas_config: AtlasConfig,
     /// Configuration for intermediate layer and scratch textures.
     pub layers_config: LayersConfig,
 }
@@ -262,6 +262,8 @@ pub struct Scene {
     filter: Option<Filter>,
     /// The command recorder.
     pub(crate) recorder: CommandRecorder<RecordedDraw>,
+    /// SIMD level used for strip generation.
+    level: Level,
 }
 
 impl Scene {
@@ -287,6 +289,7 @@ impl Scene {
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
             recorder: CommandRecorder::new(width, height),
+            level,
         }
     }
 
@@ -978,6 +981,11 @@ impl Scene {
         self.aliasing_threshold = None;
         self.recorder.reset(self.width, self.height);
         self.filter = None;
+    }
+
+    /// Reset the scene and free the memory it grew for earlier contents.
+    pub fn reset_and_shrink(&mut self) {
+        *self = Self::new_with(self.width, self.height, self.level);
     }
 
     /// Get the width of the render context.

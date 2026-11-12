@@ -13,14 +13,13 @@ use std::{cell::RefCell, rc::Rc};
 use vello_common::{
     fearless_simd::Level,
     kurbo::{Affine, Point},
-    paint::{ImageId, ImageSource},
 };
 use vello_example_scenes::{
     AnyScene,
-    image::ImageScene,
+    image::{COWBOY_TEXTURE_ID, FLOWER_TEXTURE_ID, ImageScene},
     performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
 };
-use vello_gpu::{Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
+use vello_gpu::{Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene, TextureBindings};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 use wgpu::{
@@ -159,6 +158,7 @@ struct AppState {
     width: u32,
     height: u32,
     renderer_wrapper: RendererWrapper,
+    texture_bindings: TextureBindings,
     performance: PerformancePanel<3>,
     canvas: HtmlCanvasElement,
 }
@@ -186,6 +186,7 @@ impl AppState {
             width,
             height,
             renderer_wrapper,
+            texture_bindings: TextureBindings::new(),
             performance: PerformancePanel::new(
                 "Vello GPU · wgpu → WebGL2",
                 [
@@ -212,8 +213,7 @@ impl AppState {
 
         update_page_url(app_state.current_scene);
         app_state.update_title();
-        // Upload images to the WebGL atlas
-        app_state.upload_images_to_atlas();
+        app_state.upload_images_to_textures();
 
         app_state
     }
@@ -270,7 +270,7 @@ impl AppState {
                     view: &surface_texture_view,
                     depth_view: Some(&self.renderer_wrapper.depth_texture_view),
                 },
-                &vello_gpu::TextureBindings::new(),
+                &self.texture_bindings,
                 vello_gpu::RenderOptions::default(),
             )
             .unwrap();
@@ -419,36 +419,21 @@ impl AppState {
         self.transform = self.transform.then_scale_about(zoom_factor, cursor_pos);
     }
 
-    fn upload_images_to_atlas(&mut self) {
-        let mut encoder =
-            self.renderer_wrapper
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Upload Image pass"),
-                });
-
-        // 1st example — uploading pixmap directly to WebGL atlas
-        let pixmap1 = ImageScene::read_flower_image();
-        self.renderer_wrapper.renderer.upload_image(
-            &mut self.renderer_wrapper.resources,
-            &mut encoder,
-            &pixmap1,
-        );
-
-        // 2nd example — uploading from a WebGL texture
-        let pixmap2 = ImageScene::read_cowboy_image();
-        let texture2 = self.upload_image_to_texture(
-            &self.renderer_wrapper.device,
-            &self.renderer_wrapper.queue,
-            &pixmap2,
-        );
-        self.renderer_wrapper.renderer.upload_image(
-            &mut self.renderer_wrapper.resources,
-            &mut encoder,
-            &texture2,
-        );
-
-        self.renderer_wrapper.queue.submit([encoder.finish()]);
+    fn upload_images_to_textures(&mut self) {
+        for (id, pixmap) in [
+            (FLOWER_TEXTURE_ID, ImageScene::read_flower_image()),
+            (COWBOY_TEXTURE_ID, ImageScene::read_cowboy_image()),
+        ] {
+            let texture = self.upload_image_to_texture(
+                &self.renderer_wrapper.device,
+                &self.renderer_wrapper.queue,
+                &pixmap,
+            );
+            self.texture_bindings.insert(
+                id,
+                texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            );
+        }
     }
 
     fn upload_image_to_texture(
@@ -541,10 +526,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
 
     let scenes = vello_example_scenes::get_example_scenes(
         vello_example_scenes::Capabilities::default(),
-        vec![
-            ImageSource::opaque_id(ImageId::new(0)),
-            ImageSource::opaque_id(ImageId::new(1)),
-        ],
+        ImageScene::external_texture_sources(),
     );
 
     let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));
@@ -753,7 +735,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
                 view: &surface_texture_view,
                 depth_view: Some(&depth_texture_view),
             },
-            &vello_gpu::TextureBindings::new(),
+            &TextureBindings::new(),
             vello_gpu::RenderOptions::default(),
         )
         .unwrap();

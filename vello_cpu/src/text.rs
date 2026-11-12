@@ -31,10 +31,6 @@ use peniko::color::{AlphaColor, Srgb};
 use vello_common::fearless_simd::Level;
 use vello_common::paint::ImageId;
 
-fn atlas_page_image_id(page_index: u32) -> ImageId {
-    ImageId::new(ATLAS_IMAGE_ID_BASE + page_index)
-}
-
 #[derive(Debug)]
 pub(crate) struct GlyphAtlasResources {
     pub(crate) glyph_atlas: GlyphAtlas,
@@ -463,7 +459,7 @@ impl glifo::GlyphRenderer for RenderContext {
 
     #[inline]
     fn atlas_image_source(&self, atlas_slot: &AtlasSlot) -> ImageSource {
-        ImageSource::opaque_id(atlas_page_image_id(atlas_slot.page_index))
+        ImageSource::Atlas(ImageId::new(atlas_slot.page_index))
     }
 
     #[inline]

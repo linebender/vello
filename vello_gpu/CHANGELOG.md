@@ -12,25 +12,52 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+## [0.4.0][] - 2026-11-11
+
+This release has an [MSRV][] of 1.89.
+
 ### Added
 
-- Renderer probing in the wgpu backend through `Renderer::probe`, with the `probe` feature. (by [@LaurenzV][])
-- `WebGlRenderer::begin_with_precompiled` adopts the canvas, WebGL context, and shader programs set up by the JavaScript module in `vello_gpu_shaders::webgl_bootstrap::JS_MODULE`, so compilation can start before the WebAssembly module is downloaded and instantiated. Programs that can't be adopted are reported with `WebGlError::IncompatiblePrecompiledShaders`.
-- `WebGlRendererInit::is_ready` for non-blocking readiness checks. WebGL initialization now flushes compile commands immediately, so compilation starts even if the caller keeps the main thread busy.
+- Renderer probing in the wgpu backend through `Renderer::probe`, with the `probe` feature. ([#2008][] by [@LaurenzV][])
+- `WebGlRenderer::begin_with_precompiled` adopts the canvas, WebGL context, and shader programs set up by the JavaScript module in `vello_gpu_shaders::webgl_bootstrap::JS_MODULE`, so compilation can start before the WebAssembly module is downloaded and instantiated. Programs that can't be adopted are reported with `WebGlError::IncompatiblePrecompiledShaders`. The module quotes the property names the renderer reads, so it can be bundled with minifiers that rename properties. `vello_gpu_shaders::webgl_bootstrap` is re-exported as `webgl_bootstrap`, and ships TypeScript declarations for the module as `DTS_MODULE`. ([#2014][], [#2031][], [#2042][], [#2070][] by [@grebmeg][], [@LaurenzV][])
+- `WebGlRendererInit::is_ready` for non-blocking readiness checks. WebGL initialization now flushes compile commands immediately, so compilation starts even if the caller keeps the main thread busy. ([#2014][] by [@grebmeg][])
+- `WebGlRenderer::shader_compilation_stats` reports the number of compiled shaders and the time spent compiling them. ([#1984][] by [@grebmeg][])
+- Rendering into an offscreen texture with the WebGL renderer, through `WebGlRenderer::create_texture_target` and `WebGlRenderTarget::Texture`. ([#2027][] by [@LaurenzV][])
+- Rendering a scene at an arbitrary, possibly negative, offset in the target through `RenderOptions::offset` and `WebGlRenderOptions::offset`. ([#2029][] by [@LaurenzV][])
+- `RenderSettings::with_pipeline_cache` for creating the wgpu pipelines with a `wgpu::PipelineCache`, which can substantially reduce startup times. ([#1981][] by [@taj-p][])
+- Binding a `wgpu::ExternalTexture`, such as a multi-planar YCbCr video frame, with `TextureBindings::insert_wgpu_external_texture`, with the `wgpu_external_texture` feature. ([#1995][] by [@grebmeg][])
+- The `blurred_rounded_rect`, `full_image_support`, `gradient_sweep` and `wgpu_external_texture` features (enabled by default through `all_shader_features`) for compiling unused paints out of the shaders, which reduces shader compilation time on low-end devices. Using a disabled feature panics at render time. ([#1978][], [#1994][] by [@LaurenzV][])
 - Anisotropic Gaussian blur: `FilterPrimitive::GaussianBlur` with a different standard deviation per axis, including blurs along one axis only. ([#1997][] by [@theashraf][])
+- `Renderer::reset_and_shrink` and `WebGlRenderer::reset_and_shrink` reset the renderer and its `Resources` and free the textures, buffers and caches they grew for earlier scenes, including all cached glyphs. ([#2078][] by [@LaurenzV][])
+- `Scene::reset_and_shrink` resets a scene and frees the memory it grew. ([#2078][] by [@LaurenzV][])
 - `Scene::fill_blurred_rounded_rect_in` for painting a blurred rounded rectangle inside an arbitrary path, with an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. ([#1718][] by [@nicoburns][])
 
 ### Changed
 
+- Breaking change: `Renderer` now stores the device and queue, so `Renderer::new` and `Renderer::new_with` take the queue, and `Renderer::render` takes the target as a `RenderTarget` and the target initialization as part of `RenderOptions` instead of the device, queue, render size and views. `WgpuPendingProbe::try_finish` no longer takes the device, and `Renderer::create_depth_texture_view` is now a method. ([#2029][] by [@LaurenzV][])
+- Breaking change: `WebGlRenderer::render` takes a `WebGlRenderTarget` and `WebGlRenderOptions` instead of the render size and clear color. ([#2027][], [#2029][] by [@LaurenzV][])
+- Breaking change: The fields of `RenderSettings` are now private. Use `RenderSettings::with_level` and `RenderSettings::with_memory_settings` instead. ([#1981][] by [@taj-p][])
+- Breaking change: `TextureBindings::remove` returns the removed `TextureBinding` instead of a `TextureView`. ([#1995][] by [@grebmeg][])
 - Breaking change: The `invert` parameter of `Scene::fill_blurred_rounded_rect` has been removed. Use `Scene::fill_blurred_rounded_rect_in` with `invert` set to `true` instead. ([#1718][] by [@nicoburns][])
-- Breaking change: `WebGlError::ResourceTextureTooLarge` has been removed. The WebGL renderer now reports oversized resource textures as `WebGlError::Render(RenderError::ResourceTextureTooLarge)`, which names the overflowing `ResourceTexture`. (by [@LaurenzV][])
+- Breaking change: `WebGlError::ResourceTextureTooLarge` has been removed. The WebGL renderer now reports oversized resource textures as `WebGlError::Render(RenderError::ResourceTextureTooLarge)`, which names the overflowing `ResourceTexture`. ([#2058][] by [@LaurenzV][])
+- Breaking change: `MemorySettings::image_atlas_config` has been renamed to `glyph_atlas_config`, as the atlas now only holds cached glyphs. ([#2061][] by [@LaurenzV][])
+- Breaking change: `RenderError::MissingImage` has been renamed to `RenderError::MissingAtlasEntry`. ([#2061][] by [@LaurenzV][])
+- Breaking change: `ImageSource::OpaqueId`, `ImageSource::opaque_id`, and `ImageSource::opaque_id_with_transparency_hint` have been replaced by the hidden `ImageSource::Atlas`, which is only used internally for glyph caching. Use `ImageSource::external_texture` instead. ([#2061][] by [@LaurenzV][])
+- Rendering external textures that cover the whole texture is much faster. ([#1964][] by [@LaurenzV][])
+- Radial gradients are cheaper to render. ([#2003][] by [@LaurenzV][])
+- Reduced allocations when rendering with the wgpu backend. ([#1915][], [#2024][], [#2051][] by [@HigherOrderLogic][])
+
+### Removed
+
+- Breaking change: Uploading images into the renderer's image atlas. `Renderer::upload_image`, `Renderer::destroy_image`, `Renderer::atlas_texture`, `AtlasWriter`, `WebGlRenderer::upload_image`, `WebGlRenderer::destroy_image`, `WebGlRenderer::atlas_texture`, `WebGlRenderer::atlas_info`, `WebGlAtlasWriter`, `WebGlTextureWithDimensions`, `AtlasTextureInfo`, and `RenderError::AtlasError` have been removed, and `AtlasError`, `AtlasId`, `AtlasLayerDiagnostics`, `AtlasSpaceDiagnostics`, and `ImageId` are no longer re-exported. Bind images as external textures with `ImageSource::external_texture` instead. The atlas is now only used for glyph caching. ([#2061][] by [@LaurenzV][])
 
 ### Fixed
 
-- The wgpu renderer returns `RenderError::MissingImage` instead of panicking when a scene references an image that isn't in the image cache. (by [@LaurenzV][])
-- The wgpu renderer returns `RenderError::ResourceTextureTooLarge` instead of panicking when a scene's alpha, paint, gradient or filter data doesn't fit into the supported texture dimensions. (by [@LaurenzV][])
-- The WebGL renderer returns `RenderError::ResourceTextureTooLarge` instead of panicking when a scene's filter data doesn't fit into the supported texture dimensions. (by [@LaurenzV][])
-- The WebGL renderer recovers after a scene's gradients don't fit into the gradient texture, instead of returning the same error for every following frame. (by [@LaurenzV][])
+- Bilinear and bicubic image sampling near the edges of an image now matches Vello CPU. ([#1963][] by [@LaurenzV][])
+- The wgpu renderer returns `RenderError::MissingAtlasEntry` instead of panicking when a scene references an atlas entry that doesn't exist. ([#2034][] by [@LaurenzV][])
+- The wgpu renderer returns `RenderError::ResourceTextureTooLarge` instead of panicking when a scene's alpha, paint, gradient or filter data doesn't fit into the supported texture dimensions. ([#2058][] by [@LaurenzV][])
+- The WebGL renderer returns `RenderError::ResourceTextureTooLarge` instead of panicking when a scene's filter data doesn't fit into the supported texture dimensions. ([#2058][] by [@LaurenzV][])
+- The WebGL renderer recovers after a scene's gradients don't fit into the gradient texture, instead of returning the same error for every following frame. ([#2058][] by [@LaurenzV][])
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
 
 ## [0.3.0][] - 2026-10-02
@@ -418,6 +445,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1908]: https://github.com/linebender/vello/pull/1908
 [#1909]: https://github.com/linebender/vello/pull/1909
 [#1911]: https://github.com/linebender/vello/pull/1911
+[#1915]: https://github.com/linebender/vello/pull/1915
 [#1916]: https://github.com/linebender/vello/pull/1916
 [#1918]: https://github.com/linebender/vello/pull/1918
 [#1921]: https://github.com/linebender/vello/pull/1921
@@ -430,12 +458,34 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1945]: https://github.com/linebender/vello/pull/1945
 [#1949]: https://github.com/linebender/vello/pull/1949
 [#1962]: https://github.com/linebender/vello/pull/1962
+[#1963]: https://github.com/linebender/vello/pull/1963
+[#1964]: https://github.com/linebender/vello/pull/1964
 [#1966]: https://github.com/linebender/vello/pull/1966
 [#1970]: https://github.com/linebender/vello/pull/1970
+[#1978]: https://github.com/linebender/vello/pull/1978
+[#1981]: https://github.com/linebender/vello/pull/1981
+[#1984]: https://github.com/linebender/vello/pull/1984
+[#1994]: https://github.com/linebender/vello/pull/1994
+[#1995]: https://github.com/linebender/vello/pull/1995
 [#1997]: https://github.com/linebender/vello/pull/1997
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2003]: https://github.com/linebender/vello/pull/2003
+[#2008]: https://github.com/linebender/vello/pull/2008
+[#2014]: https://github.com/linebender/vello/pull/2014
+[#2024]: https://github.com/linebender/vello/pull/2024
+[#2027]: https://github.com/linebender/vello/pull/2027
+[#2029]: https://github.com/linebender/vello/pull/2029
+[#2031]: https://github.com/linebender/vello/pull/2031
+[#2034]: https://github.com/linebender/vello/pull/2034
+[#2042]: https://github.com/linebender/vello/pull/2042
+[#2051]: https://github.com/linebender/vello/pull/2051
+[#2058]: https://github.com/linebender/vello/pull/2058
+[#2061]: https://github.com/linebender/vello/pull/2061
+[#2070]: https://github.com/linebender/vello/pull/2070
+[#2078]: https://github.com/linebender/vello/pull/2078
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.4.0...HEAD
+[0.4.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...sparse-strips-v0.4.0
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0

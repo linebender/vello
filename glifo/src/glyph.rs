@@ -2402,7 +2402,7 @@ mod tests {
         }
 
         fn atlas_image_source(&self, atlas_slot: &AtlasSlot) -> ImageSource {
-            ImageSource::opaque_id(ImageId::new(atlas_slot.page_index))
+            ImageSource::Atlas(ImageId::new(atlas_slot.page_index))
         }
 
         fn atlas_paint_transform(&self, atlas_slot: &AtlasSlot) -> Affine {

@@ -12,18 +12,34 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+## [0.4.0][] - 2026-11-11
+
+This release has an [MSRV][] of 1.89.
+
 ### Added
 
 - Anisotropic Gaussian blur: `FilterPrimitive::GaussianBlur` with a different standard deviation per axis, including blurs along one axis only. ([#1997][] by [@theashraf][])
+- `RenderContext::reset_and_shrink` resets a render context and frees the memory it grew. ([#2078][] by [@LaurenzV][])
 - `RenderContext::fill_blurred_rounded_rect_in` for painting a blurred rounded rectangle inside an arbitrary path, with an `invert` parameter for painting the inverse (`1 - alpha`) of the blur coverage, enabling inset box shadows. ([#1718][] by [@nicoburns][])
 
 ### Changed
 
+- Breaking change: `RasterizerSettings::offset` is now an `(i32, i32)`, so scenes can also be rendered at negative offsets. The offset only applies to the scene; `TargetInit` still applies to the whole pixmap. ([#2028][] by [@LaurenzV][])
 - Breaking change: The `invert` parameter of `RenderContext::fill_blurred_rounded_rect` has been removed. Use `RenderContext::fill_blurred_rounded_rect_in` with `invert` set to `true` instead. ([#1718][] by [@nicoburns][])
+- Breaking change: `ImageSource::OpaqueId`, `ImageSource::opaque_id`, and `ImageSource::opaque_id_with_transparency_hint` have been replaced by the hidden `ImageSource::Atlas`, which is only used internally for glyph caching. Use `ImageSource::Pixmap` instead. ([#2061][] by [@LaurenzV][])
+- Breaking change: Updated to `fearless_simd` 1.0, which is used for `Level`. ([#1987][] by [@LaurenzV][])
+- Radial gradients are cheaper to render. ([#2003][] by [@LaurenzV][])
+- The multi-threaded renderer no longer busy-waits while flushing, which reduces CPU usage. ([#2073][] by [@LaurenzV][])
+
+### Removed
+
+- Breaking change: The image registry (`Resources::register_image`, `Resources::destroy_image`, `Resources::resolve_image`, and `Resources::clear_images`), and the `ImageId` re-export. Use `ImageSource::Pixmap` instead. ([#2061][] by [@LaurenzV][])
 
 ### Fixed
 
+- `RenderContext::reset` now clears the filter effect set with `set_filter_effect`. ([#2075][] by [@LaurenzV][])
 - `Color` and `Luminosity` blending rendering some gray colors as black, caused by a division by zero in `clip_color`. ([#2000][] by [@zlstringham][])
+- Masked source-over drawing in the `u8` pipeline no longer makes opaque destinations slightly transparent. ([#2032][] by [@LaurenzV][])
 
 ## [0.3.0][] - 2026-10-02
 
@@ -353,10 +369,19 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1950]: https://github.com/linebender/vello/pull/1950
 [#1962]: https://github.com/linebender/vello/pull/1962
 [#1970]: https://github.com/linebender/vello/pull/1970
+[#1987]: https://github.com/linebender/vello/pull/1987
 [#1997]: https://github.com/linebender/vello/pull/1997
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2003]: https://github.com/linebender/vello/pull/2003
+[#2028]: https://github.com/linebender/vello/pull/2028
+[#2032]: https://github.com/linebender/vello/pull/2032
+[#2061]: https://github.com/linebender/vello/pull/2061
+[#2073]: https://github.com/linebender/vello/pull/2073
+[#2075]: https://github.com/linebender/vello/pull/2075
+[#2078]: https://github.com/linebender/vello/pull/2078
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.4.0...HEAD
+[0.4.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...sparse-strips-v0.4.0
 [0.3.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.2.0...sparse-strips-v0.3.0
 [0.2.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.1.0...sparse-strips-v0.2.0
 [0.1.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...sparse-strips-v0.1.0

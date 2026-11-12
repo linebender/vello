@@ -1226,11 +1226,12 @@ mod private {
 #[cfg(test)]
 mod tests {
     use super::{EncodeExt, EncodedPaint, Gradient};
+    use crate::TextureId;
     use crate::blurred_rounded_rect::BlurredRoundedRectangle;
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point, Rect};
-    use crate::paint::{Image, ImageId, ImageSource, Tint, TintMode};
+    use crate::paint::{Image, ImageSource, TextureRegion, Tint, TintMode};
     use crate::peniko::{ColorStop, ColorStops};
     use alloc::vec;
     use peniko::{
@@ -1472,7 +1473,7 @@ mod tests {
     #[test]
     fn image_sampler_alpha_with_tint() {
         let image = Image {
-            image: ImageSource::opaque_id_with_transparency_hint(ImageId::new(1), false),
+            image: ImageSource::external_texture(TextureId(1), TextureRegion::Full, false),
             sampler: ImageSampler {
                 alpha: 0.5,
                 ..ImageSampler::default()
@@ -1505,7 +1506,7 @@ mod tests {
     #[test]
     fn image_sampler_alpha_with_tint_is_clamped() {
         let image = Image {
-            image: ImageSource::opaque_id_with_transparency_hint(ImageId::new(1), false),
+            image: ImageSource::external_texture(TextureId(1), TextureRegion::Full, false),
             sampler: ImageSampler {
                 alpha: 2.0,
                 ..ImageSampler::default()
@@ -1555,7 +1556,7 @@ mod tests {
 
     fn opaque_image() -> Image {
         Image {
-            image: ImageSource::opaque_id_with_transparency_hint(ImageId::new(1), false),
+            image: ImageSource::external_texture(TextureId(1), TextureRegion::Full, false),
             sampler: ImageSampler::default(),
         }
     }

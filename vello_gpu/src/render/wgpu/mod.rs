@@ -9,6 +9,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+#[cfg(feature = "text")]
 mod atlas;
 mod bindings;
 mod passes;
@@ -16,18 +17,19 @@ mod passes;
 mod probe;
 mod resources;
 
-pub use atlas::AtlasWriter;
 pub use bindings::{TextureBinding, TextureBindings};
 #[cfg(feature = "probe")]
 pub use probe::{WgpuPendingProbe, WgpuProbeError, WgpuProbeStatus};
 
-use crate::render::common::{IMAGE_PADDING, ScenePreparer};
+use crate::render::common::ScenePreparer;
 use crate::{
     ClearSettings, GpuStrip, RenderError, RenderSettings, RenderSize, Resources, TargetInit,
     render::common::DeviceLimits, scene::Scene, schedule::IntermediateTextureAllocations,
     target::RootTarget,
 };
 use alloc::vec::Vec;
+#[cfg(feature = "text")]
+use atlas::write_pixmap_to_atlas;
 use core::fmt::Debug;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
@@ -37,10 +39,11 @@ use resources::GpuResources;
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
-use wgpu::{
-    CommandEncoder, Device, Extent3d, Queue, RenderPassColorAttachment, RenderPassDescriptor,
-    Texture, TextureView, TextureViewDescriptor,
-};
+#[cfg(feature = "text")]
+use vello_common::pixmap::Pixmap;
+#[cfg(feature = "text")]
+use wgpu::Texture;
+use wgpu::{CommandEncoder, Device, Extent3d, Queue, TextureView, TextureViewDescriptor};
 
 /// Options for the renderer
 #[derive(Debug)]
@@ -171,7 +174,10 @@ impl Renderer {
             device,
             &programs,
             &resources.image_cache,
-            render_target_config,
+            RenderSize {
+                width: render_target_config.width,
+                height: render_target_config.height,
+            },
             scene_preparer.layers_config,
             resource_texture_dimension_2d,
         );
@@ -213,6 +219,28 @@ impl Renderer {
             .create_view(&TextureViewDescriptor::default())
     }
 
+    /// Reset the renderer and `resources` and free the memory they grew for earlier scenes.
+    ///
+    /// Unlike [`Scene::reset`](crate::Scene::reset), this is not meant to be called every
+    /// frame. Scenes recorded before this call, including ones not yet rendered, must be recorded
+    /// again; rendering them afterwards may draw the wrong glyphs.
+    pub fn reset_and_shrink(&mut self, resources: &mut Resources) {
+        resources.clear();
+        self.scene_preparer.reset_and_shrink();
+        self.resources = GpuResources::new(
+            &self.device,
+            &self.programs,
+            &resources.image_cache,
+            self.resources.render_size,
+            self.scene_preparer.layers_config,
+            self.resources.resource_texture_dimension_2d,
+        );
+        #[cfg(feature = "text")]
+        {
+            self.atlas_clear_scratch = Vec::new();
+        }
+    }
+
     /// Render `scene` into `target`, recording the GPU commands into `encoder`.
     ///
     /// Every [`TextureId`] referenced by the scene must have a binding; this returns
@@ -250,10 +278,9 @@ impl Renderer {
                 |renderer, image_cache, upload, dst_x, dst_y| {
                     renderer.write_to_atlas(
                         image_cache,
-                        encoder,
                         upload.image_id,
                         &upload.pixmap,
-                        Some([dst_x, dst_y]),
+                        [dst_x, dst_y],
                     );
 
                     Ok(())
@@ -300,8 +327,11 @@ impl Renderer {
     /// `texture_bindings` provides [externally bound textures](`TextureBindings`)
     /// referenced by the scene. Pass `&TextureBindings::new()` if the scene does
     /// not use any.
-    #[doc(hidden)]
-    pub fn render_to_atlas(
+    #[cfg_attr(
+        not(feature = "text"),
+        expect(dead_code, reason = "only glyph caching renders into the atlas")
+    )]
+    pub(crate) fn render_to_atlas(
         &mut self,
         scene: &Scene,
         atlas_count: u32,
@@ -449,149 +479,32 @@ impl Renderer {
         Ok(())
     }
 
-    /// Upload image to cache and atlas in one step. Returns the `ImageId`.
-    ///
-    /// It's used when an image is not already in the cache.
-    ///
-    /// This is a convenience method that:
-    /// 1. Reserves space in the image cache
-    /// 2. Writes the image data directly to the atlas
-    /// 3. Returns the `ImageId` for use in rendering
-    #[track_caller]
-    pub fn upload_image<T: AtlasWriter>(
-        &mut self,
-        resources: &mut Resources,
-        encoder: &mut CommandEncoder,
-        writer: &T,
-    ) -> vello_common::paint::ImageId {
-        self.upload_image_with(&mut resources.image_cache, encoder, writer, IMAGE_PADDING)
-    }
-
-    #[track_caller]
-    pub(crate) fn upload_image_with<T: AtlasWriter>(
-        &mut self,
-        image_cache: &mut ImageCache,
-        encoder: &mut CommandEncoder,
-        writer: &T,
-        padding: u16,
-    ) -> vello_common::paint::ImageId {
-        if !cfg!(feature = "full_image_support") {
-            panic!("uploaded images require the `full_image_support` feature");
-        }
-
-        let width = writer.width();
-        let height = writer.height();
-        let image_id = image_cache.allocate(width, height, padding).unwrap();
-        self.write_to_atlas(image_cache, encoder, image_id, writer, None);
-        image_id
-    }
-
-    /// Write pixel data to an existing atlas allocation.
-    ///
-    /// Unlike [`upload_image`](Self::upload_image), this does not allocate space in the image
-    /// cache. The `image_id` must have been previously allocated (e.g. via
-    /// `ImageCache::allocate`). This is useful for uploading CPU-side pixel data (such as
-    /// bitmap font glyphs) to a pre-allocated atlas region.
-    ///
-    /// If `offset_override` is `Some`, the provided offset is used instead of the
-    /// allocator-assigned position. Pass `None` to use the default atlas offset.
-    pub(crate) fn write_to_atlas<T: AtlasWriter>(
+    #[cfg(feature = "text")]
+    fn write_to_atlas(
         &mut self,
         image_cache: &ImageCache,
-        encoder: &mut CommandEncoder,
         image_id: vello_common::paint::ImageId,
-        writer: &T,
-        offset_override: Option<[u16; 2]>,
+        pixmap: &Pixmap,
+        offset: [u16; 2],
     ) {
         let image_resource = image_cache.get(image_id).expect("Image resource not found");
 
         self.resources
             .maybe_create_atlas_textures(&self.device, image_cache.atlas_count() as u32);
-        let offset = offset_override.unwrap_or(image_resource.offset);
-        let atlas_texture =
-            &self.resources.atlas_textures[image_resource.atlas_id.as_u32() as usize];
-        writer.write_to_atlas(
-            &self.device,
+        write_pixmap_to_atlas(
             &self.queue,
-            encoder,
-            atlas_texture,
+            pixmap,
+            self.atlas_texture(image_resource.atlas_id),
             offset,
-            writer.width(),
-            writer.height(),
         );
     }
 
-    /// Destroy an image from the cache and clear the allocated slot in the atlas.
-    pub fn destroy_image(
-        &mut self,
-        resources: &mut Resources,
-        encoder: &mut CommandEncoder,
-        image_id: vello_common::paint::ImageId,
-    ) {
-        if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
-            let padding = image_resource.padding;
-
-            self.clear_atlas_region(
-                encoder,
-                image_resource.atlas_id,
-                [
-                    image_resource.offset[0] - padding,
-                    image_resource.offset[1] - padding,
-                ],
-                image_resource.width + padding * 2,
-                image_resource.height + padding * 2,
-            );
-        }
-    }
-
-    /// Returns an individual image atlas texture.
-    pub fn atlas_texture(&self, atlas_id: AtlasId) -> &Texture {
+    #[cfg(feature = "text")]
+    fn atlas_texture(&self, atlas_id: AtlasId) -> &Texture {
         self.resources
             .atlas_textures
             .get(atlas_id.as_u32() as usize)
             .unwrap()
-    }
-
-    /// Clear a specific region of the atlas texture.
-    fn clear_atlas_region(
-        &mut self,
-        encoder: &mut CommandEncoder,
-        atlas_id: AtlasId,
-        offset: [u16; 2],
-        width: u16,
-        height: u16,
-    ) {
-        let layer_view = self.resources.atlas_texture_views[atlas_id.as_u32() as usize].clone();
-
-        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Clear Atlas Region"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: &layer_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    // Don't clear entire texture, just the scissor region
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
-
-        // Set scissor rectangle to limit clearing to specific region
-        render_pass.set_scissor_rect(
-            u32::from(offset[0]),
-            u32::from(offset[1]),
-            u32::from(width),
-            u32::from(height),
-        );
-        // Use atlas clear pipeline to render transparent pixels
-        render_pass.set_pipeline(&self.programs.clear.atlas);
-        // Draw fullscreen quad
-        render_pass.draw(0..4, 0..1);
     }
 }
 

@@ -12,9 +12,19 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+## [0.5.0][] - 2026-11-11
+
+This release has an [MSRV][] of 1.89.
+
+### Changed
+
+- Breaking change: Updated to `skrifa` 0.49, which is exposed through `ColorGlyph::skrifa_glyph`. ([#1996][] by [@nicoburns][])
+
 ### Fixed
 
 - Synthetic emboldening of unhinted glyphs being scaled down to almost nothing. `FontEmbolden` amounts are now in pixels at the run's font size and scale with the run transform. ([#2049][] by [@nicoburns][])
+- COLR glyphs without a `ClipBox`, which includes all COLRv0 glyphs, coming out lighter along the edges of their bounds. ([#2050][] by [@ump45nose][])
+- Placement of `sbix` bitmap glyphs. ([#1996][] by [@nicoburns][])
 
 ## [0.4.0][] - 2026-10-02
 
@@ -78,6 +88,7 @@ Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@con
 [@nicoburns]: https://github.com/nicoburns
 [@oscargus]: https://github.com/oscargus
 [@taj-p]: https://github.com/taj-p
+[@ump45nose]: https://github.com/ump45nose
 [@xStrom]: https://github.com/xStrom
 
 [#1539]: https://github.com/linebender/vello/pull/1539
@@ -90,9 +101,12 @@ Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@con
 [#1939]: https://github.com/linebender/vello/pull/1939
 [#1944]: https://github.com/linebender/vello/pull/1944
 [#1970]: https://github.com/linebender/vello/pull/1970
+[#1996]: https://github.com/linebender/vello/pull/1996
 [#2049]: https://github.com/linebender/vello/pull/2049
+[#2050]: https://github.com/linebender/vello/pull/2050
 
-[Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.4.0...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.5.0...HEAD
+[0.5.0]: https://github.com/linebender/vello/compare/glifo-v0.4.0...glifo-v0.5.0
 [0.4.0]: https://github.com/linebender/vello/compare/glifo-v0.3.0...glifo-v0.4.0
 [0.3.0]: https://github.com/linebender/vello/compare/glifo-v0.2.0...glifo-v0.3.0
 [0.2.0]: https://github.com/linebender/vello/compare/glifo-v0.1.1...glifo-v0.2.0
