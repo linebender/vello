@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Changed
+
+- The WebGL bootstrap module in `webgl_bootstrap::JS_MODULE` uses computed keys (`["gl"]`) for the property names the renderer reads, so formatters and lint fixes that drop redundant quotes can't expose them to minifiers that rename properties. ([#2086][] by [@grebmeg][])
+
 ## [0.4.0][] - 2026-11-11
 
 This release has an [MSRV][] of 1.89.
@@ -483,6 +487,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#2061]: https://github.com/linebender/vello/pull/2061
 [#2070]: https://github.com/linebender/vello/pull/2070
 [#2078]: https://github.com/linebender/vello/pull/2078
+[#2086]: https://github.com/linebender/vello/pull/2086
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.4.0...HEAD
 [0.4.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...sparse-strips-v0.4.0
