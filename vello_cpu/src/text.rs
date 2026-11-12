@@ -11,7 +11,6 @@
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
 //! any GPU upload step.
 
-use crate::render::ATLAS_IMAGE_ID_BASE;
 use crate::{
     Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderContext, RenderMode,
     RenderSettings, Resources, TargetInit, color, kurbo, peniko,
