@@ -58,7 +58,6 @@ use vello_common::util::into_fast_path_rect;
 //
 // All IDs < than this value are reserved for normal images, all IDs >= this value are
 // reserved for atlas pages.
-pub(crate) const ATLAS_IMAGE_ID_BASE: u32 = u32::MAX / 2;
 
 /// Persistent resources required by Vello CPU for rendering.
 ///
