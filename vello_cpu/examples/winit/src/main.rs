@@ -16,7 +16,7 @@ use std::time::Instant;
 use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::ImageSource;
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{RenderContext, RenderSettings};
+use vello_cpu::{RenderContext, RenderSettings, ResetOptions};
 use vello_example_scenes::image::ImageScene;
 use vello_example_scenes::{AnyScene, Capabilities, get_example_scenes};
 use winit::{
@@ -213,7 +213,10 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 self.pixmap.resize(width as u16, height as u16);
-                self.renderer.reset_and_resize(width as u16, height as u16);
+                self.renderer.reset_with(ResetOptions {
+                    size: Some((width as u16, height as u16)),
+                    ..Default::default()
+                });
 
                 window.request_redraw();
             }

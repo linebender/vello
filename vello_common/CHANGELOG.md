@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- `ResetOptions`, the options for `vello_cpu::RenderContext::reset_with` and `vello_gpu::Scene::reset_with`. (by [@LaurenzV][])
+
 ### Changed
 
 - Breaking change: In `ClipState`, and in a `ClipContext` made with the new `ClipContext::new_lazy`, rectangular clips pushed onto the viewport or onto another rectangular clip generate their strips lazily, for the tile rows of each path drawn through them. Their `PathDataRef` has empty strips and the rectangle in the new `lazy_rect` field, which `intersect` handles. `ClipContext::new` keeps the previous behavior. ([#1989][] by [@Thenewmanator15][])

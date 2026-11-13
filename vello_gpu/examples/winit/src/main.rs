@@ -13,7 +13,9 @@ use vello_common::kurbo::{Affine, Point};
 use vello_example_scenes::image::{COWBOY_TEXTURE_ID, FLOWER_TEXTURE_ID, ImageScene};
 use vello_example_scenes::spritesheet::{SPRITESHEET_TEXTURE_ID, SpritesheetScene};
 use vello_example_scenes::{AnyScene, Capabilities, get_example_scenes};
-use vello_gpu::{Pixmap, RenderSize, Renderer, Resources, Scene, TextureBindings, TextureId};
+use vello_gpu::{
+    Pixmap, RenderSize, Renderer, ResetOptions, Resources, Scene, TextureBindings, TextureId,
+};
 use wgpu::CurrentSurfaceTexture;
 use winit::{
     application::ApplicationHandler,
@@ -183,10 +185,13 @@ impl ApplicationHandler for App<'_> {
             WindowEvent::Resized(size) => {
                 self.context
                     .resize_surface(surface, size.width, size.height);
-                self.scene.reset_and_resize(
-                    u16::try_from(size.width).unwrap(),
-                    u16::try_from(size.height).unwrap(),
-                );
+                self.scene.reset_with(ResetOptions {
+                    size: Some((
+                        u16::try_from(size.width).unwrap(),
+                        u16::try_from(size.height).unwrap(),
+                    )),
+                    ..Default::default()
+                });
             }
             WindowEvent::KeyboardInput {
                 event:

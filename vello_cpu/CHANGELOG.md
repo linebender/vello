@@ -12,6 +12,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- `RenderContext::reset_with`, which resets a render context to a new size and can free the memory it grew in the same step, configured by `ResetOptions`. (by [@LaurenzV][])
+
+### Changed
+
+- Breaking change: `RenderContext::reset_and_resize` and `RenderContext::reset_and_shrink` have been removed in favor of `RenderContext::reset_with`. (by [@LaurenzV][])
+
 ## [0.4.0][] - 2026-11-11
 
 This release has an [MSRV][] of 1.89.

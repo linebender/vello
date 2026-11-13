@@ -28,6 +28,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill, GradientKind};
 use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps, PoppedLayer};
 use vello_common::render_state::RenderState;
+use vello_common::reset::ResetOptions;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::transforms::{RootTransforms, Transforms};
@@ -959,14 +960,6 @@ impl Scene {
         }
     }
 
-    /// Reset the scene and update its size.
-    pub fn reset_and_resize(&mut self, width: u16, height: u16) {
-        self.width = width;
-        self.height = height;
-
-        self.reset();
-    }
-
     /// Reset scene to default values.
     pub fn reset(&mut self) {
         self.viewport_state.reset(self.width, self.height);
@@ -983,9 +976,16 @@ impl Scene {
         self.filter = None;
     }
 
-    /// Reset the scene and free the memory it grew for earlier contents.
-    pub fn reset_and_shrink(&mut self) {
-        *self = Self::new_with(self.width, self.height, self.level);
+    /// Reset the scene according to `options`.
+    pub fn reset_with(&mut self, options: ResetOptions) {
+        let (width, height) = options.size.unwrap_or((self.width, self.height));
+        if options.shrink {
+            *self = Self::new_with(width, height, self.level);
+        } else {
+            self.width = width;
+            self.height = height;
+            self.reset();
+        }
     }
 
     /// Get the width of the render context.
@@ -1081,7 +1081,7 @@ fn assert_paint_supported(paint: &PaintType, tint: Option<Tint>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{RecordedDraw, Scene};
+    use super::{RecordedDraw, ResetOptions, Scene};
     #[cfg(all(feature = "text", feature = "full_image_support"))]
     use crate::resources::Resources;
     #[cfg(all(feature = "text", feature = "full_image_support"))]
@@ -1134,22 +1134,27 @@ mod tests {
     }
 
     #[test]
-    fn reset_and_resize_updates_scene_size() {
-        let mut scene = Scene::new(8, 4);
+    fn reset_with_size_updates_scene_size() {
+        for shrink in [false, true] {
+            let mut scene = Scene::new(8, 4);
 
-        scene.reset_and_resize(4, 8);
-        assert_eq!(scene.width(), 4);
-        assert_eq!(scene.height(), 8);
-        assert_eq!(scene.recorder.scene_size.width(), 4);
-        assert_eq!(scene.recorder.scene_size.height(), 8);
+            scene.reset_with(ResetOptions {
+                size: Some((4, 8)),
+                shrink,
+            });
+            assert_eq!(scene.width(), 4);
+            assert_eq!(scene.height(), 8);
+            assert_eq!(scene.recorder.scene_size.width(), 4);
+            assert_eq!(scene.recorder.scene_size.height(), 8);
 
-        scene.set_paint(BLUE);
-        scene.fill_rect(&Rect::new(0.0, 0.0, 8.0, 8.0));
+            scene.set_paint(BLUE);
+            scene.fill_rect(&Rect::new(0.0, 0.0, 8.0, 8.0));
 
-        let RecordedDraw::Rect(rect) = &scene.recorder.draws[0] else {
-            panic!("expected a recorded rectangle");
-        };
-        assert_eq!(rect.rect, Rect::new(0.0, 0.0, 4.0, 8.0));
+            let RecordedDraw::Rect(rect) = &scene.recorder.draws[0] else {
+                panic!("expected a recorded rectangle");
+            };
+            assert_eq!(rect.rect, Rect::new(0.0, 0.0, 4.0, 8.0));
+        }
     }
 
     #[test]
