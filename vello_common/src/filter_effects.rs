@@ -185,8 +185,10 @@ impl FilterGraph {
         let id = FilterId(self.next_id);
         self.next_id += 1;
 
-        self.filter_expansion = self.filter_expansion.union(primitive.filter_expansion());
-        self.source_expansion = self.source_expansion.union(primitive.source_expansion());
+        self.filter_expansion =
+            compose_expansions(self.filter_expansion, primitive.filter_expansion());
+        self.source_expansion =
+            compose_expansions(self.source_expansion, primitive.source_expansion());
 
         self.primitives.push(primitive);
 
@@ -660,6 +662,15 @@ impl FilterPrimitive {
     }
 }
 
+fn compose_expansions(first: Rect, second: Rect) -> Rect {
+    Rect::new(
+        first.x0.min(0.0) + second.x0.min(0.0),
+        first.y0.min(0.0) + second.y0.min(0.0),
+        first.x1.max(0.0) + second.x1.max(0.0),
+        first.y1.max(0.0) + second.y1.max(0.0),
+    )
+}
+
 fn blur_radius(std_deviation: f32) -> f64 {
     // Gaussian blur expands uniformly by 3*sigma (covers 99.7% of distribution)
     f64::from(std_deviation * 3.0)
@@ -667,7 +678,7 @@ fn blur_radius(std_deviation: f32) -> f64 {
 
 #[cfg(test)]
 mod expansion_tests {
-    use super::FilterPrimitive;
+    use super::{FilterGraph, FilterPrimitive};
     use crate::color::palette::css::RED;
     use crate::filter_effects::EdgeMode;
     use crate::kurbo::Rect;
@@ -694,6 +705,27 @@ mod expansion_tests {
 
         assert_eq!(p.filter_expansion(), Rect::new(-4.0, -34.0, 44.0, 14.0));
         assert_eq!(p.source_expansion(), Rect::new(-44.0, -14.0, 4.0, 34.0));
+    }
+
+    #[test]
+    fn single_primitive_graph_matches_primitive() {
+        let p = FilterPrimitive::Offset { dx: 2.5, dy: -3.0 };
+        let mut graph = FilterGraph::new();
+        graph.add(p.clone(), None);
+
+        assert_eq!(graph.filter_expansion, p.filter_expansion());
+        assert_eq!(graph.source_expansion, p.source_expansion());
+    }
+
+    #[test]
+    fn chained_expansions_are_summed() {
+        let mut graph = FilterGraph::new();
+        graph.add(FilterPrimitive::gaussian_blur(2.0, EdgeMode::None), None);
+        graph.add(FilterPrimitive::Offset { dx: 10.0, dy: -4.0 }, None);
+        graph.add(FilterPrimitive::gaussian_blur(1.0, EdgeMode::None), None);
+
+        assert_eq!(graph.filter_expansion, Rect::new(-9.0, -13.0, 19.0, 9.0));
+        assert_eq!(graph.source_expansion, Rect::new(-19.0, -9.0, 9.0, 13.0));
     }
 }
 
