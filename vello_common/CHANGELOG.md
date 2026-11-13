@@ -16,6 +16,10 @@ This release has an [MSRV][] of 1.89.
 
 - `ResetOptions`, the options for `vello_cpu::RenderContext::reset_with` and `vello_gpu::Scene::reset_with`. (by [@LaurenzV][])
 
+### Changed
+
+- Breaking change: In `ClipState`, and in a `ClipContext` made with the new `ClipContext::new_lazy`, rectangular clips pushed onto the viewport or onto another rectangular clip generate their strips lazily, for the tile rows of each path drawn through them. Their `PathDataRef` has empty strips and the rectangle in the new `lazy_rect` field, which `intersect` handles. `ClipContext::new` keeps the previous behavior. ([#1989][] by [@Thenewmanator15][])
+
 ## [0.4.0][] - 2026-11-11
 
 This release has an [MSRV][] of 1.89.
@@ -299,6 +303,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@nicoburns]: https://github.com/nicoburns
 [@taj-p]: https://github.com/taj-p
 [@theashraf]: https://github.com/theashraf
+[@Thenewmanator15]: https://github.com/Thenewmanator15
 [@tomcur]: https://github.com/tomcur
 [@tronical]: https://github.com/tronical
 [@upsuper]: https://github.com/upsuper
@@ -398,6 +403,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1954]: https://github.com/linebender/vello/pull/1954
 [#1962]: https://github.com/linebender/vello/pull/1962
 [#1987]: https://github.com/linebender/vello/pull/1987
+[#1989]: https://github.com/linebender/vello/pull/1989
 [#1997]: https://github.com/linebender/vello/pull/1997
 [#2003]: https://github.com/linebender/vello/pull/2003
 [#2028]: https://github.com/linebender/vello/pull/2028
