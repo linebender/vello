@@ -16,6 +16,10 @@ This release has an [MSRV][] of 1.89.
 
 - `ResetOptions`, the options for `vello_cpu::RenderContext::reset_with` and `vello_gpu::Scene::reset_with`. (by [@LaurenzV][])
 
+### Fixed
+
+- A `FilterGraph` with several primitives sums their expansions instead of taking their union, so a chain of primitives no longer underestimates how far its output and source extend. ([#XXXX][] by [@LaurenzV][])
+
 ## [0.4.0][] - 2026-11-11
 
 This release has an [MSRV][] of 1.89.
