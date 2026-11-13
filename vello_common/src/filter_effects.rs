@@ -7,7 +7,7 @@
 //! CSS filter functions and low-level SVG filter primitives. The API is designed
 //! to follow the W3C Filter Effects Module Level 1 specification.
 //!
-//! See: <https://drafts.fxtf.org/filter-effects/>
+//! See: <https://www.w3.org/TR/filter-effects-1/>
 //!
 //! ## Implementation Status
 //!
@@ -228,7 +228,7 @@ pub enum FilterEffect {
 /// These match the CSS Filter Effects specification and provide simple,
 /// commonly-used visual effects without needing to construct a filter graph.
 ///
-/// See: <https://drafts.fxtf.org/filter-effects/#filter-functions>
+/// See: <https://www.w3.org/TR/filter-effects-1/#filter-functions>
 #[derive(Debug, Clone)]
 pub enum FilterFunction {
     /// Gaussian blur effect.
@@ -326,7 +326,7 @@ pub enum FilterFunction {
 /// beyond the original image boundaries. This is particularly important for blur and
 /// convolution operations near edges.
 ///
-/// See: <https://drafts.fxtf.org/filter-effects/#element-attrdef-filter-primitive-edgemode>
+/// See: <https://www.w3.org/TR/filter-effects-1/#element-attrdef-fegaussianblur-edgemode>
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeMode {
     /// Extend by duplicating edge pixels (clamp to edge).
@@ -358,7 +358,7 @@ pub enum EdgeMode {
 /// filter primitives. They can be combined in a `FilterGraph` to create sophisticated
 /// visual effects.
 ///
-/// See: <https://drafts.fxtf.org/filter-effects/#FilterPrimitivesOverview>
+/// See: <https://www.w3.org/TR/filter-effects-1/#FilterPrimitivesOverview>
 #[derive(Debug, Clone, PartialEq)]
 pub enum FilterPrimitive {
     /// Generate a solid color fill.
@@ -394,7 +394,7 @@ pub enum FilterPrimitive {
     /// and compositing it with the original. This is a compound operation that
     /// combines multiple primitive operations into one.
     ///
-    /// See: <https://drafts.fxtf.org/filter-effects-2/#feDropShadowElement>
+    /// See: <https://www.w3.org/TR/filter-effects-1/#feDropShadowElement>
     DropShadow {
         /// Horizontal offset of the shadow in pixels. Positive values shift right.
         dx: f32,
@@ -893,7 +893,7 @@ pub enum CompositeOperator {
 /// of two layers. Unlike compositing operators which deal with alpha, blend modes
 /// focus on color mixing while preserving the compositing behavior.
 ///
-/// See: <https://drafts.fxtf.org/compositing/#blending>
+/// See: <https://www.w3.org/TR/compositing-1/#blending>
 pub type BlendMode = peniko::Mix;
 
 /// Morphological operators for dilate/erode operations.
