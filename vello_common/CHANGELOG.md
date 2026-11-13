@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Added
+
+- `ResetOptions`, the options for `vello_cpu::RenderContext::reset_with` and `vello_gpu::Scene::reset_with`. (by [@LaurenzV][])
+
 ## [0.4.0][] - 2026-11-11
 
 This release has an [MSRV][] of 1.89.

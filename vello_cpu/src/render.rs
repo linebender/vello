@@ -32,6 +32,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::render_state::RenderState;
+use vello_common::reset::ResetOptions;
 use vello_common::transforms::{RootTransforms, Transforms};
 use vello_common::util::into_fast_path_rect;
 
@@ -762,14 +763,6 @@ impl RenderContext {
         self.filter = None;
     }
 
-    /// Reset the render context and update the scene size.
-    pub fn reset_and_resize(&mut self, width: u16, height: u16) {
-        self.width = width;
-        self.height = height;
-
-        self.reset();
-    }
-
     /// Reset the render context.
     pub fn reset(&mut self) {
         self.dispatcher.reset(self.width, self.height);
@@ -781,9 +774,16 @@ impl RenderContext {
         self.filter = None;
     }
 
-    /// Reset the render context and free the memory it grew for earlier contents.
-    pub fn reset_and_shrink(&mut self) {
-        *self = Self::new_with(self.width, self.height, self.render_settings);
+    /// Reset the render context according to `options`.
+    pub fn reset_with(&mut self, options: ResetOptions) {
+        let (width, height) = options.size.unwrap_or((self.width, self.height));
+        if options.shrink {
+            *self = Self::new_with(width, height, self.render_settings);
+        } else {
+            self.width = width;
+            self.height = height;
+            self.reset();
+        }
     }
 
     /// Push a new clip path to the clip stack.
@@ -1018,7 +1018,7 @@ impl ImageResolver for ImageRegistry {
 mod tests {
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
-    use crate::{RasterizerSettings, RenderContext, Resources, TargetInit};
+    use crate::{RasterizerSettings, RenderContext, ResetOptions, Resources, TargetInit};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     use alloc::vec;
@@ -1157,23 +1157,28 @@ mod tests {
     }
 
     #[test]
-    fn reset_and_resize_updates_scene_size() {
-        let mut ctx = RenderContext::new(8, 4);
-        let mut resources = Resources::new();
-        let mut pixmap = Pixmap::new(4, 8);
+    fn reset_with_size_updates_scene_size() {
+        for shrink in [false, true] {
+            let mut ctx = RenderContext::new(8, 4);
+            let mut resources = Resources::new();
+            let mut pixmap = Pixmap::new(4, 8);
 
-        ctx.reset_and_resize(4, 8);
-        assert_eq!(ctx.width(), 4);
-        assert_eq!(ctx.height(), 8);
+            ctx.reset_with(ResetOptions {
+                size: Some((4, 8)),
+                shrink,
+            });
+            assert_eq!(ctx.width(), 4);
+            assert_eq!(ctx.height(), 8);
 
-        ctx.set_paint(BLUE);
-        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 8.0));
-        ctx.flush();
-        ctx.render(&mut pixmap, &mut resources);
+            ctx.set_paint(BLUE);
+            ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 8.0));
+            ctx.flush();
+            ctx.render(&mut pixmap, &mut resources);
 
-        for y in 0..8 {
-            for x in 0..4 {
-                assert_eq!(pixmap.sample(x, y), blue_pixel(), "pixel at ({x}, {y})");
+            for y in 0..8 {
+                for x in 0..4 {
+                    assert_eq!(pixmap.sample(x, y), blue_pixel(), "pixel at ({x}, {y})");
+                }
             }
         }
     }

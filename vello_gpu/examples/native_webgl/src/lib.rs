@@ -21,7 +21,8 @@ use vello_example_scenes::{
     performance::{FrameTiming, PerformancePanel, PerformanceStage, WebGlGpuTimer, now},
 };
 use vello_gpu::{
-    RenderSettings, Resources, Scene, WebGlError, WebGlRendererInit, WebGlTextureBindings,
+    RenderSettings, ResetOptions, Resources, Scene, WebGlError, WebGlRendererInit,
+    WebGlTextureBindings,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -215,7 +216,10 @@ impl AppState {
         self.width = width;
         self.height = height;
 
-        self.scene.reset_and_resize(width as u16, height as u16);
+        self.scene.reset_with(ResetOptions {
+            size: Some((width as u16, height as u16)),
+            ..Default::default()
+        });
         if let Some(gpu_timer) = &mut self.renderer_wrapper.gpu_timer {
             gpu_timer.reset();
         }
