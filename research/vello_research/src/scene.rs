@@ -241,6 +241,8 @@ impl Scene {
     }
 
     /// Draw a rounded rectangle blurred with a gaussian filter.
+    ///
+    /// A rectangle with a negative width or height is normalized first.
     pub fn draw_blurred_rounded_rect(
         &mut self,
         transform: Affine,
@@ -249,6 +251,8 @@ impl Scene {
         radius: f64,
         std_dev: f64,
     ) {
+        let rect = rect.abs();
+
         // The impulse response of a gaussian filter is infinite.
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 2.5 * std_dev;
@@ -266,7 +270,7 @@ impl Scene {
     ///
     /// The blurred rounded rectangle is `rect` with its corners rounded by `radius`, blurred by
     /// a gaussian filter with a standard deviation of `std_dev`. Negative values of `std_dev`
-    /// are treated as zero.
+    /// are treated as zero. A rectangle with a negative width or height is normalized first.
     ///
     /// When `invert` is `false`, `brush` is painted with the coverage (`alpha`) of the blurred
     /// rounded rectangle. Points which are more than approximately 2.5 times `std_dev` outside
@@ -292,6 +296,8 @@ impl Scene {
         std_dev: f64,
         invert: bool,
     ) {
+        let rect = rect.abs();
+
         let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(t);
 
