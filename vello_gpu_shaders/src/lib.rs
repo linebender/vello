@@ -87,4 +87,29 @@ mod tests {
             lint(name, &module);
         }
     }
+
+    /// Minifiers that rename properties would break `vello_gpu`, which reads these keys by name
+    /// in `adopt_precompiled_programs`, so each must stay a computed key.
+    #[test]
+    fn webgl_bootstrap_result_keys_are_computed() {
+        const KEYS: [&str; 11] = [
+            "moduleHash",
+            "startTime",
+            "gl",
+            "programs",
+            "program",
+            "vertexShader",
+            "fragmentShader",
+            "render",
+            "filter",
+            "blend",
+            "copy",
+        ];
+        for key in KEYS {
+            assert!(
+                crate::webgl_bootstrap::JS_MODULE.contains(&format!("[\"{key}\"]:")),
+                "`{key}` must be written as `[\"{key}\"]: ...` in the WebGL bootstrap module"
+            );
+        }
+    }
 }
