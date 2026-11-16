@@ -1489,7 +1489,9 @@ fn filter_gaussian_blur_edge_mode_mirror(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::Mirror);
 }
 
-#[vello_test(skip_multithreaded, gpu_tolerance = 1)]
+// An RTX 3090 Ti on Windows needs one level more GPU tolerance than other platforms.
+// See <https://github.com/linebender/vello/issues/2084>
+#[vello_test(skip_multithreaded, gpu_tolerance = 2)]
 fn filter_blur_with_image(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::gaussian_blur(4.0, EdgeMode::None));
 
@@ -1845,7 +1847,9 @@ fn filter_nested_with_outer_clip_path(ctx: &mut impl Renderer) {
     ctx.pop_clip();
 }
 
-#[vello_test(skip_multithreaded)]
+// An RTX 3090 Ti on Windows needs one level more GPU tolerance than other platforms.
+// See <https://github.com/linebender/vello/issues/2084>
+#[vello_test(skip_multithreaded, gpu_tolerance = 1)]
 fn filter_with_clip_rects_outside_of_viewport(ctx: &mut impl Renderer) {
     // This test draws 100x100 rectangles at the border of each viewport side, but
     // clips them to a smaller 10x60 (or 60x10) rectangle. The drop shadow is drawn with such
