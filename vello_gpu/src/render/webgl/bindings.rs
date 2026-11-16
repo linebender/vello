@@ -86,6 +86,12 @@ impl WebGlTextureBindings {
         self.textures.get(&texture_id)
     }
 
+    /// Returns `true` if a texture is bound to `texture_id`.
+    #[inline]
+    pub fn contains(&self, texture_id: TextureId) -> bool {
+        self.textures.contains_key(&texture_id)
+    }
+
     /// Remove a texture binding.
     ///
     /// This returns the removed texture binding if it existed.
