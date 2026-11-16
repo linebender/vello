@@ -16,6 +16,10 @@ This release has an [MSRV][] of 1.89.
 
 - `ResetOptions`, the options for `vello_cpu::RenderContext::reset_with` and `vello_gpu::Scene::reset_with`. (by [@LaurenzV][])
 
+### Fixed
+
+- A `FilterGraph` with several primitives sums their expansions instead of taking their union, so a chain of primitives no longer underestimates how far its output and source extend. ([#2087][] by [@LaurenzV][])
+
 ## [0.4.0][] - 2026-11-11
 
 This release has an [MSRV][] of 1.89.
@@ -403,6 +407,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#2028]: https://github.com/linebender/vello/pull/2028
 [#2039]: https://github.com/linebender/vello/pull/2039
 [#2061]: https://github.com/linebender/vello/pull/2061
+[#2087]: https://github.com/linebender/vello/pull/2087
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.4.0...HEAD
 [0.4.0]: https://github.com/linebender/vello/compare/sparse-strips-v0.3.0...sparse-strips-v0.4.0
