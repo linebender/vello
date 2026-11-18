@@ -323,7 +323,7 @@ fn glyph_image_brush_survives_image_free_render() {
         let padded_byte_width = usize::try_from(padded_byte_width).unwrap();
         let non_background_pixels = data
             .chunks(padded_byte_width)
-            .flat_map(|row| row[..unpadded_byte_width].chunks_exact(4))
+            .flat_map(|row| row[..unpadded_byte_width].as_chunks::<4>().0)
             .filter(|pixel| **pixel != GLYPH_IMAGE_BACKGROUND)
             .count();
         assert!(
