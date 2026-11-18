@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.89.
 
+### Fixed
+
+- Images rendering as transparent on every frame after a frame with no image, gradient or glyph content. ([#2090][] by [@waywardmonkeys][])
+
 ## [0.12.0][] - 2026-11-11
 
 This release has an [MSRV][] of 1.89.
@@ -504,6 +508,7 @@ This release has an [MSRV][] of 1.75.
 [#1992]: https://github.com/linebender/vello/pull/1992
 [#1996]: https://github.com/linebender/vello/pull/1996
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2090]: https://github.com/linebender/vello/pull/2090
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.12.0...HEAD
 [0.12.0]: https://github.com/linebender/vello/compare/v0.11.0...v0.12.0
