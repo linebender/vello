@@ -253,7 +253,7 @@ fn generate_webgl_bootstrap_module(
     for (name, vertex_source, fragment_source) in programs {
         writeln!(
             body,
-            "  \"{name}\": [{}, {}],",
+            "  [\"{name}\"]: [{}, {}],",
             js_string_literal(vertex_source),
             js_string_literal(fragment_source)
         )?;

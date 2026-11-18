@@ -7,7 +7,7 @@
 //! CSS filter functions and low-level SVG filter primitives. The API is designed
 //! to follow the W3C Filter Effects Module Level 1 specification.
 //!
-//! See: <https://drafts.fxtf.org/filter-effects/>
+//! See: <https://www.w3.org/TR/filter-effects-1/>
 //!
 //! ## Implementation Status
 //!
@@ -185,8 +185,12 @@ impl FilterGraph {
         let id = FilterId(self.next_id);
         self.next_id += 1;
 
-        self.filter_expansion = self.filter_expansion.union(primitive.filter_expansion());
-        self.source_expansion = self.source_expansion.union(primitive.source_expansion());
+        // TODO: Track each primitive's expansion from its inputs and report the output's, so that
+        // branching graphs and unused primitives don't overestimate it.
+        self.filter_expansion =
+            compose_expansions(self.filter_expansion, primitive.filter_expansion());
+        self.source_expansion =
+            compose_expansions(self.source_expansion, primitive.source_expansion());
 
         self.primitives.push(primitive);
 
@@ -228,7 +232,7 @@ pub enum FilterEffect {
 /// These match the CSS Filter Effects specification and provide simple,
 /// commonly-used visual effects without needing to construct a filter graph.
 ///
-/// See: <https://drafts.fxtf.org/filter-effects/#filter-functions>
+/// See: <https://www.w3.org/TR/filter-effects-1/#filter-functions>
 #[derive(Debug, Clone)]
 pub enum FilterFunction {
     /// Gaussian blur effect.
@@ -326,7 +330,7 @@ pub enum FilterFunction {
 /// beyond the original image boundaries. This is particularly important for blur and
 /// convolution operations near edges.
 ///
-/// See: <https://drafts.fxtf.org/filter-effects/#element-attrdef-filter-primitive-edgemode>
+/// See: <https://www.w3.org/TR/filter-effects-1/#element-attrdef-fegaussianblur-edgemode>
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeMode {
     /// Extend by duplicating edge pixels (clamp to edge).
@@ -358,7 +362,7 @@ pub enum EdgeMode {
 /// filter primitives. They can be combined in a `FilterGraph` to create sophisticated
 /// visual effects.
 ///
-/// See: <https://drafts.fxtf.org/filter-effects/#FilterPrimitivesOverview>
+/// See: <https://www.w3.org/TR/filter-effects-1/#FilterPrimitivesOverview>
 #[derive(Debug, Clone, PartialEq)]
 pub enum FilterPrimitive {
     /// Generate a solid color fill.
@@ -394,7 +398,7 @@ pub enum FilterPrimitive {
     /// and compositing it with the original. This is a compound operation that
     /// combines multiple primitive operations into one.
     ///
-    /// See: <https://drafts.fxtf.org/filter-effects-2/#feDropShadowElement>
+    /// See: <https://www.w3.org/TR/filter-effects-1/#feDropShadowElement>
     DropShadow {
         /// Horizontal offset of the shadow in pixels. Positive values shift right.
         dx: f32,
@@ -660,6 +664,15 @@ impl FilterPrimitive {
     }
 }
 
+fn compose_expansions(first: Rect, second: Rect) -> Rect {
+    Rect::new(
+        first.x0.min(0.0) + second.x0.min(0.0),
+        first.y0.min(0.0) + second.y0.min(0.0),
+        first.x1.max(0.0) + second.x1.max(0.0),
+        first.y1.max(0.0) + second.y1.max(0.0),
+    )
+}
+
 fn blur_radius(std_deviation: f32) -> f64 {
     // Gaussian blur expands uniformly by 3*sigma (covers 99.7% of distribution)
     f64::from(std_deviation * 3.0)
@@ -667,7 +680,7 @@ fn blur_radius(std_deviation: f32) -> f64 {
 
 #[cfg(test)]
 mod expansion_tests {
-    use super::FilterPrimitive;
+    use super::{FilterGraph, FilterPrimitive};
     use crate::color::palette::css::RED;
     use crate::filter_effects::EdgeMode;
     use crate::kurbo::Rect;
@@ -694,6 +707,27 @@ mod expansion_tests {
 
         assert_eq!(p.filter_expansion(), Rect::new(-4.0, -34.0, 44.0, 14.0));
         assert_eq!(p.source_expansion(), Rect::new(-44.0, -14.0, 4.0, 34.0));
+    }
+
+    #[test]
+    fn single_primitive_graph_matches_primitive() {
+        let p = FilterPrimitive::Offset { dx: 2.5, dy: -3.0 };
+        let mut graph = FilterGraph::new();
+        graph.add(p.clone(), None);
+
+        assert_eq!(graph.filter_expansion, p.filter_expansion());
+        assert_eq!(graph.source_expansion, p.source_expansion());
+    }
+
+    #[test]
+    fn chained_expansions_are_summed() {
+        let mut graph = FilterGraph::new();
+        graph.add(FilterPrimitive::gaussian_blur(2.0, EdgeMode::None), None);
+        graph.add(FilterPrimitive::Offset { dx: 10.0, dy: -4.0 }, None);
+        graph.add(FilterPrimitive::gaussian_blur(1.0, EdgeMode::None), None);
+
+        assert_eq!(graph.filter_expansion, Rect::new(-9.0, -13.0, 19.0, 9.0));
+        assert_eq!(graph.source_expansion, Rect::new(-19.0, -9.0, 9.0, 13.0));
     }
 }
 
@@ -893,7 +927,7 @@ pub enum CompositeOperator {
 /// of two layers. Unlike compositing operators which deal with alpha, blend modes
 /// focus on color mixing while preserving the compositing behavior.
 ///
-/// See: <https://drafts.fxtf.org/compositing/#blending>
+/// See: <https://www.w3.org/TR/compositing-1/#blending>
 pub type BlendMode = peniko::Mix;
 
 /// Morphological operators for dilate/erode operations.
