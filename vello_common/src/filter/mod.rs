@@ -12,7 +12,7 @@ use crate::filter::flood::Flood;
 use crate::filter::gaussian_blur::{GaussianBlur, transform_blur_params};
 use crate::filter::offset::Offset;
 use crate::filter_effects::{Filter, FilterPrimitive};
-use crate::geometry::{PaddingU16, RectU16};
+use crate::geometry::{PaddingU16, RectU16, SizeU16};
 use crate::kurbo::{Affine, Rect, Vec2};
 use crate::math::snap_up;
 use crate::tile::Tile;
@@ -146,7 +146,7 @@ impl FilterLayerPlacement {
         src_y: 0,
     };
 
-    pub(crate) fn new(bbox: RectU16, filter_plan: &FilterData) -> Self {
+    pub(crate) fn new(bbox: RectU16, filter_plan: &FilterData, viewport: SizeU16) -> Self {
         if bbox.is_empty() {
             return Self::EMPTY;
         }
@@ -161,6 +161,7 @@ impl FilterLayerPlacement {
         // also a multiple of the tile width / tile height.
         let pixmap_bbox = bbox
             .expand(filter_plan.filter_padding)
+            .intersect(RectU16::new(0, 0, viewport.width(), viewport.height()))
             .snap_to_tile_coordinates();
 
         // Remember that in `RenderContext`, we eagerly shift everything drawn by `source_shift`
@@ -283,6 +284,21 @@ impl FilterData {
     /// are visible in the viewport [0, 0, width, height].
     pub fn source_shift(&self) -> (u16, u16) {
         (self.source_padding.left, self.source_padding.top)
+    }
+
+    /// The viewport of the filter layer's contents, given the viewport of its parent.
+    pub(crate) fn source_viewport(&self, parent: SizeU16) -> SizeU16 {
+        let padding = self.source_padding;
+        SizeU16::from_wh(
+            parent
+                .width()
+                .saturating_add(padding.left)
+                .saturating_add(padding.right),
+            parent
+                .height()
+                .saturating_add(padding.top)
+                .saturating_add(padding.bottom),
+        )
     }
 }
 
