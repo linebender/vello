@@ -5,6 +5,7 @@
 
 use crate::clip::{ClipRef, ClipState};
 use crate::filter::FilterData;
+use crate::geometry::SizeU16;
 use crate::kurbo::{Affine, BezPath, Rect};
 use crate::strip_generator::StripGenerator;
 use alloc::vec::Vec;
@@ -92,19 +93,12 @@ impl ViewportState {
 
     /// Push a new root viewport.
     pub fn push_root_viewport(&mut self, filter_data: &FilterData) {
-        let padding = filter_data.source_padding;
-        let width = self
-            .strip_generator
-            .width()
-            .saturating_add(padding.left)
-            .saturating_add(padding.right);
-        let height = self
-            .strip_generator
-            .height()
-            .saturating_add(padding.top)
-            .saturating_add(padding.bottom);
+        let viewport = filter_data.source_viewport(SizeU16::from_wh(
+            self.strip_generator.width(),
+            self.strip_generator.height(),
+        ));
         // TODO: Use a pool of strip generators.
-        let filter_generator = StripGenerator::new(width, height, self.level);
+        let filter_generator = StripGenerator::new(viewport.width(), viewport.height(), self.level);
         let parent_generator = core::mem::replace(&mut self.strip_generator, filter_generator);
         self.strip_generator_stack.push(parent_generator);
 

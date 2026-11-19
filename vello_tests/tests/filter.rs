@@ -431,6 +431,25 @@ fn filter_drop_shadow_offscreen(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+#[vello_test(skip_multithreaded, gpu_tolerance = 1)]
+fn filter_nested_offscreen_pulled_in(ctx: &mut impl Renderer) {
+    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::Offset {
+        dx: -75.0,
+        dy: 0.0,
+    }));
+    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: 0.0,
+        dy: 10.0,
+        std_deviation: 3.0,
+        color: AlphaColor::from_rgba8(128, 128, 128, 255),
+        edge_mode: EdgeMode::None,
+    }));
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(100.0, 25.0, 150.0, 65.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
 /// Test drop shadow on a simple rectangle.
 /// Verifies the offset pixel optimization works correctly with different offsets.
 #[vello_test(skip_multithreaded)]

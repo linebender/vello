@@ -223,6 +223,8 @@ struct OpenLayer {
     /// The bounding box of the contents recorded into this layer.
     bbox: RectU16,
     parent_layer: Option<u32>,
+    /// The size of the viewport the layer's contents are recorded in.
+    viewport: SizeU16,
 }
 
 impl<D> CommandRecorder<D> {
@@ -292,6 +294,16 @@ impl<D> CommandRecorder<D> {
             }
         }
 
+        let parent_viewport = self
+            .layer_stack
+            .last()
+            .map_or(self.scene_size, |layer| layer.viewport);
+        let viewport = match &layer.kind {
+            RecordedLayerKind::Regular => parent_viewport,
+            RecordedLayerKind::Filter { filter_data, .. } => {
+                filter_data.source_viewport(parent_viewport)
+            }
+        };
         let id = self.push_layer_metadata(layer);
         self.push_layer_node(id);
         self.active_layer = Some(id);
@@ -300,6 +312,7 @@ impl<D> CommandRecorder<D> {
             // Will be populated as we record commands.
             bbox: RectU16::INVERTED,
             parent_layer,
+            viewport,
         });
 
         id
@@ -339,7 +352,7 @@ impl<D> CommandRecorder<D> {
                     filter_data: filter_plan,
                     placement,
                 } => {
-                    *placement = FilterLayerPlacement::new(layer.bbox, filter_plan);
+                    *placement = FilterLayerPlacement::new(layer.bbox, filter_plan, layer.viewport);
                     recorded_layer.bbox = placement.pixmap_bbox();
 
                     let filter_size = placement.pixmap_bbox().into();
@@ -567,6 +580,7 @@ mod tests {
         let placement = FilterLayerPlacement::new(
             RectU16::new(8, 8, 16, 20),
             &filter_data(PaddingU16::new(2, 4, 6, 8), PaddingU16::ZERO),
+            SizeU16::new(1024),
         );
 
         // Since we are tile-aligned, values are expanded to a multiple of tile-size.
@@ -580,6 +594,7 @@ mod tests {
         let placement = FilterLayerPlacement::new(
             RectU16::new(8, 12, 20, 24),
             &filter_data(PaddingU16::new(6, 2, 4, 6), PaddingU16::new(12, 16, 0, 0)),
+            SizeU16::new(1024),
         );
 
         // Bbox expanded with padding is [8 - 6, 12 - 2, 20 + 4, 24 + 6]
@@ -593,11 +608,23 @@ mod tests {
     }
 
     #[test]
+    fn filter_placement_clips_to_viewport() {
+        let placement = FilterLayerPlacement::new(
+            RectU16::new(8, 8, 16, 20),
+            &filter_data(PaddingU16::new(20, 20, 20, 20), PaddingU16::ZERO),
+            SizeU16::from_wh(30, 26),
+        );
+
+        assert_eq!(placement.pixmap_bbox(), RectU16::new(0, 0, 32, 28));
+    }
+
+    #[test]
     #[should_panic(expected = "filter source shift must be tile-aligned")]
     fn filter_placement_rejects_unaligned_source_shift() {
         FilterLayerPlacement::new(
             RectU16::new(8, 12, 20, 24),
             &filter_data(PaddingU16::new(6, 2, 4, 6), PaddingU16::new(10, 16, 0, 0)),
+            SizeU16::new(1024),
         );
     }
 
@@ -648,8 +675,30 @@ mod tests {
         assert_eq!(recorder.largest_layer_size, Some(SizeU16::from_wh(64, 4)));
         assert_eq!(
             recorder.largest_filter_layer_size,
-            Some(SizeU16::from_wh(64, 4))
+            Some(SizeU16::from_wh(12, 4))
         );
+    }
+
+    #[test]
+    fn nested_filter_layer_viewport_includes_source_padding() {
+        let mut recorder = CommandRecorder::<TestDraw>::new(16, 16);
+
+        recorder.push_layer(
+            layer_props(),
+            Some(filter_data(PaddingU16::ZERO, PaddingU16::new(0, 0, 16, 0))),
+        );
+        recorder.push_layer(layer_props(), None);
+        recorder.push_layer(
+            layer_props(),
+            Some(filter_data(PaddingU16::ZERO, PaddingU16::new(0, 0, 8, 0))),
+        );
+        recorder.push_draw(TestDraw, &[]);
+        recorder.pop_layer();
+        recorder.pop_layer();
+        recorder.pop_layer();
+
+        assert_eq!(recorder.layers[2].bbox, RectU16::new(0, 0, 40, 4));
+        assert_eq!(recorder.layers[0].bbox, RectU16::new(0, 0, 32, 4));
     }
 
     #[test]
