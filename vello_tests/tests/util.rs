@@ -11,6 +11,7 @@ use smallvec::smallvec;
 use std::sync::Arc;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
+use vello_common::filter_effects::{Filter, FilterGraph, FilterPrimitive};
 use vello_common::kurbo::{BezPath, Join, Point, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_cpu::{Level, RenderMode};
@@ -163,6 +164,18 @@ pub(crate) fn crossed_line_star() -> BezPath {
     path.line_to((50.0, 10.0));
 
     path
+}
+
+/// Build a linear filter chain.
+pub(crate) fn filter_chain(primitives: impl IntoIterator<Item = FilterPrimitive>) -> Filter {
+    let mut graph = FilterGraph::new();
+    for primitive in primitives {
+        graph.add(primitive, None);
+    }
+
+    Filter {
+        graph: Arc::new(graph),
+    }
 }
 
 pub(crate) fn circular_star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {

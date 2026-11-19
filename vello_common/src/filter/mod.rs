@@ -44,7 +44,20 @@ impl PreparedFilter {
             unimplemented!("Multi-primitive filter graphs are not yet supported");
         }
 
-        match &filter.graph.primitives[0] {
+        Self::from_primitive(&filter.graph.primitives[0], transform)
+    }
+
+    /// Prepare each primitive of the filter's linear chain.
+    pub fn chain(filter: &Filter, transform: Affine) -> impl Iterator<Item = Self> + '_ {
+        filter
+            .graph
+            .primitives
+            .iter()
+            .map(move |primitive| Self::from_primitive(primitive, &transform))
+    }
+
+    fn from_primitive(primitive: &FilterPrimitive, transform: &Affine) -> Self {
+        match primitive {
             FilterPrimitive::Flood { color } => {
                 let flood = Flood::new(*color);
                 Self::Flood(flood)
