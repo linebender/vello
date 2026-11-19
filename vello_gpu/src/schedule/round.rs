@@ -26,7 +26,6 @@
 
 use super::ScheduleBuffers;
 use crate::draw::{Draw, ExternalTextureRun};
-use crate::filter::GpuFilterData;
 use crate::target::{
     BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
     LayerTextureRegion, RootTarget, RoundBindings, TextureParity, TextureRegion,
@@ -505,14 +504,12 @@ impl FilterTextureRegions {
 }
 
 /// A scheduled filter and the texture regions on which it operates.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct FilterOp {
     /// Original and temporary regions used by the filter passes.
     pub(crate) textures: FilterTextureRegions,
-    /// Texel offset of this filter's parameters in the filter data texture.
-    pub(crate) filter_data_offset: u32,
-    /// Prepared filter parameters used to select and size passes.
-    pub(crate) gpu_filter: GpuFilterData,
+    /// Primitives applied in order; only the first may need a copy pass.
+    pub(crate) primitives: Range<usize>,
 }
 
 /// A scheduled non-default blend between a parent and child layer.
@@ -538,13 +535,11 @@ mod tests {
         BlendOp, FilterOp, FilterTextureRegions, LayerStage, Round, RoundStage, Rounds,
         SchedulePoint,
     };
-    use crate::filter::GpuFilterData;
     use crate::schedule::ScheduleBuffers;
     use crate::target::{
         LayerTextureId, LayerTextureRegion, RoundBindings, TextureParity, TextureRegion,
     };
     use crate::util::VecExt;
-    use bytemuck::Zeroable;
     use vello_common::geometry::RectU16;
     use vello_common::peniko::BlendMode;
 
@@ -566,14 +561,13 @@ mod tests {
         }
     }
 
-    fn filter_op(filter_data_offset: u32) -> FilterOp {
+    fn filter_op(primitive: usize) -> FilterOp {
         FilterOp {
             textures: FilterTextureRegions::new(
                 region(TextureParity::Even, 0),
                 region(TextureParity::Odd, 0),
             ),
-            filter_data_offset,
-            gpu_filter: GpuFilterData::zeroed(),
+            primitives: primitive..primitive + 1,
         }
     }
 
@@ -831,21 +825,21 @@ mod tests {
         let round = &rounds.rounds[0];
         let even_pass = &round.layer_texture_passes[TextureParity::Even.get_parity()];
         let odd_pass = &round.layer_texture_passes[TextureParity::Odd.get_parity()];
-        let even_offsets: alloc::vec::Vec<_> = buffers
+        let even_primitives: alloc::vec::Vec<_> = buffers
             .filter_ops
             .ranged(&even_pass.filter_ranges)
             .iter()
-            .map(|op| op.filter_data_offset)
+            .map(|op| op.primitives.start)
             .collect();
-        let odd_offsets: alloc::vec::Vec<_> = buffers
+        let odd_primitives: alloc::vec::Vec<_> = buffers
             .filter_ops
             .ranged(&odd_pass.filter_ranges)
             .iter()
-            .map(|op| op.filter_data_offset)
+            .map(|op| op.primitives.start)
             .collect();
 
-        assert_eq!(even_offsets, [10, 30]);
-        assert_eq!(odd_offsets, [20]);
+        assert_eq!(even_primitives, [10, 30]);
+        assert_eq!(odd_primitives, [20]);
         assert_eq!(even_pass.blend_ranges.len(), 0);
         assert_eq!(odd_pass.blend_ranges.len(), 1);
         assert_eq!(
