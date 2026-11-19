@@ -37,16 +37,6 @@ pub enum PreparedFilter {
 }
 
 impl PreparedFilter {
-    /// Build a new prepared filter for the given transform.
-    pub fn new(filter: &Filter, transform: &Affine) -> Self {
-        // Multi-primitive filter graphs are not yet implemented.
-        if filter.graph.primitives.len() != 1 {
-            unimplemented!("Multi-primitive filter graphs are not yet supported");
-        }
-
-        Self::from_primitive(&filter.graph.primitives[0], transform)
-    }
-
     /// Prepare each primitive of the filter's linear chain.
     pub fn chain(filter: &Filter, transform: Affine) -> impl Iterator<Item = Self> + '_ {
         filter

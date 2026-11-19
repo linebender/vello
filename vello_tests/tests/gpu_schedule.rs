@@ -10,6 +10,7 @@
 //! layer stacks.
 
 use crate::renderer::Renderer;
+use crate::util::filter_chain;
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Circle, Rect, Shape};
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
@@ -275,4 +276,84 @@ fn gpu_schedule_filter_batch_page_zero(ctx: &mut impl Renderer) {
         ctx.fill_rect(&bounds);
         ctx.pop_layer();
     }
+}
+
+/// Test batching filter chains of different lengths.
+#[vello_test(skip_multithreaded, gpu_tolerance = 2)]
+fn gpu_schedule_filter_chains_batch(ctx: &mut impl Renderer) {
+    let shadow = FilterPrimitive::DropShadow {
+        dx: 3.0,
+        dy: 3.0,
+        std_deviation: 2.0,
+        color: Color::from_rgb8(20, 24, 40),
+        edge_mode: EdgeMode::None,
+    };
+    let chains = [
+        filter_chain([FilterPrimitive::Offset { dx: 4.0, dy: 0.0 }, shadow.clone()]),
+        filter_chain([
+            FilterPrimitive::gaussian_blur(2.0, EdgeMode::None),
+            FilterPrimitive::Offset { dx: 0.0, dy: 6.0 },
+            FilterPrimitive::gaussian_blur(1.0, EdgeMode::None),
+        ]),
+        filter_chain([shadow.clone(), FilterPrimitive::Offset { dx: 4.0, dy: 4.0 }]),
+        filter_chain([
+            shadow.clone(),
+            FilterPrimitive::Offset { dx: -4.0, dy: 0.0 },
+            shadow,
+        ]),
+    ];
+    let cells = [
+        (
+            Rect::new(8.0, 8.0, 36.0, 36.0),
+            Color::from_rgb8(255, 105, 120),
+        ),
+        (
+            Rect::new(58.0, 8.0, 86.0, 30.0),
+            Color::from_rgb8(55, 190, 178),
+        ),
+        (
+            Rect::new(8.0, 58.0, 36.0, 86.0),
+            Color::from_rgb8(255, 199, 82),
+        ),
+        (
+            Rect::new(62.0, 58.0, 86.0, 82.0),
+            Color::from_rgb8(118, 112, 235),
+        ),
+    ];
+
+    for (filter, (rect, color)) in chains.into_iter().zip(cells) {
+        ctx.push_filter_layer(filter);
+        ctx.set_paint(color.with_alpha(0.5));
+        ctx.fill_rect(&rect);
+        ctx.pop_layer();
+    }
+}
+
+/// Test nested filter chain layers that both split into several filter ops.
+#[vello_test(skip_multithreaded, gpu_tolerance = 3)]
+fn gpu_schedule_nested_filter_chains(ctx: &mut impl Renderer) {
+    let shadow = |d| FilterPrimitive::DropShadow {
+        dx: d,
+        dy: d,
+        std_deviation: 2.0,
+        color: Color::from_rgb8(20, 24, 40),
+        edge_mode: EdgeMode::None,
+    };
+
+    ctx.push_filter_layer(filter_chain([
+        FilterPrimitive::gaussian_blur(0.0, EdgeMode::None),
+        shadow(4.0),
+        FilterPrimitive::Offset { dx: 6.0, dy: 0.0 },
+        shadow(-4.0),
+    ]));
+    ctx.set_paint(Color::from_rgb8(255, 105, 120).with_alpha(0.5));
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 50.0, 50.0));
+    ctx.push_filter_layer(filter_chain([
+        FilterPrimitive::Offset { dx: 4.0, dy: 4.0 },
+        shadow(3.0),
+    ]));
+    ctx.set_paint(Color::from_rgb8(55, 190, 178).with_alpha(0.5));
+    ctx.fill_rect(&Rect::new(40.0, 40.0, 80.0, 80.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
 }

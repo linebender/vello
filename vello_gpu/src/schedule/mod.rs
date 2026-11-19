@@ -106,8 +106,9 @@
 //! group. Filter passes alternate their source and destination between these two regions, and the
 //! pass plan ensures that the final result is left in the layer's allocation. The temporary region
 //! is then cleared and released. Filters that must preserve the unfiltered pixels, such as drop
-//! shadows, additionally use the shared scratch texture. The layer is not made available to its
-//! parent until filtering is complete.
+//! shadows, additionally use the shared scratch texture. A filter chain is split before each such
+//! primitive after the first, and the remainder runs in a later round. The layer is not made
+//! available to its parent until filtering is complete.
 //!
 //! Default source-over composition does not require a separate blend pass. Instead, the parent
 //! draw samples the completed child layer directly. Non-default blending must read both the child
@@ -134,7 +135,7 @@ use self::round::{
     BlendOp, FilterOp, FilterTextureRegions, Round, RoundStage, Rounds, SchedulePoint,
 };
 use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState, RectU16Ext};
-use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
+use crate::filter::{FilterContext, FilterPassPlan};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::schedule::allocate::AllocatedTextureRegion;
@@ -431,45 +432,49 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let region = target.schedule_state.draw_state.target;
 
         if let Some(filter) = target.filter {
+            let texture_parity = region.texture.target.texture_parity;
             let temporary = self.cursor.allocate_layer(LayerAllocationRequest::new(
                 region.texture.rect,
                 layer.kind,
-                region.texture.target.texture_parity.opposite(),
+                texture_parity.opposite(),
             ))?;
             let textures = FilterTextureRegions::new(region.texture, temporary.allocation.region);
 
-            if filter.data.needs_copy_pass() {
+            if self.storage.filter_context.needs_copy_pass(filter.clone()) {
                 self.cursor.require_scratch_texture();
             }
 
-            // Now we determine the point at which we can perform the filter operation.
-            let mut filter_point =
+            let mut ready =
                 // Obviously, we first need to wait until rendering of the underlying layer finished.
                 target.schedule_state.ready
                 // Then, we must wait until our reserved space in the atlas is available.
-                .max(SchedulePoint::start(temporary.round_idx))
-                // Finally, wait until we reach the filter stage.
-                .after(RoundStage::filter(region.texture.target.texture_parity));
+                .max(SchedulePoint::start(temporary.round_idx));
 
-            // Now find the _actual_ schedule point that corresponds to a round that matches our
-            // requirements for texture bindings.
-            filter_point = rounds.bind_at_or_after(filter_point, textures.round_bindings());
+            // A round's filter pass plan copies into the shared scratch texture only once, before
+            // all filter steps. A primitive needing that copy must therefore start its own op,
+            // which runs in a later round; everything else in the chain ping-pongs within one op.
+            // TODO: Rework the scheduler so it's more generalized and robust in this regard.
+            let filter_stage = RoundStage::filter(texture_parity);
+            for primitives in self.storage.filter_context.ops(filter) {
+                let filter_point =
+                    rounds.bind_at_or_after(ready.after(filter_stage), textures.round_bindings());
 
-            rounds.ensure_exists(filter_point.round);
-            rounds.round_mut(filter_point.round).push_filter_op(
-                region.texture.target.texture_parity,
-                &mut self.storage.buffers,
-                FilterOp {
-                    textures,
-                    filter_data_offset: filter.data_offset,
-                    gpu_filter: filter.data,
-                },
-            );
+                rounds.ensure_exists(filter_point.round);
+                rounds.round_mut(filter_point.round).push_filter_op(
+                    texture_parity,
+                    &mut self.storage.buffers,
+                    FilterOp {
+                        textures,
+                        primitives,
+                    },
+                );
+                ready = filter_point;
+            }
 
-            self.clear_and_release_allocation(temporary.allocation, filter_point.round, rounds);
+            self.clear_and_release_allocation(temporary.allocation, ready.round, rounds);
 
             // Since we need to apply a filter, update the state of the current target.
-            target.schedule_state.ready = filter_point;
+            target.schedule_state.ready = ready;
         }
 
         let scheduled = ScheduledLayer {
@@ -810,6 +815,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             let filter = match layer.kind {
                 RecordedLayerKind::Filter { filter_data, .. } => {
                     Some(self.storage.filter_context.push(filter_data))
+                        .filter(|primitives| !primitives.is_empty())
                 }
                 RecordedLayerKind::Regular => None,
             };
@@ -924,8 +930,8 @@ impl LayerSamplePlacement {
 struct LayerTarget {
     /// Atlas allocation backing the layer.
     allocation: AllocatedTextureRegion,
-    /// Prepared filter applied after the layer's draws, if any.
-    filter: Option<PreparedGpuFilter>,
+    /// The range of the layer's filter primitives in the filter context, if any.
+    filter: Option<core::ops::Range<usize>>,
     /// Dependency state for operations targeting this layer.
     schedule_state: TargetScheduleState<LayerTextureRegion>,
 }
