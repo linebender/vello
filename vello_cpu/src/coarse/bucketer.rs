@@ -152,6 +152,9 @@ fn debug_assert_tile_aligned(point: (u16, u16), description: &str) {
 pub(crate) struct CommandBucketer {
     /// The viewport of the root/filter layer we are currently bucketing.
     viewport: RectU16,
+    /// The viewport's top-left in render context coordinates, where masks are sampled. Inside a
+    /// filter layer, this is the viewport's origin minus the summed source shifts.
+    mask_origin: (i32, i32),
     /// The currently active stack of clip bboxes (from layer clips), always anchored at the
     /// (0, 0) origin, regardless of the viewport, tracked for two reasons:
     /// - So we can clamp fill commands to the bbox and avoid unnecessary rendering work.
@@ -200,6 +203,7 @@ impl CommandBucketer {
 
         Self {
             viewport,
+            mask_origin: (i32::from(viewport.x0), i32::from(viewport.y0)),
             clip_bboxes: vec![clip_bbox],
             rows: RetainVec::with_len(num_rows, RowState::new),
             paint_fill_attrs: Vec::new(),
@@ -236,7 +240,9 @@ impl CommandBucketer {
         (self.viewport.x0, self.viewport.y0)
     }
 
-    pub(crate) fn reset(&mut self, mut viewport: RectU16) {
+    /// `source_shift` is the summed source shift of the filter layer being bucketed and its
+    /// ancestors, or `(0, 0)` for the root.
+    pub(crate) fn reset(&mut self, mut viewport: RectU16, source_shift: (u32, u32)) {
         // See comments in `CommandBucketer::reset`.
         viewport = viewport.snap_to_tile_coordinates();
         let clip_bbox = RectU16::new(0, 0, viewport.width(), viewport.height());
@@ -254,6 +260,10 @@ impl CommandBucketer {
         self.occupied_rows_bool_scratch.resize(num_rows, false);
         self.next_draw_id = 1;
         self.viewport = viewport;
+        self.mask_origin = (
+            i32::from(viewport.x0) - source_shift.0 as i32,
+            i32::from(viewport.y0) - source_shift.1 as i32,
+        );
         self.clip_bboxes.truncate(1);
         self.clip_bboxes[0] = clip_bbox;
     }
@@ -314,6 +324,7 @@ impl CommandBucketer {
                     draw_id,
                     thread_idx: *thread_idx,
                     origin: self.viewport_origin(),
+                    mask_origin: self.mask_origin,
                 };
                 self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
             }
@@ -385,9 +396,6 @@ impl CommandBucketer {
         }
 
         self.active_layers.push(ActiveLayer {
-            // TODO: Masks are currently probably broken if they are used inside of a filter layer,
-            // since they aren't shifted and also only work if the mask has the same dimensions as
-            // our allocated filter layer.
             mask: props.mask.clone(),
             blend_mode: props.blend_mode,
             opacity: props.opacity,
@@ -431,6 +439,7 @@ impl CommandBucketer {
                 blend_mode,
                 opacity,
                 mask: layer.mask.clone(),
+                mask_origin: self.mask_origin,
                 draw_id,
                 thread_idx: clip.thread_idx,
             });
@@ -492,6 +501,7 @@ impl CommandBucketer {
                 blend_mode,
                 opacity,
                 mask: layer.mask.clone(),
+                mask_origin: self.mask_origin,
                 draw_id,
                 thread_idx: 0,
             });
@@ -574,6 +584,7 @@ impl CommandBucketer {
             draw_id,
             thread_idx: 0,
             origin,
+            mask_origin: self.mask_origin,
         });
         let row_start = usize::from(clipped_dest_bbox.y0 / Tile::HEIGHT);
         let row_end = usize::from(clipped_dest_bbox.y1.div_ceil(Tile::HEIGHT));
@@ -794,6 +805,7 @@ mod tests {
             draw_id: 1,
             thread_idx: 0,
             origin: (0, 0),
+            mask_origin: (0, 0),
         }
     }
 

@@ -66,6 +66,7 @@ pub(crate) fn fill_single<S: Simd, N: FineKernel<S>>(
         draw_id: 1,
         thread_idx: 0,
         origin: (0, 0),
+        mask_origin: (0, 0),
     };
 
     b.iter(|| {

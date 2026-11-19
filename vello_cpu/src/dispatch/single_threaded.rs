@@ -11,6 +11,7 @@ use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::record::RecordedFill;
 use crate::region::Regions;
+use alloc::vec::Vec;
 use core::cell::RefCell;
 use vello_common::TargetInit;
 use vello_common::color::AlphaColor;
@@ -41,6 +42,10 @@ pub(crate) struct SingleThreadedDispatcher {
     strip_storage: StripStorage,
     /// SIMD level for fearless SIMD dispatch.
     level: Level,
+    /// Summed source shifts of the open filter layers.
+    filter_shifts: Vec<(u32, u32)>,
+    /// Summed source shift of each filter layer, indexed like `recorder.filter_layers`.
+    filter_layer_shifts: Vec<(u32, u32)>,
 }
 
 impl SingleThreadedDispatcher {
@@ -56,6 +61,8 @@ impl SingleThreadedDispatcher {
             viewport: ViewportState::new(width, height, level),
             recorder: CommandRecorder::new(width, height),
             strip_storage: StripStorage::new(GenerationMode::Append),
+            filter_shifts: Vec::new(),
+            filter_layer_shifts: Vec::new(),
             level,
         }
     }
@@ -121,6 +128,7 @@ impl SingleThreadedDispatcher {
             simd,
             &self.recorder.nodes,
             RectU16::new(0, 0, scene_width, scene_height),
+            (0, 0),
             &filters,
             target,
             params,
@@ -136,6 +144,7 @@ impl SingleThreadedDispatcher {
         simd: S,
         cmds: &[Node],
         viewport: RectU16,
+        source_shift: (u32, u32),
         filter_ctx: &FilterContext,
         mut target: PixmapMut<'_>,
         params: FineRenderParams,
@@ -145,7 +154,7 @@ impl SingleThreadedDispatcher {
         image_resolver: &dyn ImageResolver,
     ) {
         let mut bucketer = self.bucketer.borrow_mut();
-        bucketer.reset(viewport);
+        bucketer.reset(viewport, source_shift);
         bucketer.bucket_commands(
             cmds,
             &self.recorder.draws,
@@ -229,7 +238,14 @@ impl SingleThreadedDispatcher {
         // parents. Subsequent sibling filter layers also get added after the previous layer they
         // are composited into. Therefore, iterating in reverse order is enough to ensure that all
         // dependencies have been rendered before they are invoked.
-        for id in self.recorder.filter_layers.iter().rev().copied() {
+        for (index, id) in self
+            .recorder
+            .filter_layers
+            .iter()
+            .copied()
+            .enumerate()
+            .rev()
+        {
             let RecordedLayerKind::Filter {
                 filter_data: filter_plan,
                 placement,
@@ -256,6 +272,7 @@ impl SingleThreadedDispatcher {
                 simd,
                 &self.recorder.layers[id as usize].nodes,
                 pixmap_bbox,
+                self.filter_layer_shifts[index],
                 &filter_ctx,
                 (&mut pixmap).into(),
                 params,
@@ -369,6 +386,12 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         if let Some(filter_data) = &filter_data {
             self.viewport.push_root_viewport(filter_data);
+
+            let (parent_x, parent_y) = self.filter_shifts.last().copied().unwrap_or((0, 0));
+            let (shift_x, shift_y) = filter_data.source_shift();
+            let shift = (parent_x + u32::from(shift_x), parent_y + u32::from(shift_y));
+            self.filter_shifts.push(shift);
+            self.filter_layer_shifts.push(shift);
         }
 
         let clip_path = clip_path.map(|clip_path| {
@@ -411,6 +434,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             PoppedLayer::Regular => {}
             PoppedLayer::Filter => {
                 self.viewport.pop_root_viewport();
+                self.filter_shifts.pop();
             }
         }
     }
@@ -419,6 +443,8 @@ impl Dispatcher for SingleThreadedDispatcher {
         // Bucketer will be reset on demand, so no need to reset it here.
         self.recorder.reset(width, height);
         self.strip_storage.clear();
+        self.filter_shifts.clear();
+        self.filter_layer_shifts.clear();
         self.viewport.reset(width, height);
     }
 
