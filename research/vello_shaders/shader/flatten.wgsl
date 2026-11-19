@@ -442,9 +442,21 @@ fn flatten_euler(
             // This may give slightly incorrect rendering but avoids hangs.
             // TODO: aggressively cull to viewport
             let n = clamp(ceil(n_frac * scale_multiplier), 1.0, 100.0);
-            for (var i = 0u; i < u32(n); i++) {
+            let n_lines = u32(n);
+            // This is a `loop` with the increment at the end of the body rather than a `for`
+            // loop on purpose. Naga lowers the `for` loop's continuing block to
+            // `bool loop_init = true; while (true) { if (!loop_init) { i++; } loop_init = false; ...`,
+            // and the Metal shader compiler for AMD GPUs of Intel Macs (observed on Polaris,
+            // Radeon Pro 455) compiles that form of this loop, nested in the subdivision loop
+            // above, without any exit edge: every invocation that emits a line spins forever,
+            // the GPU is restarted and WindowServer's watchdog can panic the machine.
+            var i = 0u;
+            loop {
+                if i >= n_lines {
+                    break;
+                }
                 var lp1: vec2f;
-                if i + 1u == u32(n) && t1 == 1.0 {
+                if i + 1u == n_lines && t1 == 1.0 {
                     lp1 = t_end;
                 } else {
                     let t = f32(i + 1u) / n;
@@ -465,6 +477,7 @@ fn flatten_euler(
                 let l1 = select(lp0, lp1, offset >= 0.);
                 output_line_with_transform(path_ix, l0, l1, transform);
                 lp0 = lp1;
+                i += 1u;
             }
             last_p = this_pq1.point;
             last_q = this_pq1.deriv;
