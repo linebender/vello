@@ -1380,6 +1380,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "glifo_web_harness"
+version = "0.12.0"
+dependencies = [
+ "console_error_panic_hook",
+ "console_log",
+ "glifo",
+ "js-sys",
+ "log",
+ "skrifa 0.49.0",
+ "vello_common",
+ "vello_cpu",
+ "vello_gpu",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "glow"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

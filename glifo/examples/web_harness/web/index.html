@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glifo harness</title>
+  <link rel="stylesheet" href="harness.css">
+</head>
+<body>
+  <script type="module">
+    import { header, ready, workloads, moduleInitMs, el } from './harness.js';
+    document.body.prepend(header('index.html'));
+    await ready();
+    document.getElementById('module').textContent = `wasm module initialized in ${moduleInitMs.toFixed(1)} ms`;
+    document.getElementById('workloads').replaceChildren(...workloads().map(({ name, description }) =>
+      el('tr', {}, el('td', {}, el('code', {}, name)), el('td', { style: 'text-align:left;white-space:normal' }, description))));
+  </script>
+  <main>
+    <h1>Glifo web harness</h1>
+    <p>
+      Benchmarks Glifo text rendering in the browser on two renderers: Vello CPU
+      (WASM, presented with <code>putImageData</code>) and Vello GPU (native WebGL2). All pages run
+      the same deterministic workloads, so numbers are comparable across renderers.
+    </p>
+    <p class="hint" id="module">loading wasm…</p>
+
+    <div class="cards">
+      <a href="live.html"><div class="panel">
+        <h3>Live</h3>
+        <p>Interactive view of one renderer with per-frame timings, a frame-time chart, and pan and zoom.</p>
+      </div></a>
+      <a href="bench.html"><div class="panel">
+        <h3>Benchmark</h3>
+        <p>Selected workload × renderer × cache scenarios with warmup and measured frames. Exports JSON and Markdown; scriptable via <code>?autorun=1</code>.</p>
+      </div></a>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>Workloads</h2>
+      <table><tbody id="workloads"></tbody></table>
+    </div>
+  </main>
+</body>
+</html>

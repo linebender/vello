@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glifo harness · Live</title>
+  <link rel="stylesheet" href="harness.css">
+</head>
+
+<body>
+  <div class="live">
+    <section class="panel controls" id="controls">
+      <div class="row"><span>Renderer</span>
+        <select id="renderer">
+          <option value="gpu">Vello GPU (WebGL2)</option>
+          <option value="cpu">Vello CPU (putImageData)</option>
+        </select>
+      </div>
+      <div class="row" id="atlas-size-row"><span>GPU atlas page size</span>
+        <select id="atlas-size">
+          <option value="1024">1024 × 1024</option>
+          <option value="2048">2048 × 2048</option>
+          <option value="4096" selected>4096 × 4096</option>
+        </select>
+      </div>
+      <div class="row"><span>Workload</span>
+        <select id="workload"></select>
+        <div class="hint" id="workload-description"></div>
+      </div>
+      <div class="row"><span>Font scale <b id="font-scale-value"></b></span>
+        <input id="font-scale" type="range" min="0.5" max="4" step="0.05" value="1">
+      </div>
+      <div class="row"><span>Density <b id="density-value"></b></span>
+        <input id="density" type="range" min="0.1" max="5" step="0.1" value="1">
+      </div>
+      <div class="row"><span>Resolution</span>
+        <select id="dpr">
+          <option value="device">Device pixel ratio</option>
+          <option value="1">1×</option>
+          <option value="2">2×</option>
+        </select>
+      </div>
+      <div class="inline">
+        <label><input id="hinting" type="checkbox" checked> hinting</label>
+        <label><input id="cache" type="checkbox" checked> atlas cache</label>
+        <label><input id="animate" type="checkbox" checked> animate</label>
+        <label><input id="running" type="checkbox" checked> running</label>
+        <label title="Wait for the GPU each frame (1px readPixels) so frame time includes GPU work."><input id="sync"
+            type="checkbox"> GPU sync</label>
+      </div>
+      <div class="inline">
+        <button id="step">Step</button>
+        <button id="reset-view">Reset view</button>
+        <button id="reset-stats">Reset stats</button>
+        <button id="restart" title="Recreate the renderer with empty caches">Restart</button>
+      </div>
+      <p class="hint">Drag to pan, wheel to zoom, double-click to reset. Space toggles running.</p>
+      <p class="error" id="error" hidden></p>
+    </section>
+
+    <div class="splitter" data-side="left" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize controls panel"
+      title="Drag or use arrow keys to resize, double-click to reset"></div>
+
+    <section class="stage" id="stage"></section>
+
+    <div class="splitter" data-side="right" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize stats panel"
+      title="Drag or use arrow keys to resize, double-click to reset"></div>
+
+    <section class="panel stats-panel">
+      <h2 id="backend-name">Stats</h2>
+      <canvas class="chart" id="chart"></canvas>
+      <div id="legend"></div>
+      <table class="stats" id="stats"></table>
+    </section>
+  </div>
+
+  <script type="module">
+    import {
+      FrameChart, Ring, createHarness, describeError, disposeHarness, header, moduleInitMs, ms, num, plainInit,
+      plainStats, ready, workloads,
+    } from './harness.js';
+
+    document.body.prepend(header('live.html'));
+    await ready();
+
+    const $ = (id) => document.getElementById(id);
+    const query = new URLSearchParams(location.search);
+    const state = {
+      renderer: query.get('renderer') ?? 'gpu',
+      atlasSize: Number(query.get('atlas') ?? 4096),
+      workload: query.get('workload') ?? 'paragraph',
+      fontScale: Number(query.get('scale') ?? 1),
+      density: Number(query.get('density') ?? 1),
+      dpr: query.get('dpr') ?? 'device',
+      hinting: query.get('hint') !== '0',
+      cache: query.get('cache') !== '0',
+      sync: query.get('sync') === '1',
+      animate: true,
+      running: true,
+    };
+    const view = { scale: 1, x: 0, y: 0 };
+
+    const allWorkloads = workloads();
+    $('workload').replaceChildren(...allWorkloads.map(({ name }) => new Option(name, name)));
+
+    function syncControls() {
+      $('renderer').value = state.renderer;
+      $('atlas-size').value = String(state.atlasSize);
+      $('workload').value = state.workload;
+      $('font-scale').value = state.fontScale;
+      $('density').value = state.density;
+      $('dpr').value = state.dpr;
+      $('hinting').checked = state.hinting;
+      $('cache').checked = state.cache;
+      $('sync').checked = state.sync;
+      $('font-scale-value').textContent = `${state.fontScale.toFixed(2)}×`;
+      $('density-value').textContent = `${state.density.toFixed(1)}×`;
+      $('atlas-size-row').hidden = state.renderer !== 'gpu';
+      $('workload-description').textContent = allWorkloads.find((w) => w.name === state.workload)?.description ?? '';
+      const params = new URLSearchParams({
+        renderer: state.renderer, workload: state.workload, scale: state.fontScale, density: state.density,
+        hint: state.hinting ? 1 : 0, cache: state.cache ? 1 : 0, sync: state.sync ? 1 : 0, atlas: state.atlasSize, dpr: state.dpr,
+      });
+      history.replaceState(null, '', `?${params}`);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Renderer lifecycle
+
+    let harness = null;
+    let canvas = null;
+    let init = null;
+    let createMs = NaN;
+    let pendingSize = null;
+    const ring = new Ring(120);
+    const chart = new FrameChart($('chart'), [
+      { key: 'encode_ms', color: '#ef6b73', label: 'encode' },
+      { key: 'render_ms', color: '#f5b04b', label: 'render' },
+      { key: 'present_ms', color: '#5aa7ff', label: 'present' },
+      { key: 'sync_ms', color: '#a78bfa', label: 'GPU sync' },
+    ]);
+    $('legend').append(chart.legend());
+
+    function devicePixelRatioSetting() {
+      return state.dpr === 'device' ? (window.devicePixelRatio || 1) : Number(state.dpr);
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = devicePixelRatioSetting();
+        pendingSize = [Math.round(rect.width * dpr), Math.round(rect.height * dpr)];
+      }
+    });
+
+    async function recreate() {
+      disposeHarness(harness, canvas);
+      harness = null;
+      $('error').hidden = true;
+      // A canvas can only ever have one context type, so switching renderers needs a new one.
+      canvas = document.createElement('canvas');
+      canvas.className = 'render-canvas';
+      $('stage').replaceChildren(canvas);
+      installViewInteraction(canvas);
+      const rect = canvas.getBoundingClientRect();
+      const dpr = devicePixelRatioSetting();
+      canvas.width = Math.max(1, Math.round(rect.width * dpr));
+      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+      resizeObserver.disconnect();
+      resizeObserver.observe(canvas);
+
+      const created = await createHarness(state.renderer, canvas, { atlasSize: state.atlasSize });
+      harness = created.harness;
+      createMs = created.createMs;
+      init = plainInit(harness.initStats());
+      $('backend-name').textContent = harness.backendName();
+      harness.setWorkload(state.workload);
+      applyConfig();
+      resetStats();
+      window.glifo = { harness, ring, state };
+    }
+
+    function applyConfig() {
+      harness?.configure(state.fontScale, state.density, state.hinting, state.cache);
+      harness?.setView(view.scale, view.x, view.y);
+    }
+
+    function resetStats() {
+      ring.clear();
+      chart.clear();
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Controls
+
+    const onChange = (id, apply) => $(id).addEventListener('input', () => { apply($(id)); syncControls(); });
+    onChange('renderer', (input) => { state.renderer = input.value; recreate(); });
+    onChange('atlas-size', (input) => { state.atlasSize = Number(input.value); recreate(); });
+    onChange('workload', (input) => { state.workload = input.value; harness?.setWorkload(state.workload); resetStats(); });
+    onChange('font-scale', (input) => { state.fontScale = Number(input.value); applyConfig(); });
+    onChange('density', (input) => { state.density = Number(input.value); applyConfig(); });
+    onChange('dpr', (input) => { state.dpr = input.value; resizeObserver.disconnect(); resizeObserver.observe(canvas); });
+    onChange('hinting', (input) => { state.hinting = input.checked; applyConfig(); });
+    onChange('cache', (input) => { state.cache = input.checked; applyConfig(); resetStats(); });
+    onChange('sync', (input) => { state.sync = input.checked; });
+    onChange('animate', (input) => { state.animate = input.checked; });
+    onChange('running', (input) => { state.running = input.checked; });
+    $('step').addEventListener('click', () => renderFrame(performance.now(), 1000 / 60));
+    $('reset-view').addEventListener('click', () => { Object.assign(view, { scale: 1, x: 0, y: 0 }); applyConfig(); });
+    $('reset-stats').addEventListener('click', resetStats);
+    $('restart').addEventListener('click', recreate);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === ' ' && event.target === document.body) {
+        event.preventDefault();
+        state.running = !state.running;
+        $('running').checked = state.running;
+      }
+    });
+
+    function installViewInteraction(target) {
+      let drag = null;
+      const scale = () => target.width / target.getBoundingClientRect().width;
+      target.addEventListener('pointerdown', (event) => {
+        drag = { x: event.clientX, y: event.clientY };
+        target.setPointerCapture(event.pointerId);
+      });
+      target.addEventListener('pointerup', () => { drag = null; });
+      target.addEventListener('pointermove', (event) => {
+        if (!drag) {
+          return;
+        }
+        view.x += (event.clientX - drag.x) * scale();
+        view.y += (event.clientY - drag.y) * scale();
+        drag = { x: event.clientX, y: event.clientY };
+        applyConfig();
+      });
+      target.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        const rect = target.getBoundingClientRect();
+        const px = (event.clientX - rect.left) * scale();
+        const py = (event.clientY - rect.top) * scale();
+        const factor = Math.exp(-event.deltaY * 0.0015);
+        view.x = px - (px - view.x) * factor;
+        view.y = py - (py - view.y) * factor;
+        view.scale *= factor;
+        applyConfig();
+      }, { passive: false });
+      target.addEventListener('dblclick', () => { Object.assign(view, { scale: 1, x: 0, y: 0 }); applyConfig(); });
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Panel resizing
+
+    const PANEL_DEFAULTS = { left: 260, right: 340 };
+    const PANEL_MIN = 180;
+    const panelWidths = { ...PANEL_DEFAULTS, ...JSON.parse(localStorage.getItem('glifo.live.panels') ?? '{}') };
+    const layout = document.querySelector('.live');
+
+    function setPanelWidth(side, width) {
+      const bounds = layout.getBoundingClientRect();
+      const padding = parseFloat(getComputedStyle(layout).paddingLeft);
+      const splitterWidth = document.querySelector('.splitter').getBoundingClientRect().width;
+      // Keep at least PANEL_MIN for the stage between the two panels.
+      const other = side === 'left' ? panelWidths.right : panelWidths.left;
+      const max = bounds.width - 2 * padding - 2 * splitterWidth - other - PANEL_MIN;
+      panelWidths[side] = Math.round(Math.max(PANEL_MIN, Math.min(width, max)));
+      applyPanelWidths();
+    }
+
+    function applyPanelWidths() {
+      layout.style.setProperty('--left-width', `${panelWidths.left}px`);
+      layout.style.setProperty('--right-width', `${panelWidths.right}px`);
+      localStorage.setItem('glifo.live.panels', JSON.stringify(panelWidths));
+    }
+
+    for (const splitter of document.querySelectorAll('.splitter')) {
+      const side = splitter.dataset.side;
+      splitter.addEventListener('pointerdown', (event) => {
+        splitter.setPointerCapture(event.pointerId);
+        splitter.classList.add('dragging');
+        document.body.classList.add('resizing');
+      });
+      splitter.addEventListener('pointermove', (event) => {
+        if (!splitter.hasPointerCapture(event.pointerId)) {
+          return;
+        }
+        const bounds = layout.getBoundingClientRect();
+        const padding = parseFloat(getComputedStyle(layout).paddingLeft);
+        const half = splitter.getBoundingClientRect().width / 2;
+        setPanelWidth(side, side === 'left'
+          ? event.clientX - bounds.left - padding - half
+          : bounds.right - padding - event.clientX - half);
+      });
+      splitter.addEventListener('keydown', (event) => {
+        const step = { ArrowLeft: -16, ArrowRight: 16 }[event.key];
+        if (step) {
+          event.preventDefault();
+          setPanelWidth(side, panelWidths[side] + (side === 'left' ? step : -step));
+        }
+      });
+      const stop = () => {
+        splitter.classList.remove('dragging');
+        document.body.classList.remove('resizing');
+      };
+      splitter.addEventListener('pointerup', stop);
+      splitter.addEventListener('pointercancel', stop);
+      splitter.addEventListener('dblclick', () => {
+        panelWidths[side] = PANEL_DEFAULTS[side];
+        applyPanelWidths();
+      });
+    }
+    applyPanelWidths();
+
+    // -----------------------------------------------------------------------------------------
+    // Stats panel
+
+    const rows = [];
+    const table = $('stats');
+    function section(title, columns = ['now', 'avg', 'p95']) {
+      const tr = document.createElement('tr');
+      tr.className = 'section';
+      tr.innerHTML = `<td>${title}</td>${columns.map((c) => `<td>${c}</td>`).join('')}`;
+      table.append(tr);
+    }
+    function row(label, compute, title = '') {
+      const tr = document.createElement('tr');
+      tr.title = title;
+      const cells = [0, 1, 2, 3].map(() => document.createElement('td'));
+      cells[0].textContent = label;
+      tr.append(...cells);
+      table.append(tr);
+      rows.push({ label, cells: cells.slice(1), compute });
+    }
+    const timing = (key) => (current) => {
+      const summary = ring.summary((s) => s[key]);
+      return [ms(current[key]), ms(summary.mean), ms(summary.p95)];
+    };
+
+    section('Timing (CPU)');
+    row('Frame total', timing('total_ms'), 'CPU time for the whole frame, including GPU sync when enabled.');
+    row('Encode', timing('encode_ms'), 'Building the scene: glyph runs, cache lookups, and atlas command recording.');
+    row('Render', timing('render_ms'), 'CPU: rasterization. GPU: issuing WebGL commands (asynchronous on the GPU).');
+    row('Present', timing('present_ms'), 'CPU only: ImageData creation and putImageData.');
+    row('GPU sync', timing('sync_ms'), 'Waiting for the GPU via a 1px readPixels (only with GPU sync).');
+    row('GPU time', timing('gpu_ms'), 'EXT_disjoint_timer_query_webgl2 result; lags a few frames.');
+    row('rAF interval', (current) => {
+      const summary = ring.summary((s) => s.raf_ms);
+      return [ms(current.raf_ms, 1), `${num(1000 / summary.mean, 1)} fps`, ms(summary.p95, 1)];
+    });
+    section('Glyphs');
+    row('Glyphs / frame', (current) => [num(current.glyphs), num(ring.summary((s) => s.glyphs).mean), '']);
+    row('Throughput', (current) => {
+      const rate = (s) => s.glyphs / s.total_ms / 1000;
+      return [`${num(rate(current), 2)} M/s`, `${num(ring.summary(rate).mean, 2)} M/s`, ''];
+    }, 'Glyphs per second of CPU frame time.');
+    section('Start-up', ['value', '', '']);
+    row('wasm module init', () => [ms(moduleInitMs, 1), '', '']);
+    row('Renderer creation', () => [ms(createMs, 1), '', ''], 'Wall-clock time of Harness.create*, including event-loop yields while shaders compile.');
+    row('Context + issue', () => [ms(init?.context_ms, 1), '', '']);
+    row('Shader compile', () => [ms(init?.compile_ms, 1), `${num(init?.shader_count)} shaders`, `${num(init?.poll_count)} polls`]);
+
+    function updateStatsPanel() {
+      const current = ring.values.at(-1);
+      if (!current) {
+        return;
+      }
+      for (const { cells, compute } of rows) {
+        compute(current).forEach((text, index) => { cells[index].textContent = text; });
+      }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Frame loop
+
+    let animationTime = 0;
+    let lastTimestamp = null;
+    let lastPanelUpdate = 0;
+
+    function renderFrame(timestamp, interval) {
+      if (!harness) {
+        return;
+      }
+      if (pendingSize) {
+        harness.resize(pendingSize[0], pendingSize[1]);
+        pendingSize = null;
+      }
+      if (state.animate) {
+        animationTime += interval;
+      }
+      let stats;
+      try {
+        stats = plainStats(harness.render(animationTime, state.sync));
+      } catch (error) {
+        state.running = false;
+        $('running').checked = false;
+        $('error').hidden = false;
+        $('error').textContent = `Rendering failed: ${describeError(error)}. Press Restart to recreate the renderer.`;
+        disposeHarness(harness, canvas);
+        harness = null;
+        return;
+      }
+      stats.raf_ms = interval;
+      ring.push(stats);
+      chart.push(stats);
+      if (timestamp - lastPanelUpdate > 200) {
+        lastPanelUpdate = timestamp;
+        updateStatsPanel();
+        chart.draw();
+      }
+    }
+
+    function frame(timestamp) {
+      requestAnimationFrame(frame);
+      const interval = lastTimestamp === null ? 1000 / 60 : Math.min(timestamp - lastTimestamp, 250);
+      lastTimestamp = timestamp;
+      if (state.running) {
+        renderFrame(timestamp, interval);
+      }
+    }
+
+    syncControls();
+    await recreate();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+
+</html>
