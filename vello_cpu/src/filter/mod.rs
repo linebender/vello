@@ -60,7 +60,7 @@ pub(crate) fn filter_lowp(
     filter_scratch: &mut ScratchBuffer,
     transform: Affine,
 ) {
-    for prepared in PreparedFilter::chain(filter, transform) {
+    for prepared in PreparedFilter::chain(filter, &transform) {
         match prepared {
             PreparedFilter::Flood(flood) => {
                 flood.execute_lowp(pixmap, filter_scratch);
@@ -94,7 +94,7 @@ pub(crate) fn filter_highp(
     filter_scratch: &mut ScratchBuffer,
     transform: Affine,
 ) {
-    for prepared in PreparedFilter::chain(filter, transform) {
+    for prepared in PreparedFilter::chain(filter, &transform) {
         match prepared {
             PreparedFilter::Flood(flood) => {
                 flood.execute_highp(pixmap, filter_scratch);
