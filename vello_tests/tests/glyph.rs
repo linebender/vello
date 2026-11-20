@@ -198,9 +198,14 @@ fn glyphs_emboldened(ctx: &mut impl Renderer) {
         .unwrap();
 }
 
-// An RTX 3090 Ti on Windows needs one level more GPU tolerance than other platforms.
+// An RTX 3090 Ti on Windows needs one level more GPU tolerance, through wgpu and in WebGL.
 // See <https://github.com/linebender/vello/issues/2084>
-#[vello_test(width = 760, height = 140, gpu_tolerance = 1)]
+#[vello_test(
+    width = 760,
+    height = 140,
+    windows(gpu_tolerance = 1),
+    wasm(gpu_tolerance = 1)
+)]
 fn glyphs_emboldened_unhinted(ctx: &mut impl Renderer) {
     let font_size: f32 = 44_f32;
     let (font, glyphs) = layout_glyphs_roboto("this is regular and emboldened text", font_size);
