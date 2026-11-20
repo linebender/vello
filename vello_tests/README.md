@@ -40,6 +40,37 @@ fn filled_triangle(ctx: &mut impl Renderer) {
 See all the attributes that can be passed to `vello_test` in
 [`vello_dev_macros/src/test.rs`](vello_dev_macros/src/test.rs).
 
+Tolerances, allowed differing pixels and skips can be overridden for specific
+platforms. A value in a platform block replaces the base value on that platform:
+
+```rs
+#[vello_test(gpu_tolerance = 1, windows(gpu_tolerance = 3), macos(skip_gpu))]
+#[vello_test(cfg_attr(all(target_os = "linux", target_arch = "aarch64"), diff_pixels = 4))]
+```
+
+`windows`, `macos`, `linux` and `wasm` are shorthands; `cfg_attr` takes any
+`cfg` predicate. Platforms are matched against the compilation target, so the
+WebGL tests match `wasm` whatever OS the browser runs on.
+
+To disable a test on some platforms, skip it there; platforms that are not
+mentioned run it as usual. This test runs everywhere except on Linux and in
+WebGL, with a higher GPU tolerance on macOS:
+
+```rs
+#[vello_test(
+    linux(ignore = "differs on Mesa"),
+    wasm(skip_gpu),
+    macos(gpu_tolerance = 2),
+)]
+```
+
+Targets without a shorthand, such as Android, still run such a test. To run a
+test only on some platforms, ignore it everywhere else:
+
+```rs
+#[vello_test(cfg_attr(not(any(target_os = "windows", target_os = "macos")), ignore = "Windows and macOS only"))]
+```
+
 ## Testing WebGL on the Browser
 
 Requirements:
