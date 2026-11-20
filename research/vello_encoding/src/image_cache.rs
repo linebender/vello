@@ -98,6 +98,14 @@ impl ImageCache {
         }
     }
 
+    pub(crate) fn images_for_patchless_resolve(&self) -> Images<'_> {
+        if self.map.is_empty() {
+            Images::default()
+        } else {
+            self.images()
+        }
+    }
+
     pub(crate) fn bump_size(&mut self) -> bool {
         let mut new_size = self.atlas.size().width * 2;
         while new_size <= self.max_size {
