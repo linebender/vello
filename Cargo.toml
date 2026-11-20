@@ -34,6 +34,7 @@ members = [
     "vello_tests/vello_example_scenes",
     "vello_gpu/examples/wgpu_video",
     "glifo",
+    "glifo/examples/web_harness",
 ]
 
 [workspace.package]
