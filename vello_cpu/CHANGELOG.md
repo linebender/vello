@@ -15,6 +15,7 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - `RenderContext::reset_with`, which resets a render context to a new size and can free the memory it grew in the same step, configured by `ResetOptions`. (by [@LaurenzV][])
+- Linear filter chains. (by [@LaurenzV][])
 
 ### Changed
 

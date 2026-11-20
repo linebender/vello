@@ -16,20 +16,19 @@
 //! **Filter Functions:**
 //! - `Blur` - Gaussian blur effect
 //!
-//! **Filter Primitives (Single Use Only):**
+//! **Filter Primitives:**
 //! - `Flood` - Solid color fill
 //! - `GaussianBlur` - Gaussian blur filter
 //! - `DropShadow` - Drop shadow effect (compound primitive)
 //! - `DropShadowOnly` - Drop shadow effect without the original input
-//! - `Offset` - Translation/shift (single primitive)
+//! - `Offset` - Translation/shift
 //!
-//! **Note:** Currently only single primitive filters are supported. Filter graphs with
-//! multiple connected primitives are not yet implemented.
+//! **Note:** Only linear chains are currently supported.
 //!
 //! ### 🚧 Not Yet Implemented
 //!
 //! **Core Features:**
-//! - `FilterGraph` execution - Chaining multiple filter primitives together
+//! - `FilterGraph` execution - Branching and merging graphs beyond linear chains
 //! - `FilterInputs` - Connecting primitives to create complex effects
 //!
 //! **Filter Functions:**
@@ -148,9 +147,9 @@ impl Filter {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FilterGraph {
     /// All filter primitives in the graph, stored in insertion order.
-    pub primitives: SmallVec<[FilterPrimitive; 1]>,
+    primitives: SmallVec<[FilterPrimitive; 1]>,
     /// The final output filter ID whose result is the output of this graph.
-    pub output: FilterId,
+    output: FilterId,
     /// Next available filter ID (monotonically increasing counter).
     next_id: u16,
     /// Accumulated filter expansion from all primitives in the graph, cached in user space.
@@ -177,11 +176,24 @@ impl FilterGraph {
         }
     }
 
-    /// Add a filter primitive with optional inputs.
+    /// Append a primitive to the graph and make it the output.
     ///
-    /// Returns a `FilterId` that can be referenced by other primitives.
-    /// Automatically updates the accumulated source and filter expansion requirements.
-    pub fn add(&mut self, primitive: FilterPrimitive, _inputs: Option<FilterInputs>) -> FilterId {
+    /// # Panics
+    ///
+    /// Panics if `inputs` is `Some` and not the previous result (`SourceGraphic` for the first),
+    /// as only linear filter chains are currently supported.
+    pub fn add(&mut self, primitive: FilterPrimitive, inputs: Option<FilterInputs>) -> FilterId {
+        if let Some(inputs) = inputs {
+            let expected = match self.next_id.checked_sub(1) {
+                Some(previous) => FilterInput::Result(FilterId(previous)),
+                None => FilterInput::Source(FilterSource::SourceGraphic),
+            };
+            assert!(
+                inputs.primary == expected && inputs.secondary.is_none(),
+                "only linear filter chains are currently supported"
+            );
+        }
+
         let id = FilterId(self.next_id);
         self.next_id += 1;
 
@@ -193,13 +205,34 @@ impl FilterGraph {
             compose_expansions(self.source_expansion, primitive.source_expansion());
 
         self.primitives.push(primitive);
+        self.output = id;
 
         id
     }
 
     /// Set the output filter for the graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `output` is not the last primitive, as only linear filter chains are currently
+    /// supported.
     pub fn set_output(&mut self, output: FilterId) {
+        assert_eq!(
+            Some(output.0),
+            self.next_id.checked_sub(1),
+            "only linear filter chains are currently supported"
+        );
         self.output = output;
+    }
+
+    /// The primitives of the graph, in insertion order.
+    pub fn primitives(&self) -> &[FilterPrimitive] {
+        &self.primitives
+    }
+
+    /// The filter ID whose result is the output of the graph.
+    pub fn output(&self) -> FilterId {
+        self.output
     }
 
     /// The filter expansion of all filters in the graph, see [`Filter::filter_expansion`].

@@ -40,11 +40,26 @@ impl PreparedFilter {
     /// Build a new prepared filter for the given transform.
     pub fn new(filter: &Filter, transform: &Affine) -> Self {
         // Multi-primitive filter graphs are not yet implemented.
-        if filter.graph.primitives.len() != 1 {
+        if filter.graph.primitives().len() != 1 {
             unimplemented!("Multi-primitive filter graphs are not yet supported");
         }
 
-        match &filter.graph.primitives[0] {
+        Self::from_primitive(&filter.graph.primitives()[0], transform)
+    }
+
+    /// Prepare each primitive of the filter's linear chain.
+    pub fn chain<'a>(filter: &'a Filter, transform: &'a Affine) -> impl Iterator<Item = Self> + 'a {
+        // Note that offsets are rounded to whole device pixels per primitive, so under fractional
+        // transforms, the rounding errors of chained offsets add up instead of cancelling out.
+        filter
+            .graph
+            .primitives()
+            .iter()
+            .map(move |primitive| Self::from_primitive(primitive, transform))
+    }
+
+    fn from_primitive(primitive: &FilterPrimitive, transform: &Affine) -> Self {
+        match primitive {
             FilterPrimitive::Flood { color } => {
                 let flood = Flood::new(*color);
                 Self::Flood(flood)

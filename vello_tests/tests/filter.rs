@@ -4,11 +4,12 @@
 //! Tests demonstrating the filter effects API usage.
 
 use crate::load_image;
-use crate::util::{circular_star, stops_blue_green_red_yellow};
+use crate::util::{circular_star, filter_chain, stops_blue_green_red_yellow};
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
-    BLACK, LIME, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, TRANSPARENT, VIOLET,
+    BLACK, DEEP_PINK, LIME, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, TRANSPARENT,
+    VIOLET,
 };
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
@@ -2121,5 +2122,90 @@ fn filter_with_clip_and_inner_clip(ctx: &mut impl Renderer) {
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
     ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+fn chain_drop_shadow(dx: f32, dy: f32, std_deviation: f32) -> FilterPrimitive {
+    FilterPrimitive::DropShadow {
+        dx,
+        dy,
+        std_deviation,
+        color: BLACK.with_alpha(0.6),
+        edge_mode: EdgeMode::None,
+    }
+}
+
+#[vello_test(skip_gpu, skip_multithreaded)]
+fn filter_chain_offset_drop_shadow(ctx: &mut impl Renderer) {
+    let filter = filter_chain([
+        FilterPrimitive::Offset { dx: 12.0, dy: -8.0 },
+        chain_drop_shadow(6.0, 6.0, 2.0),
+    ]);
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(TOMATO);
+    ctx.fill_path(&circular_star(Point::new(40.0, 56.0), 5, 12.0, 28.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(width = 220, height = 110, skip_gpu, skip_multithreaded)]
+fn filter_chain_three_drop_shadows(ctx: &mut impl Renderer) {
+    let font_size: f32 = 56_f32;
+    let (font, glyphs) = layout_glyphs_roboto("Glow", font_size);
+    let glow = |std_deviation| FilterPrimitive::DropShadow {
+        dx: 0.0,
+        dy: 0.0,
+        std_deviation,
+        color: DEEP_PINK,
+        edge_mode: EdgeMode::None,
+    };
+
+    ctx.push_filter_layer(filter_chain([glow(1.5), glow(4.0), glow(8.0)]));
+    ctx.set_transform(Affine::translate((40.0, 74.0)));
+    ctx.set_paint(DEEP_PINK);
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(true)
+        .fill_glyphs(glyphs.into_iter())
+        .unwrap();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_gpu, skip_multithreaded)]
+fn filter_chain_offset_shadow_only_offset(ctx: &mut impl Renderer) {
+    let filter = filter_chain([
+        FilterPrimitive::Offset { dx: 4.0, dy: 4.0 },
+        FilterPrimitive::DropShadowOnly {
+            dx: 10.0,
+            dy: 10.0,
+            std_deviation: 3.0,
+            color: PURPLE,
+            edge_mode: EdgeMode::None,
+        },
+        FilterPrimitive::Offset { dx: -8.0, dy: 0.0 },
+    ]);
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(LIME);
+    ctx.fill_rect(&Rect::new(24.0, 24.0, 60.0, 60.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_gpu, skip_multithreaded)]
+fn filter_chain_transformed(ctx: &mut impl Renderer) {
+    let filter = filter_chain([
+        FilterPrimitive::Offset { dx: 6.0, dy: 0.0 },
+        FilterPrimitive::gaussian_blur(1.0, EdgeMode::None),
+        chain_drop_shadow(4.0, 4.0, 1.0),
+    ]);
+
+    ctx.set_transform(
+        Affine::translate((46.0, 46.0))
+            * Affine::rotate(std::f64::consts::PI / 6.0)
+            * Affine::scale_non_uniform(1.5, 1.0),
+    );
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(TOMATO);
+    ctx.fill_rect(&Rect::new(-16.0, -12.0, 16.0, 12.0));
     ctx.pop_layer();
 }

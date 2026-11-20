@@ -15,6 +15,12 @@ This release has an [MSRV][] of 1.89.
 ### Added
 
 - `ResetOptions`, the options for `vello_cpu::RenderContext::reset_with` and `vello_gpu::Scene::reset_with`. (by [@LaurenzV][])
+- `PreparedFilter::chain`, which prepares each primitive of a linear filter chain. (by [@LaurenzV][])
+
+### Changed
+
+- `FilterGraph::add` and `FilterGraph::set_output` panic unless the graph stays a linear chain. (by [@LaurenzV][])
+- Breaking change: `FilterGraph::primitives` and `FilterGraph::output` are private; use the accessor methods of the same name. (by [@LaurenzV][])
 
 ### Fixed
 
