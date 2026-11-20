@@ -147,9 +147,9 @@ impl Filter {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FilterGraph {
     /// All filter primitives in the graph, stored in insertion order.
-    pub primitives: SmallVec<[FilterPrimitive; 1]>,
+    primitives: SmallVec<[FilterPrimitive; 1]>,
     /// The final output filter ID whose result is the output of this graph.
-    pub output: FilterId,
+    output: FilterId,
     /// Next available filter ID (monotonically increasing counter).
     next_id: u16,
     /// Accumulated filter expansion from all primitives in the graph, cached in user space.
@@ -223,6 +223,16 @@ impl FilterGraph {
             "only linear filter chains are currently supported"
         );
         self.output = output;
+    }
+
+    /// The primitives of the graph, in insertion order.
+    pub fn primitives(&self) -> &[FilterPrimitive] {
+        &self.primitives
+    }
+
+    /// The filter ID whose result is the output of the graph.
+    pub fn output(&self) -> FilterId {
+        self.output
     }
 
     /// The filter expansion of all filters in the graph, see [`Filter::filter_expansion`].

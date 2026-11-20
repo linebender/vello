@@ -40,11 +40,11 @@ impl PreparedFilter {
     /// Build a new prepared filter for the given transform.
     pub fn new(filter: &Filter, transform: &Affine) -> Self {
         // Multi-primitive filter graphs are not yet implemented.
-        if filter.graph.primitives.len() != 1 {
+        if filter.graph.primitives().len() != 1 {
             unimplemented!("Multi-primitive filter graphs are not yet supported");
         }
 
-        Self::from_primitive(&filter.graph.primitives[0], transform)
+        Self::from_primitive(&filter.graph.primitives()[0], transform)
     }
 
     /// Prepare each primitive of the filter's linear chain.
@@ -53,7 +53,7 @@ impl PreparedFilter {
         // transforms, the rounding errors of chained offsets add up instead of cancelling out.
         filter
             .graph
-            .primitives
+            .primitives()
             .iter()
             .map(move |primitive| Self::from_primitive(primitive, transform))
     }
