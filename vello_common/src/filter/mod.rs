@@ -49,6 +49,8 @@ impl PreparedFilter {
 
     /// Prepare each primitive of the filter's linear chain.
     pub fn chain(filter: &Filter, transform: Affine) -> impl Iterator<Item = Self> + '_ {
+        // Note that offsets are rounded to whole device pixels per primitive, so under fractional
+        // transforms, the rounding errors of chained offsets add up instead of cancelling out.
         filter
             .graph
             .primitives
