@@ -25,6 +25,7 @@ This release has an [MSRV][] of 1.89.
 
 - A GPU hang on DX12 with FXC when rendering scenes with many paths. ([#1992][] by [@kong109][])
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
+- `Scene::draw_blurred_rounded_rect` and `draw_blurred_rounded_rect_in` drawing a rectangle with a negative width or height differently from its normalized form. ([#2063][] by [@YevheniiKotyrlo][])
 
 ## [0.11.0][] - 2026-10-02
 
@@ -385,6 +386,7 @@ This release has an [MSRV][] of 1.75.
 [@TrueDoctor]: https://github.com/TrueDoctor
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@xStrom]: https://github.com/xStrom
+[@YevheniiKotyrlo]: https://github.com/YevheniiKotyrlo
 [@yutannihilation]: https://github.com/yutannihilation
 [@zlstringham]: https://github.com/zlstringham
 
@@ -504,6 +506,7 @@ This release has an [MSRV][] of 1.75.
 [#1992]: https://github.com/linebender/vello/pull/1992
 [#1996]: https://github.com/linebender/vello/pull/1996
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2063]: https://github.com/linebender/vello/pull/2063
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.12.0...HEAD
 [0.12.0]: https://github.com/linebender/vello/compare/v0.11.0...v0.12.0
