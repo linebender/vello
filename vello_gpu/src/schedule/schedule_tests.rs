@@ -7,7 +7,6 @@ use crate::filter::FILTER_ATLAS_PADDING;
 use crate::target::{RootTarget, TextureParity};
 use crate::{IntermediateTextureError, RenderError};
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use vello_common::filter_effects::{EdgeMode, Filter, FilterGraph, FilterPrimitive};
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::kurbo::Rect;
@@ -836,53 +835,13 @@ fn filter_chain_runs_in_one_filter_op() {
     let scheduled = schedule_filter(filter_chain([
         FilterPrimitive::gaussian_blur(2.0, EdgeMode::None),
         offset(4.0),
+        drop_shadow(2.0),
         FilterPrimitive::gaussian_blur(1.0, EdgeMode::None),
     ]));
 
     assert_eq!(scheduled.storage.buffers.filter_ops.len(), 1);
     assert_eq!(scheduled.views().len(), 1);
-}
-
-#[test]
-fn filter_chain_splits_before_drop_shadow() {
-    let scheduled = schedule_filter(filter_chain([offset(4.0), drop_shadow(2.0)]));
-    let rounds_view = scheduled.views();
-
-    assert_eq!(scheduled.storage.buffers.filter_ops.len(), 2);
-    assert_eq!(rounds_view.len(), 2);
-    assert_eq!(rounds_view[0].filter_passes, [0, 1]);
-    assert_eq!(rounds_view[1].filter_passes, [0, 1]);
-    assert!(rounds_view[0].clears.iter().all(|clears| clears.is_empty()));
-}
-
-#[test]
-fn split_filter_chains_wait_for_released_regions() {
-    let mut case = SceneCase::new(8, 8);
-    for _ in 0..2 {
-        let filter = filter_chain([offset(0.0), drop_shadow(0.0)]);
-        case.layer_with(None, None, Some(filter), |case| {
-            case.draw(Rect::new(0.0, 0.0, 8.0, 8.0), 0.5);
-        });
-    }
-
-    let scheduled = case
-        .schedule(RootTarget::UserSurface, filter_page_size(), 3, true)
-        .unwrap();
-    let rounds_view = scheduled.views();
-    let cleared = rounds_view
-        .iter()
-        .map(|round| round.clears.iter().any(|clears| !clears.is_empty()))
-        .collect::<Vec<_>>();
-
-    assert_eq!(scheduled.page_counts(), [1, 1]);
-    assert_eq!(
-        rounds_view
-            .iter()
-            .map(|round| round.filter_passes)
-            .collect::<Vec<_>>(),
-        [[0, 1]; 4]
-    );
-    assert_eq!(cleared, [false, true, false, true]);
+    assert!(scheduled.scratch_texture());
 }
 
 #[test]

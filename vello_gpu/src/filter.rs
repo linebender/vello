@@ -18,7 +18,7 @@ use vello_common::filter::offset::Offset;
 use vello_common::filter::{FilterData, PreparedFilter};
 use vello_common::filter_effects::EdgeMode;
 use vello_common::geometry::{RectU16, SizeU16};
-use vello_common::util::RetainVec;
+use vello_common::util::{Clear, RetainVec};
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so
 /// that the various shader programs can assume transparent pixels on the outside, making
@@ -443,16 +443,27 @@ pub(crate) struct FilterContext {
     filters: Vec<GpuFilterData>,
 }
 
-/// The concrete filter-execution plan for a batch of scheduled filters, split into two phases:
-///
-/// First an optional copy step which moves the original layer contents into the scratch texture.
-/// Then, the actual sequence of filter passes.
+/// The filter-execution plan for a batch of scheduled filters, with run `k` of each filter in
+/// phase `k`.
 #[derive(Debug, Default)]
 pub(crate) struct FilterPassPlan {
+    phases: RetainVec<FilterPhase>,
+}
+
+/// An optional copy into the scratch texture, followed by a sequence of filter passes.
+#[derive(Debug, Default)]
+pub(crate) struct FilterPhase {
     /// Copies preserving original layer contents in the shared scratch texture.
     copy_pass: Vec<GpuCopyInstance>,
-    /// Filter instances grouped by their index in each filter's pass sequence.
+    /// Filter instances grouped by their index in each run's pass sequence.
     steps: RetainVec<Vec<FilterInstanceData>>,
+}
+
+impl Clear for FilterPhase {
+    fn clear(&mut self) {
+        self.copy_pass.clear();
+        self.steps.clear();
+    }
 }
 
 impl FilterPassPlan {
@@ -462,40 +473,45 @@ impl FilterPassPlan {
         context: &FilterContext,
         texture_size: SizeU16,
     ) {
-        self.clear();
+        self.phases.clear();
 
         for filter in filters {
-            let mut builder = FilterPassBuilder::new(filter.textures, texture_size, self);
+            for (phase, run) in context.runs(filter.primitives).enumerate() {
+                let mut builder =
+                    FilterPassBuilder::new(filter.textures, texture_size, self.phase_mut(phase));
 
-            for (index, (filter_data_offset, filter_data)) in
-                context.primitives(filter.primitives).enumerate()
-            {
-                if filter_data.needs_copy_pass() {
-                    assert_eq!(
-                        index, 0,
-                        "only the first primitive of a filter op can copy its input to the scratch texture"
-                    );
-
-                    builder.push_copy_to_scratch_pass();
+                for (filter_data_offset, filter_data) in context.primitives(run) {
+                    if filter_data.needs_copy_pass() {
+                        builder.push_copy_to_scratch_pass();
+                    }
+                    builder.emit_primitive(filter_data_offset, filter_data);
                 }
-                builder.emit_primitive(filter_data_offset, filter_data);
-            }
 
-            builder.ensure_result_in_original();
+                builder.ensure_result_in_original();
+            }
         }
     }
 
+    pub(crate) fn phases(&self) -> &[FilterPhase] {
+        self.phases.as_slice()
+    }
+
+    fn phase_mut(&mut self, phase: usize) -> &mut FilterPhase {
+        if self.phases.len() <= phase {
+            self.phases.resize_with(phase + 1, FilterPhase::default);
+        }
+
+        &mut self.phases[phase]
+    }
+}
+
+impl FilterPhase {
     pub(crate) fn steps(&self) -> impl Iterator<Item = &[FilterInstanceData]> {
         self.steps.as_slice().iter().map(Vec::as_slice)
     }
 
     pub(crate) fn copy_pass(&self) -> Option<&[GpuCopyInstance]> {
         (!self.copy_pass.is_empty()).then_some(&self.copy_pass)
-    }
-
-    fn clear(&mut self) {
-        self.steps.clear();
-        self.copy_pass.clear();
     }
 
     fn step_mut(&mut self, step: usize) -> &mut Vec<FilterInstanceData> {
@@ -507,7 +523,7 @@ impl FilterPassPlan {
     }
 }
 
-/// Expands one scheduled filter into entries in a shared [`FilterPassPlan`].
+/// Expands one run of a scheduled filter into entries in a shared [`FilterPhase`].
 #[derive(Debug)]
 struct FilterPassBuilder<'a> {
     /// Original and temporary regions of the scheduled filter.
@@ -516,13 +532,13 @@ struct FilterPassBuilder<'a> {
     filter_data_offset: u32,
     /// Full dimensions of the intermediate texture pages.
     texture_size: SizeU16,
-    /// The filter pass plan we are writing into.
-    passes: &'a mut FilterPassPlan,
+    /// The filter phase we are writing into.
+    passes: &'a mut FilterPhase,
     /// Tracks dimensions through blur downscaling and upscaling.
     sizer: DecimationSizer,
     /// Whether the next pass reads from the original region; it writes to the other region.
     current_is_original: bool,
-    /// Index of the next pass in this filter's sequence.
+    /// Index of the next pass in this run's sequence.
     step: usize,
 }
 
@@ -530,7 +546,7 @@ impl<'a> FilterPassBuilder<'a> {
     fn new(
         textures: FilterTextureRegions,
         texture_size: SizeU16,
-        passes: &'a mut FilterPassPlan,
+        passes: &'a mut FilterPhase,
     ) -> Self {
         let sizer = DecimationSizer::new(
             textures.original.rect.width(),
@@ -722,9 +738,8 @@ impl FilterContext {
             .any(GpuFilterData::needs_copy_pass)
     }
 
-    /// Split the primitives into filter ops, each ending before the next primitive that needs a
-    /// copy pass.
-    pub(crate) fn ops(
+    /// Split the primitives before each later primitive that needs a copy pass.
+    pub(crate) fn runs(
         &self,
         mut primitives: Range<usize>,
     ) -> impl Iterator<Item = Range<usize>> + '_ {
@@ -819,8 +834,14 @@ mod tests {
         .into()
     }
 
-    fn step_layout(plan: &FilterPassPlan) -> Vec<Vec<(u32, u32)>> {
-        plan.steps()
+    fn single_phase(plan: &FilterPassPlan) -> &FilterPhase {
+        assert_eq!(plan.phases().len(), 1);
+        &plan.phases()[0]
+    }
+
+    fn step_layout(phase: &FilterPhase) -> Vec<Vec<(u32, u32)>> {
+        phase
+            .steps()
             .map(|step| {
                 step.iter()
                     .map(|instance| {
@@ -839,7 +860,7 @@ mod tests {
         let plan = plan_for(&[&[gpu_offset()], &[gpu_blur(8.0)], &[gpu_shadow()]]);
 
         assert_eq!(
-            step_layout(&plan),
+            step_layout(single_phase(&plan)),
             alloc::vec![
                 alloc::vec![
                     (0, pass_kind::OFFSET),
@@ -868,7 +889,7 @@ mod tests {
         let plan = plan_for(&[&[gpu_anisotropic_blur(8.0, 0.0)]]);
 
         assert_eq!(
-            step_layout(&plan),
+            step_layout(single_phase(&plan)),
             [
                 alloc::vec![(0, pass_kind::DOWNSCALE_X)],
                 alloc::vec![(0, pass_kind::DOWNSCALE_X)],
@@ -886,7 +907,7 @@ mod tests {
         let plan = plan_for(&[&[gpu_anisotropic_blur(3.0, 8.0)]]);
 
         assert_eq!(
-            step_layout(&plan),
+            step_layout(single_phase(&plan)),
             [
                 alloc::vec![(0, pass_kind::DOWNSCALE)],
                 alloc::vec![(0, pass_kind::DOWNSCALE_Y)],
@@ -900,15 +921,14 @@ mod tests {
 
     #[test]
     fn plan_reinit() {
-        let mut plan = plan_for(&[&[gpu_shadow()], &[gpu_blur(8.0)]]);
-        assert!(plan.copy_pass().is_some());
-        assert!(plan.steps().count() > 2);
+        let mut plan = plan_for(&[&[gpu_shadow(), gpu_offset(), gpu_shadow()]]);
+        assert_eq!(plan.phases().len(), 2);
 
         init_plan(&mut plan, &[&[gpu_offset()]]);
 
-        assert!(plan.copy_pass().is_none());
+        assert!(single_phase(&plan).copy_pass().is_none());
         assert_eq!(
-            step_layout(&plan),
+            step_layout(single_phase(&plan)),
             [
                 alloc::vec![(0, pass_kind::OFFSET)],
                 alloc::vec![(0, pass_kind::COPY)],
@@ -920,9 +940,9 @@ mod tests {
     fn single_pass_filters_finish_in_original() {
         let plan = plan_for(&[&[gpu_offset()], &[gpu_flood()]]);
 
-        assert!(plan.copy_pass().is_none());
+        assert!(single_phase(&plan).copy_pass().is_none());
         assert_eq!(
-            step_layout(&plan),
+            step_layout(single_phase(&plan)),
             [
                 alloc::vec![(0, pass_kind::OFFSET), (1, pass_kind::FLOOD)],
                 alloc::vec![(0, pass_kind::COPY), (1, pass_kind::COPY)],
@@ -935,7 +955,7 @@ mod tests {
         let plan = plan_for(&[&[gpu_offset(), gpu_flood(), gpu_offset()]]);
 
         assert_eq!(
-            step_layout(&plan),
+            step_layout(single_phase(&plan)),
             [
                 alloc::vec![(0, pass_kind::OFFSET)],
                 alloc::vec![(1, pass_kind::FLOOD)],
@@ -949,9 +969,9 @@ mod tests {
     fn chain_copies_input_of_leading_drop_shadow() {
         let plan = plan_for(&[&[gpu_shadow(), gpu_offset()]]);
 
-        assert_eq!(plan.copy_pass().map(<[_]>::len), Some(1));
+        assert_eq!(single_phase(&plan).copy_pass().map(<[_]>::len), Some(1));
         assert_eq!(
-            step_layout(&plan),
+            step_layout(single_phase(&plan)),
             [
                 alloc::vec![(0, pass_kind::OFFSET)],
                 alloc::vec![(0, pass_kind::DOWNSCALE)],
@@ -968,15 +988,50 @@ mod tests {
     }
 
     #[test]
-    fn ops_split_before_copying_primitives() {
+    fn later_drop_shadows_start_new_phases() {
+        let plan = plan_for(&[&[gpu_offset(), gpu_shadow()], &[gpu_blur(8.0)]]);
+        let [first, second] = plan.phases() else {
+            panic!("expected two phases");
+        };
+
+        assert!(first.copy_pass().is_none());
+        assert_eq!(
+            step_layout(first),
+            [
+                alloc::vec![(0, pass_kind::OFFSET), (2, pass_kind::DOWNSCALE)],
+                alloc::vec![(0, pass_kind::COPY), (2, pass_kind::DOWNSCALE)],
+                alloc::vec![(2, pass_kind::BLUR_H)],
+                alloc::vec![(2, pass_kind::BLUR_V)],
+                alloc::vec![(2, pass_kind::UPSCALE)],
+                alloc::vec![(2, pass_kind::UPSCALE)],
+            ]
+        );
+        assert_eq!(second.copy_pass().map(<[_]>::len), Some(1));
+        assert_eq!(
+            step_layout(second),
+            [
+                alloc::vec![(1, pass_kind::OFFSET)],
+                alloc::vec![(1, pass_kind::DOWNSCALE)],
+                alloc::vec![(1, pass_kind::DOWNSCALE)],
+                alloc::vec![(1, pass_kind::BLUR_H)],
+                alloc::vec![(1, pass_kind::BLUR_V)],
+                alloc::vec![(1, pass_kind::UPSCALE)],
+                alloc::vec![(1, pass_kind::UPSCALE)],
+                alloc::vec![(1, pass_kind::COMPOSITE_DROP_SHADOW)],
+            ]
+        );
+    }
+
+    #[test]
+    fn runs_split_before_copying_primitives() {
         let mut context = FilterContext::default();
         let chain = context.push_data(&[gpu_offset(), gpu_shadow(), gpu_blur(2.0), gpu_shadow()]);
         let leading_shadow = context.push_data(&[gpu_shadow(), gpu_offset()]);
 
-        assert_eq!(context.ops(chain).collect::<Vec<_>>(), [0..1, 1..3, 3..4]);
-        let mut leading_shadow_ops = context.ops(leading_shadow);
-        assert_eq!(leading_shadow_ops.next(), Some(4..6));
-        assert_eq!(leading_shadow_ops.next(), None);
+        assert_eq!(context.runs(chain).collect::<Vec<_>>(), [0..1, 1..3, 3..4]);
+        let mut leading_shadow_runs = context.runs(leading_shadow);
+        assert_eq!(leading_shadow_runs.next(), Some(4..6));
+        assert_eq!(leading_shadow_runs.next(), None);
     }
 
     #[test]

@@ -508,7 +508,7 @@ impl FilterTextureRegions {
 pub(crate) struct FilterOp {
     /// Original and temporary regions used by the filter passes.
     pub(crate) textures: FilterTextureRegions,
-    /// Primitives applied in order; only the first may need a copy pass.
+    /// The filter's primitives, applied in order.
     pub(crate) primitives: Range<usize>,
 }
 

@@ -329,7 +329,7 @@ fn gpu_schedule_filter_chains_batch(ctx: &mut impl Renderer) {
     }
 }
 
-/// Test nested filter chain layers that both split into several filter ops.
+/// Test nested filter chain layers that both run in several filter phases.
 #[vello_test(skip_multithreaded, gpu_tolerance = 3)]
 fn gpu_schedule_nested_filter_chains(ctx: &mut impl Renderer) {
     let shadow = |d| FilterPrimitive::DropShadow {

@@ -106,9 +106,8 @@
 //! group. Filter passes alternate their source and destination between these two regions, and the
 //! pass plan ensures that the final result is left in the layer's allocation. The temporary region
 //! is then cleared and released. Filters that must preserve the unfiltered pixels, such as drop
-//! shadows, additionally use the shared scratch texture. A filter chain is split before each such
-//! primitive after the first, and the remainder runs in a later round. The layer is not made
-//! available to its parent until filtering is complete.
+//! shadows, additionally use the shared scratch texture. The layer is not made available to its
+//! parent until filtering is complete.
 //!
 //! Default source-over composition does not require a separate blend pass. Instead, the parent
 //! draw samples the completed child layer directly. Non-default blending must read both the child
@@ -444,37 +443,33 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 self.cursor.require_scratch_texture();
             }
 
-            let mut ready =
+            // Now we determine the point at which we can perform the filter operation.
+            let mut filter_point =
                 // Obviously, we first need to wait until rendering of the underlying layer finished.
                 target.schedule_state.ready
                 // Then, we must wait until our reserved space in the atlas is available.
-                .max(SchedulePoint::start(temporary.round_idx));
+                .max(SchedulePoint::start(temporary.round_idx))
+                // Finally, wait until we reach the filter stage.
+                .after(RoundStage::filter(texture_parity));
 
-            // A round's filter pass plan copies into the shared scratch texture only once, before
-            // all filter steps. A primitive needing that copy must therefore start its own op,
-            // which runs in a later round; everything else in the chain ping-pongs within one op.
-            // TODO: Rework the scheduler so it's more generalized and robust in this regard.
-            let filter_stage = RoundStage::filter(texture_parity);
-            for primitives in self.storage.filter_context.ops(filter) {
-                let filter_point =
-                    rounds.bind_at_or_after(ready.after(filter_stage), textures.round_bindings());
+            // Now find the _actual_ schedule point that corresponds to a round that matches our
+            // requirements for texture bindings.
+            filter_point = rounds.bind_at_or_after(filter_point, textures.round_bindings());
 
-                rounds.ensure_exists(filter_point.round);
-                rounds.round_mut(filter_point.round).push_filter_op(
-                    texture_parity,
-                    &mut self.storage.buffers,
-                    FilterOp {
-                        textures,
-                        primitives,
-                    },
-                );
-                ready = filter_point;
-            }
+            rounds.ensure_exists(filter_point.round);
+            rounds.round_mut(filter_point.round).push_filter_op(
+                texture_parity,
+                &mut self.storage.buffers,
+                FilterOp {
+                    textures,
+                    primitives: filter,
+                },
+            );
 
-            self.clear_and_release_allocation(temporary.allocation, ready.round, rounds);
+            self.clear_and_release_allocation(temporary.allocation, filter_point.round, rounds);
 
             // Since we need to apply a filter, update the state of the current target.
-            target.schedule_state.ready = ready;
+            target.schedule_state.ready = filter_point;
         }
 
         let scheduled = ScheduledLayer {
