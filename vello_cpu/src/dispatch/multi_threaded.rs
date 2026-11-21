@@ -59,7 +59,7 @@ pub(crate) struct MultiThreadedDispatcher {
     recorder: CommandRecorder<RecordedFill>,
     strip_storage: StripStorage,
     /// The thread pool that is used for dispatching tasks.
-    thread_pool: ThreadPool,
+    thread_pool: Arc<ThreadPool>,
     allocation_group: AllocationGroup,
     /// The cost of the current batch.
     batch_cost: f32,
@@ -117,6 +117,16 @@ impl MultiThreadedDispatcher {
             .num_threads(num_threads as usize)
             .build()
             .unwrap();
+        Self::with_pool(width, height, num_threads, level, Arc::new(thread_pool))
+    }
+
+    pub(crate) fn with_pool(
+        width: u16,
+        height: u16,
+        num_threads: u16,
+        level: Level,
+        thread_pool: Arc<ThreadPool>,
+    ) -> Self {
         let alpha_storage = MaybePresent::new(vec![vec![]; usize::from(num_threads)]);
         let workers = Arc::new(ThreadLocal::new());
 
@@ -713,6 +723,15 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn is_multi_threaded(&self) -> bool {
         true
+    }
+
+    fn into_workers(self: Box<Self>) -> Option<crate::RasterWorkers> {
+        let pool = self.thread_pool.clone();
+        drop(self);
+        // An unused context can still have worker initialization queued.
+        // Finish earlier broadcasts before returning the pool to its owner.
+        pool.broadcast(|_| ());
+        Some(crate::RasterWorkers { pool })
     }
 }
 
