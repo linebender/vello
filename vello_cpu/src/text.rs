@@ -11,7 +11,6 @@
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
 //! any GPU upload step.
 
-use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
 use crate::{
     Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderContext, RenderMode,
     RenderSettings, Resources, TargetInit, color, kurbo, peniko,
@@ -22,9 +21,7 @@ use alloc::vec::Vec;
 use color::palette::css::BLACK;
 use core::fmt::Debug;
 use core::ops::RangeInclusive;
-use glifo::atlas::{
-    AtlasConfig, AtlasSlot, GlyphAtlas, GlyphCacheConfig, ImageCache, PendingClearRect,
-};
+use glifo::atlas::{AtlasSlot, GlyphAtlas, GlyphCacheConfig, ImageCache, PendingClearRect};
 use glifo::{AtlasCacher, DrawSink, GlyphRunBackend};
 use glifo::{Glyph, renderer};
 use kurbo::{Affine, BezPath, Rect};
@@ -36,7 +33,6 @@ use vello_common::paint::ImageId;
 #[derive(Debug)]
 pub(crate) struct GlyphAtlasResources {
     pub(crate) glyph_atlas: GlyphAtlas,
-    pub(crate) image_cache: ImageCache,
     pub(crate) glyph_renderer: Box<RenderContext>,
     /// One `Pixmap` per atlas page, grown on demand.
     // It's a bit annoying to have this in an `Arc`, but it needs to be this way. During fine
@@ -63,7 +59,6 @@ impl GlyphAtlasResources {
     ) -> Self {
         Self {
             glyph_atlas: GlyphAtlas::with_config(eviction_config),
-            image_cache: ImageCache::new_with_config(AtlasConfig::default()),
             glyph_renderer: Box::new(RenderContext::new_with(
                 page_width,
                 page_height,
@@ -78,8 +73,8 @@ impl GlyphAtlasResources {
         }
     }
 
-    pub(crate) fn maintain(&mut self) {
-        self.glyph_atlas.maintain(&mut self.image_cache);
+    pub(crate) fn maintain(&mut self, image_cache: &mut ImageCache) {
+        self.glyph_atlas.maintain(image_cache);
     }
 }
 
@@ -96,17 +91,19 @@ fn ensure_page(
 }
 
 impl Resources {
-    pub(crate) fn prepare_glyph_cache(&mut self, render_mode: RenderMode) {
+    /// Prepares the glyph cache.
+    pub fn prepare_glyph_cache(&mut self, render_mode: RenderMode) {
         if self.glyph_resources.is_some() {
             self.sync_glyph_cache(render_mode);
         }
     }
 
-    pub(crate) fn maintain_glyph_cache(&mut self) {
+    /// Maintains the glyph cache.
+    pub fn maintain_glyph_cache(&mut self) {
         self.glyph_prep_cache.maintain();
 
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
-            glyph_resources.maintain();
+            glyph_resources.maintain(&mut self.image_cache);
             let page_count = glyph_resources.pixmaps.len();
             for page_index in 0..page_count {
                 self.image_registry.destroy_atlas_page(page_index as u32);
@@ -117,9 +114,10 @@ impl Resources {
 
     fn ensure_glyph_resources(&mut self, level: Level) {
         if self.glyph_resources.is_none() {
+            let (atlas_width, atlas_height) = self.image_cache.atlas_manager().config().atlas_size;
             self.glyph_resources = Some(GlyphAtlasResources::with_config(
-                DEFAULT_GLYPH_ATLAS_SIZE,
-                DEFAULT_GLYPH_ATLAS_SIZE,
+                atlas_width,
+                atlas_height,
                 level,
                 GlyphCacheConfig::default(),
             ));
@@ -234,7 +232,7 @@ impl<'a> CpuGlyphRunBackend<'a> {
                 .expect("glyph atlas resources must exist after initialization");
             AtlasCacher::Enabled(
                 &mut glyph_resources.glyph_atlas,
-                &mut glyph_resources.image_cache,
+                &mut self.resources.image_cache,
             )
         } else {
             AtlasCacher::Disabled
