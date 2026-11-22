@@ -127,7 +127,7 @@ I like this consensus 2D imaging model because I feel it is extremely well suite
 
 Another direction the imaging model should go is support for [HDR] (strong overlap with the gamma issue above). This will require color transformations for tone mapping in the compositing pipeline, which again can be written as shaders.
 
-One interesting existing 2D engine with extension points is Direct2D, which lets users provide [Custom effects](https://docs.microsoft.com/en-us/windows/win32/direct2d/custom-effects) by linking in compute shaders. Of course, it is a major challenge to make such a thing portable, but I’m encouraged about building on existing GPU infrastructure efforts. In particular, over time, I think WebGPU could become a standard way to provide such an extension point portably.
+One interesting existing 2D engine with extension points is Direct2D, which lets users provide [Custom effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/custom-effects) by linking in compute shaders. Of course, it is a major challenge to make such a thing portable, but I’m encouraged about building on existing GPU infrastructure efforts. In particular, over time, I think WebGPU could become a standard way to provide such an extension point portably.
 
 Blurs are a specific case that should probably be done early, as they’re very widely used in UI. In the general case, it will require allocating temporary buffers for the contents being blurred, which is not exactly in the spirit of piet-gpu compositing, largely because it requires a lot of resource management and pipeline building CPU-side, but is possible. I’ve already done research on a special case, a [blurred rounded rectangle], which can be computed extremely efficiently as a fairly simple shader. The encoder would apply a peephole-like optimization during encoding time, pattern matching the blurred contents and swapping in the more efficient shader when possible.
 
@@ -139,7 +139,7 @@ Today, the GPU is still plenty fast, but there are still gains to be had from in
 
 The tile-based architecture of piet-gpu is extremely well suited to incremental present, as the various pipeline stages are optimized to only do work within the viewport (render region). This is especially true for fine rasterization, which doesn’t touch any work outside that region.
 
-A small challenge is support by the GPU infrastructure, which tends to be more optimized for games than UI. DirectX has long had [good support](https://docs.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgiswapchain1-present1). The Vulkan world is spottier, as it’s available as an extension. That extension tends to be available on Linux (largely because [Gnome can make good use of it](https://feaneron.com/2019/10/05/incremental-present-in-gtk4/)), and some on Android, but in my experiments less so on desktop. And of course Metal can’t do it at all.
+A small challenge is support by the GPU infrastructure, which tends to be more optimized for games than UI. DirectX has long had [good support](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgiswapchain1-present1). The Vulkan world is spottier, as it’s available as an extension. That extension tends to be available on Linux (largely because [Gnome can make good use of it](https://feaneron.com/2019/10/05/incremental-present-in-gtk4/)), and some on Android, but in my experiments less so on desktop. And of course Metal can’t do it at all.
 
 ## Roadmap and community
 
@@ -156,37 +156,37 @@ I'm really excited to see where this goes. I think there's the potential to buil
 There's been some great discussion on [/r/rust](https://www.reddit.com/r/rust/comments/kal8ac/the_pietgpu_vision/).
 
 [hz]: https://en.wikipedia.org/wiki/Hz-program
-[spirv to ispc translator]: https://software.intel.com/content/www/us/en/develop/articles/spir-v-to-ispc-convert-gpu-compute-to-the-cpu.html
-[tiny-skia]: https://github.com/RazrFalcon/tiny-skia
+[spirv to ispc translator]: https://www.intel.com/content/www/us/en/developer/articles/technical/spir-v-to-ispc-convert-gpu-compute-to-the-cpu.html
+[tiny-skia]: https://github.com/linebender/tiny-skia
 [raqote]: https://github.com/jrmuizel/raqote
 [Blend2D]: https://blend2d.com/
 [amstelvar]: https://variablefonts.typenetwork.com/topics/spacing/justification
 [kashida]: https://andreasmhallberg.github.io/stretchable-kashida/
 [SwiftShader]: https://swiftshader.googlesource.com/SwiftShader
-[Lavapipe]: https://www.phoronix.com/scan.php?page=news_item&px=Mesa-Vulkan-Lavapipe
-[glsl-to-cxx]: https://github.com/servo/webrender/tree/master/glsl-to-cxx
+[Lavapipe]: https://www.phoronix.com/news/Mesa-Vulkan-Lavapipe
+[glsl-to-cxx]: https://github.com/servo/webrender/tree/main/glsl-to-cxx
 [sort-middle architecture]: https://raphlinus.github.io/rust/graphics/gpu/2020/06/12/sort-middle.html
-[vulkan.gpuinfo.org]: https://vulkan.gpuinfo.org
+[vulkan.gpuinfo.org]: https://vulkan.gpuinfo.org/
 [Vulkan Portability Extension]: https://www.khronos.org/blog/fighting-fragmentation-vulkan-portability-extension-released-implementations-shipping
-[xi.zulipchat.com]: https://xi.zulipchat.com
-[glyf]: https://docs.microsoft.com/en-us/typography/opentype/spec/glyf
-[gvar]: https://docs.microsoft.com/en-us/typography/opentype/spec/gvar
+[xi.zulipchat.com]: https://xi.zulipchat.com/
+[glyf]: https://learn.microsoft.com/en-us/typography/opentype/spec/glyf
+[gvar]: https://learn.microsoft.com/en-us/typography/opentype/spec/gvar
 [VkFFT]: https://github.com/DTolm/VkFFT
 [Spinel]: https://fuchsia.googlesource.com/fuchsia/+/refs/heads/master/src/graphics/lib/compute/spinel/
 [wgpu]: https://github.com/gfx-rs/wgpu
 [naga]: https://github.com/gfx-rs/naga
-[descriptor indexing]: http://chunkstories.xyz/blog/a-note-on-descriptor-indexing/
+[descriptor indexing]: https://chunkstories.xyz/blog/a-note-on-descriptor-indexing/
 [rich text API]: https://www.cmyr.net/blog/piet-text-work.html
 [Guillotière]: https://github.com/nical/guillotiere
 [Étagère]: https://crates.io/crates/etagere
-[variable font technology]: https://docs.microsoft.com/en-us/typography/opentype/spec/otvaroverview
+[variable font technology]: https://learn.microsoft.com/en-us/typography/opentype/spec/otvaroverview
 [MSAA]: https://en.wikipedia.org/wiki/Multisample_anti-aliasing
 [tradition of libart]: https://people.gnome.org/~mathieu/libart/internals.html
 [stem darkening]: https://freetype.org/freetype2/docs/hinting/text-rendering-general.html
 [subpixel rendering]: https://en.wikipedia.org/wiki/Subpixel_rendering
-[HDR]: https://en.wikipedia.org/wiki/High-dynamic-range_imaging
+[HDR]: https://en.wikipedia.org/wiki/High_dynamic_range#Imaging
 [blurred rounded rectangle]: https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html
 [gio]: https://gioui.org/
 [Minikin]: https://android.googlesource.com/platform/frameworks/minikin/
-[#42]: https://github.com/linebender/piet-gpu/issues/42
-[#49]: https://github.com/linebender/piet-gpu/issues/49
+[#42]: https://github.com/linebender/vello/issues/42
+[#49]: https://github.com/linebender/vello/issues/49
