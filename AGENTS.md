@@ -42,48 +42,56 @@ took to produce. In practice, as an agent:
 ## Making changes easy to review
 
 Review time is the scarcest resource; shape the change so the part that needs
-careful thought is small and easy to find. When committing, or when suggesting
-how the author should commit:
+careful thought is small and easy to find. Split commits only where that makes
+review easier; a focused change is usually one commit. When committing, or when
+suggesting how the author should commit:
 
 - **Separate mechanical changes from behavioral ones.** Renames, moves,
   formatting, and other no-op refactors go in their own commit, so the commit
   with the real change contains only lines that need careful review.
 - **Move code without modifying it**, then change it in a follow-up commit, so
   the move shows up cleanly (e.g. with `git diff --color-moved`).
-- **Isolate generated output**: snapshot updates, generated shaders,
-  `Cargo.lock`, and `cargo rdme` README changes.
+- **Keep tests and snapshot updates with the change they cover**, in the same
+  commit.
+- **Isolate large generated output**, such as generated shaders, `Cargo.lock`,
+  and `cargo rdme` README changes.
 - **Keep each commit compiling**, so reviewers can step through them in order.
 - **Split large work into separate PRs** when a preparatory refactor stands on
   its own.
 - **Do not touch unrelated code.** No reformatting, reordering, or renaming
   outside the change.
-- **During review, add new commits rather than rewriting history**, so
-  reviewers can see what changed since their last pass.
+- **Before review, fold fixes into the commit they belong to.** Once review has
+  started, add new commits rather than rewriting history, so reviewers can see
+  what changed since their last pass.
 
 ## Writing PR descriptions
 
-Keep descriptions short; a long description buries what reviewers need, and a
-few sentences is often enough. Reviewers can read the diff, so cover only what
-it cannot, and include only the parts that apply:
+Keep descriptions short and to the point; a long description buries what
+reviewers need, and a few sentences is often enough. Reviewers can read the
+diff, so cover only what it cannot, and include only the parts that apply:
 
-- **Why**: the problem or motivation, with links to issues or discussions.
-- **How it works**, when the approach is not obvious from the code.
+- **Summary and intent**: what the change does and why, with links to issues
+  or discussions.
+- **Before and after**: how behavior changes, when it is visible to users or
+  callers.
+- **Mental model**: how it works, when the approach is not obvious from the
+  code.
 - **Where to look**: when most of the diff is mechanical, point reviewers to
   the commit or files with the core change.
-- **Trade-offs**: alternatives considered and why they were rejected.
-- **Risks**: edge cases, known limitations, behavior changes, and which
-  renderers (CPU / wgpu / WebGL) are affected.
+- **Alternatives** considered and why they were rejected, and any
+  simplifications made along the way.
+- **Edge cases and risks**: known limitations, and which renderers
+  (CPU / wgpu / WebGL) are affected.
 - **Performance**: benchmark results for performance-sensitive changes,
   including regressions.
-- **Testing**: what was run, and which snapshots were added or updated.
-- **LLM disclosure**: which parts were generated. For example:
+- **LLM disclosure**: one line naming the model, for example:
 
   ```md
-  Created with assistance from [model name and version]; [which parts were generated, e.g. the implementation and tests].
+  Created with assistance from [model name and version]
   ```
 
-Leave out file-by-file summaries, restated code, generic claims ("improves
-robustness"), and empty headings.
+Leave out file-by-file summaries, restated code, lists of tests that CI already
+runs, generic claims ("improves robustness"), and empty headings.
 
 ## Writing issues
 
