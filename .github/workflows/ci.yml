@@ -61,7 +61,7 @@ env:
 #
 # Native tests use the `ci` profile from the workspace Cargo.toml: release optimizations with debug
 # assertions and integer overflow checks turned back on. `wasm-pack test` has no `--profile` option,
-# so the Wasm tests still use `--release`.
+# so the Wasm tests use `--release` and turn the same checks on through `CARGO_PROFILE_RELEASE_*`.
 #
 # Pull requests and merge queues may restore matching caches from `main`, but do not write their
 # own. Most caches are written only by successful pushes to `main`; scheduled-only jobs may also
@@ -523,11 +523,15 @@ jobs:
         working-directory: vello_tests
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
+          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+          CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS: "true"
 
       - name: run shader compilation tests
         run: bash vello_tests/feature_tests/run.sh --mode no-install --headless --chrome --features webgl --release
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
+          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+          CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS: "true"
           WASM_BINDGEN_TEST_WEBDRIVER_JSON: ${{ github.workspace }}/vello_tests/webdriver.json
 
   check-stable-wasm-webgl-examples:
