@@ -6,6 +6,16 @@ workloads, so results are comparable across renderers.
 
 ## Running
 
+The build needs the `wasm32-unknown-unknown` target and the `wasm-bindgen` CLI version from
+`Cargo.lock`:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.115 --locked --force
+```
+
+Then build and serve:
+
 ```sh
 glifo/examples/web_harness/build.sh --serve
 # open http://localhost:8000/
@@ -13,11 +23,11 @@ glifo/examples/web_harness/build.sh --serve
 
 The script builds the `glifo_web_harness` crate for `wasm32-unknown-unknown` (release with
 `simd128` by default), runs `wasm-bindgen`, and copies `web/` into
-`$CARGO_TARGET_DIR/glifo_web_harness` (default `target/glifo_web_harness`). It uses a
-`wasm-bindgen` CLI matching `Cargo.lock`, installing one under the target directory if the CLI on
-`PATH` has a different version. Options: `--profile dev|release|wasm-size`, `--no-simd`,
-`--port <port>`; set `WASM_BINDGEN` to use a specific CLI. `--serve` sends cross-origin isolation
-headers, which raise the `performance.now()` resolution from 100 µs to 5 µs.
+`$CARGO_TARGET_DIR/glifo_web_harness` (default `target/glifo_web_harness`). It stops with the
+install command if the CLI does not match `Cargo.lock`. Options: `--profile dev|release|wasm-size`,
+`--no-simd`, `--port <port>`; set `WASM_BINDGEN` to use a CLI that is not on `PATH`. `--serve`
+sends cross-origin isolation headers, which raise the `performance.now()` resolution from 100 µs
+to 5 µs.
 
 Keep the tab visible while measuring: browsers throttle timers and `requestAnimationFrame` in
 background tabs.

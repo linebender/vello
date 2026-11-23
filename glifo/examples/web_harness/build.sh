@@ -9,11 +9,11 @@ Usage: build.sh [--profile <release|dev|wasm-size>] [--no-simd] [--serve] [--por
 
   --profile   Cargo profile (default: release). wasm-size enables fat LTO.
   --no-simd   Build without the simd128 target feature.
-  --serve     Serve the output directory with `python3 -m http.server` after building.
+  --serve     Serve the output directory after building, with cross-origin isolation headers.
   --port      Port used by --serve (default: 8000).
 
-Set WASM_BINDGEN to override the wasm-bindgen CLI. By default, a CLI matching the version in
-Cargo.lock is used, installing it under the target directory when necessary.
+Requires the wasm-bindgen CLI version from Cargo.lock. Set WASM_BINDGEN to use a CLI that is not
+on PATH.
 EOF
 }
 
@@ -64,20 +64,15 @@ if (( simd )); then
 fi
 cargo "${cargo_args[@]}"
 
+# A CLI that does not match the `wasm-bindgen` crate fails with an opaque schema error, so check first.
 locked_version="$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)"
-wasm_bindgen="${WASM_BINDGEN:-}"
-if [[ -z "$wasm_bindgen" ]]; then
-    if command -v wasm-bindgen >/dev/null \
-        && [[ "$(wasm-bindgen --version)" == "wasm-bindgen $locked_version" ]]; then
-        wasm_bindgen=wasm-bindgen
-    else
-        cli_root="$target_dir/wasm-bindgen-cli-$locked_version"
-        wasm_bindgen="$cli_root/bin/wasm-bindgen"
-        if [[ ! -x "$wasm_bindgen" ]]; then
-            printf 'Installing wasm-bindgen-cli %s into %s\n' "$locked_version" "$cli_root"
-            cargo install wasm-bindgen-cli --version "$locked_version" --locked --root "$cli_root"
-        fi
-    fi
+wasm_bindgen="${WASM_BINDGEN:-wasm-bindgen}"
+found_version="$("$wasm_bindgen" --version 2>/dev/null || true)"
+if [[ "$found_version" != "wasm-bindgen $locked_version" ]]; then
+    printf 'error: need wasm-bindgen %s, found %s\n' "$locked_version" "${found_version:-no $wasm_bindgen}" >&2
+    printf 'Install it with: cargo install wasm-bindgen-cli --version %s --locked --force\n' "$locked_version" >&2
+    printf 'or set WASM_BINDGEN to a matching CLI.\n' >&2
+    exit 1
 fi
 
 rm -rf "$out_dir"
