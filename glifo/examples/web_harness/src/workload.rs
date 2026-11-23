@@ -81,6 +81,7 @@ pub(crate) struct LayoutParams {
     pub(crate) width: f32,
     pub(crate) height: f32,
     pub(crate) font_scale: f32,
+    /// Multiplier on the glyph count of the `storm` workload; other workloads ignore it.
     pub(crate) density: f32,
 }
 
@@ -282,15 +283,14 @@ impl Builder<'_> {
         24.0 * self.params.font_scale
     }
 
-    /// Stacks wrapped sections of prose and code until `max_height` or `repeat` sections.
+    /// Stacks wrapped sections of prose and code until `max_height` or `sections` sections.
     ///
     /// Returns the content height.
-    fn document(&mut self, max_height: f32, repeat: usize) -> f32 {
+    fn document(&mut self, max_height: f32, sections: usize) -> f32 {
         let scale = self.params.font_scale;
         let margin = self.margin();
         let width = (self.params.width - 2.0 * margin).max(100.0);
         let mut y = margin;
-        let sections = (repeat as f32 * self.params.density).ceil().max(1.0) as usize;
         for section in 0..sections {
             let blocks: [(FaceId, f32, AlphaColor<Srgb>, &str); 4] = [
                 (FaceId::Roboto, 28.0, TEXT, "Glyph caching in Glifo"),

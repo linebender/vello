@@ -31,7 +31,8 @@
       <div class="row"><span>Font scale <b id="font-scale-value"></b></span>
         <input id="font-scale" type="range" min="0.5" max="4" step="0.05" value="1">
       </div>
-      <div class="row"><span>Density <b id="density-value"></b></span>
+      <div class="row" id="density-row" title="Multiplies the ~20k glyphs per frame of the storm workload; other workloads have fixed content.">
+        <span>Storm glyphs <b id="density-value"></b></span>
         <input id="density" type="range" min="0.1" max="5" step="0.1" value="1">
       </div>
       <div class="row"><span>Resolution</span>
@@ -116,6 +117,8 @@
       $('sync').checked = state.sync;
       $('font-scale-value').textContent = `${state.fontScale.toFixed(2)}×`;
       $('density-value').textContent = `${state.density.toFixed(1)}×`;
+      $('density').disabled = state.workload !== 'storm';
+      $('density-row').classList.toggle('disabled', state.workload !== 'storm');
       $('atlas-size-row').hidden = state.renderer !== 'gpu';
       $('workload-description').textContent = allWorkloads.find((w) => w.name === state.workload)?.description ?? '';
       const params = new URLSearchParams({
@@ -240,7 +243,10 @@
         const rect = target.getBoundingClientRect();
         const px = (event.clientX - rect.left) * scale();
         const py = (event.clientY - rect.top) * scale();
-        const factor = Math.exp(-event.deltaY * 0.0015);
+        const pixels = event.deltaY * [1, 16, rect.height][event.deltaMode];
+        // Trackpad pinches arrive as ctrl+wheel with deltaY = -100 × ln(scale), so this follows the
+        // gesture 1:1; mouse wheels send ~100 per notch and get a gentler rate.
+        const factor = Math.exp(-pixels * (event.ctrlKey ? 0.01 : 0.0015));
         view.x = px - (px - view.x) * factor;
         view.y = py - (py - view.y) * factor;
         view.scale *= factor;

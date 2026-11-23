@@ -51,7 +51,7 @@
         <h2>Text &amp; atlas</h2>
         <div class="inline">
           <label>Font scale <input type="number" id="font-scale" value="1" step="0.25" min="0.25"></label>
-          <label>Density <input type="number" id="density" value="1" step="0.1" min="0.1"></label>
+          <label title="Multiplies the ~20k glyphs per frame of the storm workload; other workloads have fixed content.">Storm glyphs × <input type="number" id="density" value="1" step="0.1" min="0.1"></label>
         </div>
         <div class="inline">
           <label>GPU atlas <select id="atlas-size">
@@ -618,7 +618,7 @@
 
     const CONFIG_LABELS = {
       width: 'width', height: 'height', warmup: 'warmup', frames: 'frames', fontScale: 'font scale',
-      density: 'density', hinting: 'hinting', sync: 'GPU sync', atlasSize: 'GPU atlas',
+      density: 'storm glyphs ×', hinting: 'hinting', sync: 'GPU sync', atlasSize: 'GPU atlas',
     };
 
     function configMismatches(baseline) {

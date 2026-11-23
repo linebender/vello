@@ -80,6 +80,7 @@ label { display: inline-flex; align-items: center; gap: 4px; }
 .controls { display: grid; gap: 10px; align-content: start; }
 .controls .row { display: grid; gap: 4px; }
 .controls .row > span { color: var(--muted); font-size: 12px; }
+.controls .row.disabled { opacity: 0.45; }
 .controls .inline { display: flex; flex-wrap: wrap; gap: 8px 12px; }
 .hint { color: var(--muted); font-size: 12px; }
 .error { color: var(--bad); font-size: 12px; white-space: pre-wrap; }

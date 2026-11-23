@@ -62,7 +62,7 @@ it.
 | `scroll`    | Long document scrolling at fractional speeds with horizontal drift (subpixel buckets, app-side culling). |
 | `sizes`     | One line per size from 6 to 96 px (atlas area).                                                          |
 | `zoom`      | Continuously animated zoom: new effective sizes every frame, so misses and atlas growth.                 |
-| `storm`     | ~20k glyphs per frame (× density) in drifting runs of mixed sizes and colors (throughput).               |
+| `storm`     | ~20k glyphs per frame (× `density`) in drifting runs of mixed sizes and colors (throughput).             |
 | `charset`   | Every mapped glyph of Roboto and Inconsolata at three sizes (many unique entries, multiple pages).       |
 | `emoji`     | COLR and bitmap (CBDT) emoji at several sizes (color entries, bitmap uploads).                           |
 | `blank`     | Background only; renderer overhead baseline.                                                             |
