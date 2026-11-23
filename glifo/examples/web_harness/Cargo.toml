@@ -1,0 +1,45 @@
+[package]
+name = "glifo_web_harness"
+version.workspace = true
+description = "Browser harness for benchmarking and inspecting Glifo text rendering on Vello CPU and Vello GPU (WebGL2)."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+console_error_panic_hook = { workspace = true }
+console_log = { workspace = true }
+glifo = { workspace = true, features = ["std", "png"] }
+js-sys = { workspace = true }
+log = { workspace = true }
+skrifa = { workspace = true, features = ["std"] }
+vello_common = { workspace = true, features = ["std"] }
+vello_cpu = { workspace = true }
+vello_gpu = { workspace = true, default-features = false, features = [
+    "text",
+    "webgl",
+    "all_shader_features",
+] }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+web-sys = { workspace = true, features = [
+    "CanvasRenderingContext2d",
+    "Document",
+    "ExtDisjointTimerQuery",
+    "HtmlCanvasElement",
+    "ImageData",
+    "MessageChannel",
+    "MessagePort",
+    "Performance",
+    "WebGl2RenderingContext",
+    "WebGlQuery",
+    "WebglLoseContext",
+    "Window",
+] }

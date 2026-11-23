@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glifo harness · Benchmark</title>
+  <link rel="stylesheet" href="harness.css">
+</head>
+
+<body>
+  <main>
+    <h1>Benchmark</h1>
+    <p>
+      Runs every selected workload × renderer × cache scenario on a fresh renderer, so each
+      scenario starts with empty caches. Animation time advances by exactly 1/60 s per frame, so
+      all renderers draw identical frames. With GPU sync, each GPU frame waits for completion, so
+      frame time includes GPU work.
+    </p>
+
+    <div class="toolbar-grid">
+      <div class="panel controls scenario-panel">
+        <h2>Scenarios</h2>
+        <p class="hint">Click a workload, renderer, or cache header to toggle its whole row or column.</p>
+        <table class="scenario-grid" id="scenario-grid"></table>
+        <div class="inline">
+          <button type="button" id="select-all">All</button>
+          <button type="button" id="select-none">None</button>
+          <span class="hint" id="scenario-count"></span>
+        </div>
+        <div class="inline">
+          <label><input type="checkbox" id="hinting" checked> hinting</label>
+          <label><input type="checkbox" id="sync" checked> GPU sync</label>
+        </div>
+      </div>
+      <div class="panel controls">
+        <h2>Frames &amp; size</h2>
+        <div class="inline">
+          <label>Warmup <input type="number" id="warmup" value="30" min="0"></label>
+          <label>Measured <input type="number" id="frames" value="120" min="1"></label>
+        </div>
+        <div class="inline">
+          <label title="Runs of the whole matrix, interleaved. Comparisons with 3 or more rounds test the per-round means, which captures run-to-run noise.">Rounds <input type="number" id="rounds" value="3" min="1"></label>
+        </div>
+        <div class="inline">
+          <label>Width <input type="number" id="width" value="1280" min="64"></label>
+          <label>Height <input type="number" id="height" value="720" min="64"></label>
+        </div>
+      </div>
+      <div class="panel controls">
+        <h2>Text &amp; atlas</h2>
+        <div class="inline">
+          <label>Font scale <input type="number" id="font-scale" value="1" step="0.25" min="0.25"></label>
+          <label title="Multiplies the ~20k glyphs per frame of the storm workload; other workloads have fixed content.">Storm glyphs × <input type="number" id="density" value="1" step="0.1" min="0.1"></label>
+        </div>
+        <div class="inline">
+          <label>GPU atlas <select id="atlas-size">
+              <option value="1024">1024</option>
+              <option value="2048">2048</option>
+              <option value="4096" selected>4096</option>
+            </select></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel action-bar">
+      <button id="run" class="primary">Run</button>
+      <button id="stop" disabled>Stop</button>
+      <div class="progress" id="progress" hidden><div class="progress-fill" id="progress-fill"></div></div>
+      <span class="status" id="status">Ready.</span>
+      <span class="spacer"></span>
+      <button id="export-json" disabled>Export JSON</button>
+      <button id="export-md" disabled>Export Markdown</button>
+      <button id="copy-md" disabled>Copy Markdown</button>
+    </div>
+    <div class="run-preview" id="preview-wrap" hidden><div id="preview" class="preview"></div></div>
+
+    <section class="panel baselines">
+      <div class="baseline-bar">
+        <h2>Baseline</h2>
+        <label>Compare with <select id="baseline-select"><option value="">nothing</option></select></label>
+        <label title="Smaller changes count as unchanged even if significant. Run the same build twice to see how much your machine drifts.">Noise threshold
+          <input type="number" id="noise-threshold" min="0" max="50" step="0.5"> %</label>
+        <span class="spacer"></span>
+        <button id="save-baseline" disabled title="Save the current results under a new or existing name">Save as baseline…</button>
+        <button id="import-baseline" title="Import a file saved with Export JSON or exported from the baseline list">Import…</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </div>
+      <details id="baseline-list">
+        <summary id="baseline-list-summary">Saved baselines</summary>
+        <p class="hint">
+          Saved in this browser (IndexedDB). A change is colored only if Welch's t-test finds it
+          significant at the 5% level and it exceeds the noise threshold; otherwise it is gray. With 3 or more rounds
+          on both sides, the test uses per-round means; otherwise it uses individual frames, which
+          overstates significance. Running the same build twice shows how much your machine drifts.
+        </p>
+        <table id="baselines" class="baseline-table"></table>
+      </details>
+      <div id="baseline-view" hidden>
+        <div class="baseline-bar" style="margin-top:12px"><h2 id="baseline-view-title"></h2>
+          <span class="spacer"></span><button id="close-baseline-view">Close</button></div>
+        <div class="results"><table id="baseline-view-table" class="results-table"></table></div>
+      </div>
+    </section>
+
+    <section class="comparison" id="comparison" hidden></section>
+
+    <section class="panel results">
+      <p class="hint legend">
+        On cache-on rows, the value turns green or red and <span class="chip cache-effect better">2.4× faster</span>
+        compares it with cache off on the same renderer in this run.
+        <span class="chip better">−8.0%</span> chips and cell tints compare with the selected baseline.
+      </p>
+      <table id="results" class="results-table"></table>
+      <p class="hint" id="results-empty">Run the benchmark to see results here.</p>
+    </section>
+
+    <details class="panel environment">
+      <summary>Environment</summary>
+      <pre class="mono" id="environment"></pre>
+    </details>
+  </main>
+
+  <script type="module">
+    import {
+      createHarness, describeError, disposeHarness, download, el, header, moduleInitMs, nextTask, plainStats, ready, summarize, workloads,
+    } from './harness.js';
+    import {
+      DEFAULT_NOISE_THRESHOLD, comparePaired, compareSamples, deleteBaseline, listBaselines, putBaseline, renameBaseline, scenarioKey,
+    } from './baselines.js';
+
+    document.body.prepend(header('bench.html'));
+    await ready();
+
+    const $ = (id) => document.getElementById(id);
+    const query = new URLSearchParams(location.search);
+    const allWorkloads = workloads();
+    const MODES = [['cpu', 'off'], ['cpu', 'on'], ['gpu', 'off'], ['gpu', 'on']];
+    const scenarioBoxes = () => [...document.querySelectorAll('input[name="scenario"]')];
+    const enabledBoxes = (filter = {}) => scenarioBoxes()
+      .filter((box) => !box.disabled && Object.entries(filter).every(([key, value]) => box.dataset[key] === value));
+
+    /** Checks every box matching `filter`, or unchecks them all if they are already checked. */
+    function toggleScenarios(filter) {
+      const boxes = enabledBoxes(filter);
+      const check = !boxes.every((box) => box.checked);
+      boxes.forEach((box) => { box.checked = check; });
+      updateScenarioCount();
+    }
+
+    function updateScenarioCount() {
+      const boxes = enabledBoxes();
+      $('scenario-count').textContent = `${boxes.filter((box) => box.checked).length} of ${boxes.length} scenarios selected`;
+    }
+
+    const toggle = (label, filter, title) => el('button', { type: 'button', class: 'grid-toggle', title, onclick: () => toggleScenarios(filter) }, label);
+    $('scenario-grid').append(
+      el('thead', {},
+        el('tr', {}, el('th'), ...['cpu', 'gpu'].map((renderer) => el('th', { colspan: 2, class: 'renderer-head' },
+          toggle(renderer === 'cpu' ? 'Vello CPU' : 'Vello GPU', { renderer })))),
+        el('tr', {}, el('th'), ...MODES.map(([renderer, cache]) => el('th', {}, toggle(`cache ${cache}`, { renderer, cache }))))),
+      el('tbody', {}, ...allWorkloads.map(({ name, description }) => el('tr', {},
+        el('th', {}, toggle(name, { workload: name }, description)),
+        ...MODES.map(([renderer, cache]) => {
+          const why = unsupported({ workload: name, renderer, cache: cache === 'on' });
+          return el('td', { title: why },
+            el('input', {
+              type: 'checkbox', name: 'scenario', value: `${name}/${renderer}/${cache}`, checked: !why, disabled: Boolean(why),
+              'aria-label': `${name}, ${renderer.toUpperCase()}, cache ${cache}`, 'data-workload': name, 'data-renderer': renderer, 'data-cache': cache,
+              onchange: updateScenarioCount,
+            }));
+        })))),
+    );
+    $('select-all').addEventListener('click', () => { enabledBoxes().forEach((box) => { box.checked = true; }); updateScenarioCount(); });
+    $('select-none').addEventListener('click', () => { enabledBoxes().forEach((box) => { box.checked = false; }); updateScenarioCount(); });
+
+    // Query parameters override the form, e.g. ?workloads=paragraph,storm&renderers=gpu&frames=300&autorun=1,
+    // or ?scenarios=paragraph/gpu/on,storm/cpu/off for exact scenarios.
+    const picked = query.get('scenarios')?.split(',');
+    const filters = { workload: query.get('workloads'), renderer: query.get('renderers'), cache: query.get('cache') };
+    if (picked || Object.values(filters).some((csv) => csv != null)) {
+      for (const box of enabledBoxes()) {
+        box.checked = picked
+          ? picked.includes(box.value)
+          : Object.entries(filters).every(([key, csv]) => csv == null || csv.split(',').includes(box.dataset[key]));
+      }
+    }
+    updateScenarioCount();
+    for (const [param, id] of [['warmup', 'warmup'], ['frames', 'frames'], ['rounds', 'rounds'], ['width', 'width'], ['height', 'height'], ['scale', 'font-scale'], ['density', 'density'], ['atlas', 'atlas-size']]) {
+      if (query.has(param)) {
+        $(id).value = query.get(param);
+      }
+    }
+    if (query.has('sync')) {
+      $('sync').checked = query.get('sync') === '1';
+    }
+    if (query.has('hint')) {
+      $('hinting').checked = query.get('hint') === '1';
+    }
+
+    const environment = describeEnvironment();
+    $('environment').textContent = Object.entries(environment).map(([key, value]) => `${key}: ${value}`).join('\n');
+
+    function describeEnvironment() {
+      const canvas = document.createElement('canvas');
+      const gl = canvas.getContext('webgl2');
+      const debug = gl?.getExtension('WEBGL_debug_renderer_info');
+      const info = {
+        userAgent: navigator.userAgent,
+        webglRenderer: gl ? gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER) : 'WebGL2 unavailable',
+        gpuTimerQueries: gl ? Boolean(gl.getExtension('EXT_disjoint_timer_query_webgl2')) : false,
+        maxTextureSize: gl?.getParameter(gl.MAX_TEXTURE_SIZE),
+        devicePixelRatio: window.devicePixelRatio,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        crossOriginIsolated: window.crossOriginIsolated,
+        wasmModuleInitMs: moduleInitMs.toFixed(1),
+      };
+      gl?.getExtension('WEBGL_lose_context')?.loseContext();
+      return info;
+    }
+
+    function readConfig() {
+      return {
+        scenarios: enabledBoxes()
+          .filter((box) => box.checked)
+          .map(({ dataset }) => ({ workload: dataset.workload, renderer: dataset.renderer, cache: dataset.cache === 'on' })),
+        hinting: $('hinting').checked,
+        sync: $('sync').checked,
+        warmup: Number($('warmup').value),
+        frames: Number($('frames').value),
+        rounds: Math.max(1, Number($('rounds').value)),
+        width: Number($('width').value),
+        height: Number($('height').value),
+        fontScale: Number($('font-scale').value),
+        density: Number($('density').value),
+        atlasSize: Number($('atlas-size').value),
+      };
+    }
+
+    let stopRequested = false;
+    let running = false;
+    let results = [];
+    let lastConfig = null;
+
+    /** Returns why `scenario` cannot run, or `null` if it can. */
+    function unsupported({ workload, renderer, cache }) {
+      return workload === 'emoji' && renderer === 'gpu' && !cache
+        ? 'Vello GPU cannot draw uncached bitmap glyphs (pixmap image sources)'
+        : null;
+    }
+
+    async function runScenario(scenario, config) {
+      const canvas = document.createElement('canvas');
+      canvas.width = config.width;
+      canvas.height = config.height;
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      canvas.style.objectFit = 'contain';
+      $('preview').replaceChildren(canvas);
+
+      let harness = null;
+      try {
+        const created = await createHarness(scenario.renderer, canvas, { atlasSize: config.atlasSize });
+        harness = created.harness;
+        const { createMs } = created;
+        harness.setWorkload(scenario.workload);
+        harness.configure(config.fontScale, config.density, config.hinting, scenario.cache);
+        const sync = scenario.renderer === 'gpu' && config.sync;
+        const measured = [];
+        let first = null;
+        for (let i = 0; i < config.warmup + config.frames && !stopRequested; i++) {
+          const stats = plainStats(harness.render(i * 1000 / 60, sync));
+          first ??= stats;
+          if (i >= config.warmup) {
+            measured.push(stats);
+          }
+          await nextTask();
+        }
+        return { createMs, first, measured };
+      } catch (error) {
+        return { ...scenario, error: describeError(error) };
+      } finally {
+        disposeHarness(harness, canvas);
+      }
+    }
+
+    const SAMPLED_KEYS = ['total_ms', 'encode_ms', 'render_ms', 'present_ms', 'sync_ms', 'gpu_ms'];
+
+    /** Merges the rounds of one scenario; `rounds` holds the raw output of `runScenario`. */
+    function summarizeScenario(scenario, rounds) {
+      const failed = rounds.find((round) => round.error);
+      if (failed) {
+        return { ...scenario, error: failed.error };
+      }
+      const frames = rounds.flatMap((round) => round.measured);
+      const mean = (values) => summarize(values).mean;
+      const total = summarize(frames.map((s) => s.total_ms));
+      const glyphs = mean(frames.map((s) => s.glyphs));
+      const samples = Object.fromEntries(SAMPLED_KEYS.map((key) => [key, frames.map((s) => s[key])]));
+      const roundMeans = Object.fromEntries(SAMPLED_KEYS.map((key) => [key, rounds.map((round) => mean(round.measured.map((s) => s[key])))]));
+      return {
+        ...scenario,
+        samples,
+        roundMeans,
+        rounds: rounds.length,
+        frames: frames.length,
+        glyphs,
+        total,
+        encode_ms: mean(frames.map((s) => s.encode_ms)),
+        render_ms: mean(frames.map((s) => s.render_ms)),
+        present_ms: mean(frames.map((s) => s.present_ms)),
+        sync_ms: mean(frames.map((s) => s.sync_ms)),
+        gpu_ms: mean(frames.map((s) => s.gpu_ms)),
+        mglyphs_per_s: glyphs / total.mean / 1000,
+        create_ms: mean(rounds.map((round) => round.createMs)),
+        first_frame_ms: mean(rounds.map((round) => round.first?.total_ms)),
+      };
+    }
+
+    async function run(overrides = {}) {
+      const config = { ...readConfig(), ...overrides };
+      lastConfig = config;
+      const scenarios = config.scenarios.map((scenario) => ({ ...scenario }));
+      if (scenarios.length === 0) {
+        $('status').textContent = 'Select at least one scenario.';
+        return [];
+      }
+      stopRequested = false;
+      results = [];
+      setRunning(true);
+      renderTable();
+      const rounds = scenarios.map(() => []);
+      const total = config.rounds * scenarios.length;
+      let completed = 0;
+      const advance = () => {
+        completed += 1;
+        $('progress-fill').style.width = `${(100 * completed) / total}%`;
+      };
+      $('progress-fill').style.width = '0%';
+      try {
+        // Interleaving rounds spreads slow drift (thermals, background work) over all scenarios.
+        for (let round = 0; round < config.rounds && !stopRequested; round++) {
+          for (const [index, scenario] of scenarios.entries()) {
+            if (stopRequested) {
+              break;
+            }
+            $('status').textContent = `Run ${completed + 1} of ${total} (round ${round + 1} of ${config.rounds}) · ${scenario.workload} · ${scenario.renderer.toUpperCase()} · cache ${scenario.cache ? 'on' : 'off'}`;
+            const skipped = unsupported(scenario);
+            if (skipped) {
+              results[index] = { ...scenario, skipped };
+              advance();
+              continue;
+            }
+            rounds[index].push(await runScenario(scenario, config));
+            advance();
+            results[index] = summarizeScenario(scenario, rounds[index]);
+            renderTable();
+          }
+        }
+        results = results.filter(Boolean);
+        $('status').textContent = stopRequested ? `Stopped after ${results.length} scenarios.` : `Done: ${results.length} scenarios × ${config.rounds} rounds.`;
+      } catch (error) {
+        $('status').textContent = `Failed: ${error}`;
+        throw error;
+      } finally {
+        setRunning(false);
+        renderTable();
+        window.glifoBench.results = results;
+        window.glifoBench.done = true;
+        refreshBaselines();
+      }
+      return results;
+    }
+
+    function setRunning(isRunning) {
+      running = isRunning;
+      $('run').disabled = running;
+      $('stop').disabled = !running;
+      $('progress').hidden = !running;
+      // Pinned just below the sticky action bar, so the bar's buttons stay reachable.
+      $('preview-wrap').style.top = `${document.querySelector('.action-bar').offsetHeight + 16}px`;
+      $('preview-wrap').hidden = !running;
+      for (const id of ['export-json', 'export-md', 'copy-md', 'save-baseline']) {
+        $(id).disabled = running || results.length === 0;
+      }
+    }
+
+    const f = (value, digits = 2) => (Number.isFinite(value) ? value.toFixed(digits) : '–');
+    const MEAN = { key: 'total_ms' };
+    // `band` selects the color that sets each group's columns apart in the results table.
+    const FRAME_TIME = { label: 'Frame time (ms)', band: 'frame' };
+    const BREAKDOWN = { label: 'Breakdown (ms)', band: 'breakdown' };
+    const THROUGHPUT = { label: 'Throughput', band: 'throughput' };
+    // `compare` columns are compared against the selected baseline; `applies` hides metrics that a
+    // renderer does not have; `text` columns are shown as the scenario label rather than numbers.
+    const columns = [
+      { label: 'Workload', value: (r) => r.workload, text: true },
+      { label: 'Renderer', value: (r) => r.renderer.toUpperCase(), text: true },
+      { label: 'Cache', value: (r) => (r.cache ? 'on' : 'off'), text: true },
+      { label: 'Glyphs', value: (r) => f(r.glyphs, 0) },
+      { label: 'Mean', group: FRAME_TIME, value: (r) => f(r.total.mean), compare: MEAN, strong: true },
+      { label: 'p50', group: FRAME_TIME, value: (r) => f(r.total.p50) },
+      { label: 'p95', group: FRAME_TIME, value: (r) => f(r.total.p95) },
+      { label: 'Max', group: FRAME_TIME, value: (r) => f(r.total.max) },
+      { label: 'Encode', group: BREAKDOWN, value: (r) => f(r.encode_ms), compare: { key: 'encode_ms' } },
+      { label: 'Render', group: BREAKDOWN, value: (r) => f(r.render_ms), compare: { key: 'render_ms' } },
+      { label: 'Present', group: BREAKDOWN, value: (r) => f(r.present_ms), compare: { key: 'present_ms' }, applies: (r) => r.renderer === 'cpu' },
+      { label: 'Sync', group: BREAKDOWN, value: (r) => f(r.sync_ms), compare: { key: 'sync_ms' }, applies: (r) => r.renderer === 'gpu' && r.sync_ms > 0 },
+      { label: 'GPU', group: BREAKDOWN, value: (r) => f(r.gpu_ms), compare: { key: 'gpu_ms' }, applies: (r) => r.renderer === 'gpu' && Number.isFinite(r.gpu_ms) },
+      {
+        label: 'Mglyph/s', group: THROUGHPUT, value: (r) => f(r.mglyphs_per_s),
+        compare: { key: 'total_ms', transform: (r, ms) => r.glyphs / ms / 1000, lowerIsBetter: false },
+        applies: (r) => r.glyphs > 0,
+      },
+      { label: '1st frame', group: THROUGHPUT, value: (r) => f(r.first_frame_ms) },
+    ];
+    const numericColumns = columns.filter((c) => !c.text);
+    const describeWorkload = (name) => allWorkloads.find((w) => w.name === name)?.description ?? '';
+
+    let baselines = [];
+    let comparison = null;
+
+    const noiseInput = $('noise-threshold');
+    noiseInput.value = query.get('noise') ?? localStorage.getItem('glifo.bench.noise') ?? DEFAULT_NOISE_THRESHOLD * 100;
+    noiseInput.addEventListener('input', () => {
+      localStorage.setItem('glifo.bench.noise', noiseInput.value);
+      renderTable();
+    });
+    const noiseThreshold = () => Math.max(0, Number(noiseInput.value) || 0) / 100;
+
+    /** Minimum rounds on both sides for testing per-round means instead of individual frames. */
+    const MIN_ROUNDS = 3;
+
+    /**
+     * Returns the comparison of column `options` for result `r`, or `null`.
+     *
+     * Frames within a run are correlated, so a test over frames overstates significance; per-round
+     * means also capture run-to-run noise, but need a few rounds.
+     */
+    function compareCell(r, options) {
+      return compareResults(comparison?.byKey.get(scenarioKey(r)), r, options);
+    }
+
+    /** Compares column `options` of result `r` against result `base`, or returns `null`. */
+    function compareResults(base, r, options) {
+      if (!options?.key || !base || base.error || base.skipped || r.error || r.skipped) {
+        return null;
+      }
+      if (options.applies && !(options.applies(r) && options.applies(base))) {
+        return null;
+      }
+      const { key, transform } = options;
+      const byRound = (base.roundMeans?.[key]?.length ?? 0) >= MIN_ROUNDS && (r.roundMeans?.[key]?.length ?? 0) >= MIN_ROUNDS;
+      const series = (x) => (byRound ? x.roundMeans[key] : x.samples?.[key])?.map((v) => (transform ? transform(x, v) : v));
+      const delta = compareSamples(series(base), series(r), { ...options, noiseThreshold: noiseThreshold() });
+      return delta && { ...delta, basis: byRound ? 'rounds' : 'frames' };
+    }
+
+    /**
+     * Compares cache-on result `r` with cache-off result `off` from the same run.
+     *
+     * Each round runs every scenario, so rounds pair up and a round that ran slow overall does not
+     * hide the effect of the cache.
+     */
+    function cacheEffect(off, r, options) {
+      if (off.error || off.skipped || (options.applies && !(options.applies(r) && options.applies(off)))) {
+        return null;
+      }
+      const { key, transform } = options;
+      const rounds = (x) => x.roundMeans?.[key]?.map((v) => (transform ? transform(x, v) : v));
+      const [a, b] = [rounds(off), rounds(r)];
+      if ((a?.length ?? 0) >= MIN_ROUNDS && a.length === b?.length) {
+        const effect = comparePaired(a, b, { ...options, noiseThreshold: noiseThreshold() });
+        return effect && { ...effect, basis: 'paired rounds' };
+      }
+      return compareResults(off, r, options);
+    }
+
+    /** How many times faster `delta` is than its base, below 1 when slower. */
+    const speedup = (delta, lowerIsBetter = true) => (lowerIsBetter ? 1 / (1 + delta.change) : 1 + delta.change);
+    const times = (factor) => factor.toFixed(factor >= 10 ? 0 : factor >= 2 ? 1 : 2);
+
+    const tText = ({ t, tCritical }) => `|t| = ${Number.isFinite(t) ? Math.abs(t).toFixed(1) : '∞'} (significant from ${Number.isFinite(tCritical) ? tCritical.toFixed(2) : '∞'})`;
+
+    function cacheChip(effect, lowerIsBetter) {
+      const factor = speedup(effect, lowerIsBetter);
+      const label = `${effect.verdict === 'same' ? '~' : ''}${factor >= 1 ? `${times(factor)}× faster` : `${times(1 / factor)}× slower`}`;
+      const title = `${times(factor)}× the speed of cache off (${f(effect.baseMean)}), ${tText(effect)} over ${effect.basis}`;
+      return `<span class="chip cache-effect ${effect.verdict}" title="${title}">${label}</span>`;
+    }
+
+    const signed = (change) => `${change > 0 ? '+' : change < 0 ? '−' : '±'}${Math.abs(change * 100).toFixed(1)}%`;
+
+    const escapeHtml = (text) => String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+    function scenarioBadges(r) {
+      return `<span class="badge ${r.renderer}">${r.renderer.toUpperCase()}</span>`
+        + `<span class="badge cache-${r.cache ? 'on' : 'off'}">cache ${r.cache ? 'on' : 'off'}</span>`;
+    }
+
+    function deltaTitle(delta) {
+      const verdict = { better: 'significant improvement', worse: 'significant regression', same: 'not significant' }[delta.verdict];
+      return `${verdict}: baseline ${f(delta.baseMean)}, ${tText(delta)} over ${delta.basis}`;
+    }
+
+    function resultsTable(rows, compare) {
+      if (rows.length === 0) {
+        return '';
+      }
+      const groups = [];
+      for (const column of numericColumns) {
+        const last = groups.at(-1);
+        if (column.group && last?.group === column.group) {
+          last.span += 1;
+        } else {
+          groups.push({ group: column.group, span: 1, label: column.label });
+        }
+      }
+      const cols = `<colgroup></colgroup>${groups.map((g) => (g.group
+        ? `<colgroup span="${g.span}" class="band band-${g.group.band}"></colgroup>`
+        : `<colgroup span="${g.span}"></colgroup>`)).join('')}`;
+      // Cache off first, so each cache-on row sits right below the row it is compared with.
+      const pair = (r) => `${r.workload}/${r.renderer}`;
+      const firstSeen = new Map();
+      rows.forEach((r, i) => { if (!firstSeen.has(pair(r))) firstSeen.set(pair(r), i); });
+      rows = [...rows].sort((a, b) => firstSeen.get(pair(a)) - firstSeen.get(pair(b)) || Number(a.cache) - Number(b.cache));
+      const byKey = new Map(rows.map((r) => [scenarioKey(r), r]));
+
+      const head = `<thead><tr><th rowspan="2" class="scenario">Scenario</th>${groups.map((g) => (g.group
+        ? `<th colspan="${g.span}" class="group-head band-${g.group.band}">${g.group.label}</th>`
+        : `<th rowspan="2">${g.label}</th>`)).join('')}</tr>`
+        + `<tr>${numericColumns.filter((c) => c.group).map((c) => `<th>${c.label}</th>`).join('')}</tr></thead>`;
+
+      let body = '';
+      let workload = null;
+      for (const r of rows) {
+        if (r.workload !== workload) {
+          workload = r.workload;
+          body += `<tr class="workload-row"><td colspan="${numericColumns.length + 1}"><b>${escapeHtml(workload)}</b>`
+            + `<span class="hint">${escapeHtml(describeWorkload(workload))}</span></td></tr>`;
+        }
+        if (r.error || r.skipped) {
+          const note = r.error ? `<span class="bad">failed: ${escapeHtml(r.error)}</span>` : `skipped: ${escapeHtml(r.skipped)}`;
+          body += `<tr class="note-row"><td class="scenario">${scenarioBadges(r)}</td><td colspan="${numericColumns.length}" class="note">${note}</td></tr>`;
+          continue;
+        }
+        const cacheOff = r.cache ? byKey.get(scenarioKey({ ...r, cache: false })) : null;
+        const cells = numericColumns.map((column) => {
+          if (column.applies && !column.applies(r)) {
+            return '<td class="na">–</td>';
+          }
+          const options = column.compare && { ...column.compare, applies: column.applies };
+          const delta = compare && options ? compareCell(r, options) : null;
+          const effect = options && cacheOff ? cacheEffect(cacheOff, r, options) : null;
+          const valueClass = effect && effect.verdict !== 'same' ? `value ${effect.verdict}` : 'value';
+          const classes = [column.strong ? 'strong' : '', delta && delta.verdict !== 'same' ? `cell-${delta.verdict}` : ''].filter(Boolean).join(' ');
+          const effectChip = effect ? cacheChip(effect, options.lowerIsBetter) : '';
+          const deltaChip = delta ? `<span class="chip ${delta.verdict}" title="${deltaTitle(delta)}">${signed(delta.change)}</span>` : '';
+          return `<td class="${classes}"><span class="value-line">${effectChip}<span class="${valueClass}">${column.value(r)}</span></span>${deltaChip}</td>`;
+        });
+        body += `<tr><td class="scenario">${scenarioBadges(r)}</td>${cells.join('')}</tr>`;
+      }
+      return cols + head + `<tbody>${body}</tbody>`;
+    }
+
+    function renderTable() {
+      const rows = results.filter(Boolean);
+      // Partial runs have too few rounds for a meaningful baseline comparison.
+      $('results').innerHTML = resultsTable(rows, !running);
+      $('results-empty').hidden = rows.length > 0;
+      renderComparisonSummary();
+    }
+
+    function renderComparisonSummary() {
+      const section = $('comparison');
+      section.hidden = !comparison;
+      if (!comparison) {
+        return;
+      }
+      const name = escapeHtml(comparison.baseline.name);
+      const rows = results.filter((r) => r && !r.error && !r.skipped);
+      if (rows.length === 0 || running) {
+        const when = running ? 'when the run finishes' : 'after you run the benchmark';
+        section.innerHTML = `<div class="panel">Comparing with <b>“${name}”</b> ${when}.</div>`;
+        return;
+      }
+      const changes = rows.map((r) => ({ r, delta: compareCell(r, MEAN) })).filter(({ delta }) => delta);
+      const count = (verdict) => changes.filter(({ delta }) => delta.verdict === verdict).length;
+      const notable = changes
+        .filter(({ delta }) => delta.verdict !== 'same')
+        .sort((a, b) => Math.abs(b.delta.change) - Math.abs(a.delta.change));
+      const measured = (list) => list.filter((r) => r && !r.error && !r.skipped);
+      const fewRounds = Math.min(...[...measured(results), ...measured(comparison.baseline.results)].map((r) => r.rounds ?? 1)) < MIN_ROUNDS;
+      const warnings = [];
+      if (fewRounds) {
+        warnings.push(`Fewer than ${MIN_ROUNDS} rounds on one side, so changes are tested over individual frames, which overstates significance.`);
+      }
+      const mismatches = configMismatches(comparison.baseline);
+      if (mismatches.length > 0) {
+        warnings.push(`Setup differs from the baseline: ${mismatches.join('; ')}.`);
+      }
+      const stat = (verdict, label) => `<div class="stat ${verdict}"><span class="stat-value">${count(verdict)}</span><span class="stat-label">${label}</span></div>`;
+      section.innerHTML = `
+        <div class="panel comparison-panel">
+          <div class="stats-row">
+            ${stat('better', 'faster')}${stat('worse', 'slower')}${stat('same', 'unchanged')}
+            <div class="stat-caption">Mean frame time compared with <b>“${name}”</b><br>
+              <span class="hint">Welch's t-test at the 5% level and at least ${escapeHtml(noiseInput.value)}% change</span></div>
+          </div>
+          ${notable.length > 0 ? `<ul class="notable">${notable.map(({ r, delta }) => `
+            <li><span class="chip ${delta.verdict}" title="${deltaTitle(delta)}">${signed(delta.change)}</span>
+              <b>${escapeHtml(r.workload)}</b>${scenarioBadges(r)}
+              <span class="hint">${f(delta.baseMean)} → ${f(r.total.mean)} ms</span></li>`).join('')}</ul>`
+            : '<p class="hint">No significant changes in mean frame time.</p>'}
+          ${warnings.map((w) => `<p class="warn">${escapeHtml(w)}</p>`).join('')}
+        </div>`;
+    }
+
+    const CONFIG_LABELS = {
+      width: 'width', height: 'height', warmup: 'warmup', frames: 'frames', fontScale: 'font scale',
+      density: 'storm glyphs ×', hinting: 'hinting', sync: 'GPU sync', atlasSize: 'GPU atlas',
+    };
+
+    function configMismatches(baseline) {
+      const current = lastConfig ?? readConfig();
+      const out = Object.entries(CONFIG_LABELS)
+        .filter(([key]) => baseline.config?.[key] !== current[key])
+        .map(([key, label]) => `${label} ${baseline.config?.[key]} → ${current[key]}`);
+      if (baseline.environment?.webglRenderer !== environment.webglRenderer) {
+        out.push(`GPU ${baseline.environment?.webglRenderer} → ${environment.webglRenderer}`);
+      }
+      return out;
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Baselines
+
+    function setupSummary(config) {
+      return config
+        ? `${config.width}×${config.height}, ${config.rounds ?? 1} × ${config.frames} frames, scale ${config.fontScale}, density ${config.density}, hint ${config.hinting ? 'on' : 'off'}, sync ${config.sync ? 'on' : 'off'}`
+        : '–';
+    }
+
+    async function refreshBaselines(select = $('baseline-select').value) {
+      baselines = await listBaselines();
+      const options = [new Option('nothing', ''), ...baselines.map((b) => new Option(`${b.name} (${new Date(b.savedAt).toLocaleString()})`, b.name))];
+      $('baseline-select').replaceChildren(...options);
+      $('baseline-select').value = baselines.some((b) => b.name === select) ? select : '';
+      selectComparison($('baseline-select').value);
+
+      $('baseline-list-summary').textContent = `Saved baselines (${baselines.length})`;
+      const table = $('baselines');
+      table.replaceChildren();
+      if (baselines.length === 0) {
+        table.innerHTML = '<tr><td class="hint" style="text-align:left">No baselines saved yet. Run a benchmark, then use “Save as baseline…”.</td></tr>';
+        return;
+      }
+      table.innerHTML = '<tr><th>Name</th><th>Saved</th><th>Scenarios</th><th>Setup</th><th>GPU</th><th></th></tr>';
+      for (const baseline of baselines) {
+        const tr = document.createElement('tr');
+        const comparing = comparison?.baseline.name === baseline.name;
+        tr.className = comparing ? 'active' : '';
+        tr.innerHTML = `<td><b></b>${comparing ? ' <span class="badge comparing">comparing</span>' : ''}</td><td>${new Date(baseline.savedAt).toLocaleString()}</td>
+          <td>${baseline.results.length}</td><td>${setupSummary(baseline.config)}</td><td class="gpu-name"></td><td class="actions"></td>`;
+        tr.querySelector('b').textContent = baseline.name;
+        tr.querySelector('.gpu-name').textContent = baseline.environment?.webglRenderer ?? '–';
+        const action = (label, title, handler, disabled = false) => {
+          const button = Object.assign(document.createElement('button'), { textContent: label, title, disabled });
+          button.addEventListener('click', handler);
+          tr.querySelector('.actions').append(button);
+        };
+        action(comparing ? 'Stop comparing' : 'Compare', 'Show changes of the current results relative to this baseline', () => {
+          $('baseline-select').value = comparing ? '' : baseline.name;
+          selectComparison($('baseline-select').value);
+          refreshBaselines();
+        });
+        action('View', 'Show the results stored in this baseline', () => viewBaseline(baseline));
+        action('Overwrite', 'Replace this baseline with the current results', () => saveBaseline(baseline.name, { confirmOverwrite: true }), results.length === 0);
+        action('Rename', 'Rename this baseline', async () => {
+          const name = prompt('New name', baseline.name)?.trim();
+          if (name && name !== baseline.name) {
+            if (baselines.some((b) => b.name === name) && !confirm(`Replace the existing baseline “${name}”?`)) {
+              return;
+            }
+            await renameBaseline(baseline.name, name);
+            await refreshBaselines(comparing ? name : undefined);
+          }
+        });
+        action('Export', 'Download this baseline as JSON', () => download(`glifo-baseline-${baseline.name}.json`, JSON.stringify(baseline, null, 2)));
+        action('Delete', 'Delete this baseline', async () => {
+          if (confirm(`Delete the baseline “${baseline.name}”?`)) {
+            await deleteBaseline(baseline.name);
+            await refreshBaselines();
+          }
+        });
+        table.append(tr);
+      }
+    }
+
+    function selectComparison(name) {
+      const baseline = baselines.find((b) => b.name === name);
+      comparison = baseline ? { baseline, byKey: new Map(baseline.results.map((r) => [scenarioKey(r), r])) } : null;
+      renderTable();
+    }
+
+    function viewBaseline(baseline) {
+      $('baseline-view').hidden = false;
+      $('baseline-view-title').textContent = `“${baseline.name}”: ${setupSummary(baseline.config)}`;
+      $('baseline-view-table').innerHTML = resultsTable(baseline.results, false);
+    }
+
+    async function saveBaseline(name, { confirmOverwrite = false } = {}) {
+      name = (name ?? prompt('Baseline name', comparison?.baseline.name ?? 'main'))?.trim();
+      if (!name || results.length === 0) {
+        return;
+      }
+      const exists = baselines.some((b) => b.name === name);
+      if (exists && confirmOverwrite && !confirm(`Overwrite the baseline “${name}” with the current results?`)) {
+        return;
+      }
+      await putBaseline({ name, savedAt: new Date().toISOString(), environment, config: lastConfig, results });
+      await refreshBaselines(comparison?.baseline.name === name ? name : $('baseline-select').value);
+    }
+
+    async function importBaseline(file) {
+      const data = JSON.parse(await file.text());
+      if (!Array.isArray(data.results)) {
+        throw new Error('expected a file saved with Export JSON or exported from the baseline list');
+      }
+      const name = prompt('Baseline name', data.name ?? file.name.replace(/\.json$/, ''))?.trim();
+      if (!name || (baselines.some((b) => b.name === name) && !confirm(`Overwrite the baseline “${name}”?`))) {
+        return;
+      }
+      await putBaseline({
+        name,
+        savedAt: data.savedAt ?? new Date().toISOString(),
+        environment: data.environment,
+        config: data.config,
+        results: data.results,
+      });
+      await refreshBaselines();
+    }
+
+    $('baseline-select').addEventListener('input', () => { selectComparison($('baseline-select').value); refreshBaselines(); });
+    $('save-baseline').addEventListener('click', () => saveBaseline(undefined, { confirmOverwrite: true }));
+    $('import-baseline').addEventListener('click', () => $('import-file').click());
+    $('import-file').addEventListener('change', async () => {
+      const [file] = $('import-file').files;
+      $('import-file').value = '';
+      if (file) {
+        try {
+          await importBaseline(file);
+        } catch (error) {
+          alert(`Import failed: ${error.message ?? error}`);
+        }
+      }
+    });
+    $('close-baseline-view').addEventListener('click', () => { $('baseline-view').hidden = true; });
+
+    function markdown() {
+      const label = (c) => (c.group?.label.endsWith('(ms)') ? `${c.label} ms` : c.label);
+      const header = `| ${columns.map(label).join(' | ')} |`;
+      const separator = `| ${columns.map((c) => (c.text ? '---' : '---:')).join(' | ')} |`;
+      const rows = results.map((r) => (r.error || r.skipped
+        ? `| ${columns.filter((c) => c.text).map((c) => c.value(r)).join(' | ')} | ${r.error ? `failed: ${r.error}` : `skipped: ${r.skipped}`} |`
+        : `| ${columns.map((c) => {
+          if (c.applies && !c.applies(r)) {
+            return '–';
+          }
+          const delta = c.compare ? compareCell(r, { ...c.compare, applies: c.applies }) : null;
+          return delta ? `${c.value(r)} (${signed(delta.change)}${delta.verdict === 'same' ? ' ~' : ''})` : c.value(r);
+        }).join(' | ')} |`));
+      const c = lastConfig;
+      const meta = `${c.width}×${c.height}, ${c.rounds} rounds × (${c.warmup} warmup + ${c.frames} frames), font scale ${c.fontScale}, density ${c.density}, hinting ${c.hinting ? 'on' : 'off'}, GPU sync ${c.sync ? 'on' : 'off'}, GPU atlas ${c.atlasSize}²`;
+      const compared = comparison
+        ? [`Changes are relative to the baseline “${comparison.baseline.name}”; ~ marks changes that are not significant (Welch's t-test over per-round means at the 5% level, or under ${noiseInput.value}%).`, '']
+        : [];
+      return [`Glifo benchmark — ${environment.webglRenderer}`, '', meta, '', ...compared, header, separator, ...rows, ''].join('\n');
+    }
+
+    window.glifoBench = {
+      run,
+      results,
+      done: false,
+      markdown,
+      saveBaseline: (name) => saveBaseline(name, { confirmOverwrite: false }),
+      compareWith: async (name) => { await refreshBaselines(name); return comparison !== null; },
+      baselines: () => listBaselines(),
+    };
+    $('run').addEventListener('click', () => run());
+    $('stop').addEventListener('click', () => { stopRequested = true; });
+    $('export-json').addEventListener('click', () => download('glifo-bench.json', JSON.stringify({ environment, config: lastConfig, results }, null, 2)));
+    $('export-md').addEventListener('click', () => download('glifo-bench.md', markdown(), 'text/markdown'));
+    $('copy-md').addEventListener('click', () => navigator.clipboard.writeText(markdown()));
+
+    await refreshBaselines(query.get('baseline') ?? '');
+    if (query.get('autorun') === '1') {
+      await run();
+      if (query.has('save')) {
+        await saveBaseline(query.get('save'), { confirmOverwrite: false });
+      }
+    }
+  </script>
+</body>
+
+</html>
