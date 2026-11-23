@@ -89,8 +89,8 @@
       <details id="baseline-list">
         <summary id="baseline-list-summary">Saved baselines</summary>
         <p class="hint">
-          Saved in this browser (IndexedDB). A change is colored only if Welch's t-test gives
-          p &lt; 0.05 and it exceeds the noise threshold; otherwise it is gray. With 3 or more rounds
+          Saved in this browser (IndexedDB). A change is colored only if Welch's t-test finds it
+          significant at the 5% level and it exceeds the noise threshold; otherwise it is gray. With 3 or more rounds
           on both sides, the test uses per-round means; otherwise it uses individual frames, which
           overstates significance. Running the same build twice shows how much your machine drifts.
         </p>
@@ -480,11 +480,12 @@
     const speedup = (delta, lowerIsBetter = true) => (lowerIsBetter ? 1 / (1 + delta.change) : 1 + delta.change);
     const times = (factor) => factor.toFixed(factor >= 10 ? 0 : factor >= 2 ? 1 : 2);
 
+    const tText = ({ t, tCritical }) => `|t| = ${Number.isFinite(t) ? Math.abs(t).toFixed(1) : '∞'} (significant from ${Number.isFinite(tCritical) ? tCritical.toFixed(2) : '∞'})`;
+
     function cacheChip(effect, lowerIsBetter) {
       const factor = speedup(effect, lowerIsBetter);
       const label = `${effect.verdict === 'same' ? '~' : ''}${factor >= 1 ? `${times(factor)}× faster` : `${times(1 / factor)}× slower`}`;
-      const p = effect.p < 0.001 ? effect.p.toExponential(1) : effect.p.toFixed(3);
-      const title = `${times(factor)}× the speed of cache off (${f(effect.baseMean)}), p = ${p} over ${effect.basis}`;
+      const title = `${times(factor)}× the speed of cache off (${f(effect.baseMean)}), ${tText(effect)} over ${effect.basis}`;
       return `<span class="chip cache-effect ${effect.verdict}" title="${title}">${label}</span>`;
     }
 
@@ -498,9 +499,8 @@
     }
 
     function deltaTitle(delta) {
-      const p = delta.p < 0.001 ? delta.p.toExponential(1) : delta.p.toFixed(3);
       const verdict = { better: 'significant improvement', worse: 'significant regression', same: 'not significant' }[delta.verdict];
-      return `${verdict}: baseline ${f(delta.baseMean)}, p = ${p} over ${delta.basis}`;
+      return `${verdict}: baseline ${f(delta.baseMean)}, ${tText(delta)} over ${delta.basis}`;
     }
 
     function resultsTable(rows, compare) {
@@ -605,7 +605,7 @@
           <div class="stats-row">
             ${stat('better', 'faster')}${stat('worse', 'slower')}${stat('same', 'unchanged')}
             <div class="stat-caption">Mean frame time compared with <b>“${name}”</b><br>
-              <span class="hint">Welch's t-test, p &lt; 0.05 and at least ${escapeHtml(noiseInput.value)}% change</span></div>
+              <span class="hint">Welch's t-test at the 5% level and at least ${escapeHtml(noiseInput.value)}% change</span></div>
           </div>
           ${notable.length > 0 ? `<ul class="notable">${notable.map(({ r, delta }) => `
             <li><span class="chip ${delta.verdict}" title="${deltaTitle(delta)}">${signed(delta.change)}</span>
@@ -773,7 +773,7 @@
       const c = lastConfig;
       const meta = `${c.width}×${c.height}, ${c.rounds} rounds × (${c.warmup} warmup + ${c.frames} frames), font scale ${c.fontScale}, density ${c.density}, hinting ${c.hinting ? 'on' : 'off'}, GPU sync ${c.sync ? 'on' : 'off'}, GPU atlas ${c.atlasSize}²`;
       const compared = comparison
-        ? [`Changes are relative to the baseline “${comparison.baseline.name}”; ~ marks changes that are not significant (Welch's t-test over per-round means, p ≥ 0.05, or under ${noiseInput.value}%).`, '']
+        ? [`Changes are relative to the baseline “${comparison.baseline.name}”; ~ marks changes that are not significant (Welch's t-test over per-round means at the 5% level, or under ${noiseInput.value}%).`, '']
         : [];
       return [`Glifo benchmark — ${environment.webglRenderer}`, '', meta, '', ...compared, header, separator, ...rows, ''].join('\n');
     }

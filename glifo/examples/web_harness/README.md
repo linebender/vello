@@ -39,12 +39,12 @@ background tabs.
 
 When the run finishes, each compared metric shows its change relative to the baseline: green for
 better, red for worse, and gray when the change is not significant. A summary above the table
-counts faster and slower scenarios by mean frame time. A change counts when Welch's t-test gives
-p < 0.05 and it exceeds the noise threshold (5% by default). With 3 or more rounds on both sides,
-the test uses per-round means, which include run-to-run noise; frames within one run are
-correlated, so testing them individually overstates significance. Even so, a session can drift by a
-few percent, so run the same build twice to see how noisy your machine is before trusting small
-changes. GPU sync and GPU timer columns are noisier than the CPU frame-time columns.
+counts faster and slower scenarios by mean frame time. A change counts when Welch's t-test finds
+it significant at the 5% level and it exceeds the noise threshold (5% by default). With 3 or more
+rounds on both sides, the test uses per-round means, which include run-to-run noise; frames within
+one run are correlated, so testing them individually overstates significance. Even so, a session
+can drift by a few percent, so run the same build twice to see how noisy your machine is before
+trusting small changes. GPU sync and GPU timer columns are noisier than the CPU frame-time columns.
 
 Independently of baselines, each cache-on row shows how many times faster or slower it is than
 cache off on the same renderer in the same run. Every round runs all scenarios, so this uses a

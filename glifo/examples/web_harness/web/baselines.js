@@ -6,8 +6,6 @@
 const DB_NAME = 'glifo-harness';
 const STORE = 'baselines';
 
-/** Two-sided p-value below which a difference counts as real rather than noise. */
-export const SIGNIFICANCE_LEVEL = 0.05;
 /**
  * Default relative change below which a difference is reported as unchanged, even if significant.
  *
@@ -76,7 +74,8 @@ export function scenarioKey({ workload, renderer, cache }) {
  *
  * Returns `null` when either side has fewer than two finite samples. `change` is the relative
  * change of the mean, and `verdict` is `'better'`, `'worse'`, or `'same'`, where a change only
- * counts if it is both significant and at least `noiseThreshold`.
+ * counts if it is both significant at the 5% level (`|t| >= tCritical`) and at least
+ * `noiseThreshold`.
  */
 export function compareSamples(baseSamples, currentSamples, { lowerIsBetter = true, noiseThreshold = DEFAULT_NOISE_THRESHOLD } = {}) {
   const base = moments(baseSamples);
@@ -84,16 +83,11 @@ export function compareSamples(baseSamples, currentSamples, { lowerIsBetter = tr
   if (!base || !current || base.mean === 0) {
     return null;
   }
+  const va = base.variance / base.n;
+  const vb = current.variance / current.n;
+  const df = (va + vb) ** 2 / (va ** 2 / (base.n - 1) + vb ** 2 / (current.n - 1));
   const change = (current.mean - base.mean) / base.mean;
-  const p = welchP(base, current);
-  const significant = p < SIGNIFICANCE_LEVEL && Math.abs(change) >= noiseThreshold;
-  const improved = lowerIsBetter ? change < 0 : change > 0;
-  return {
-    change,
-    p,
-    baseMean: base.mean,
-    verdict: significant ? (improved ? 'better' : 'worse') : 'same',
-  };
+  return verdict(change, tStatistic(current.mean - base.mean, Math.sqrt(va + vb)), df, base.mean, { lowerIsBetter, noiseThreshold });
 }
 
 /**
@@ -109,19 +103,21 @@ export function comparePaired(baseRounds, currentRounds, { lowerIsBetter = true,
   if (!ratios || pairs.length !== baseRounds.length) {
     return null;
   }
-  const change = Math.exp(ratios.mean) - 1;
-  const se = Math.sqrt(ratios.variance / ratios.n);
-  const df = ratios.n - 1;
-  const t = se === 0 ? (ratios.mean === 0 ? 0 : Infinity) : ratios.mean / se;
-  const p = Number.isFinite(t) ? incompleteBeta(df / (df + t * t), df / 2, 0.5) : 0;
-  const significant = p < SIGNIFICANCE_LEVEL && Math.abs(change) >= noiseThreshold;
+  const baseMean = pairs.reduce((sum, [a]) => sum + a, 0) / pairs.length;
+  const t = tStatistic(ratios.mean, Math.sqrt(ratios.variance / ratios.n));
+  return verdict(Math.exp(ratios.mean) - 1, t, ratios.n - 1, baseMean, { lowerIsBetter, noiseThreshold });
+}
+
+function verdict(change, t, df, baseMean, { lowerIsBetter, noiseThreshold }) {
+  const tCritical = criticalT(df);
+  const significant = Math.abs(t) >= tCritical && Math.abs(change) >= noiseThreshold;
   const improved = lowerIsBetter ? change < 0 : change > 0;
-  return {
-    change,
-    p,
-    baseMean: pairs.reduce((sum, [a]) => sum + a, 0) / pairs.length,
-    verdict: significant ? (improved ? 'better' : 'worse') : 'same',
-  };
+  return { change, t, tCritical, baseMean, verdict: significant ? (improved ? 'better' : 'worse') : 'same' };
+}
+
+function tStatistic(difference, standardError) {
+  // A zero standard error means both sides are constant, as with coarse timers on trivial workloads.
+  return standardError === 0 ? (difference === 0 ? 0 : Infinity) : difference / standardError;
 }
 
 function moments(samples) {
@@ -135,70 +131,29 @@ function moments(samples) {
   return { n, mean, variance };
 }
 
-function welchP(a, b) {
-  const va = a.variance / a.n;
-  const vb = b.variance / b.n;
-  const se = Math.sqrt(va + vb);
-  if (se === 0) {
-    // Both runs are constant, which happens with coarse timers on trivial workloads.
-    return a.mean === b.mean ? 1 : 0;
-  }
-  const t = (b.mean - a.mean) / se;
-  const df = (va + vb) ** 2 / (va ** 2 / (a.n - 1) + vb ** 2 / (b.n - 1));
-  return incompleteBeta(df / (df + t * t), df / 2, 0.5);
-}
+/** Two-sided 5% critical values of Student's t for 1 to 30 degrees of freedom. */
+const T_CRITICAL = [
+  12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228,
+  2.201, 2.179, 2.160, 2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086,
+  2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042,
+];
 
-/** Regularized incomplete beta function I_x(a, b). */
-function incompleteBeta(x, a, b) {
-  if (x <= 0) {
-    return 0;
+/**
+ * Returns the two-sided 5% critical value of Student's t for `df` degrees of freedom.
+ *
+ * Fractional `df` (from Welch's test) interpolates linearly between table entries, which slightly
+ * overestimates the critical value, so borderline changes err toward insignificant.
+ */
+function criticalT(df) {
+  if (!(df >= 1)) {
+    return Infinity;
   }
-  if (x >= 1) {
-    return 1;
+  if (df < 30) {
+    const i = Math.floor(df) - 1;
+    return T_CRITICAL[i] + (T_CRITICAL[i + 1] - T_CRITICAL[i]) * (df - i - 1);
   }
-  const front = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b) + a * Math.log(x) + b * Math.log(1 - x));
-  // The continued fraction converges quickly only on this side of the mean.
-  return x < (a + 1) / (a + b + 2)
-    ? (front * betaContinuedFraction(x, a, b)) / a
-    : 1 - (front * betaContinuedFraction(1 - x, b, a)) / b;
-}
-
-function betaContinuedFraction(x, a, b) {
-  const tiny = 1e-300;
-  let c = 1;
-  let d = 1 - ((a + b) * x) / (a + 1);
-  d = 1 / (Math.abs(d) < tiny ? tiny : d);
-  let result = d;
-  for (let m = 1; m <= 200; m++) {
-    for (const numerator of [
-      (m * (b - m) * x) / ((a + 2 * m - 1) * (a + 2 * m)),
-      (-(a + m) * (a + b + m) * x) / ((a + 2 * m) * (a + 2 * m + 1)),
-    ]) {
-      d = 1 + numerator * d;
-      d = 1 / (Math.abs(d) < tiny ? tiny : d);
-      c = 1 + numerator / c;
-      c = Math.abs(c) < tiny ? tiny : c;
-      result *= d * c;
-    }
-    if (Math.abs(d * c - 1) < 1e-12) {
-      break;
-    }
+  if (df < 40) {
+    return T_CRITICAL[29];
   }
-  return result;
-}
-
-/** Lanczos approximation of ln Γ(x) for x > 0. */
-function logGamma(x) {
-  const g = [
-    676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059,
-    12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
-  ];
-  if (x < 0.5) {
-    return Math.log(Math.PI / Math.sin(Math.PI * x)) - logGamma(1 - x);
-  }
-  const z = x - 1;
-  let sum = 0.99999999999980993;
-  g.forEach((coefficient, index) => { sum += coefficient / (z + index + 1); });
-  const t = z + g.length - 0.5;
-  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(sum);
+  return df >= 120 ? 1.98 : df >= 60 ? 2.0 : 2.021;
 }
