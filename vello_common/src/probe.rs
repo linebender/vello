@@ -37,7 +37,7 @@ pub const ALL_PROBE_ELEMENTS: &[ProbeFeature] = &[
     ProbeFeature::AlphaBlending,
     ProbeFeature::LinearGradient,
     ProbeFeature::ImageNearest,
-    ProbeFeature::Filter,
+    ProbeFeature::GaussianBlur,
     ProbeFeature::ImageBilinear,
     ProbeFeature::OpacityLayer,
     ProbeFeature::Blending,
@@ -84,8 +84,8 @@ pub enum ProbeFeature {
     LinearGradient,
     /// Drawing an image with nearest-neighbor sampling.
     ImageNearest,
-    /// Applying a filter effect.
-    Filter,
+    /// Applying a Gaussian blur filter.
+    GaussianBlur,
     /// Drawing an image with bilinear sampling.
     ImageBilinear,
     /// Drawing within a layer with reduced opacity.
@@ -247,7 +247,7 @@ fn reference_data(feature: ProbeFeature) -> &'static [u8; CELL_DATA_LEN] {
         ProbeFeature::AlphaBlending => include_bytes!("../assets/probe_alpha_blending.rgba"),
         ProbeFeature::LinearGradient => include_bytes!("../assets/probe_linear_gradient.rgba"),
         ProbeFeature::ImageNearest => include_bytes!("../assets/probe_image_nearest.rgba"),
-        ProbeFeature::Filter => include_bytes!("../assets/probe_filter.rgba"),
+        ProbeFeature::GaussianBlur => include_bytes!("../assets/probe_gaussian_blur.rgba"),
         ProbeFeature::ImageBilinear => include_bytes!("../assets/probe_image_bilinear.rgba"),
         ProbeFeature::OpacityLayer => include_bytes!("../assets/probe_opacity_layer.rgba"),
         ProbeFeature::Blending => include_bytes!("../assets/probe_blending.rgba"),
@@ -413,7 +413,7 @@ fn draw_probe_element(
             ctx.fill_rect(&rect);
         }
         ProbeFeature::ImageNearest => draw_centered_image(ctx, cell, image_nearest),
-        ProbeFeature::Filter => {
+        ProbeFeature::GaussianBlur => {
             draw_blurred_rect(ctx, centered_rect(cell, 10.0, 10.0));
         }
         ProbeFeature::ImageBilinear => draw_centered_image(ctx, cell, image_bilinear),

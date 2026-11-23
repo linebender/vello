@@ -25,7 +25,7 @@ fn reference_path(element: probe::ProbeFeature, extension: &str) -> PathBuf {
         probe::ProbeFeature::AlphaBlending => "probe_alpha_blending",
         probe::ProbeFeature::LinearGradient => "probe_linear_gradient",
         probe::ProbeFeature::ImageNearest => "probe_image_nearest",
-        probe::ProbeFeature::Filter => "probe_filter",
+        probe::ProbeFeature::GaussianBlur => "probe_gaussian_blur",
         probe::ProbeFeature::ImageBilinear => "probe_image_bilinear",
         probe::ProbeFeature::OpacityLayer => "probe_opacity_layer",
         probe::ProbeFeature::Blending => "probe_blending",
@@ -212,7 +212,7 @@ mod tests {
             probe::ProbeFeature::ImageBilinear,
             probe::ProbeFeature::DepthBuffer,
             probe::ProbeFeature::SolidRect,
-            probe::ProbeFeature::Filter,
+            probe::ProbeFeature::GaussianBlur,
         ]);
     }
 }
