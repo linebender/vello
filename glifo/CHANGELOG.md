@@ -14,7 +14,11 @@ This release has an [MSRV][] of 1.89.
 
 ### Added
 
-- `HintCacheConfig`, which sets how many hinting instances a `HintCache` keeps. Set it with `HintCache::with_config`, `GlyphPrepCache::with_hint_cache_config`, or `GlyphCaches::with_hint_cache_config`, and read it with `HintCache::config` or `hint_cache_config`. The default stays at 16; raise it when a frame draws more combinations of font, size, and variation setting, or every hinted run rebuilds its hinting data. (by [@grebmeg][])
+- `HintCacheConfig`, which sets how many hinting instances a `HintCache` keeps. Set it with `HintCache::with_config` or `GlyphPrepCache::with_hint_cache_config`, and read it with `HintCache::config` or `GlyphPrepCache::hint_cache_config`. The default stays at 16; raise it when a frame draws more combinations of font, size, and variation setting, or every hinted run rebuilds its hinting data. (by [@grebmeg][])
+
+### Removed
+
+- Breaking change: `GlyphCaches`, which nothing could use outside Glifo. Renderers keep a `GlyphPrepCache` and a `GlyphAtlas` themselves. (by [@grebmeg][])
 
 ## [0.5.0][] - 2026-11-11
 

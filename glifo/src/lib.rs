@@ -59,7 +59,7 @@ pub use atlas::{
     GlyphAtlas, GlyphCacheConfig, GlyphCacheKey, ImageCache, PendingClearRect, RasterMetrics,
 };
 pub use glyph::{
-    AtlasCacher, FontEmbolden, Glyph, GlyphCaches, GlyphColr, GlyphPrepCache, GlyphPrepCacheMut,
+    AtlasCacher, FontEmbolden, Glyph, GlyphColr, GlyphPrepCache, GlyphPrepCacheMut,
     GlyphRenderError, GlyphRun, GlyphRunBackend, GlyphRunBuilder, GlyphRunRenderer,
     GlyphSkipReason, HintCache, HintCacheConfig, HintKey, NormalizedCoord, OutlineCache,
     SkippedGlyph,

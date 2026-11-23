@@ -1873,58 +1873,6 @@ impl OutlinePen for OutlinePath {
 /// the need for updates only to align Skrifa versions.
 pub type NormalizedCoord = i16;
 
-/// Caches used for glyph rendering.
-///
-/// Contains renderer-agnostic caches (outline paths, hinting instances)
-/// alongside the glyph atlas bitmap cache.
-// TODO: Consider capturing cache performance metrics like hit rate, etc.
-#[derive(Debug, Default)]
-pub struct GlyphCaches {
-    /// Caches glyph outlines (paths) for reuse.
-    pub(crate) outline_cache: OutlineCache,
-    /// Caches hinting instances for reuse.
-    pub(crate) hinting_cache: HintCache,
-    /// Horizontal spans excluded from "ink-skipping" underlines. Cached to reuse one allocation.
-    pub(crate) underline_exclusions: Vec<(f64, f64)>,
-    /// Caches rasterized glyph bitmaps in atlas pages.
-    pub(crate) glyph_atlas: GlyphAtlas,
-}
-
-impl GlyphCaches {
-    /// Creates empty caches whose hint cache uses the given configuration.
-    pub fn with_hint_cache_config(config: HintCacheConfig) -> Self {
-        Self {
-            hinting_cache: HintCache::with_config(config),
-            ..Self::default()
-        }
-    }
-
-    /// Returns the configuration of the hint cache.
-    pub fn hint_cache_config(&self) -> &HintCacheConfig {
-        self.hinting_cache.config()
-    }
-
-    /// Clears the glyph caches.
-    pub fn clear(&mut self) {
-        self.outline_cache.clear();
-        self.hinting_cache.clear();
-        self.underline_exclusions.clear();
-        self.glyph_atlas.clear();
-    }
-
-    /// Maintains the glyph caches by evicting unused cache entries.
-    ///
-    /// The `image_cache` must be the same allocator passed to
-    /// `GlyphRunBuilder::build` so that evicted entries are deallocated from
-    /// the correct allocator.
-    ///
-    /// Should be called once per scene rendering.
-    pub fn maintain(&mut self, image_cache: &mut ImageCache) {
-        self.outline_cache.maintain();
-        self.glyph_atlas.maintain(image_cache);
-    }
-}
-
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
 struct OutlineKey {
     font_id: u64,
