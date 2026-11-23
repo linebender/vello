@@ -423,6 +423,7 @@ pub enum FilterPrimitive {
         /// `std_deviation_x`.
         std_deviation_y: f32,
         /// Edge mode determining how pixels beyond the input bounds are handled.
+        /// Only [`EdgeMode::None`] is currently supported.
         edge_mode: EdgeMode,
     },
     /// Drop shadow effect (compound primitive).
@@ -443,6 +444,7 @@ pub enum FilterPrimitive {
         color: AlphaColor<Srgb>,
         /// Edge mode for handling boundaries during blur operation.
         /// Default is `EdgeMode::None` per SVG spec.
+        /// Only [`EdgeMode::None`] is currently supported.
         edge_mode: EdgeMode,
     },
     /// Same as [`FilterPrimitive::DropShadow`], but without compositing the original
@@ -458,6 +460,7 @@ pub enum FilterPrimitive {
         /// channels are ignored, and this color's alpha controls shadow opacity.
         color: AlphaColor<Srgb>,
         /// Edge mode for handling boundaries during blur operation.
+        /// Only [`EdgeMode::None`] is currently supported.
         edge_mode: EdgeMode,
     },
     //
