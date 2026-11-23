@@ -134,7 +134,7 @@ use self::round::{
     BlendOp, FilterOp, FilterTextureRegions, Round, RoundStage, Rounds, SchedulePoint,
 };
 use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState, RectU16Ext};
-use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
+use crate::filter::{FilterContext, FilterPassPlan};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::schedule::allocate::AllocatedTextureRegion;
@@ -431,14 +431,15 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let region = target.schedule_state.draw_state.target;
 
         if let Some(filter) = target.filter {
+            let texture_parity = region.texture.target.texture_parity;
             let temporary = self.cursor.allocate_layer(LayerAllocationRequest::new(
                 region.texture.rect,
                 layer.kind,
-                region.texture.target.texture_parity.opposite(),
+                texture_parity.opposite(),
             ))?;
             let textures = FilterTextureRegions::new(region.texture, temporary.allocation.region);
 
-            if filter.data.needs_copy_pass() {
+            if self.storage.filter_context.needs_copy_pass(filter.clone()) {
                 self.cursor.require_scratch_texture();
             }
 
@@ -449,7 +450,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 // Then, we must wait until our reserved space in the atlas is available.
                 .max(SchedulePoint::start(temporary.round_idx))
                 // Finally, wait until we reach the filter stage.
-                .after(RoundStage::filter(region.texture.target.texture_parity));
+                .after(RoundStage::filter(texture_parity));
 
             // Now find the _actual_ schedule point that corresponds to a round that matches our
             // requirements for texture bindings.
@@ -457,12 +458,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
             rounds.ensure_exists(filter_point.round);
             rounds.round_mut(filter_point.round).push_filter_op(
-                region.texture.target.texture_parity,
+                texture_parity,
                 &mut self.storage.buffers,
                 FilterOp {
                     textures,
-                    filter_data_offset: filter.data_offset,
-                    gpu_filter: filter.data,
+                    primitives: filter,
                 },
             );
 
@@ -810,6 +810,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             let filter = match layer.kind {
                 RecordedLayerKind::Filter { filter_data, .. } => {
                     Some(self.storage.filter_context.push(filter_data))
+                        .filter(|primitives| !primitives.is_empty())
                 }
                 RecordedLayerKind::Regular => None,
             };
@@ -924,8 +925,8 @@ impl LayerSamplePlacement {
 struct LayerTarget {
     /// Atlas allocation backing the layer.
     allocation: AllocatedTextureRegion,
-    /// Prepared filter applied after the layer's draws, if any.
-    filter: Option<PreparedGpuFilter>,
+    /// The range of the layer's filter primitives in the filter context, if any.
+    filter: Option<core::ops::Range<usize>>,
     /// Dependency state for operations targeting this layer.
     schedule_state: TargetScheduleState<LayerTextureRegion>,
 }

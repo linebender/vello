@@ -236,31 +236,33 @@ impl RendererContext<'_> {
         let resources = &*self.resources;
         let filter_pair_bind_groups = &resources.filter_pair_bind_groups[&bindings];
 
-        if let Some(copy_pass) = plan.copy_pass() {
-            encode_copy_pass(
-                self.device,
-                self.encoder,
-                &self.programs.copy.pipeline,
-                copy_pass,
-                &filter_pair_bind_groups.copy_source,
-                resources.scratch_view(),
-                "Filter Copy Pass",
-            );
-        }
+        for phase in plan.phases() {
+            if let Some(copy_pass) = phase.copy_pass() {
+                encode_copy_pass(
+                    self.device,
+                    self.encoder,
+                    &self.programs.copy.pipeline,
+                    copy_pass,
+                    &filter_pair_bind_groups.copy_source,
+                    resources.scratch_view(),
+                    "Filter Copy Pass",
+                );
+            }
 
-        for (step_index, instances) in plan.steps().enumerate() {
-            let input = bindings.input(step_index);
-            let output = bindings.output(step_index);
-            encode_filter_pass(
-                self.device,
-                self.encoder,
-                resources,
-                &self.programs.filter.pipeline,
-                instances,
-                &filter_pair_bind_groups.inputs[input.texture_parity.get_parity()],
-                &resources.filter_original_bind_group,
-                output,
-            );
+            for (step_index, instances) in phase.steps().enumerate() {
+                let input = bindings.input(step_index);
+                let output = bindings.output(step_index);
+                encode_filter_pass(
+                    self.device,
+                    self.encoder,
+                    resources,
+                    &self.programs.filter.pipeline,
+                    instances,
+                    &filter_pair_bind_groups.inputs[input.texture_parity.get_parity()],
+                    &resources.filter_original_bind_group,
+                    output,
+                );
+            }
         }
     }
 }

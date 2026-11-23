@@ -2135,7 +2135,7 @@ fn chain_drop_shadow(dx: f32, dy: f32, std_deviation: f32) -> FilterPrimitive {
     }
 }
 
-#[vello_test(skip_gpu, skip_multithreaded)]
+#[vello_test(skip_multithreaded, gpu_tolerance = 1)]
 fn filter_chain_offset_drop_shadow(ctx: &mut impl Renderer) {
     let filter = filter_chain([
         FilterPrimitive::Offset { dx: 12.0, dy: -8.0 },
@@ -2148,7 +2148,7 @@ fn filter_chain_offset_drop_shadow(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(width = 220, height = 110, skip_gpu, skip_multithreaded)]
+#[vello_test(width = 220, height = 110, skip_multithreaded, gpu_tolerance = 4)]
 fn filter_chain_three_drop_shadows(ctx: &mut impl Renderer) {
     let font_size: f32 = 56_f32;
     let (font, glyphs) = layout_glyphs_roboto("Glow", font_size);
@@ -2171,7 +2171,7 @@ fn filter_chain_three_drop_shadows(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_gpu, skip_multithreaded)]
+#[vello_test(skip_multithreaded, gpu_tolerance = 1)]
 fn filter_chain_offset_shadow_only_offset(ctx: &mut impl Renderer) {
     let filter = filter_chain([
         FilterPrimitive::Offset { dx: 4.0, dy: 4.0 },
@@ -2191,7 +2191,7 @@ fn filter_chain_offset_shadow_only_offset(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_gpu, skip_multithreaded)]
+#[vello_test(skip_multithreaded, gpu_tolerance = 3)]
 fn filter_chain_transformed(ctx: &mut impl Renderer) {
     let filter = filter_chain([
         FilterPrimitive::Offset { dx: 6.0, dy: 0.0 },

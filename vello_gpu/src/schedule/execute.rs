@@ -6,7 +6,7 @@
 use super::round::{BlendOp, Rounds};
 use super::{Schedule, ScheduleBuffers, ScheduleStorage};
 use crate::draw::ExternalTextureRun;
-use crate::filter::FilterPassPlan;
+use crate::filter::{FilterContext, FilterPassPlan};
 use crate::target::{
     BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
     RootTarget,
@@ -73,11 +73,17 @@ pub(crate) fn execute<R: Backend>(
 ) -> Result<(), R::Error> {
     let ScheduleStorage {
         buffers,
+        filter_context,
         filter_pass_plan,
-        ..
     } = storage;
 
-    schedule.execute(renderer, root_output_target, buffers, filter_pass_plan)
+    schedule.execute(
+        renderer,
+        root_output_target,
+        buffers,
+        filter_context,
+        filter_pass_plan,
+    )
 }
 
 impl Schedule {
@@ -86,6 +92,7 @@ impl Schedule {
         renderer: &mut R,
         root_output_target: RootTarget,
         buffers: &ScheduleBuffers,
+        filter_context: &FilterContext,
         filter_plan: &mut FilterPassPlan,
     ) -> Result<(), R::Error> {
         if DrawPassTarget::Root(root_output_target).enable_opaque()
@@ -101,6 +108,7 @@ impl Schedule {
             renderer,
             root_output_target,
             buffers,
+            filter_context,
             filter_plan,
             self.intermediate_textures.size,
         )
@@ -113,6 +121,7 @@ impl Rounds {
         backend: &mut R,
         root_output_target: RootTarget,
         buffers: &ScheduleBuffers,
+        filter_context: &FilterContext,
         filter_plan: &mut FilterPassPlan,
         texture_size: SizeU16,
     ) -> Result<(), R::Error> {
@@ -137,7 +146,7 @@ impl Rounds {
 
                 // Next, we apply all filters for layers in this texture.
                 if let Some(pass) = layer_passes.filter {
-                    filter_plan.init(pass.filters.iter().copied(), texture_size);
+                    filter_plan.init(pass.filters.iter().cloned(), filter_context, texture_size);
 
                     backend.filter_pass(filter_plan, pass.bindings)?;
                 }

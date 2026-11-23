@@ -6,7 +6,8 @@ use super::{IntermediateTextureAllocations, IntermediateTextureRequirements, Sch
 use crate::filter::FILTER_ATLAS_PADDING;
 use crate::target::{RootTarget, TextureParity};
 use crate::{IntermediateTextureError, RenderError};
-use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
+use alloc::sync::Arc;
+use vello_common::filter_effects::{EdgeMode, Filter, FilterGraph, FilterPrimitive};
 use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
@@ -545,7 +546,7 @@ fn incompatible_siblings() {
 fn filter_binding_conflict() {
     let scheduled = binding_case();
     let rounds_view = scheduled.views();
-    let filter = scheduled.storage.buffers.filter_ops[0];
+    let filter = &scheduled.storage.buffers.filter_ops[0];
 
     assert_eq!(rounds_view[0].filter_passes, [0, 0]);
     assert_eq!(rounds_view[1].filter_passes, [1, 0]);
@@ -794,6 +795,63 @@ fn drop_shadow_only_uses_two_layer_textures() {
     assert!(!scheduled.scratch_texture());
 }
 
+fn filter_chain(primitives: impl IntoIterator<Item = FilterPrimitive>) -> Filter {
+    let mut graph = FilterGraph::new();
+    for primitive in primitives {
+        graph.add(primitive, None);
+    }
+
+    Filter {
+        graph: Arc::new(graph),
+    }
+}
+
+fn offset(dx: f32) -> FilterPrimitive {
+    FilterPrimitive::Offset { dx, dy: 0.0 }
+}
+
+fn drop_shadow(std_deviation: f32) -> FilterPrimitive {
+    FilterPrimitive::DropShadow {
+        dx: 0.0,
+        dy: 0.0,
+        std_deviation,
+        color: Color::BLACK,
+        edge_mode: EdgeMode::None,
+    }
+}
+
+fn schedule_filter(filter: Filter) -> ScheduledCase {
+    let mut case = SceneCase::new(32, 32);
+    case.layer_with(None, None, Some(filter), |case| {
+        case.draw(Rect::new(8.0, 8.0, 16.0, 16.0), 0.5);
+    });
+
+    case.schedule(RootTarget::UserSurface, SizeU16::new(128), 3, true)
+        .unwrap()
+}
+
+#[test]
+fn filter_chain_runs_in_one_filter_op() {
+    let scheduled = schedule_filter(filter_chain([
+        FilterPrimitive::gaussian_blur(2.0, EdgeMode::None),
+        offset(4.0),
+        drop_shadow(2.0),
+        FilterPrimitive::gaussian_blur(1.0, EdgeMode::None),
+    ]));
+
+    assert_eq!(scheduled.storage.buffers.filter_ops.len(), 1);
+    assert_eq!(scheduled.views().len(), 1);
+    assert!(scheduled.scratch_texture());
+}
+
+#[test]
+fn empty_filter_chain_is_not_filtered() {
+    let scheduled = schedule_filter(filter_chain([]));
+
+    assert!(scheduled.storage.buffers.filter_ops.is_empty());
+    assert_eq!(scheduled.page_counts(), [0, 1]);
+}
+
 #[test]
 fn filter_round_resolving() {
     let mut case = SceneCase::new(8, 8);
@@ -806,7 +864,7 @@ fn filter_round_resolving() {
         .schedule(RootTarget::UserSurface, filter_page_size(), 2, true)
         .unwrap();
     let rounds_view = scheduled.views();
-    let filter = scheduled.storage.buffers.filter_ops[0];
+    let filter = &scheduled.storage.buffers.filter_ops[0];
 
     // The filter source and its ping-pong temporary use opposite parities.
     assert_eq!(

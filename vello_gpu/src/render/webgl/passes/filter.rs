@@ -112,60 +112,62 @@ impl WebGlRendererContext<'_> {
         plan: &FilterPassPlan,
         bindings: FilterPassBindings,
     ) -> Result<(), WebGlError> {
-        if let Some(copy_pass) = plan.copy_pass() {
-            self.resources.upload_copy_instances(self.gl, copy_pass);
-            self.gl.disable(WebGl2RenderingContext::BLEND);
-            self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
-            self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
-            self.gl.depth_mask(false);
-            self.gl.bind_vertex_array(Some(&self.resources.copy_vao));
-            self.gl.use_program(Some(&self.programs.copy_program));
-            self.gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                Some(self.resources.scratch_framebuffer()),
-            );
-            let scratch_size = self.texture_size();
-            self.gl.viewport(
-                0,
-                0,
-                i32::from(scratch_size.width()),
-                i32::from(scratch_size.height()),
-            );
+        for phase in plan.phases() {
+            if let Some(copy_pass) = phase.copy_pass() {
+                self.resources.upload_copy_instances(self.gl, copy_pass);
+                self.gl.disable(WebGl2RenderingContext::BLEND);
+                self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+                self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+                self.gl.depth_mask(false);
+                self.gl.bind_vertex_array(Some(&self.resources.copy_vao));
+                self.gl.use_program(Some(&self.programs.copy_program));
+                self.gl.bind_framebuffer(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    Some(self.resources.scratch_framebuffer()),
+                );
+                let scratch_size = self.texture_size();
+                self.gl.viewport(
+                    0,
+                    0,
+                    i32::from(scratch_size.width()),
+                    i32::from(scratch_size.height()),
+                );
+                self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+                self.gl.bind_texture(
+                    WebGl2RenderingContext::TEXTURE_2D,
+                    Some(self.resources.layer_texture(bindings.target())),
+                );
+                self.gl
+                    .uniform1i(Some(&self.programs.copy_uniforms.source_texture), 0);
+                self.draw_instanced_quads(checked_instance_count(copy_pass.len())?);
+            }
+
+            self.gl.use_program(Some(&self.programs.filter_program));
+            self.gl.bind_vertex_array(Some(&self.resources.filter_vao));
+
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
             self.gl.bind_texture(
                 WebGl2RenderingContext::TEXTURE_2D,
-                Some(self.resources.layer_texture(bindings.target())),
+                Some(self.resources.filter_data_texture.texture()),
             );
             self.gl
-                .uniform1i(Some(&self.programs.copy_uniforms.source_texture), 0);
-            self.draw_instanced_quads(checked_instance_count(copy_pass.len())?);
-        }
+                .uniform1i(Some(&self.programs.filter_uniforms.filter_data), 0);
 
-        self.gl.use_program(Some(&self.programs.filter_program));
-        self.gl.bind_vertex_array(Some(&self.resources.filter_vao));
+            self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
+            self.gl.bind_texture(
+                WebGl2RenderingContext::TEXTURE_2D,
+                Some(self.resources.scratch_binding_texture()),
+            );
+            self.gl
+                .uniform1i(Some(&self.programs.filter_uniforms.original_texture), 2);
 
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(self.resources.filter_data_texture.texture()),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.filter_uniforms.filter_data), 0);
-
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(self.resources.scratch_binding_texture()),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.filter_uniforms.original_texture), 2);
-
-        for (step_index, instances) in plan.steps().enumerate() {
-            self.do_filter_instance_pass(
-                instances,
-                bindings.input(step_index),
-                bindings.output(step_index),
-            )?;
+            for (step_index, instances) in phase.steps().enumerate() {
+                self.do_filter_instance_pass(
+                    instances,
+                    bindings.input(step_index),
+                    bindings.output(step_index),
+                )?;
+            }
         }
 
         self.gl.bind_vertex_array(None);
