@@ -17,6 +17,7 @@ This release has an [MSRV][] of 1.89.
 - `Scene::reset_with`, which resets a scene to a new size and can free the memory it grew in the same step, configured by `ResetOptions`. (by [@LaurenzV][])
 - `TextureBindings::get`, `TextureBindings::contains` and `WebGlTextureBindings::contains` for checking which textures are bound. ([#2082][] by [@nicoburns][])
 - Linear filter chains. (by [@LaurenzV][])
+- `RenderSettings::with_hint_cache_config` and a re-export of `HintCacheConfig`, which set how many glyph hinting instances the renderer's resources cache. The setting is kept across `reset_and_shrink`. (by [@grebmeg][])
 
 ### Changed
 

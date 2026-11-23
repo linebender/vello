@@ -6,7 +6,7 @@
 #[cfg(feature = "text")]
 use crate::text::GlyphAtlasResources;
 #[cfg(feature = "text")]
-use glifo::GlyphPrepCache;
+use glifo::{GlyphPrepCache, HintCacheConfig};
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasConfig;
 
@@ -34,8 +34,19 @@ impl Resources {
         }
     }
 
-    /// Drop all cached glyphs and their atlas allocations.
+    #[cfg(feature = "text")]
+    #[must_use]
+    pub(crate) fn with_hint_cache_config(mut self, config: HintCacheConfig) -> Self {
+        self.glyph_prep_cache = GlyphPrepCache::with_hint_cache_config(config);
+        self
+    }
+
+    /// Drop all cached glyphs and their atlas allocations, keeping the cache configuration.
     pub(crate) fn clear(&mut self) {
-        *self = Self::new(*self.image_cache.atlas_manager().config());
+        let resources = Self::new(*self.image_cache.atlas_manager().config());
+        #[cfg(feature = "text")]
+        let resources =
+            resources.with_hint_cache_config(*self.glyph_prep_cache.hint_cache_config());
+        *self = resources;
     }
 }

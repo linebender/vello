@@ -195,6 +195,8 @@ pub use render::{
 #[cfg(feature = "text")]
 pub use glifo::Glyph;
 #[cfg(feature = "text")]
+pub use glifo::HintCacheConfig;
+#[cfg(feature = "text")]
 pub use text::{CpuGlyphRunBackend, GlyphRunBuilder};
 pub use vello_common::reexports::cpu::*;
 

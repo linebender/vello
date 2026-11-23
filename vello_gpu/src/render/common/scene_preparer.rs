@@ -46,6 +46,8 @@ impl ScenePreparer {
     ) -> (Self, Resources) {
         settings.memory_settings.normalize(device_limits);
         let resources = Resources::new(settings.memory_settings.glyph_atlas_config);
+        #[cfg(feature = "text")]
+        let resources = resources.with_hint_cache_config(settings.hint_cache_config);
         let resource_texture_dimension_2d = device_limits.resource_texture_dimension_2d();
         // Estimate the maximum number of gradient cache entries based on the resource texture
         // dimension and the maximum gradient LUT size - worst case scenario.

@@ -355,6 +355,19 @@ mod tests {
         assert_eq!(config.atlas_size, (4096, 2048));
     }
 
+    #[cfg(feature = "text")]
+    #[test]
+    fn hint_cache_config_reaches_resources_and_survives_clear() {
+        let config = crate::HintCacheConfig { max_instances: 64 };
+        let mut settings = crate::RenderSettings::default().with_hint_cache_config(config);
+
+        let (_, mut resources) = super::ScenePreparer::new(&mut settings, &device_limits(4096));
+        assert_eq!(resources.glyph_prep_cache.hint_cache_config(), &config);
+
+        resources.clear();
+        assert_eq!(resources.glyph_prep_cache.hint_cache_config(), &config);
+    }
+
     #[test]
     fn resource_texture_dimension_is_capped_at_4k() {
         assert_eq!(device_limits(16384).resource_texture_dimension_2d(), 4096);

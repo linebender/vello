@@ -10,7 +10,7 @@ use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
-use glifo::GlyphPrepCache;
+use glifo::{GlyphPrepCache, HintCacheConfig};
 
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
@@ -56,6 +56,15 @@ impl Resources {
     /// Create a new set of renderer resources.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a new set of renderer resources whose glyph hinting cache uses `config`.
+    #[cfg(feature = "text")]
+    pub fn with_hint_cache_config(config: HintCacheConfig) -> Self {
+        Self {
+            glyph_prep_cache: GlyphPrepCache::with_hint_cache_config(config),
+            ..Self::default()
+        }
     }
 
     pub(crate) fn before_render(&mut self, render_mode: RenderMode) {
@@ -1023,7 +1032,7 @@ mod tests {
     use alloc::sync::Arc;
     use alloc::vec;
     #[cfg(feature = "text")]
-    use glifo::Glyph;
+    use glifo::{Glyph, HintCacheConfig};
     use vello_common::color::PremulRgba8;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::filter_effects::{Filter, FilterPrimitive};
@@ -1479,5 +1488,34 @@ mod tests {
             .unwrap();
 
         assert!(resources.glyph_resources.is_some());
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn hint_cache_config_persists_across_renders() {
+        const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
+
+        let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+        let glyphs = [Glyph {
+            id: 1,
+            x: 0.0,
+            y: 20.0,
+        }];
+        let config = HintCacheConfig { max_instances: 64 };
+
+        let mut resources = Resources::with_hint_cache_config(config);
+        let mut ctx = RenderContext::new(50, 50);
+        let mut pixmap = Pixmap::new(50, 50);
+        for _ in 0..2 {
+            ctx.glyph_run(&mut resources, &font)
+                .hint(true)
+                .fill_glyphs(glyphs.into_iter())
+                .unwrap();
+            ctx.flush();
+            ctx.render_with(&mut pixmap, &mut resources, RasterizerSettings::default());
+            ctx.reset();
+        }
+
+        assert_eq!(resources.glyph_prep_cache.hint_cache_config(), &config);
     }
 }
