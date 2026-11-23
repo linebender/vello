@@ -552,9 +552,6 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let (u0, u2) = simd.split_f32x8(u0_u2);
         let uscale_a = u2 - u0;
         let uscale = 1.0 / uscale_a;
-        // A nearly straight quadratic can have `u0 == u2` in `f32`, so that `uscale` is infinite
-        // and any point placed in it is NaN. It is straight as far as `f32` can tell, so it gets
-        // no points of its own.
         let finite_mask = simd.and_mask32x4(is_finite_simd(val_raw), is_finite_simd(uscale));
         let val = simd.select_f32x4(finite_mask, val_raw, f32x4::splat(simd, 0.0));
 
