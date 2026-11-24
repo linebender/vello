@@ -23,30 +23,26 @@ pub struct Resources {
 }
 
 impl Resources {
-    pub(crate) fn new(glyph_atlas_config: AtlasConfig) -> Self {
+    pub(crate) fn new(
+        glyph_atlas_config: AtlasConfig,
+        #[cfg(feature = "text")] hint_cache_config: HintCacheConfig,
+    ) -> Self {
         Self {
             image_cache: ImageCache::new_with_config(glyph_atlas_config),
             #[cfg(feature = "text")]
-            glyph_prep_cache: GlyphPrepCache::default(),
+            glyph_prep_cache: GlyphPrepCache::with_hint_cache_config(hint_cache_config),
             // Will be initialized lazily.
             #[cfg(feature = "text")]
             glyph_resources: None,
         }
     }
 
-    #[cfg(feature = "text")]
-    #[must_use]
-    pub(crate) fn with_hint_cache_config(mut self, config: HintCacheConfig) -> Self {
-        self.glyph_prep_cache = GlyphPrepCache::with_hint_cache_config(config);
-        self
-    }
-
     /// Drop all cached glyphs and their atlas allocations, keeping the cache configuration.
     pub(crate) fn clear(&mut self) {
-        let resources = Self::new(*self.image_cache.atlas_manager().config());
-        #[cfg(feature = "text")]
-        let resources =
-            resources.with_hint_cache_config(*self.glyph_prep_cache.hint_cache_config());
-        *self = resources;
+        *self = Self::new(
+            *self.image_cache.atlas_manager().config(),
+            #[cfg(feature = "text")]
+            *self.glyph_prep_cache.hint_cache_config(),
+        );
     }
 }

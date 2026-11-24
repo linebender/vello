@@ -1213,7 +1213,10 @@ mod tests {
         }];
 
         let mut scene = Scene::new(200, 200);
-        let mut resources = Resources::new(vello_common::multi_atlas::AtlasConfig::default());
+        let mut resources = Resources::new(
+            vello_common::multi_atlas::AtlasConfig::default(),
+            crate::HintCacheConfig::default(),
+        );
         let mut triangle = BezPath::new();
         triangle.move_to((10.0, 10.0));
         triangle.line_to((90.0, 50.0));
