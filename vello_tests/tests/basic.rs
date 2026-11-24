@@ -442,6 +442,20 @@ fn oversized_star(ctx: &mut impl Renderer) {
     ctx.stroke_path(&star_path);
 }
 
+#[vello_test]
+fn filled_gently_s_shaped_cubic(ctx: &mut impl Renderer) {
+    // The middle quadratic of this cubic is straight as far as `f32` can tell.
+    let mut path = BezPath::new();
+    path.move_to((30.0, 10.0));
+    path.curve_to((23.0, 40.0), (19.0, 50.0), (12.0, 80.0));
+    path.line_to((85.0, 80.0));
+    path.line_to((85.0, 10.0));
+    path.close_path();
+
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&path);
+}
+
 #[vello_test(width = 100, height = 100)]
 fn no_anti_aliasing(ctx: &mut impl Renderer) {
     let rect = Rect::new(30.0, 30.0, 70.0, 70.0);

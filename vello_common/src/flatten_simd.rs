@@ -548,12 +548,12 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let approxint = approx_parabola_integral_simd(xmin);
         let cusp = (sqrt_tol * da_abs) / approxint;
         let val_raw = simd.select_f32x4(mask, noncusp, cusp);
-        let finite_mask = is_finite_simd(val_raw);
-        let val = simd.select_f32x4(finite_mask, val_raw, f32x4::splat(simd, 0.0));
         let u0_u2 = approx_parabola_inv_integral_simd(a0_a2);
         let (u0, u2) = simd.split_f32x8(u0_u2);
         let uscale_a = u2 - u0;
         let uscale = 1.0 / uscale_a;
+        let finite_mask = simd.and_mask32x4(is_finite_simd(val_raw), is_finite_simd(uscale));
+        let val = simd.select_f32x4(finite_mask, val_raw, f32x4::splat(simd, 0.0));
 
         a0.store_slice(&mut ctx.a0[i * 4..][..4]);
         da.store_slice(&mut ctx.da[i * 4..][..4]);
@@ -787,6 +787,45 @@ mod tests {
                     assert!(
                         (pa.y - (pb.y - dy as f32)).abs() <= 1e-2,
                         "{a:?} vs {b:?} at {dy}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn gently_s_shaped_cubics_flatten_to_finite_lines() {
+        // The middle quadratic of each of these cubics is straight as far as `f32` can tell.
+        let cubics = [
+            [(100.0, 100.0), (93.0, 130.0), (89.0, 140.0), (82.0, 170.0)],
+            [(0.0, 0.0), (0.0, 6.0), (4.0, 17.0), (4.0, 23.0)],
+            [(0.0, 0.0), (1.0, 10.0), (4.0, 17.0), (5.0, 27.0)],
+        ];
+
+        for level in [Level::baseline(), Level::new()] {
+            for [p0, p1, p2, p3] in cubics {
+                let mut path = BezPath::new();
+                path.move_to(p0);
+                path.curve_to(p1, p2, p3);
+                path.close_path();
+
+                let mut lines = Vec::new();
+                flatten::fill(
+                    level,
+                    &path,
+                    Affine::IDENTITY,
+                    &mut lines,
+                    &mut FlattenCtx::default(),
+                    RectU16::new(0, 0, u16::MAX, u16::MAX),
+                );
+
+                assert!(!lines.is_empty(), "{path:?} at {level:?}");
+                for l in &lines {
+                    assert!(
+                        [l.p0.x, l.p0.y, l.p1.x, l.p1.y]
+                            .iter()
+                            .all(|v| v.is_finite()),
+                        "{path:?} at {level:?}"
                     );
                 }
             }

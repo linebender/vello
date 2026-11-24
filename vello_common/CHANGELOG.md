@@ -29,6 +29,7 @@ This release has an [MSRV][] of 1.89.
 ### Fixed
 
 - A `FilterGraph` with several primitives sums their expansions instead of taking their union, so a chain of primitives no longer underestimates how far its output and source extend. ([#2087][] by [@LaurenzV][])
+- A path with a cubic that is almost straight in places is no longer dropped (flattening could put a `NaN` point in the straight segment). (by [@taj-p][])
 
 ## [0.4.0][] - 2026-11-11
 
