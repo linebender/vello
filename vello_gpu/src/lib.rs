@@ -124,6 +124,8 @@ mod text;
 pub(crate) mod draw;
 pub mod util;
 
+#[cfg(feature = "text")]
+pub use glifo::HintCacheConfig;
 pub use render::{ClearSettings, Config, GpuStrip, RenderSize, TargetInit};
 #[cfg(feature = "webgl")]
 pub use render::{

@@ -11,6 +11,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
+#[cfg(feature = "text")]
+use glifo::HintCacheConfig;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::clip::{ClipRef, ClipShape};
 use vello_common::encode::{EncodeExt, EncodedPaint, invert_paint_transform};
@@ -114,6 +116,8 @@ impl Drawable for RecordedDraw {
 pub struct RenderSettings {
     pub(crate) level: Level,
     pub(crate) memory_settings: MemorySettings,
+    #[cfg(feature = "text")]
+    pub(crate) hint_cache_config: HintCacheConfig,
     #[cfg(feature = "wgpu")]
     pub(crate) pipeline_cache: Option<wgpu::PipelineCache>,
 }
@@ -137,6 +141,16 @@ impl RenderSettings {
     #[must_use]
     pub fn with_memory_settings(mut self, memory_settings: MemorySettings) -> Self {
         self.memory_settings = memory_settings;
+        self
+    }
+
+    /// Sets how many glyph hinting instances the renderer's resources cache.
+    ///
+    /// See [`HintCacheConfig::max_instances`] for how to choose the limit.
+    #[cfg(feature = "text")]
+    #[must_use]
+    pub fn with_hint_cache_config(mut self, config: HintCacheConfig) -> Self {
+        self.hint_cache_config = config;
         self
     }
 
@@ -233,6 +247,8 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
             memory_settings: MemorySettings::default(),
+            #[cfg(feature = "text")]
+            hint_cache_config: HintCacheConfig::default(),
             #[cfg(feature = "wgpu")]
             pipeline_cache: None,
         }
@@ -1197,7 +1213,10 @@ mod tests {
         }];
 
         let mut scene = Scene::new(200, 200);
-        let mut resources = Resources::new(vello_common::multi_atlas::AtlasConfig::default());
+        let mut resources = Resources::new(
+            vello_common::multi_atlas::AtlasConfig::default(),
+            crate::HintCacheConfig::default(),
+        );
         let mut triangle = BezPath::new();
         triangle.move_to((10.0, 10.0));
         triangle.line_to((90.0, 50.0));

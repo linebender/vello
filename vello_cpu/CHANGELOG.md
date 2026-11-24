@@ -16,6 +16,7 @@ This release has an [MSRV][] of 1.89.
 
 - `RenderContext::reset_with`, which resets a render context to a new size and can free the memory it grew in the same step, configured by `ResetOptions`. (by [@LaurenzV][])
 - Linear filter chains. (by [@LaurenzV][])
+- `Resources::with_hint_cache_config` and a re-export of `HintCacheConfig`, which set how many glyph hinting instances the resources cache. (by [@grebmeg][])
 
 ### Changed
 

@@ -10,7 +10,7 @@ use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
-use glifo::GlyphPrepCache;
+use glifo::{GlyphPrepCache, HintCacheConfig};
 
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
@@ -56,6 +56,15 @@ impl Resources {
     /// Create a new set of renderer resources.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a new set of renderer resources whose glyph hinting cache uses `config`.
+    #[cfg(feature = "text")]
+    pub fn with_hint_cache_config(config: HintCacheConfig) -> Self {
+        Self {
+            glyph_prep_cache: GlyphPrepCache::with_hint_cache_config(config),
+            ..Self::default()
+        }
     }
 
     pub(crate) fn before_render(&mut self, render_mode: RenderMode) {

@@ -289,6 +289,19 @@ pub struct GlyphPrepCache {
 }
 
 impl GlyphPrepCache {
+    /// Creates empty caches whose hint cache uses the given configuration.
+    pub fn with_hint_cache_config(config: HintCacheConfig) -> Self {
+        Self {
+            hinting_cache: HintCache::with_config(config),
+            ..Self::default()
+        }
+    }
+
+    /// Returns the configuration of the hint cache.
+    pub fn hint_cache_config(&self) -> &HintCacheConfig {
+        self.hinting_cache.config()
+    }
+
     /// Borrow this cache bundle mutable for glyph run construction.
     pub fn as_mut(&mut self) -> GlyphPrepCacheMut<'_> {
         GlyphPrepCacheMut {
@@ -1860,45 +1873,6 @@ impl OutlinePen for OutlinePath {
 /// the need for updates only to align Skrifa versions.
 pub type NormalizedCoord = i16;
 
-/// Caches used for glyph rendering.
-///
-/// Contains renderer-agnostic caches (outline paths, hinting instances)
-/// alongside the glyph atlas bitmap cache.
-// TODO: Consider capturing cache performance metrics like hit rate, etc.
-#[derive(Debug, Default)]
-pub struct GlyphCaches {
-    /// Caches glyph outlines (paths) for reuse.
-    pub(crate) outline_cache: OutlineCache,
-    /// Caches hinting instances for reuse.
-    pub(crate) hinting_cache: HintCache,
-    /// Horizontal spans excluded from "ink-skipping" underlines. Cached to reuse one allocation.
-    pub(crate) underline_exclusions: Vec<(f64, f64)>,
-    /// Caches rasterized glyph bitmaps in atlas pages.
-    pub(crate) glyph_atlas: GlyphAtlas,
-}
-
-impl GlyphCaches {
-    /// Clears the glyph caches.
-    pub fn clear(&mut self) {
-        self.outline_cache.clear();
-        self.hinting_cache.clear();
-        self.underline_exclusions.clear();
-        self.glyph_atlas.clear();
-    }
-
-    /// Maintains the glyph caches by evicting unused cache entries.
-    ///
-    /// The `image_cache` must be the same allocator passed to
-    /// `GlyphRunBuilder::build` so that evicted entries are deallocated from
-    /// the correct allocator.
-    ///
-    /// Should be called once per scene rendering.
-    pub fn maintain(&mut self, image_cache: &mut ImageCache) {
-        self.outline_cache.maintain();
-        self.glyph_atlas.maintain(image_cache);
-    }
-}
-
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
 struct OutlineKey {
     font_id: u64,
@@ -2176,10 +2150,27 @@ impl From<VarLookupKey<'_>> for VarKey {
     }
 }
 
-/// We keep this small to enable a simple LRU cache with a linear
-/// search. Regenerating hinting data is low to medium cost so it's fine
-/// to redo it occasionally.
-const MAX_CACHED_HINT_INSTANCES: usize = 16;
+/// Configuration for [`HintCache`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HintCacheConfig {
+    /// Maximum number of hinting instances kept for each outline format.
+    ///
+    /// An instance covers one combination of font, size, and variation
+    /// coordinates. Set this above the number of combinations a frame draws:
+    /// with fewer slots, the LRU order evicts each instance just before it is
+    /// needed again, so every hinted run rebuilds its instance, which costs
+    /// tens of microseconds. Instances are looked up with a linear search,
+    /// and each retains up to a few kilobytes until evicted or cleared.
+    ///
+    /// Defaults to 16. Values below 1 are treated as 1.
+    pub max_instances: usize,
+}
+
+impl Default for HintCacheConfig {
+    fn default() -> Self {
+        Self { max_instances: 16 }
+    }
+}
 
 /// Hint key for hinting instances.
 #[derive(Debug)]
@@ -2214,11 +2205,13 @@ pub struct HintCache {
     cff_entries: Vec<HintEntry>,
     varc_entries: Vec<HintEntry>,
     serial: u64,
+    config: HintCacheConfig,
 }
 
 impl Debug for HintCache {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("HintCache")
+            .field("config", &self.config)
             .field("glyf_entries", &self.glyf_entries.len())
             .field("cff_entries", &self.cff_entries.len())
             .field("varc_entries", &self.varc_entries.len())
@@ -2228,6 +2221,21 @@ impl Debug for HintCache {
 }
 
 impl HintCache {
+    /// Creates an empty hint cache with the given configuration.
+    pub fn with_config(config: HintCacheConfig) -> Self {
+        Self {
+            config: HintCacheConfig {
+                max_instances: config.max_instances.max(1),
+            },
+            ..Self::default()
+        }
+    }
+
+    /// Returns the configuration of this cache.
+    pub fn config(&self) -> &HintCacheConfig {
+        &self.config
+    }
+
     /// Gets a hinting instance for the given key.
     pub fn get(&mut self, key: &HintKey<'_>) -> Option<&HintingInstance> {
         let entries = match key.outlines.format()? {
@@ -2235,7 +2243,7 @@ impl HintCache {
             OutlineGlyphFormat::Cff | OutlineGlyphFormat::Cff2 => &mut self.cff_entries,
             OutlineGlyphFormat::Varc => &mut self.varc_entries,
         };
-        let (entry_ix, is_current) = find_hint_entry(entries, key)?;
+        let (entry_ix, is_current) = find_hint_entry(entries, key, self.config.max_instances)?;
         let entry = entries.get_mut(entry_ix)?;
         self.serial += 1;
         entry.serial = self.serial;
@@ -2271,7 +2279,11 @@ struct HintEntry {
     serial: u64,
 }
 
-fn find_hint_entry(entries: &mut Vec<HintEntry>, key: &HintKey<'_>) -> Option<(usize, bool)> {
+fn find_hint_entry(
+    entries: &mut Vec<HintEntry>,
+    key: &HintKey<'_>,
+    max_instances: usize,
+) -> Option<(usize, bool)> {
     let mut found_serial = u64::MAX;
     let mut found_index = 0;
     for (ix, entry) in entries.iter().enumerate() {
@@ -2287,7 +2299,7 @@ fn find_hint_entry(entries: &mut Vec<HintEntry>, key: &HintKey<'_>) -> Option<(u
             found_index = ix;
         }
     }
-    if entries.len() < MAX_CACHED_HINT_INSTANCES {
+    if entries.len() < max_instances {
         let instance = key.instance()?;
         let ix = entries.len();
         entries.push(HintEntry {
@@ -2674,5 +2686,67 @@ mod tests {
             )
         };
         assert_eq!(cached(16.0), cached(16.48));
+    }
+
+    #[test]
+    fn hint_cache_keeps_every_size_of_a_frame() {
+        let font = test_font(TestGlyphKind::Outline);
+        let font_ref = font.as_skrifa();
+        let outlines = font_ref.outline_glyphs();
+        let key = |size: f32| HintKey {
+            font_id: font.data.id(),
+            font_index: font.index,
+            outlines: &outlines,
+            size,
+            coords: &[],
+        };
+        let sizes = (0..32_u8).map(|i| 6.0 + 3.0 * f32::from(i));
+
+        let mut cache = HintCache::with_config(HintCacheConfig { max_instances: 32 });
+        for _ in 0..2 {
+            for size in sizes.clone() {
+                assert_eq!(cache.get(&key(size)).unwrap().size(), Size::new(size));
+            }
+        }
+
+        assert_eq!(cache.glyf_entries.len(), 32);
+        for size in sizes {
+            assert!(
+                matches!(
+                    find_hint_entry(
+                        &mut cache.glyf_entries,
+                        &key(size),
+                        cache.config.max_instances
+                    ),
+                    Some((_, true))
+                ),
+                "hinting instance for {size}px was evicted"
+            );
+        }
+    }
+
+    #[test]
+    fn hint_cache_respects_max_instances() {
+        let font = test_font(TestGlyphKind::Outline);
+        let font_ref = font.as_skrifa();
+        let outlines = font_ref.outline_glyphs();
+        let key = |size: f32| HintKey {
+            font_id: font.data.id(),
+            font_index: font.index,
+            outlines: &outlines,
+            size,
+            coords: &[],
+        };
+
+        let mut cache = HintCache::with_config(HintCacheConfig { max_instances: 4 });
+        for size in 10..18_u8 {
+            let size = f32::from(size);
+            assert_eq!(cache.get(&key(size)).unwrap().size(), Size::new(size));
+        }
+        assert_eq!(cache.glyf_entries.len(), 4);
+
+        let mut cache = HintCache::with_config(HintCacheConfig { max_instances: 0 });
+        assert_eq!(cache.config().max_instances, 1);
+        assert_eq!(cache.get(&key(12.0)).unwrap().size(), Size::new(12.0));
     }
 }
