@@ -21,6 +21,7 @@ This release has an [MSRV][] of 1.89.
 ### Changed
 
 - Breaking change: `RenderContext::reset_and_resize` and `RenderContext::reset_and_shrink` have been removed in favor of `RenderContext::reset_with`. (by [@LaurenzV][])
+- Rendering with `TargetInit::SrcOver` skips strip rows that contain no draws, so updating a few glyphs no longer rewrites the whole atlas page. (by [@grebmeg][])
 
 ## [0.4.0][] - 2026-11-11
 

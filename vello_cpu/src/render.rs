@@ -1119,6 +1119,29 @@ mod tests {
     }
 
     #[test]
+    fn src_over_render_preserves_rows_without_commands() {
+        let ctx = red_rect_context(4, 12, Rect::new(0.0, 5.0, 2.0, 6.0));
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(4, 12, GRAY);
+
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                target_init: TargetInit::SrcOver,
+                ..Default::default()
+            },
+        );
+
+        for y in 0..12 {
+            for x in 0..4 {
+                let expected = if y == 5 && x < 2 { red_pixel() } else { GRAY };
+                assert_eq!(pixmap.sample(x, y), expected, "pixel at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
     fn render_clips_scene_to_target_bounds() {
         let ctx = red_rect_context(3, 3, Rect::new(0.0, 0.0, 3.0, 3.0));
         let mut resources = Resources::new();

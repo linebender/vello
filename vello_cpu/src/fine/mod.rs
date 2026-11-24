@@ -471,6 +471,11 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
     depth.clear();
 
     let has_cmds = !row.depth_cmds.is_empty() || !row.render_cmds.is_empty();
+    // Compositing nothing over the target leaves it unchanged, so skip the unpack/pack round trip.
+    // This matters for large targets that are only partially redrawn, such as glyph atlas pages.
+    if !has_cmds && matches!(target_init, TargetInit::SrcOver) {
+        return;
+    }
     let isolate_bg = root_is_blend_target
         && has_cmds
         && match target_init {
