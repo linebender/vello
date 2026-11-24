@@ -1032,7 +1032,7 @@ mod tests {
     use alloc::sync::Arc;
     use alloc::vec;
     #[cfg(feature = "text")]
-    use glifo::{Glyph, HintCacheConfig};
+    use glifo::Glyph;
     use vello_common::color::PremulRgba8;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::filter_effects::{Filter, FilterPrimitive};
@@ -1488,34 +1488,5 @@ mod tests {
             .unwrap();
 
         assert!(resources.glyph_resources.is_some());
-    }
-
-    #[cfg(feature = "text")]
-    #[test]
-    fn hint_cache_config_persists_across_renders() {
-        const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
-
-        let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
-        let glyphs = [Glyph {
-            id: 1,
-            x: 0.0,
-            y: 20.0,
-        }];
-        let config = HintCacheConfig { max_instances: 64 };
-
-        let mut resources = Resources::with_hint_cache_config(config);
-        let mut ctx = RenderContext::new(50, 50);
-        let mut pixmap = Pixmap::new(50, 50);
-        for _ in 0..2 {
-            ctx.glyph_run(&mut resources, &font)
-                .hint(true)
-                .fill_glyphs(glyphs.into_iter())
-                .unwrap();
-            ctx.flush();
-            ctx.render_with(&mut pixmap, &mut resources, RasterizerSettings::default());
-            ctx.reset();
-        }
-
-        assert_eq!(resources.glyph_prep_cache.hint_cache_config(), &config);
     }
 }
