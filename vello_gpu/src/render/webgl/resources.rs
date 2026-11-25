@@ -22,7 +22,7 @@ use crate::{
         common::{DataTexture, DataTextureFormat, GpuEncodedPaint, ScratchTexture},
     },
     schedule::Schedule,
-    target::{DrawPassTarget, LayerTextureId, RootTarget},
+    target::LayerTextureId,
 };
 use alloc::vec::Vec;
 use hashbrown::HashMap;
@@ -172,14 +172,13 @@ impl WebGlResources {
         scene_offset: (i32, i32),
         paint_idxs: &[u32],
         filter_context: &FilterContext,
-        root_target: RootTarget,
+        negate_ndc: bool,
     ) -> Result<(), WebGlError> {
         let resource_texture_dimension_2d = self.resource_texture_dimension_2d;
 
         self.maybe_resize_alphas_tex(gl, alphas.len())?;
         self.maybe_resize_encoded_paints_tex(gl, paint_idxs)?;
         self.maybe_resize_filter_data_tex(gl, filter_context)?;
-        let negate_ndc = DrawPassTarget::Root(root_target).negate_ndc();
         self.maybe_update_config_buffer(
             gl,
             resource_texture_dimension_2d,

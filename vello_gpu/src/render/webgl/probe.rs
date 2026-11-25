@@ -167,6 +167,7 @@ impl WebGlRenderer {
                 &texture_bindings,
                 Some(&probe_texture),
                 (0, 0),
+                false,
             )
         })?;
 
@@ -217,16 +218,6 @@ impl WebGlPendingProbe {
             &readback,
         );
         readback.copy_to(pixmap.data_as_u8_slice_mut());
-
-        // Need to flip the resulting image upside down.
-        let row_len = usize::from(self.width) * 4;
-        let height = usize::from(self.height);
-        let pixels = pixmap.data_as_u8_slice_mut();
-        for row in 0..height / 2 {
-            let opposite_row = height - 1 - row;
-            let (top, bottom) = pixels.split_at_mut(opposite_row * row_len);
-            top[row * row_len..(row + 1) * row_len].swap_with_slice(&mut bottom[..row_len]);
-        }
 
         Probe::from_actual(pixmap, &self.elements)
     }

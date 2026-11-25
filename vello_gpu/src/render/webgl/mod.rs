@@ -104,6 +104,12 @@ pub struct WebGlRenderOptions {
     pub clear_color: AlphaColor<Srgb>,
     /// The position of the scene's origin in the target.
     pub offset: (i32, i32),
+    /// Whether to store the scene bottom-up, like WebGL expects for display.
+    ///
+    /// Defaults to `true`. When `false`, row 0 of the scene is written to row 0 of the target,
+    /// so `readPixels(0, 0, width, height)` returns rows top-down, but the result will be
+    /// displayed upside down on a canvas.
+    pub flip_y: bool,
 }
 
 impl Default for WebGlRenderOptions {
@@ -111,6 +117,7 @@ impl Default for WebGlRenderOptions {
         Self {
             clear_color: AlphaColor::TRANSPARENT,
             offset: (0, 0),
+            flip_y: true,
         }
     }
 }
@@ -129,8 +136,7 @@ impl WebGlRenderer {
     ///
     /// `texture` must be `RGBA8` and `depth` `DEPTH_COMPONENT24`, and `width` and `height` must
     /// match the dimensions of both. The same `depth` can be used for any number of targets of
-    /// the same size. Like the drawing buffer, the first row of the texture is the bottom row of
-    /// the image.
+    /// the same size.
     pub fn create_texture_target(
         &self,
         texture: &WebGlTexture,
@@ -217,6 +223,7 @@ impl WebGlRenderer {
                 texture_bindings,
                 None,
                 options.offset,
+                options.flip_y,
             )?,
             WebGlRenderTarget::Texture(target) => self.render_offscreen(target, |renderer| {
                 renderer.render_scene(
@@ -228,6 +235,7 @@ impl WebGlRenderer {
                     texture_bindings,
                     Some(&target.texture),
                     options.offset,
+                    options.flip_y,
                 )
             })?,
         }
@@ -290,6 +298,7 @@ impl WebGlRenderer {
                 texture_bindings,
                 Some(&target.texture),
                 (0, 0),
+                false,
             )
         });
         self.scene_preparer.dummy_image_cache = Some(dummy_image_cache);
@@ -331,6 +340,7 @@ impl WebGlRenderer {
         texture_bindings: &WebGlTextureBindings,
         render_target_texture: Option<&WebGlTexture>,
         scene_offset: (i32, i32),
+        negate_root_ndc: bool,
     ) -> Result<(), WebGlError> {
         let use_depth_buffer = self.resources.root_uses_depth_buffer();
         self.scene_preparer.gradient_cache.maintain();
@@ -367,7 +377,7 @@ impl WebGlRenderer {
             scene_offset,
             &self.scene_preparer.paint_idxs,
             &self.scene_preparer.schedule_storage.filter_context,
-            root_output_target,
+            negate_root_ndc,
         )?;
         self.resources.depth_cleared_this_frame = false;
         let mut ctx = WebGlRendererContext {
