@@ -16,12 +16,15 @@ This release has an [MSRV][] of 1.89.
 
 - `ResetOptions`, the options for `vello_cpu::RenderContext::reset_with` and `vello_gpu::Scene::reset_with`. (by [@LaurenzV][])
 - `PreparedFilter::chain`, which replaces `PreparedFilter::new`. (by [@LaurenzV][])
+- `AtlasPacking` and `Atlas::with_packing` to choose between guillotine and shelf ([etagere](https://github.com/nical/etagere)) rectangle packing. (by [@grebmeg][])
 
 ### Changed
 
 - `FilterGraph::add` and `FilterGraph::set_output` panic unless the graph stays a linear chain. (by [@LaurenzV][])
 - Breaking change: `FilterGraph::primitives` and `FilterGraph::output` are private; use the accessor methods of the same name. (by [@LaurenzV][])
 - Breaking change: `ProbeFeature::Filter` is renamed to `ProbeFeature::GaussianBlur`. (by [@LaurenzV][])
+- `MultiAtlasManager`, and therefore `ImageCache` and the glyph cache, uses shelf packing. Allocation cost no longer grows with fragmentation, which removes the slowdown when many glyphs are cached and evicted. Heights are rounded up to shelf sizes, so large images pack less densely, and each atlas holds at most about 32k live allocations. (by [@grebmeg][])
+- Breaking change: `multi_atlas::AllocId` is an opaque Vello type instead of a re-export of `guillotiere::AllocId`. (by [@grebmeg][])
 
 ### Removed
 

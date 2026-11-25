@@ -25,6 +25,7 @@ png = { workspace = true, optional = true }
 roxmltree = { version = "0.20.0", optional = true }
 smallvec = { workspace = true }
 thiserror = { workspace = true, default-features = false }
+etagere = { workspace = true }
 guillotiere = { workspace = true }
 libm = { version = "0.2.16", optional = true }
 log = { workspace = true }

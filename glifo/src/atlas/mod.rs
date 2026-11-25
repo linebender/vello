@@ -5,7 +5,7 @@
 //!
 //! This module provides a glyph bitmap atlas cache that:
 //! - Rasterizes glyphs once and reuses the bitmaps for subsequent draws
-//! - Packs glyph bitmaps into shared atlas images using guillotiere
+//! - Packs glyph bitmaps into shared atlas images using shelf packing
 //! - Uses stable glyph keys for reliable cache hits
 //! - Supports multiple atlas pages for scalability
 //! - Implements simple age-based eviction

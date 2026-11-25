@@ -6,14 +6,24 @@
 //! This module provides support for managing multiple texture atlases, allowing for handling of
 //! large numbers of images.
 //!
-//! The allocator backend is [guillotiere](https://github.com/nical/guillotiere)'s tree-based
-//! guillotine algorithm, providing O(1) neighbor lookup during deallocation and automatic
-//! free-rect coalescing.
+//! Two allocator backends are available, see [`AtlasPacking`]. [`MultiAtlasManager`], which backs
+//! [`ImageCache`](crate::image_cache::ImageCache) and therefore the glyph cache, uses shelf
+//! packing.
 
 use alloc::vec::Vec;
-pub use guillotiere::AllocId;
-use guillotiere::AtlasAllocator;
 use thiserror::Error;
+
+/// Minimum shelf height produced by etagere, which rounds requested heights up to multiples of 8
+/// and only splits a shelf when the remainder is taller than 8 texels.
+const MIN_SHELF_HEIGHT: u32 = 8;
+
+/// Number of item slots etagere can address: indices are `u16` with `u16::MAX` reserved as a
+/// sentinel, and exceeding this silently wraps.
+const MAX_SHELF_ITEMS: u32 = u16::MAX as u32;
+
+/// Opaque handle identifying an allocation within its [`Atlas`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AllocId(u32);
 
 /// The result of a successful rectangle allocation within a single atlas.
 #[derive(Debug)]
@@ -30,12 +40,38 @@ pub struct Allocation {
 // Unified Atlas type
 // ---------------------------------------------------------------------------
 
+/// The rectangle packing algorithm used by an [`Atlas`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AtlasPacking {
+    /// [guillotiere](https://github.com/nical/guillotiere)'s guillotine packer.
+    ///
+    /// Packs tightly, but every allocation scans a best-fit list of free rectangles that grows
+    /// with fragmentation, so it suits a modest number of long-lived rectangles.
+    #[default]
+    Guillotine,
+    /// [etagere](https://github.com/nical/etagere)'s shelf packer.
+    ///
+    /// Rounds heights up to shelf sizes and wastes a little space, but allocation cost scales with
+    /// the number of shelves, so it stays cheap under heavy churn of many small rectangles such as
+    /// cached glyphs. Each atlas holds at most roughly 32k live allocations.
+    Shelf,
+}
+
+enum Allocator {
+    Guillotine(guillotiere::AtlasAllocator),
+    Shelf {
+        allocator: etagere::AtlasAllocator,
+        /// Live allocations above which etagere could run out of item indices.
+        max_allocations: u32,
+    },
+}
+
 /// Represents a single atlas in the multi-atlas system.
 pub struct Atlas {
     /// Unique identifier for this atlas.
     pub id: AtlasId,
     /// Rectangle allocator backend.
-    allocator: AtlasAllocator,
+    allocator: Allocator,
     /// Current usage statistics.
     stats: AtlasUsageStats,
     /// Allocation counter.
@@ -43,11 +79,32 @@ pub struct Atlas {
 }
 
 impl Atlas {
-    /// Create a new atlas with the given ID and size.
+    /// Create a new guillotine-packed atlas with the given ID and size.
     pub fn new(id: AtlasId, width: u16, height: u16) -> Self {
+        Self::with_packing(id, width, height, AtlasPacking::Guillotine)
+    }
+
+    /// Create a new atlas with the given ID, size and packing algorithm.
+    pub fn with_packing(id: AtlasId, width: u16, height: u16, packing: AtlasPacking) -> Self {
+        let (width_i32, height_i32) = (i32::from(width), i32::from(height));
+        let allocator = match packing {
+            AtlasPacking::Guillotine => Allocator::Guillotine(guillotiere::AtlasAllocator::new(
+                guillotiere::size2(width_i32, height_i32),
+            )),
+            AtlasPacking::Shelf => {
+                // Free items are always coalesced with their neighbors, so each shelf holds at
+                // most one more free item than allocated ones. Peak item usage is therefore
+                // bounded by twice the live allocations plus the shelf count.
+                let max_shelves = u32::from(height).div_ceil(MIN_SHELF_HEIGHT);
+                Allocator::Shelf {
+                    allocator: etagere::AtlasAllocator::new(etagere::size2(width_i32, height_i32)),
+                    max_allocations: MAX_SHELF_ITEMS.saturating_sub(max_shelves) / 2,
+                }
+            }
+        };
         Self {
             id,
-            allocator: AtlasAllocator::new(guillotiere::size2(i32::from(width), i32::from(height))),
+            allocator,
             stats: AtlasUsageStats {
                 allocated_area: 0,
                 total_area: u32::from(width) * u32::from(height),
@@ -59,24 +116,51 @@ impl Atlas {
 
     /// Try to allocate an image in this atlas.
     pub fn allocate(&mut self, width: u16, height: u16) -> Option<Allocation> {
-        let alloc = self
-            .allocator
-            .allocate(guillotiere::size2(i32::from(width), i32::from(height)))?;
+        let (width_i32, height_i32) = (i32::from(width), i32::from(height));
+        let (id, x, y) = match &mut self.allocator {
+            Allocator::Guillotine(allocator) => {
+                let alloc = allocator.allocate(guillotiere::size2(width_i32, height_i32))?;
+                (
+                    alloc.id.serialize(),
+                    alloc.rectangle.min.x,
+                    alloc.rectangle.min.y,
+                )
+            }
+            Allocator::Shelf {
+                allocator,
+                max_allocations,
+            } => {
+                if self.stats.allocated_count >= *max_allocations {
+                    return None;
+                }
+                let alloc = allocator.allocate(etagere::size2(width_i32, height_i32))?;
+                (
+                    alloc.id.serialize(),
+                    alloc.rectangle.min.x,
+                    alloc.rectangle.min.y,
+                )
+            }
+        };
         self.stats.allocated_area += u32::from(width) * u32::from(height);
         self.stats.allocated_count += 1;
         self.allocation_counter += 1;
         Some(Allocation {
-            id: alloc.id,
-            x: u16::try_from(alloc.rectangle.min.x)
-                .expect("guillotiere returned an out-of-range x coordinate"),
-            y: u16::try_from(alloc.rectangle.min.y)
-                .expect("guillotiere returned an out-of-range y coordinate"),
+            id: AllocId(id),
+            x: u16::try_from(x).expect("allocator returned an out-of-range x coordinate"),
+            y: u16::try_from(y).expect("allocator returned an out-of-range y coordinate"),
         })
     }
 
     /// Deallocate an image from this atlas.
     pub fn deallocate(&mut self, alloc_id: AllocId, width: u16, height: u16) {
-        self.allocator.deallocate(alloc_id);
+        match &mut self.allocator {
+            Allocator::Guillotine(allocator) => {
+                allocator.deallocate(guillotiere::AllocId::deserialize(alloc_id.0));
+            }
+            Allocator::Shelf { allocator, .. } => {
+                allocator.deallocate(etagere::AllocId::deserialize(alloc_id.0));
+            }
+        }
         self.stats.allocated_area = self
             .stats
             .allocated_area
@@ -88,6 +172,55 @@ impl Atlas {
     pub fn stats(&self) -> &AtlasUsageStats {
         &self.stats
     }
+
+    /// Visit the allocator's disjoint free rectangles as `(width, height)` pairs.
+    ///
+    /// Intended for diagnostics only; for shelf packing this costs a sort of all allocations.
+    fn for_each_free_rectangle(&self, mut f: impl FnMut(u16, u16)) {
+        let to_u16 = |v: i32| u16::try_from(v).expect("free rectangle fits the atlas");
+        match &self.allocator {
+            Allocator::Guillotine(allocator) => {
+                allocator.for_each_free_rectangle(|rect| {
+                    f(to_u16(rect.width()), to_u16(rect.height()));
+                });
+            }
+            Allocator::Shelf { allocator, .. } => {
+                for_each_free_shelf_rectangle(allocator, |w, h| f(to_u16(w), to_u16(h)));
+            }
+        }
+    }
+}
+
+/// Reconstruct etagere's free rectangles, which it does not expose, from its allocations.
+///
+/// Relies on single-column shelf layout: allocations sharing a shelf span the same rows, gaps
+/// within a shelf are free items, and rows not covered by any allocation are empty shelves.
+fn for_each_free_shelf_rectangle(allocator: &etagere::AtlasAllocator, mut f: impl FnMut(i32, i32)) {
+    let size = allocator.size();
+    let mut rects: Vec<etagere::Rectangle> = allocator.iter().map(|a| a.rectangle).collect();
+    rects.sort_unstable_by_key(|r| (r.min.y, r.min.x));
+
+    let mut emit = |w: i32, h: i32| {
+        if w > 0 && h > 0 {
+            f(w, h);
+        }
+    };
+
+    let mut covered_y = 0;
+    let mut i = 0;
+    while i < rects.len() {
+        let (y0, y1) = (rects[i].min.y, rects[i].max.y);
+        emit(size.width, y0 - covered_y);
+        let mut cursor_x = 0;
+        while i < rects.len() && rects[i].min.y == y0 {
+            emit(rects[i].min.x - cursor_x, y1 - y0);
+            cursor_x = rects[i].max.x;
+            i += 1;
+        }
+        emit(size.width - cursor_x, y1 - y0);
+        covered_y = y1;
+    }
+    emit(size.width, size.height - covered_y);
 }
 
 impl core::fmt::Debug for Atlas {
@@ -148,7 +281,12 @@ impl MultiAtlasManager {
 
         let atlas_id = AtlasId::new(self.next_atlas_id());
 
-        let atlas = Atlas::new(atlas_id, self.config.atlas_size.0, self.config.atlas_size.1);
+        let atlas = Atlas::with_packing(
+            atlas_id,
+            self.config.atlas_size.0,
+            self.config.atlas_size.1,
+            AtlasPacking::Shelf,
+        );
         self.atlases.push(atlas);
 
         Ok(atlas_id)
@@ -189,11 +327,7 @@ impl MultiAtlasManager {
             let mut largest_free_width = 0;
             let mut largest_free_height = 0;
             let mut largest_free_area = 0_u64;
-            atlas.allocator.for_each_free_rectangle(|rect| {
-                let rect_width = u16::try_from(rect.width())
-                    .expect("guillotiere returned an out-of-range rectangle width");
-                let rect_height = u16::try_from(rect.height())
-                    .expect("guillotiere returned an out-of-range rectangle height");
+            atlas.for_each_free_rectangle(|rect_width, rect_height| {
                 let rect_area = u64::from(rect_width) * u64::from(rect_height);
                 free_area += rect_area;
                 free_rectangle_count += 1;
@@ -797,6 +931,54 @@ mod tests {
     }
 
     #[test]
+    fn test_shelf_allocation_cap_prevents_item_index_overflow() {
+        let mut atlas = Atlas::with_packing(AtlasId::new(0), 4096, 4096, AtlasPacking::Shelf);
+        let mut ids = Vec::new();
+        while let Some(allocation) = atlas.allocate(1, 1) {
+            ids.push(allocation.id);
+        }
+        let Allocator::Shelf {
+            allocator,
+            max_allocations,
+        } = &atlas.allocator
+        else {
+            unreachable!();
+        };
+        assert_eq!(ids.len() as u32, *max_allocations);
+        assert!(
+            allocator.free_space() > 0,
+            "the cap, not space, must stop allocation"
+        );
+
+        atlas.deallocate(ids.pop().unwrap(), 1, 1);
+        assert!(atlas.allocate(1, 1).is_some());
+    }
+
+    #[test]
+    fn test_shelf_free_rectangles_cover_unallocated_space() {
+        let mut atlas = Atlas::with_packing(AtlasId::new(0), 256, 256, AtlasPacking::Shelf);
+        let a = atlas.allocate(100, 30).unwrap();
+        atlas.allocate(50, 30).unwrap();
+        atlas.allocate(200, 60).unwrap();
+        atlas.deallocate(a.id, 100, 30);
+
+        let mut free_area = 0_u32;
+        let mut count = 0;
+        atlas.for_each_free_rectangle(|w, h| {
+            free_area += u32::from(w) * u32::from(h);
+            count += 1;
+        });
+        let Allocator::Shelf { allocator, .. } = &atlas.allocator else {
+            unreachable!();
+        };
+        let allocated: u32 = allocator.iter().map(|a| a.rectangle.area() as u32).sum();
+        assert_eq!(free_area + allocated, 256 * 256);
+        // The freed slot and the remainder of its shelf, the remainder of the second shelf, and
+        // the empty shelf below.
+        assert_eq!(count, 4);
+    }
+
+    #[test]
     fn test_atlas_limit_diagnostics() {
         let mut manager = MultiAtlasManager::new(AtlasConfig {
             initial_atlas_count: 1,
@@ -911,18 +1093,21 @@ mod tests {
             auto_grow: false,
         });
 
+        // Sizes are multiples of the shelf height alignment so that packing waste doesn't
+        // interfere with the strategy being tested.
+
         // All atlases start empty, so first allocation goes to atlas 0 (first available)
-        let allocation0 = manager.try_allocate(150, 150).unwrap();
+        let allocation0 = manager.try_allocate(160, 160).unwrap();
         assert_eq!(allocation0.atlas_id.as_u32(), 0);
 
         // Second allocation should also go to atlas 0 since it still has the least remaining space
         // that can fit the image (all atlases have same remaining space, so it picks the first)
-        let allocation1 = manager.try_allocate(100, 100).unwrap();
+        let allocation1 = manager.try_allocate(96, 96).unwrap();
         assert_eq!(allocation1.atlas_id.as_u32(), 0);
 
         // Now atlas 0 has less remaining space than atlases 1 and 2
         // For a small allocation, it should still go to atlas 0 (best fit - least remaining space)
-        let allocation2 = manager.try_allocate(100, 100).unwrap();
+        let allocation2 = manager.try_allocate(96, 96).unwrap();
         assert_eq!(allocation2.atlas_id.as_u32(), 0);
 
         // Now try to allocate something very large that won't fit in atlas 0's remaining space

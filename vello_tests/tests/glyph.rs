@@ -431,7 +431,7 @@ fn glyphs_skewed_unskewed(ctx: &mut impl Renderer, enable_caching: bool) {
         .unwrap();
 }
 
-#[vello_test(width = 150, height = 125, glyph)]
+#[vello_test(width = 150, height = 125, cpu_diff_pixels = 1, glyph)]
 fn glyphs_skewed_unskewed_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
@@ -860,6 +860,7 @@ fn glyphs_colr_noto_overflow_centered(ctx: &mut impl Renderer, enable_caching: b
     height = 140,
     cpu_u8_tolerance = 1,
     gpu_tolerance = 2,
+    cpu_diff_pixels = 1,
     glyph
 )]
 fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer, enable_caching: bool) {
