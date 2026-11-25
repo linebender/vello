@@ -21,6 +21,7 @@ This release has an [MSRV][] of 1.89.
 
 - `FilterGraph::add` and `FilterGraph::set_output` panic unless the graph stays a linear chain. (by [@LaurenzV][])
 - Breaking change: `FilterGraph::primitives` and `FilterGraph::output` are private; use the accessor methods of the same name. (by [@LaurenzV][])
+- Breaking change: `ProbeFeature::Filter` is renamed to `ProbeFeature::GaussianBlur`. (by [@LaurenzV][])
 
 ### Removed
 
