@@ -6,6 +6,7 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use vello_common::multi_atlas::Atlas;
 use vello_common::multi_atlas::AtlasId;
+use vello_common::multi_atlas::AtlasPacking;
 
 use crate::SEED;
 
@@ -23,6 +24,7 @@ pub fn allocator(c: &mut Criterion) {
     allocate_varied(c);
     allocate_until_full(c);
     alloc_dealloc_churn(c);
+    glyph_fill_and_churn(c);
 }
 
 /// Allocate 1000 rectangles with random sizes between 8x8 and 128x128.
@@ -94,5 +96,47 @@ fn alloc_dealloc_churn(c: &mut Criterion) {
             black_box(&live);
         });
     });
+    g.finish();
+}
+
+/// Glyph-cache pattern: fill the atlas with 30k small glyph-sized rects, then replace the oldest
+/// entries FIFO-style (like age-based eviction during an animated zoom).
+fn glyph_fill_and_churn(c: &mut Criterion) {
+    let mut rng = SmallRng::from_seed(SEED);
+    let sizes: Vec<(u16, u16)> = (0..40_000)
+        .map(|_| (rng.random_range(3..=20), rng.random_range(6..=24)))
+        .collect();
+
+    let mut g = c.benchmark_group("allocator");
+    g.sample_size(10);
+    for (name, packing) in [
+        (
+            "glyph_fill_30k_churn_10k_guillotine",
+            AtlasPacking::Guillotine,
+        ),
+        ("glyph_fill_30k_churn_10k_shelf", AtlasPacking::Shelf),
+    ] {
+        g.bench_function(name, |b| {
+            b.iter(|| {
+                let mut atlas =
+                    Atlas::with_packing(AtlasId::new(0), ATLAS_SIZE, ATLAS_SIZE, packing);
+                let mut live = std::collections::VecDeque::new();
+                for &(w, h) in &sizes[..30_000] {
+                    if let Some(a) = atlas.allocate(w, h) {
+                        live.push_back((a.id, w, h));
+                    }
+                }
+                for &(w, h) in &sizes[30_000..] {
+                    if let Some((id, dw, dh)) = live.pop_front() {
+                        atlas.deallocate(id, dw, dh);
+                    }
+                    if let Some(a) = atlas.allocate(w, h) {
+                        live.push_back((a.id, w, h));
+                    }
+                }
+                black_box(&live);
+            });
+        });
+    }
     g.finish();
 }

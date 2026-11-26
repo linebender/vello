@@ -118,6 +118,7 @@ peniko = { version = "0.6.1", default-features = false }
 # FIXME: This can be removed once peniko supports the schemars feature.
 kurbo = { version = "0.13.1", default-features = false }
 futures-intrusive = "0.5.0"
+etagere = { version = "0.3.0", default-features = false }
 guillotiere = { version = "0.7.0", default-features = false }
 hashbrown = { version = "0.17.1", default-features = false, features = ["default-hasher"] }
 core_maths = "0.1.1"
