@@ -18,6 +18,7 @@ This release has an [MSRV][] of 1.89.
 - `TextureBindings::get`, `TextureBindings::contains` and `WebGlTextureBindings::contains` for checking which textures are bound. ([#2082][] by [@nicoburns][])
 - Linear filter chains. (by [@LaurenzV][])
 - `RenderSettings::with_hint_cache_config` and a re-export of `HintCacheConfig`, which set how many glyph hinting instances the renderer's resources cache. The setting is kept across `reset_and_shrink`. (by [@grebmeg][])
+- `WebGlRenderOptions::flip_y`, which can be disabled so that `readPixels` returns rows top-down. (by [@LaurenzV][])
 
 ### Changed
 

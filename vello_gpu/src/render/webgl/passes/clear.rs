@@ -12,7 +12,7 @@ impl WebGlRendererContext<'_> {
     pub(crate) fn clear_pass_inner(&self, target: DrawPassTarget, settings: ClearSettings<'_>) {
         let color = settings.clear_color();
 
-        let negate_ndc = target.negate_ndc();
+        let negate_ndc = matches!(target, DrawPassTarget::Root(_)) && self.resources.negate_ndc;
         let (width, height) = match target {
             DrawPassTarget::Root(_) => {
                 self.gl.bind_framebuffer(

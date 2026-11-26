@@ -1,8 +1,8 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Tests for rendering into a texture with the WebGL renderer that aren't covered by the
-//! `webgl_texture` variants of the other tests.
+//! Tests for rendering into a texture or reading back pixels with the WebGL renderer that aren't
+//! covered by the `webgl_texture` variants of the other tests.
 
 use vello_common::color::palette::css::{BLUE, RED};
 use vello_common::color::{AlphaColor, Srgb};
@@ -155,4 +155,39 @@ fn texture_target_rejects_sampling_from_itself() {
         ),
         "sampling from the render target should fail, got {result:?}"
     );
+}
+
+#[wasm_bindgen_test]
+fn flip_y_controls_row_order() {
+    let (mut renderer, mut resources) = renderer();
+    let gl = renderer.gl_context().clone();
+    let texture_target = TestTextureTarget::new(&renderer, SIZE, SIZE, None);
+    let bindings = WebGlTextureBindings::new();
+
+    let (width, half) = (f64::from(SIZE), f64::from(SIZE / 2));
+    let mut scene = Scene::new(SIZE, SIZE);
+    scene.set_paint(RED);
+    scene.fill_rect(&Rect::new(0.0, 0.0, width, half));
+    scene.set_paint(BLUE);
+    scene.fill_rect(&Rect::new(0.0, half, width, f64::from(SIZE)));
+
+    for flip_y in [true, false] {
+        let mut options = WebGlRenderOptions::default();
+        options.flip_y = flip_y;
+        for texture_target in [None, Some(&texture_target)] {
+            let target =
+                texture_target.map_or(WebGlRenderTarget::DrawingBuffer, |t| t.render_target());
+            renderer
+                .render(&scene, &mut resources, target, &bindings, options)
+                .unwrap();
+            let pixels = texture_target.map_or_else(
+                || read_webgl_pixels(&gl, None, SIZE, SIZE),
+                |t| t.read_pixels(&gl),
+            );
+            let (first, last) = pixels.split_at(pixels.len() / 2);
+            let (first_color, last_color) = if flip_y { (BLUE, RED) } else { (RED, BLUE) };
+            assert_all(first, first_color);
+            assert_all(last, last_color);
+        }
+    }
 }
