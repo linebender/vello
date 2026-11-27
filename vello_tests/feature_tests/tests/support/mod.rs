@@ -64,7 +64,7 @@ pub(crate) fn check_snapshot(actual: Pixmap, backend: &str, threshold: u8, is_re
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-struct CpuProbeContext<'a>(&'a mut vello_cpu::RenderContext);
+struct CpuProbeContext<'a>(&'a mut vello_cpu::Scene);
 
 #[cfg(not(target_arch = "wasm32"))]
 impl ProbeRenderer for CpuProbeContext<'_> {
@@ -113,12 +113,10 @@ impl ProbeRenderer for CpuProbeContext<'_> {
 pub(crate) fn render_cpu(elements: &[ProbeFeature]) -> Pixmap {
     use std::sync::Arc;
     use vello_common::{TargetInit, color::palette::css, paint::ImageSource};
-    use vello_cpu::{
-        Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources,
-    };
+    use vello_cpu::{Level, RasterizerSettings, RenderMode, RenderSettings, Resources, Scene};
 
     let (width, height) = probe::canvas_size(elements);
-    let mut ctx = RenderContext::new_with(
+    let mut ctx = Scene::new_with(
         width,
         height,
         RenderSettings {

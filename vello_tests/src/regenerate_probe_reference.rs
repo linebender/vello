@@ -17,7 +17,7 @@ use vello_common::{
     pixmap::Pixmap,
     probe::{self, ProbeRenderer},
 };
-use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
+use vello_cpu::{Level, RasterizerSettings, RenderMode, RenderSettings, Resources, Scene};
 
 fn reference_path(element: probe::ProbeFeature, extension: &str) -> PathBuf {
     let name = match element {
@@ -42,7 +42,7 @@ fn reference_path(element: probe::ProbeFeature, extension: &str) -> PathBuf {
         .join(format!("{name}.{extension}"))
 }
 
-struct CpuProbeContext<'a>(&'a mut RenderContext);
+struct CpuProbeContext<'a>(&'a mut Scene);
 
 impl ProbeRenderer for CpuProbeContext<'_> {
     fn set_transform(&mut self, transform: Affine) {
@@ -92,7 +92,7 @@ fn render_probe_pixmap(elements: &[probe::ProbeFeature]) -> Pixmap {
         level: Level::fallback(),
         num_threads: 0,
     };
-    let mut ctx = RenderContext::new_with(width, height, settings);
+    let mut ctx = Scene::new_with(width, height, settings);
 
     probe::draw_scene(
         &mut CpuProbeContext(&mut ctx),

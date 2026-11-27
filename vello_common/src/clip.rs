@@ -177,7 +177,7 @@ struct ClipFrame {
 // This struct implements an additional piece of logic to make non-isolated clips work properly
 // with filter layers. The root of all "evil" that requires us to implement this wrapper around
 // [`crate::clip::ClipContext`] is that, as the user pushes new filter layers into the
-// render context, we eagerly apply a shift to all subsequently rendered contents to ensure that
+// scene, we eagerly apply a shift to all subsequently rendered contents to ensure that
 // everything necessary for correct filter rendering is guaranteed to be visible. However, since
 // the clip stack eagerly generates strips for each clip path that is clipped to the original
 // viewport, those generated clip paths cannot just be translated on demand to account for the

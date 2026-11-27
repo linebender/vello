@@ -109,9 +109,9 @@ pub struct RasterizerSettings {
     pub target_init: TargetInit,
     /// Pixel format of the destination.
     pub pixel_format: PixelFormat,
-    /// Offset in destination pixels where the render context origin is placed.
+    /// Offset in destination pixels where the scene origin is placed.
     ///
-    /// See [`RenderContext::render_with`] for more information.
+    /// See [`Scene::render_with`] for more information.
     pub offset: (i32, i32),
 }
 
@@ -126,13 +126,13 @@ impl Default for RasterizerSettings {
     }
 }
 
-/// A render context for CPU-based 2D graphics rendering.
+/// A scene for CPU-based 2D graphics rendering.
 ///
 /// This is the main entry point for drawing operations. It maintains the current
 /// rendering state (transforms, paint, stroke, etc.) and dispatches drawing commands
 /// to the underlying rasterization engine.
 #[derive(Debug)]
-pub struct RenderContext {
+pub struct Scene {
     /// Width of the render target in pixels.
     pub(crate) width: u16,
     /// Height of the render target in pixels.
@@ -156,7 +156,7 @@ pub struct RenderContext {
     dispatcher: Box<dyn Dispatcher>,
 }
 
-/// Settings to apply to the render context.
+/// Settings to apply to the scene.
 #[derive(Copy, Clone, Debug)]
 pub struct RenderSettings {
     /// The SIMD level that should be used for rendering operations.
@@ -182,13 +182,13 @@ impl Default for RenderSettings {
     }
 }
 
-impl RenderContext {
-    /// Create a new render context with the given width and height in pixels.
+impl Scene {
+    /// Create a new scene with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
         Self::new_with(width, height, RenderSettings::default())
     }
 
-    /// Create a new render context with specific settings.
+    /// Create a new scene with specific settings.
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         #[cfg(feature = "multithreading")]
         let dispatcher: Box<dyn Dispatcher> = if settings.num_threads == 0 {
@@ -532,7 +532,7 @@ impl RenderContext {
             self.transforms().scene_transform(),
             *self.transforms().paint_transform(),
             crate::text::CpuGlyphRunBackend {
-                ctx: self,
+                scene: self,
                 resources,
                 atlas_cache_enabled: false,
             },
@@ -541,13 +541,13 @@ impl RenderContext {
 
     /// Push a new layer with the given properties.
     ///
-    /// Note that the mask, if provided, needs to have the same size as the render context. Otherwise,
+    /// Note that the mask, if provided, needs to have the same size as the scene. Otherwise,
     /// it will be ignored. In addition to that, the mask will not be affected by the current
     /// transformation matrix in place.
     ///
     /// # Panics
     ///
-    /// Panics if `filter` is provided when this context uses multi-threaded rendering.
+    /// Panics if `filter` is provided when this scene uses multi-threaded rendering.
     pub fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -608,7 +608,7 @@ impl RenderContext {
     }
 
     /// Push a new mask layer. The mask needs to have the same dimensions as the
-    /// render context. The mask will not be affected by the current transform
+    /// scene. The mask will not be affected by the current transform
     /// in place.
     ///
     /// See the explanation in the [masking](https://github.com/linebender/vello/blob/main/vello_cpu/examples/masking.rs)
@@ -625,7 +625,7 @@ impl RenderContext {
     ///
     /// # Panics
     ///
-    /// Panics when this context uses multi-threaded rendering.
+    /// Panics when this scene uses multi-threaded rendering.
     pub fn push_filter_layer(&mut self, filter: Filter) {
         self.push_layer(None, None, None, None, Some(filter));
     }
@@ -722,7 +722,7 @@ impl RenderContext {
     }
 
     /// Set the mask to use for path-painting operations. The mask needs to
-    /// have the same dimensions as the render context. The mask will not be
+    /// have the same dimensions as the scene. The mask will not be
     /// affected by the current transform in place.
     ///
     /// See the explanation in the [masking](https://github.com/linebender/vello/blob/main/vello_cpu/examples/masking.rs)
@@ -762,7 +762,7 @@ impl RenderContext {
     /// To apply a filter to multiple elements, use `push_filter_layer` instead.
     /// # Panics
     ///
-    /// When this context uses multi-threaded rendering.
+    /// When this scene uses multi-threaded rendering.
     pub fn set_filter_effect(&mut self, filter: Filter) {
         self.filter = Some(filter);
     }
@@ -772,7 +772,7 @@ impl RenderContext {
         self.filter = None;
     }
 
-    /// Reset the render context.
+    /// Reset the scene.
     pub fn reset(&mut self) {
         self.dispatcher.reset(self.width, self.height);
         self.encoded_paints.clear();
@@ -783,7 +783,7 @@ impl RenderContext {
         self.filter = None;
     }
 
-    /// Reset the render context according to `options`.
+    /// Reset the scene according to `options`.
     pub fn reset_with(&mut self, options: ResetOptions) {
         let (width, height) = options.size.unwrap_or((self.width, self.height));
         if options.shrink {
@@ -843,23 +843,23 @@ impl RenderContext {
         self.dispatcher.flush();
     }
 
-    /// Render the current context into a target using default rasterizer settings.
+    /// Render the scene into a target using default rasterizer settings.
     ///
-    /// See the documentation of [`RenderContext::render_with`] for more information.
+    /// See the documentation of [`Scene::render_with`] for more information.
     pub fn render<'a>(&self, target: impl Into<PixmapMut<'a>>, resources: &mut Resources) {
         self.render_with(target, resources, RasterizerSettings::default());
     }
 
-    /// Render the current context into a target using custom rasterizer settings.
+    /// Render the scene into a target using custom rasterizer settings.
     ///
     /// See the documentation of [`RasterizerSettings`] to understand the tunable parameters for
     /// rasterization.
     ///
-    /// There is an important note to make about render sizes. [`RenderContext`] can be configured with
+    /// There is an important note to make about render sizes. [`Scene`] can be configured with
     /// a specific width/height, but so can [`Pixmap`]. In the vast majority of cases, you will simply
     /// want to configure them both to have the same size. However, it _is_ very much possible for them
     /// to have different sizes, which can be useful in certain situations. In principle, the size
-    /// that you specify when creating a [`RenderContext`] defines the bound of the scene itself. Any
+    /// that you specify when creating a [`Scene`] defines the bound of the scene itself. Any
     /// content that is to the top/left of (0, 0) and to the right/bottom of (width/height) will be
     /// removed. However, the offset in [`RasterizerSettings`] as well as the width/height of
     /// the [`PixmapMut`] define at which location the scene will be rasterized into, and allows
@@ -872,7 +872,7 @@ impl RenderContext {
     ///    and then position the glyphs at rasterization time using this feature.
     ///
     /// 2. In case the pixmap width/height is larger than the offset plus the width/height of the
-    ///    [`RenderContext`], any remaining rows/columns are simply treated as padding (**however**,
+    ///    [`Scene`], any remaining rows/columns are simply treated as padding (**however**,
     ///    when using [`TargetInit::Clear`], then the _whole_ destination pixmap will
     ///    be cleared to the requested color, not just the area covered by the scene). One potential reason for doing this
     ///    is that certain platforms, for example macOS, require a specific byte stride for buffers.
@@ -940,9 +940,9 @@ impl RenderContext {
             &resources.image_registry,
         );
         // TODO: We need to figure something out here API-wise. At the moment, the user can
-        // theoretically rasterize the same `RenderContext` multiple times without resetting in-between.
+        // theoretically rasterize the same `Scene` multiple times without resetting in-between.
         // However, if glyph caching is enabled, this method call could now evict that were previously
-        // assumed to exist in `RenderContext`, meaning that if the user rasterizes the same `RenderContext`
+        // assumed to exist in `Scene`, meaning that if the user rasterizes the same `Scene`
         // again without resetting it, some of the cached glyphs might be stale and not exist anymore.
         resources.after_render();
     }
@@ -957,7 +957,7 @@ impl RenderContext {
         self.height
     }
 
-    /// Return the render settings used by the `RenderContext`.
+    /// Return the render settings used by the `Scene`.
     pub fn render_settings(&self) -> &RenderSettings {
         &self.render_settings
     }
@@ -999,7 +999,7 @@ impl RenderContext {
 
 /// Registry that maps opaque [`ImageId`]s to [`Pixmap`] data.
 ///
-/// Used by [`RenderContext`] to resolve `ImageSource::Atlas` at rasterization time.
+/// Used by [`Scene`] to resolve `ImageSource::Atlas` at rasterization time.
 #[derive(Debug, Default)]
 pub(crate) struct ImageRegistry {
     images: HashMap<u32, Arc<Pixmap>>,
@@ -1027,7 +1027,7 @@ impl ImageResolver for ImageRegistry {
 mod tests {
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
-    use crate::{RasterizerSettings, RenderContext, ResetOptions, Resources, TargetInit};
+    use crate::{RasterizerSettings, ResetOptions, Resources, Scene, TargetInit};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     use alloc::vec;
@@ -1069,8 +1069,8 @@ mod tests {
         )
     }
 
-    fn red_rect_context(width: u16, height: u16, rect: Rect) -> RenderContext {
-        let mut ctx = RenderContext::new(width, height);
+    fn red_rect_scene(width: u16, height: u16, rect: Rect) -> Scene {
+        let mut ctx = Scene::new(width, height);
         ctx.set_paint(RED);
         ctx.fill_rect(&rect);
         ctx.flush();
@@ -1079,7 +1079,7 @@ mod tests {
 
     #[test]
     fn clip_overflow() {
-        let mut ctx = RenderContext::new(100, 100);
+        let mut ctx = Scene::new(100, 100);
 
         for _ in 0..(usize::from(u16::MAX) + 1).div_ceil(usize::from(Tile::HEIGHT * Tile::WIDTH)) {
             ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
@@ -1092,7 +1092,7 @@ mod tests {
 
     #[test]
     fn render_with_offset_clears_pixels_outside_scene() {
-        let ctx = red_rect_context(2, 2, Rect::new(0.0, 0.0, 2.0, 2.0));
+        let ctx = red_rect_scene(2, 2, Rect::new(0.0, 0.0, 2.0, 2.0));
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(4, 3, GRAY);
 
@@ -1120,7 +1120,7 @@ mod tests {
 
     #[test]
     fn render_clips_scene_to_target_bounds() {
-        let ctx = red_rect_context(3, 3, Rect::new(0.0, 0.0, 3.0, 3.0));
+        let ctx = red_rect_scene(3, 3, Rect::new(0.0, 0.0, 3.0, 3.0));
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(4, 4, GRAY);
 
@@ -1147,7 +1147,7 @@ mod tests {
 
     #[test]
     fn render_into_padded_pixmap() {
-        let ctx = red_rect_context(2, 2, Rect::new(0.0, 0.0, 2.0, 2.0));
+        let ctx = red_rect_scene(2, 2, Rect::new(0.0, 0.0, 2.0, 2.0));
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(4, 2, GRAY);
 
@@ -1168,7 +1168,7 @@ mod tests {
     #[test]
     fn reset_with_size_updates_scene_size() {
         for shrink in [false, true] {
-            let mut ctx = RenderContext::new(8, 4);
+            let mut ctx = Scene::new(8, 4);
             let mut resources = Resources::new();
             let mut pixmap = Pixmap::new(4, 8);
 
@@ -1194,7 +1194,7 @@ mod tests {
 
     #[test]
     fn reset_restores_default_state() {
-        let mut ctx = RenderContext::new(4, 4);
+        let mut ctx = Scene::new(4, 4);
         ctx.set_aliasing_threshold(Some(128));
         ctx.set_filter_effect(Filter::from_primitive(FilterPrimitive::Flood {
             color: RED,
@@ -1208,7 +1208,7 @@ mod tests {
 
     #[test]
     fn render_into_raw_buffer() {
-        let ctx = red_rect_context(2, 1, Rect::new(0.0, 0.0, 2.0, 1.0));
+        let ctx = red_rect_scene(2, 1, Rect::new(0.0, 0.0, 2.0, 1.0));
         let mut resources = Resources::new();
         let mut buffer = vec![0; 3 * 2 * 4];
         for pixel in buffer.as_chunks_mut::<4>().0 {
@@ -1251,7 +1251,7 @@ mod tests {
 
     #[test]
     fn render_preserves_target_under_opaque_draw() {
-        let ctx = red_rect_context(2, 1, Rect::new(0.0, 0.0, 1.0, 1.0));
+        let ctx = red_rect_scene(2, 1, Rect::new(0.0, 0.0, 1.0, 1.0));
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(2, 1, blue_pixel());
 
@@ -1270,7 +1270,7 @@ mod tests {
 
     #[test]
     fn render_preserves_target_under_translucent_draw() {
-        let mut ctx = RenderContext::new(1, 1);
+        let mut ctx = Scene::new(1, 1);
         ctx.set_paint(RED.with_alpha(0.5));
         ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
         ctx.flush();
@@ -1300,7 +1300,7 @@ mod tests {
 
     #[test]
     fn opaque_clear_updates_target_transparency_hint() {
-        let mut ctx = RenderContext::new(1, 1);
+        let mut ctx = Scene::new(1, 1);
         ctx.flush();
         let mut resources = Resources::new();
         let mut pixmap = Pixmap::new(1, 1);
@@ -1320,7 +1320,7 @@ mod tests {
 
     #[test]
     fn translucent_clear_updates_target_transparency_hint() {
-        let mut ctx = RenderContext::new(1, 1);
+        let mut ctx = Scene::new(1, 1);
         ctx.flush();
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(1, 1, blue_pixel());
@@ -1355,7 +1355,7 @@ mod tests {
         };
 
         let mut resources = Resources::new();
-        let mut ctx = RenderContext::new_with(200, 200, settings);
+        let mut ctx = Scene::new_with(200, 200, settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
         ctx.flush();
@@ -1369,7 +1369,7 @@ mod tests {
     fn multithreaded_render_empty_frame_after_reset() {
         use crate::RenderSettings;
 
-        let mut ctx = RenderContext::new_with(
+        let mut ctx = Scene::new_with(
             100,
             100,
             RenderSettings {
@@ -1394,7 +1394,7 @@ mod tests {
     fn multithreaded_push_clip_path_before_draw() {
         use crate::RenderSettings;
 
-        let mut ctx = RenderContext::new_with(
+        let mut ctx = Scene::new_with(
             100,
             100,
             RenderSettings {
@@ -1416,7 +1416,7 @@ mod tests {
     fn multithreaded_reset_with_pending_tasks() {
         use crate::RenderSettings;
 
-        let mut ctx = RenderContext::new_with(
+        let mut ctx = Scene::new_with(
             100,
             100,
             RenderSettings {
@@ -1440,7 +1440,7 @@ mod tests {
         use crate::RenderSettings;
 
         for _ in 0..10 {
-            let mut ctx = RenderContext::new_with(
+            let mut ctx = Scene::new_with(
                 100,
                 100,
                 RenderSettings {
@@ -1472,7 +1472,7 @@ mod tests {
         }];
 
         let mut resources = Resources::new();
-        let mut ctx = RenderContext::new(100, 100);
+        let mut ctx = Scene::new(100, 100);
 
         ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
         ctx.fill_path(&Rect::new(10.0, 10.0, 20.0, 20.0).to_path(0.1));

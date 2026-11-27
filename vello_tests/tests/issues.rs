@@ -22,7 +22,7 @@ use vello_common::peniko::{ColorStops, RadialGradientPosition};
 use vello_common::pixmap::{PixelMetadata, Pixmap};
 use vello_cpu::color::palette::css::{BLACK, RED};
 use vello_cpu::peniko::{Compose, Extend};
-use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings};
+use vello_cpu::{Level, RasterizerSettings, RenderMode, RenderSettings, Scene};
 use vello_dev_macros::vello_test;
 use vello_gpu::{ClearSettings, TargetInit};
 
@@ -469,7 +469,7 @@ fn multi_threading_oob_access() {
         level: Level::try_detect().unwrap_or(Level::baseline()),
         num_threads: 4,
     };
-    let mut ctx = RenderContext::new_with(100, 100, settings);
+    let mut ctx = Scene::new_with(100, 100, settings);
     let mut resources = vello_cpu::Resources::new();
     let mut pixmap = Pixmap::new(100, 100);
 
@@ -498,7 +498,7 @@ fn multi_threading_oob_access() {
 /// See <https://github.com/linebender/vello/issues/2026>.
 #[test]
 fn lowp_src_over_partial_coverage_keeps_opaque_alpha() {
-    let mut ctx = RenderContext::new(1, 1);
+    let mut ctx = Scene::new(1, 1);
     let mut resources = vello_cpu::Resources::new();
     let mut pixmap = Pixmap::new(1, 1);
 

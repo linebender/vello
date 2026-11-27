@@ -14,7 +14,7 @@ This release has an [MSRV][] of 1.89.
 
 ### Added
 
-- `ResetOptions`, the options for `vello_cpu::RenderContext::reset_with` and `vello_gpu::Scene::reset_with`. (by [@LaurenzV][])
+- `ResetOptions`, the options for `vello_cpu::Scene::reset_with` and `vello_gpu::Scene::reset_with`. (by [@LaurenzV][])
 - `PreparedFilter::chain`, which replaces `PreparedFilter::new`. (by [@LaurenzV][])
 - `AtlasPacking` and `Atlas::with_packing` to choose between guillotine and shelf ([etagere](https://github.com/nical/etagere)) rectangle packing. (by [@grebmeg][])
 

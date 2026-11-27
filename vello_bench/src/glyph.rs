@@ -9,7 +9,7 @@ use parley::{
     PositionedLayoutItem,
 };
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{Glyph, RenderContext, RenderSettings, Resources};
+use vello_cpu::{Glyph, RenderSettings, Resources, Scene};
 
 pub fn glyph(c: &mut Criterion) {
     if !crate::EXTENDED {
@@ -82,7 +82,7 @@ pub fn glyph(c: &mut Criterion) {
 struct Brush;
 
 struct GlyphBenchRenderer {
-    ctx: RenderContext,
+    ctx: Scene,
     resources: Resources,
     pixmap: Pixmap,
 }
@@ -90,7 +90,7 @@ struct GlyphBenchRenderer {
 impl GlyphBenchRenderer {
     fn new(width: u16, height: u16, settings: RenderSettings) -> Self {
         Self {
-            ctx: RenderContext::new_with(width, height, settings),
+            ctx: Scene::new_with(width, height, settings),
             resources: Resources::new(),
             pixmap: Pixmap::new(width, height),
         }

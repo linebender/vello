@@ -20,7 +20,7 @@ use usvg::{Node, Paint, PaintOrder};
 use vello_cpu::color::AlphaColor;
 use vello_cpu::kurbo::{Affine, BezPath, Stroke};
 use vello_cpu::peniko::{Fill, ImageAlphaType};
-use vello_cpu::{Level, Pixmap, RenderContext, RenderSettings, Resources};
+use vello_cpu::{Level, Pixmap, RenderSettings, Resources, Scene};
 
 fn main() {
     let args = Args::parse();
@@ -37,7 +37,7 @@ fn main() {
         level: Level::new(),
         num_threads: args.num_threads as u16,
     };
-    let mut ctx = RenderContext::new_with(width, height, settings);
+    let mut ctx = Scene::new_with(width, height, settings);
     let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(width, height);
     let mut runtime = Duration::default();
@@ -140,11 +140,11 @@ impl SVGContext {
     }
 }
 
-fn render_tree(ctx: &mut RenderContext, sctx: &mut SVGContext, tree: &usvg::Tree) {
+fn render_tree(ctx: &mut Scene, sctx: &mut SVGContext, tree: &usvg::Tree) {
     render_group(ctx, sctx, tree.root());
 }
 
-fn render_group(ctx: &mut RenderContext, sctx: &mut SVGContext, group: &usvg::Group) {
+fn render_group(ctx: &mut Scene, sctx: &mut SVGContext, group: &usvg::Group) {
     let clip_path = {
         group.clip_path().map(|p| {
             let mut path = BezPath::new();
@@ -191,14 +191,14 @@ fn extract_clip_path(group: &usvg::Group, path: &mut BezPath) {
     }
 }
 
-fn render_path(ctx: &mut RenderContext, sctx: &mut SVGContext, path: &usvg::Path) {
+fn render_path(ctx: &mut Scene, sctx: &mut SVGContext, path: &usvg::Path) {
     if !path.is_visible() {
         return;
     }
 
     ctx.set_transform(sctx.get_transform());
 
-    let fill = |rctx: &mut RenderContext, p: &usvg::Path| {
+    let fill = |rctx: &mut Scene, p: &usvg::Path| {
         if let Some(fill) = p.fill() {
             let color = match fill.paint() {
                 Paint::Color(c) => {
@@ -213,7 +213,7 @@ fn render_path(ctx: &mut RenderContext, sctx: &mut SVGContext, path: &usvg::Path
         }
     };
 
-    let stroke = |rctx: &mut RenderContext, p: &usvg::Path| {
+    let stroke = |rctx: &mut Scene, p: &usvg::Path| {
         if let Some(stroke) = p.stroke() {
             let color = match stroke.paint() {
                 Paint::Color(c) => {

@@ -14,13 +14,14 @@ This release has an [MSRV][] of 1.89.
 
 ### Added
 
-- `RenderContext::reset_with`, which resets a render context to a new size and can free the memory it grew in the same step, configured by `ResetOptions`. (by [@LaurenzV][])
+- `Scene::reset_with`, which resets a scene to a new size and can free the memory it grew in the same step, configured by `ResetOptions`. (by [@LaurenzV][])
 - Linear filter chains. (by [@LaurenzV][])
 - `Resources::with_hint_cache_config` and a re-export of `HintCacheConfig`, which set how many glyph hinting instances the resources cache. (by [@grebmeg][])
 
 ### Changed
 
-- Breaking change: `RenderContext::reset_and_resize` and `RenderContext::reset_and_shrink` have been removed in favor of `RenderContext::reset_with`. (by [@LaurenzV][])
+- Breaking change: `RenderContext` has been renamed to `Scene`, matching `vello_gpu`. (by [@LaurenzV][])
+- Breaking change: `RenderContext::reset_and_resize` and `RenderContext::reset_and_shrink` have been removed in favor of `Scene::reset_with`. (by [@LaurenzV][])
 - Rendering with `TargetInit::SrcOver` skips strip rows that contain no draws, so updating a few glyphs no longer rewrites the whole atlas page. (by [@grebmeg][])
 
 ## [0.4.0][] - 2026-11-11

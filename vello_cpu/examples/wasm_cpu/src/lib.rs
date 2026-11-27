@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::{cell::RefCell, sync::Arc};
 use vello_common::kurbo::{Affine, Vec2};
 use vello_common::paint::ImageSource;
-use vello_cpu::RenderContext;
+use vello_cpu::Scene;
 use vello_example_scenes::{
     AnyScene,
     image::ImageScene,
@@ -24,14 +24,14 @@ use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 /// State that handles scene rendering and interactions
 struct AppState {
-    scenes: Box<[AnyScene<RenderContext>]>,
+    scenes: Box<[AnyScene<Scene>]>,
     current_scene: usize,
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Vec2>,
     width: u32,
     height: u32,
-    renderer: RenderContext,
+    renderer: Scene,
     resources: vello_cpu::Resources,
     pixmap: vello_common::pixmap::Pixmap,
     performance: PerformancePanel<3>,
@@ -39,11 +39,11 @@ struct AppState {
 }
 
 impl AppState {
-    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<RenderContext>]>) -> Self {
+    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<Scene>]>) -> Self {
         let width = canvas.width();
         let height = canvas.height();
 
-        let renderer = RenderContext::new_with(
+        let renderer = Scene::new_with(
             width as u16,
             height as u16,
             vello_cpu::RenderSettings {
@@ -154,7 +154,7 @@ impl AppState {
         self.height = height;
 
         self.pixmap.resize(width as u16, height as u16);
-        self.renderer = RenderContext::new_with(
+        self.renderer = Scene::new_with(
             width as u16,
             height as u16,
             vello_cpu::RenderSettings {
@@ -273,7 +273,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
 
     let pixmap1 = ImageScene::read_flower_image();
     let pixmap2 = ImageScene::read_cowboy_image();
-    let scenes = vello_example_scenes::get_example_scenes::<RenderContext>(
+    let scenes = vello_example_scenes::get_example_scenes::<Scene>(
         vello_example_scenes::Capabilities::default(),
         vec![
             ImageSource::Pixmap(Arc::new(pixmap1)),

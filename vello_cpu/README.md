@@ -21,22 +21,22 @@ Full documentation at https://github.com/orium/cargo-rdme -->
 <!-- Intra-doc links used in lib.rs should be evaluated here.
 See https://linebender.org/blog/doc-include/ for related discussion. -->
 
-[`RenderContext`]:
-  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html
-[RenderContext::set_paint]:
-  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.set_paint
-[RenderContext::fill_path]:
-  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.fill_path
-[RenderContext::stroke_path]:
-  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.stroke_path
-[RenderContext::glyph_run]:
-  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.glyph_run
+[`Scene`]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.Scene.html
+[Scene::set_paint]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.Scene.html#method.set_paint
+[Scene::fill_path]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.Scene.html#method.fill_path
+[Scene::stroke_path]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.Scene.html#method.stroke_path
+[Scene::glyph_run]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.Scene.html#method.glyph_run
 [RenderMode::OptimizeSpeed]:
   https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeSpeed
 [RenderMode::OptimizeQuality]:
   https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeQuality
-[`RenderContext::render`]:
-  https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.render
+[`Scene::render`]:
+  https://docs.rs/vello_cpu/latest/vello_cpu/struct.Scene.html#method.render
 [`Pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.Pixmap.html
 [`Resources`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.Resources.html
 
@@ -56,32 +56,32 @@ We also develop:
 
 To use Vello CPU, you need to:
 
-- Create a [`RenderContext`][], a 2D drawing context for a fixed-size scene
+- Create a [`Scene`][], a 2D drawing context for a fixed-size scene
   area.
 - For each object in your scene:
   - Set how the object will be painted, using
-    [`set_paint`][RenderContext::set_paint].
+    [`set_paint`][Scene::set_paint].
   - Set the shape to be drawn for that object, using methods like
-    [`fill_path`][RenderContext::fill_path],
-    [`stroke_path`][RenderContext::stroke_path], or
-    [`glyph_run`][RenderContext::glyph_run].
-- Render it to an image using [`RenderContext::render`][].
+    [`fill_path`][Scene::fill_path],
+    [`stroke_path`][Scene::stroke_path], or
+    [`glyph_run`][Scene::glyph_run].
+- Render it to an image using [`Scene::render`][].
 
 ```rust
-use vello_cpu::{RenderContext, Resources, Pixmap};
+use vello_cpu::{Scene, Resources, Pixmap};
 use vello_cpu::{color::{palette::css, PremulRgba8}, kurbo::Rect};
 let width = 10;
 let height = 5;
-let mut context = RenderContext::new(width, height);
+let mut scene = Scene::new(width, height);
 let mut resources = Resources::new();
-context.set_paint(css::MAGENTA);
-context.fill_rect(&Rect::from_points((3., 1.), (7., 4.)));
+scene.set_paint(css::MAGENTA);
+scene.fill_rect(&Rect::from_points((3., 1.), (7., 4.)));
 
 let mut target = Pixmap::new(width, height);
 // While calling `flush` is only strictly necessary if you are rendering using
 // multiple threads, it is recommended to always do this.
-context.flush();
-context.render(&mut target, &mut resources);
+scene.flush();
+scene.render(&mut target, &mut resources);
 
 let expected_render = b"\
     0000000000\
@@ -117,7 +117,7 @@ more complete demonstrations of Vello CPU's API.
   required for rendering glyphs with an embedded PNG. Implies `std`.
 - `multithreading`: Enable multi-threaded rendering. Implies `std`.
 - `text` (enabled by default): Enables glyph rendering
-  ([`glyph_run`][RenderContext::glyph_run]).
+  ([`glyph_run`][Scene::glyph_run]).
 - `u8_pipeline` (enabled by default): Enable the u8 pipeline, for speed focused
   rendering using u8 math. The `u8` pipeline will be used for
   [`OptimizeSpeed`][RenderMode::OptimizeSpeed], if both pipelines are enabled.

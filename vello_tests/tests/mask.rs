@@ -10,7 +10,7 @@ use vello_common::mask::Mask;
 use vello_common::peniko::{ColorStop, ColorStops, Gradient};
 use vello_cpu::peniko::LinearGradientPosition;
 use vello_cpu::{Level, RenderSettings};
-use vello_cpu::{Pixmap, RenderContext};
+use vello_cpu::{Pixmap, Scene};
 use vello_dev_macros::vello_test;
 
 pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
@@ -20,7 +20,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
         level: Level::baseline(),
         num_threads: 0,
     };
-    let mut mask_ctx = RenderContext::new_with(100, 100, settings);
+    let mut mask_ctx = Scene::new_with(100, 100, settings);
     let mut resources = vello_cpu::Resources::new();
 
     let grad = Gradient {

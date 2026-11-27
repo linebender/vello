@@ -8,7 +8,7 @@
 use vello_cpu::color::palette::css::YELLOW;
 use vello_cpu::kurbo::Affine;
 use vello_cpu::{
-    Level, Pixmap, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources,
+    Level, Pixmap, RasterizerSettings, RenderMode, RenderSettings, Resources, Scene,
     color::palette::css::{BLUE, GREEN, RED},
     kurbo::{Circle, Rect, Shape},
 };
@@ -70,7 +70,7 @@ fn main() {
     // you create a single `Pixmap` and then dispatch rendering commands into
     // it. In Vello CPU, there are two components instead.
     //
-    // The first component is the `RenderContext`, which can be thought of as
+    // The first component is the `Scene`, which can be thought of as
     // a reusable buffer for dispatching rendering commands. The `reusable`
     // part is important: In situations where you are executing multiple
     // rendering passes at the same resolution, you should reset the context
@@ -79,15 +79,15 @@ fn main() {
     // allocations, leading to better performance.
     //
     // The second component is then the `Pixmap`, which simply acts as a storage
-    // for the raw RGBA pixels from the render context.
+    // for the raw RGBA pixels from the scene.
 
-    // Let's start by creating a new render context with a certain
+    // Let's start by creating a new scene with a certain
     // width and height in pixels, as well as our render settings.
-    let mut ctx = RenderContext::new_with(100, 100, settings);
+    let mut ctx = Scene::new_with(100, 100, settings);
     // Vello CPU needs this to track certain resources (e.g. for glyph caching)
     // across multiple frames. You need to make sure that you create on such struct
-    // for each render context you create, and then only use it in combination with that
-    // specific render context.
+    // for each scene you create, and then only use it in combination with that
+    // specific scene.
     let mut resources = Resources::new();
 
     // Vello CPU uses a Postscript-like API, where you can use methods like
@@ -117,7 +117,7 @@ fn main() {
     // Let's say that we have drawn everything we wanted to now. Next, it is
     // recommended that you call the `flush` method. In theory, this call
     // is only necessary when using multi-threaded rendering, to signal that
-    // no more operations will be dispatched and the render context should be
+    // no more operations will be dispatched and the scene should be
     // synchronized. If you forget to call this during multi-threaded rendering,
     // the application will panic. In single-threaded rendering, nothing happens.
     //
@@ -127,12 +127,12 @@ fn main() {
     // running your code.
     ctx.flush();
 
-    // Now the second step is to copy the results of the render context into the
+    // Now the second step is to copy the results of the scene into the
     // pixmap. We do this by creating a new pixmap (or reusing an existing one).
-    // The pixmap and render context can have different dimensions. See the documentation
+    // The pixmap and scene can have different dimensions. See the documentation
     // of the `render_with` method for more information.
     let mut pixmap_1 = Pixmap::new(100, 100);
-    // Now, simply extract the results from the render context into the
+    // Now, simply extract the results from the scene into the
     // pixmap.
     ctx.render_with(&mut pixmap_1, &mut resources, rasterizer_settings);
 
@@ -144,7 +144,7 @@ fn main() {
     std::fs::write("example_basic1.png", png_1).unwrap();
 
     // If you have another scene you want to draw at the same resolution,
-    // you can simply reuse the existing render context instead of creating
+    // you can simply reuse the existing scene instead of creating
     // a new one.
     ctx.reset();
 

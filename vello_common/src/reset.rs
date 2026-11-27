@@ -1,9 +1,9 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Options for resetting a render context or scene.
+//! Options for resetting a scene.
 
-/// Options for resetting a render context or scene.
+/// Options for resetting a scene.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ResetOptions {
     /// The new width and height, or `None` to keep the current size.

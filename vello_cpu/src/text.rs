@@ -4,7 +4,7 @@
 //! Vello CPU glyph rendering backend.
 //!
 //! Provides [`GlyphAtlas`] (atlas backed by per-page [`Pixmap`]s) and the
-//! [`GlyphRenderer`](glifo::GlyphRenderer) implementation for [`RenderContext`] that
+//! [`GlyphRenderer`](glifo::GlyphRenderer) implementation for [`Scene`] that
 //! rasterises glyphs into CPU-accessible pixel buffers.
 //!
 //! The key difference from the GPU backend is that atlas pages are owned as
@@ -13,8 +13,8 @@
 
 use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
 use crate::{
-    Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderContext, RenderMode,
-    RenderSettings, Resources, TargetInit, color, kurbo, peniko,
+    Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderMode, RenderSettings,
+    Resources, Scene, TargetInit, color, kurbo, peniko,
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -37,7 +37,7 @@ use vello_common::paint::ImageId;
 pub(crate) struct GlyphAtlasResources {
     pub(crate) glyph_atlas: GlyphAtlas,
     pub(crate) image_cache: ImageCache,
-    pub(crate) glyph_renderer: Box<RenderContext>,
+    pub(crate) glyph_renderer: Box<Scene>,
     /// One `Pixmap` per atlas page, grown on demand.
     // It's a bit annoying to have this in an `Arc`, but it needs to be this way. During fine
     // rasterization, we need to be able to easily clone the atlas page so that it can be shared
@@ -64,7 +64,7 @@ impl GlyphAtlasResources {
         Self {
             glyph_atlas: GlyphAtlas::with_config(eviction_config),
             image_cache: ImageCache::new_with_config(AtlasConfig::default()),
-            glyph_renderer: Box::new(RenderContext::new_with(
+            glyph_renderer: Box::new(Scene::new_with(
                 page_width,
                 page_height,
                 RenderSettings {
@@ -154,7 +154,7 @@ impl Resources {
             );
         }
 
-        // Draw all new COLR/outline glyphs into the render context, and then composite them into the
+        // Draw all new COLR/outline glyphs into the scene, and then composite them into the
         // existing atlas page.
         let glyph_renderer = glyph_resources.glyph_renderer.as_mut();
         glyph_resources
@@ -209,7 +209,7 @@ impl Resources {
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct CpuGlyphRunBackend<'a> {
-    pub ctx: &'a mut RenderContext,
+    pub scene: &'a mut Scene,
     pub resources: &'a mut Resources,
     pub atlas_cache_enabled: bool,
 }
@@ -219,14 +219,14 @@ impl<'a> CpuGlyphRunBackend<'a> {
         self,
         run: glifo::GlyphRun<'a>,
         glyphs: Glyphs,
-        render: impl FnOnce(&mut glifo::GlyphRunRenderer<'a, 'a, Glyphs>, &mut RenderContext) -> R,
+        render: impl FnOnce(&mut glifo::GlyphRunRenderer<'a, 'a, Glyphs>, &mut Scene) -> R,
     ) -> R
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         let atlas_cacher = if self.atlas_cache_enabled {
             self.resources
-                .ensure_glyph_resources(self.ctx.render_settings.level);
+                .ensure_glyph_resources(self.scene.render_settings.level);
             let glyph_resources = self
                 .resources
                 .glyph_resources
@@ -245,7 +245,7 @@ impl<'a> CpuGlyphRunBackend<'a> {
             self.resources.glyph_prep_cache.as_mut(),
             atlas_cacher,
         );
-        render(&mut glyph_run, self.ctx)
+        render(&mut glyph_run, self.scene)
     }
 }
 
@@ -349,7 +349,7 @@ fn copy_pixmap_to_atlas(
     }
 }
 
-impl DrawSink for RenderContext {
+impl DrawSink for Scene {
     #[inline]
     fn set_transform(&mut self, t: Affine) {
         Self::set_transform(self, t);
@@ -416,7 +416,7 @@ impl DrawSink for RenderContext {
     }
 }
 
-impl glifo::GlyphRenderer for RenderContext {
+impl glifo::GlyphRenderer for Scene {
     type SavedState = vello_common::render_state::RenderState;
 
     #[inline]
@@ -480,7 +480,7 @@ impl glifo::GlyphRenderer for RenderContext {
 mod debug {
     use core::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::RenderContext;
+    use crate::Scene;
     use crate::kurbo::{Affine, Rect};
     use crate::peniko;
     use glifo::atlas::RasterMetrics;
@@ -506,7 +506,7 @@ mod debug {
 
     /// Fill the glyph's pixel bounds with the next rotating debug colour.
     /// Call before rendering the actual glyph content to visualise the extent.
-    pub fn fill_glyph_bounds(renderer: &mut RenderContext, raster_metrics: &RasterMetrics) {
+    pub fn fill_glyph_bounds(renderer: &mut Scene, raster_metrics: &RasterMetrics) {
         let idx = COLOR_INDEX.fetch_add(1, Ordering::Relaxed) % COLORS.len();
         renderer.set_transform(Affine::IDENTITY);
         renderer.set_paint(COLORS[idx]);

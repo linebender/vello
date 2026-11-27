@@ -54,7 +54,7 @@
 //!
 //! The renderer is split into several key components:
 //!
-//! - `Scene`: Manages the render context and path processing on the CPU
+//! - `Scene`: Records drawing commands and prepares them for rendering on the GPU
 //! - `Renderer` or `WebGlRenderer`: Handles GPU resource management and executes
 //!   draw operations
 //!
