@@ -16,7 +16,7 @@ mod image;
 use crate::filter::context::ScratchBuffer;
 use crate::filter::filter_lowp;
 use crate::fine::lowp::image::{BilinearImagePainter, PlainBilinearImagePainter};
-use crate::fine::{COLOR_COMPONENTS, FineKernel, Painter, Splat4thExt, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{COLOR_COMPONENTS, FineKernel, Painter, Splat4thExt};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use crate::util::NormalizedMulExt;
@@ -40,8 +40,19 @@ pub struct U8Kernel;
 
 impl<S: Simd> FineKernel<S> for U8Kernel {
     type Numeric = u8;
+    type Pixel = u32;
     type Composite = u8x32<S>;
     type NumericVec = u8x16<S>;
+
+    #[inline(always)]
+    fn pixels_as_components(pixels: &[Self::Pixel]) -> &[Self::Numeric] {
+        cast_slice(pixels)
+    }
+
+    #[inline(always)]
+    fn pixels_as_components_mut(pixels: &mut [Self::Pixel]) -> &mut [Self::Numeric] {
+        cast_slice_mut(pixels)
+    }
 
     /// Extracts RGBA color components from a premultiplied color as u8 values [0, 255].
     #[inline]
@@ -69,9 +80,8 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     ///
     /// Efficiently broadcasts a single RGBA color across all pixels in the destination.
     #[simd]
-    fn copy_solid(simd: S, dest: &mut [Self::Numeric], src: [Self::Numeric; 4]) {
-        let target: &mut [u32] = cast_slice_mut(dest);
-        target.fill(u32::from_ne_bytes(src));
+    fn copy_solid(simd: S, dest: &mut [Self::Pixel], src: [Self::Numeric; 4]) {
+        dest.fill(u32::from_ne_bytes(src));
     }
 
     /// Creates a painter for rendering gradients in u8 precision.
@@ -290,18 +300,18 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     }
 
     #[simd]
-    fn pack(simd: S, scratch: &[Self::Numeric], width: usize, region: &mut Region<'_>) {
+    fn pack(simd: S, scratch: &[Self::Pixel], width: usize, region: &mut Region<'_>) {
         pack(simd, scratch, width, region);
     }
 
     #[simd]
-    fn unpack(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [Self::Numeric]) {
+    fn unpack(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [Self::Pixel]) {
         unpack(simd, region, width, scratch);
     }
 }
 
 #[inline(always)]
-fn pack<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Region<'_>) {
+fn pack<S: Simd>(simd: S, scratch: &[u32], width: usize, region: &mut Region<'_>) {
     let block_width = if region.height == Tile::HEIGHT {
         (width / Tile::WIDTH as usize) * Tile::WIDTH as usize
     } else {
@@ -314,7 +324,7 @@ fn pack<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Region<'_>)
     let tail_width = width - block_width;
     if tail_width > 0 {
         pack_tail(
-            &scratch[block_width * TILE_HEIGHT_COMPONENTS..],
+            &scratch[block_width * Tile::HEIGHT as usize..],
             block_width,
             tail_width,
             region,
@@ -323,8 +333,8 @@ fn pack<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Region<'_>)
 }
 
 #[inline(always)]
-fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Region<'_>) {
-    const CHUNK_LENGTH: usize = Tile::WIDTH as usize * TILE_HEIGHT_COMPONENTS;
+fn pack_block<S: Simd>(simd: S, scratch: &[u32], width: usize, region: &mut Region<'_>) {
+    const CHUNK_LENGTH: usize = Tile::WIDTH as usize * Tile::HEIGHT as usize;
 
     let [row0, row1, row2, row3] = region.areas();
     let row_len = width * COLOR_COMPONENTS;
@@ -333,15 +343,12 @@ fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Regio
     let mut row2 = &mut row2[..row_len];
     let mut row3 = &mut row3[..row_len];
 
-    for col in scratch[..width * TILE_HEIGHT_COMPONENTS]
+    for col in scratch[..width * Tile::HEIGHT as usize]
         .as_chunks::<CHUNK_LENGTH>()
         .0
     {
-        let casted: &[u32; 16] = cast_slice::<u8, u32>(col).try_into().unwrap();
-
-        let [loaded_1, loaded_2, loaded_3, loaded_4] = simd
-            .load_four_interleaved_u32x4(casted)
-            .map(u32x4::to_bytes);
+        let [loaded_1, loaded_2, loaded_3, loaded_4] =
+            simd.load_four_interleaved_u32x4(col).map(u32x4::to_bytes);
 
         let (dest0, rest0) = row0.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
         let (dest1, rest1) = row1.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
@@ -361,7 +368,7 @@ fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Regio
 }
 
 #[inline(always)]
-fn pack_tail(scratch: &[u8], x: usize, width: usize, region: &mut Region<'_>) {
+fn pack_tail(scratch: &[u32], x: usize, width: usize, region: &mut Region<'_>) {
     for y in region.tile_rows() {
         let row = &mut region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
         for (dx, pixel) in row
@@ -370,14 +377,14 @@ fn pack_tail(scratch: &[u8], x: usize, width: usize, region: &mut Region<'_>) {
             .iter_mut()
             .enumerate()
         {
-            let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
-            pixel.copy_from_slice(&scratch[idx..idx + COLOR_COMPONENTS]);
+            let idx = Tile::HEIGHT as usize * dx + usize::from(y);
+            *pixel = scratch[idx].to_ne_bytes();
         }
     }
 }
 
 #[inline(always)]
-fn unpack<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [u8]) {
+fn unpack<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [u32]) {
     let block_width = if region.height == Tile::HEIGHT {
         width / Tile::WIDTH as usize * Tile::WIDTH as usize
     } else {
@@ -393,14 +400,14 @@ fn unpack<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut
             region,
             block_width,
             tail_width,
-            &mut scratch[block_width * TILE_HEIGHT_COMPONENTS..],
+            &mut scratch[block_width * Tile::HEIGHT as usize..],
         );
     }
 }
 
 #[inline(always)]
-fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [u8]) {
-    let scratch: &mut [f32] = cast_slice_mut(&mut scratch[..width * TILE_HEIGHT_COMPONENTS]);
+fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [u32]) {
+    let scratch: &mut [f32] = cast_slice_mut(&mut scratch[..width * Tile::HEIGHT as usize]);
     const CHUNK_LENGTH: usize = 16;
 
     let [row0, row1, row2, row3] = region.areas();
@@ -433,12 +440,12 @@ fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch
 }
 
 #[inline(always)]
-fn unpack_tail(region: &mut Region<'_>, x: usize, width: usize, scratch: &mut [u8]) {
+fn unpack_tail(region: &mut Region<'_>, x: usize, width: usize, scratch: &mut [u32]) {
     for y in region.tile_rows() {
         let row = &region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
         for (dx, pixel) in row.as_chunks::<COLOR_COMPONENTS>().0.iter().enumerate() {
-            let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
-            scratch[idx..idx + COLOR_COMPONENTS].copy_from_slice(pixel);
+            let idx = Tile::HEIGHT as usize * dx + usize::from(y);
+            scratch[idx] = u32::from_ne_bytes(*pixel);
         }
     }
 }
@@ -660,15 +667,23 @@ mod tests {
 
     fn test_pack_unpack_roundtrip(
         width: u16,
-        pack_fn: impl FnOnce(&mut Region<'_>, &[u8]),
-        unpack_fn: impl FnOnce(&mut Region<'_>, &mut [u8]),
+        pack_fn: impl FnOnce(&mut Region<'_>, &[u32]),
+        unpack_fn: impl FnOnce(&mut Region<'_>, &mut [u32]),
     ) {
         let height = Tile::HEIGHT;
-        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let pixel_len = usize::from(width) * usize::from(height);
 
         // Just some pseudo-random numbers.
-        let scratch = (0..scratch_len)
-            .map(|n| ((n * 7 + 13) % 256) as u8)
+        let scratch = (0..pixel_len)
+            .map(|n| {
+                let base = n * COLOR_COMPONENTS;
+                u32::from_ne_bytes([
+                    ((base * 7 + 13) % 256) as u8,
+                    (((base + 1) * 7 + 13) % 256) as u8,
+                    (((base + 2) * 7 + 13) % 256) as u8,
+                    (((base + 3) * 7 + 13) % 256) as u8,
+                ])
+            })
             .collect::<Vec<_>>();
 
         let mut pixmap = Pixmap::new(width, height);
@@ -677,7 +692,7 @@ mod tests {
 
         pack_fn(&mut region, &scratch);
 
-        let mut unpacked = vec![0_u8; scratch_len];
+        let mut unpacked = vec![0_u32; pixel_len];
         unpack_fn(&mut region, &mut unpacked);
 
         assert_eq!(scratch, unpacked);

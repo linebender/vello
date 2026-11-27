@@ -23,6 +23,10 @@ This release has an [MSRV][] of 1.89.
 - Breaking change: `RenderContext::reset_and_resize` and `RenderContext::reset_and_shrink` have been removed in favor of `RenderContext::reset_with`. (by [@LaurenzV][])
 - Rendering with `TargetInit::SrcOver` skips strip rows that contain no draws, so updating a few glyphs no longer rewrites the whole atlas page. (by [@grebmeg][])
 
+### Fixed
+
+- The `u8` pipeline no longer panics under Miri or 1-byte-aligned allocators when clearing, packing, or unpacking scratch buffers. (by [@yhay81][])
+
 ## [0.4.0][] - 2026-11-11
 
 This release has an [MSRV][] of 1.89.
@@ -301,6 +305,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@yezhizhen]: https://github.com/yezhizhen
+[@yhay81]: https://github.com/yhay81
 [@zlstringham]: https://github.com/zlstringham
 
 [#1159]: https://github.com/linebender/vello/pull/1159

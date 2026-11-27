@@ -1489,4 +1489,98 @@ mod tests {
 
         assert!(resources.glyph_resources.is_some());
     }
+
+    #[cfg(feature = "u8_pipeline")]
+    #[test]
+    fn u8_pipeline_clear_pack_unpack_aligned() {
+        use crate::{Level, RenderMode, RenderSettings};
+        use vello_common::color::palette::css::WHITE;
+
+        let settings = RenderSettings {
+            level: Level::fallback(),
+            ..Default::default()
+        };
+        let mut resources = Resources::new();
+
+        // Empty 2x2 opaque clear exercises `U8Kernel::copy_solid` and `pack_tail`.
+        let mut ctx = RenderContext::new_with(2, 2, settings);
+        ctx.flush();
+        let mut small = Pixmap::new(2, 2);
+        ctx.render_with(
+            &mut small,
+            &mut resources,
+            RasterizerSettings {
+                render_mode: RenderMode::OptimizeSpeed,
+                target_init: TargetInit::Clear(WHITE),
+                ..Default::default()
+            },
+        );
+        let white = WHITE.premultiply().to_rgba8();
+        assert!(
+            small.data().iter().all(|&p| p == white),
+            "2x2 clear should fill every pixel with white"
+        );
+
+        // 9x5 scene exercises `copy_solid`, `push_buf` / `buffer_pool`, `pack_block` (8x4),
+        // `pack_tail` (col 8 and row 4), and `unpack_block` / `unpack_tail` under `SrcOver`.
+        let mut ctx = RenderContext::new_with(9, 5, settings);
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
+        ctx.push_opacity_layer(0.5);
+        ctx.set_paint(BLUE);
+        ctx.fill_rect(&Rect::new(4.0, 0.0, 9.0, 5.0));
+        ctx.pop_layer();
+        ctx.flush();
+
+        let mut pixmap = Pixmap::new(9, 5);
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                render_mode: RenderMode::OptimizeSpeed,
+                target_init: TargetInit::Clear(WHITE),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            pixmap.sample(0, 0),
+            red_pixel(),
+            "opaque red rect should overwrite cleared background"
+        );
+        assert_ne!(
+            pixmap.sample(4, 0),
+            white,
+            "semi-transparent blue layer should blend over white"
+        );
+        assert_ne!(
+            pixmap.sample(8, 4),
+            white,
+            "tail pixel should also receive semi-transparent blue layer"
+        );
+
+        // Compositing a non-empty scene with `SrcOver` exercises `unpack_block` and `unpack_tail`.
+        let mut overlay = RenderContext::new_with(9, 5, settings);
+        overlay.set_paint(BLUE.with_alpha(0.5));
+        overlay.fill_rect(&Rect::new(0.0, 0.0, 2.0, 5.0));
+        overlay.flush();
+        overlay.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                render_mode: RenderMode::OptimizeSpeed,
+                target_init: TargetInit::SrcOver,
+                ..Default::default()
+            },
+        );
+        assert_ne!(
+            pixmap.sample(0, 0),
+            red_pixel(),
+            "SrcOver overlay should blend over previously rendered red pixel"
+        );
+        assert_eq!(
+            pixmap.sample(3, 0),
+            red_pixel(),
+            "SrcOver should preserve untouched background pixels"
+        );
+    }
 }

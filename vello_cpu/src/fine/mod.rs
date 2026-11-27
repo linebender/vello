@@ -230,11 +230,23 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     /// The basic underlying numerical type of the kernel (f32 or u8).
     type Numeric: Numeric;
 
+    /// One RGBA pixel in the row scratch buffer.
+    ///
+    /// Stored with 4-byte alignment (`u32` for [`U8Kernel`], `[f32; 4]` for [`F32Kernel`])
+    /// so kernels can operate on 32-bit pixel words without unaligned slice casts.
+    type Pixel: Copy + Default + Debug + Send + Sync + 'static;
+
     /// The SIMD composite type used for efficient batch blending and compositing operations.
     type Composite: CompositeType<Self::Numeric, S>;
 
     /// The SIMD vector type used for conversions between u8 and f32 representations.
     type NumericVec: NumericVec<S>;
+
+    /// View a slice of scratch pixels as flat color components.
+    fn pixels_as_components(pixels: &[Self::Pixel]) -> &[Self::Numeric];
+
+    /// View a mutable slice of scratch pixels as flat color components.
+    fn pixels_as_components_mut(pixels: &mut [Self::Pixel]) -> &mut [Self::Numeric];
 
     /// Extract and convert a premultiplied color to the kernel's numeric type.
     ///
@@ -243,10 +255,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     fn extract_color(color: PremulColor) -> [Self::Numeric; 4];
 
     /// Pack row scratch data into a row-major output buffer.
-    fn pack(simd: S, scratch: &[Self::Numeric], width: usize, region: &mut Region<'_>);
+    fn pack(simd: S, scratch: &[Self::Pixel], width: usize, region: &mut Region<'_>);
 
     /// Unpack row-major input data into row scratch.
-    fn unpack(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [Self::Numeric]);
+    fn unpack(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [Self::Pixel]);
 
     /// Apply a filter to a layer.
     ///
@@ -271,7 +283,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     /// Fill the target buffer with a solid color.
     ///
     /// Efficiently replicates the given RGBA color across all pixels in the target buffer.
-    fn copy_solid(simd: S, target: &mut [Self::Numeric], color: [Self::Numeric; 4]);
+    fn copy_solid(simd: S, target: &mut [Self::Pixel], color: [Self::Numeric; 4]);
     /// Create a painter for rendering gradients.
     ///
     /// Returns a painter that can render linear, radial, or sweep gradients based on
@@ -442,13 +454,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
 
     /// Fill a row scratch span with a solid color, optionally modulated by per-pixel alphas.
     #[inline(always)]
-    fn fill_solid(simd: S, dest: &mut [Self::Numeric], color: PremulColor, alphas: Option<&[u8]>) {
+    fn fill_solid(simd: S, dest: &mut [Self::Pixel], color: PremulColor, alphas: Option<&[u8]>) {
         let color = Self::extract_color(color);
 
         if color[3] == Self::Numeric::ONE && alphas.is_none() {
             Self::copy_solid(simd, dest, color);
         } else {
-            Self::alpha_composite_solid(simd, dest, color, alphas);
+            Self::alpha_composite_solid(simd, Self::pixels_as_components_mut(dest), color, alphas);
         }
     }
 }
@@ -529,9 +541,9 @@ pub struct Fine<S: Simd, T: FineKernel<S>> {
     ///
     /// Each layer pushes a new buffer onto this stack, and layers are composited
     /// by popping and blending with the buffer below.
-    blend_buffers: Vec<Vec<T::Numeric>>,
+    blend_buffers: Vec<Vec<T::Pixel>>,
     /// Pool for reusing layer buffer allocations.
-    buffer_pool: VecPool<T::Numeric>,
+    buffer_pool: VecPool<T::Pixel>,
     /// Intermediate buffer used by painters to store generated pixel data before compositing.
     paint_buf: Vec<T::Numeric>,
     /// Buffer for storing gradient interpolation parameters (t values).
@@ -548,11 +560,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     /// Initializes all scratch buffers and sets up the initial blend buffer.
     #[doc(hidden)]
     pub fn new(simd: S, buffer_width: u16) -> Self {
-        let scratch_len = usize::from(buffer_width) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(buffer_width) * Tile::HEIGHT as usize;
         Self {
             simd,
             buffer_span: TileAlignedSpan::try_from(Span::new(0, buffer_width)).unwrap(),
-            blend_buffers: vec![vec![T::Numeric::ZERO; scratch_len]],
+            blend_buffers: vec![vec![T::Pixel::default(); scratch_len]],
             buffer_pool: VecPool::new(false),
             paint_buf: Vec::new(),
             f32_buf: Vec::new(),
@@ -570,8 +582,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     }
 
     fn scratch_range(span: TileAlignedSpan) -> core::ops::Range<usize> {
-        let start = usize::from(span.pixel_x()) * TILE_HEIGHT_COMPONENTS;
-        let len = usize::from(span.pixel_width()) * TILE_HEIGHT_COMPONENTS;
+        let start = usize::from(span.pixel_x()) * Tile::HEIGHT as usize;
+        let len = usize::from(span.pixel_width()) * Tile::HEIGHT as usize;
         start..start + len
     }
 
@@ -623,7 +635,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     #[inline]
                     |span| {
                         let range = Self::scratch_range(span);
-                        self.blend_buffers.last_mut().unwrap()[range].fill(T::Numeric::ZERO);
+                        self.blend_buffers.last_mut().unwrap()[range].fill(T::Pixel::default());
                     },
                 );
             }
@@ -649,12 +661,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let mut buf = self.buffer_pool.take();
         // Reused vectors will retain their length, so in most cases this
         // will be a no-op.
-        buf.resize(self.blend_buffers[0].len(), T::Numeric::ZERO);
+        buf.resize(self.blend_buffers[0].len(), T::Pixel::default());
 
         // Instead of always zeroing out the whole buffer, only zero the
         // row-local span that will be read when compositing this layer.
         if let Some(span) = span.and_then(|span| span.intersect(self.buffer_span)) {
-            buf[Self::scratch_range(span)].fill(T::Numeric::ZERO);
+            buf[Self::scratch_range(span)].fill(T::Pixel::default());
         }
         self.blend_buffers.push(buf);
     }
@@ -673,7 +685,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         T::pack(
             self.simd,
-            &scratch[scene_x0 * TILE_HEIGHT_COMPONENTS..],
+            &scratch[scene_x0 * Tile::HEIGHT as usize..],
             width,
             region,
         );
@@ -692,7 +704,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             self.simd,
             region,
             width,
-            &mut scratch[scene_x0 * TILE_HEIGHT_COMPONENTS..],
+            &mut scratch[scene_x0 * Tile::HEIGHT as usize..],
         );
     }
 
@@ -782,7 +794,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
     fn opacity(&mut self, span: TileAlignedSpan, opacity: f32) {
         let target = self.blend_buffers.last_mut().unwrap();
-        let target = &mut target[Self::scratch_range(span)];
+        let target = T::pixels_as_components_mut(&mut target[Self::scratch_range(span)]);
 
         T::apply_mask(
             self.simd,
@@ -798,7 +810,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let x = span.pixel_x();
         let width = span.pixel_width();
         let target = self.blend_buffers.last_mut().unwrap();
-        let target = &mut target[Self::scratch_range(span)];
+        let target = T::pixels_as_components_mut(&mut target[Self::scratch_range(span)]);
         let y = u32::from(row_y) + u32x4::from_slice(self.simd, &[0, 1, 2, 3]);
         let iter = (x..x.saturating_add(width)).map(|x| {
             let x_in_range = x < mask.width();
@@ -850,8 +862,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let (source, rest) = self.blend_buffers.split_last_mut().unwrap();
         let target = rest.last_mut().unwrap();
         let range = Self::scratch_range(span);
-        let source = &mut source[range.clone()];
-        let target = &mut target[range];
+        let source = T::pixels_as_components(&source[range.clone()]);
+        let target = T::pixels_as_components_mut(&mut target[range]);
 
         if blend_mode == BlendMode::default() {
             T::alpha_composite_buffer(self.simd, target, source, alphas);
@@ -920,7 +932,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let scratch = self.blend_buffers.last_mut().unwrap();
         T::blend(
             simd,
-            &mut scratch[Self::scratch_range(span)],
+            T::pixels_as_components_mut(&mut scratch[Self::scratch_range(span)]),
             x,
             self.row_y,
             iter::repeat(color),
@@ -956,8 +968,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         let simd = self.simd;
         let width = usize::from(width);
-        let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
-        let dest = &mut self.blend_buffers.last_mut().unwrap()[start..start + len];
+        let dest = T::pixels_as_components_mut(
+            &mut self.blend_buffers.last_mut().unwrap()[Self::scratch_range(span)],
+        );
         let color_buf = &mut self.paint_buf[..len];
         let encoded_paint = resources
             .encoded_paints

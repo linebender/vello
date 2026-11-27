@@ -37,8 +37,19 @@ pub struct F32Kernel;
 
 impl<S: Simd> FineKernel<S> for F32Kernel {
     type Numeric = f32;
+    type Pixel = [f32; 4];
     type Composite = f32x16<S>;
     type NumericVec = f32x16<S>;
+
+    #[inline(always)]
+    fn pixels_as_components(pixels: &[Self::Pixel]) -> &[Self::Numeric] {
+        pixels.as_flattened()
+    }
+
+    #[inline(always)]
+    fn pixels_as_components_mut(pixels: &mut [Self::Pixel]) -> &mut [Self::Numeric] {
+        pixels.as_flattened_mut()
+    }
 
     /// Extracts RGBA color components from a premultiplied color as f32 values [0.0, 1.0].
     #[inline(always)]
@@ -67,10 +78,10 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     /// Efficiently broadcasts a single RGBA color across all pixels in the destination.
     #[inline(never)]
     #[simd]
-    fn copy_solid(simd: S, dest: &mut [Self::Numeric], src: [Self::Numeric; 4]) {
+    fn copy_solid(simd: S, dest: &mut [Self::Pixel], src: [Self::Numeric; 4]) {
         let color = f32x16::block_splat(src.simd_into(simd));
 
-        for el in dest.as_chunks_mut::<16>().0 {
+        for el in dest.as_flattened_mut().as_chunks_mut::<16>().0 {
             color.store_slice(el);
         }
     }
@@ -264,7 +275,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         }
     }
 
-    fn pack(_simd: S, scratch: &[Self::Numeric], width: usize, region: &mut Region<'_>) {
+    fn pack(_simd: S, scratch: &[Self::Pixel], width: usize, region: &mut Region<'_>) {
         for y in region.tile_rows() {
             let row = &mut region.row_mut(y)[..width * COLOR_COMPONENTS];
             // TODO: SIMDify
@@ -274,26 +285,28 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 .iter_mut()
                 .enumerate()
             {
-                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
-                let src = &scratch[idx..idx + COLOR_COMPONENTS];
-                *r = (src[0] * 255.0 + 0.5) as u8;
-                *g = (src[1] * 255.0 + 0.5) as u8;
-                *b = (src[2] * 255.0 + 0.5) as u8;
-                *a = (src[3] * 255.0 + 0.5) as u8;
+                let idx = Tile::HEIGHT as usize * dx + usize::from(y);
+                let [sr, sg, sb, sa] = scratch[idx];
+                *r = (sr * 255.0 + 0.5) as u8;
+                *g = (sg * 255.0 + 0.5) as u8;
+                *b = (sb * 255.0 + 0.5) as u8;
+                *a = (sa * 255.0 + 0.5) as u8;
             }
         }
     }
 
-    fn unpack(_simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [Self::Numeric]) {
+    fn unpack(_simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [Self::Pixel]) {
         for y in region.tile_rows() {
             let row = &region.row_mut(y)[..width * COLOR_COMPONENTS];
             // TODO: SIMDify + multiply by 1.0/255.0 instead.
             for (dx, &[r, g, b, a]) in row.as_chunks::<COLOR_COMPONENTS>().0.iter().enumerate() {
-                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
-                scratch[idx] = r as f32 / 255.0;
-                scratch[idx + 1] = g as f32 / 255.0;
-                scratch[idx + 2] = b as f32 / 255.0;
-                scratch[idx + 3] = a as f32 / 255.0;
+                let idx = Tile::HEIGHT as usize * dx + usize::from(y);
+                scratch[idx] = [
+                    r as f32 / 255.0,
+                    g as f32 / 255.0,
+                    b as f32 / 255.0,
+                    a as f32 / 255.0,
+                ];
             }
         }
     }
