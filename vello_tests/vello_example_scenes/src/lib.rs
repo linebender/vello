@@ -32,10 +32,7 @@ pub use vello_common::mask::Mask;
 use vello_common::paint::ImageSource;
 pub use vello_common::paint::{Paint, PaintType};
 pub use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
-#[cfg(feature = "cpu")]
-use vello_cpu::{RenderContext, Resources as CpuResources};
 pub use vello_gpu::TextureId;
-use vello_gpu::{Resources as GpuResources, Scene};
 
 /// Renderer capability flags controlling which scenes are listed by [`get_example_scenes`].
 ///
@@ -113,8 +110,8 @@ pub trait RenderingContext: Sized {
 }
 
 #[cfg(feature = "cpu")]
-impl RenderingContext for RenderContext {
-    type Resources = CpuResources;
+impl RenderingContext for vello_cpu::Scene {
+    type Resources = vello_cpu::Resources;
     type GlyphRunBackend<'a> = vello_cpu::CpuGlyphRunBackend<'a>;
 
     fn width(&self) -> u16 {
@@ -213,8 +210,8 @@ impl RenderingContext for RenderContext {
     }
 }
 
-impl RenderingContext for Scene {
-    type Resources = GpuResources;
+impl RenderingContext for vello_gpu::Scene {
+    type Resources = vello_gpu::Resources;
     type GlyphRunBackend<'a> = vello_gpu::GpuGlyphRunBackend<'a>;
 
     fn width(&self) -> u16 {

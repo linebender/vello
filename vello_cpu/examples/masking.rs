@@ -5,7 +5,7 @@
 
 use vello_cpu::color::palette::css::{BLUE, RED, WHITE};
 use vello_cpu::kurbo::Rect;
-use vello_cpu::{Mask, Pixmap, RenderContext, Resources};
+use vello_cpu::{Mask, Pixmap, Resources, Scene};
 
 const SIZE: u16 = 200;
 
@@ -17,8 +17,8 @@ fn main() {
     let mask = {
         // In this case, we are drawing the mask ourselves. Note that the
         // dimensions of the final mask need to match the dimensions of our
-        // original render context!
-        let mut mask_ctx = RenderContext::new(SIZE, SIZE);
+        // original scene!
+        let mut mask_ctx = Scene::new(SIZE, SIZE);
         let mut mask_resources = Resources::new();
         let mut pixmap = Pixmap::new(SIZE, SIZE);
 
@@ -30,15 +30,15 @@ fn main() {
         Mask::new_luminance(&pixmap)
     };
 
-    // Create the main render context.
-    let mut ctx = RenderContext::new(SIZE, SIZE);
+    // Create the main scene.
+    let mut ctx = Scene::new(SIZE, SIZE);
 
     // Similarly to clip paths (see the clipping example), there are two
     // different ways of applying them:
     // The first method is by creating a new isolated layer where the mask
     // will be applied once the whole layer has been drawn and is composited
     // into the backdrop. The second method is by setting the mask in the
-    // render context, in which case the mask will be applied to each shape
+    // scene, in which case the mask will be applied to each shape
     // directly before being drawn. Which method you should use once again
     // depends on the imaging model you are reflecting.
 
@@ -91,7 +91,7 @@ fn main() {
     // As can be seen, the visual result of the two methods can be different!
 }
 
-fn save_pixmap(ctx: &RenderContext, filename: &str) {
+fn save_pixmap(ctx: &Scene, filename: &str) {
     let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render(&mut pixmap, &mut resources);

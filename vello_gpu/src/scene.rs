@@ -111,7 +111,7 @@ impl Drawable for RecordedDraw {
     }
 }
 
-/// Settings to apply to the render context.
+/// Settings to apply to the scene.
 #[derive(Clone, Debug)]
 pub struct RenderSettings {
     pub(crate) level: Level,
@@ -255,9 +255,9 @@ impl Default for RenderSettings {
     }
 }
 
-/// A render context for GPU rendering.
+/// A scene for GPU rendering.
 ///
-/// This context maintains the state for path rendering and manages the rendering
+/// It maintains the state for path rendering and manages the rendering
 /// pipeline from paths to strips that can be rendered by the GPU.
 #[derive(Debug)]
 pub struct Scene {
@@ -284,7 +284,7 @@ pub struct Scene {
 }
 
 impl Scene {
-    /// Create a new render context with the given width and height in pixels.
+    /// Create a new scene with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
         Self::new_with(
             width,
@@ -293,7 +293,7 @@ impl Scene {
         )
     }
 
-    /// Create a new render context with a specific SIMD level.
+    /// Create a new scene with a specific SIMD level.
     pub fn new_with(width: u16, height: u16, level: Level) -> Self {
         Self {
             width,
@@ -1004,12 +1004,12 @@ impl Scene {
         }
     }
 
-    /// Get the width of the render context.
+    /// Get the width of the scene.
     pub fn width(&self) -> u16 {
         self.width
     }
 
-    /// Get the height of the render context.
+    /// Get the height of the scene.
     pub fn height(&self) -> u16 {
         self.height
     }

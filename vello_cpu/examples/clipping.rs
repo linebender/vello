@@ -4,8 +4,8 @@
 //! Applying clip paths using Vello CPU.
 
 use vello_cpu::Pixmap;
-use vello_cpu::RenderContext;
 use vello_cpu::Resources;
+use vello_cpu::Scene;
 use vello_cpu::color::palette::css::{BLUE, RED, WHITE};
 use vello_cpu::kurbo::{Circle, Rect, Shape};
 
@@ -16,7 +16,7 @@ fn main() {
     // provides 2 different ways of using them. Below, we will explore them
     // and explain their difference and when to use which one.
 
-    let mut ctx = RenderContext::new(200, 200);
+    let mut ctx = Scene::new(200, 200);
 
     // Two example clip shapes. They have a small overlap in the center that forms
     // an ellipse.
@@ -32,7 +32,7 @@ fn main() {
 
         // As mentioned, clip paths contain the area that will be affected by
         // our drawing operations. By default, drawing operations will be
-        // visible on the whole width/height of the render context.
+        // visible on the whole width/height of the scene.
 
         // After this first `push_clip_path`, all drawing operations will be
         // constrained to the area of the first circle.
@@ -125,7 +125,7 @@ fn main() {
     // therefore always prefer using those over masking.
 }
 
-fn save_pixmap(ctx: &RenderContext, filename: &str) {
+fn save_pixmap(ctx: &Scene, filename: &str) {
     let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render(&mut pixmap, &mut resources);

@@ -196,7 +196,7 @@ impl EncodeExt for Gradient {
         // command before starting with the rendering.
         // First we need to account for the base transform of the shader, then
         // we need to apply the _inverse_ paint transform to the point so that we can account
-        // for the paint transform of the render context.
+        // for the paint transform of the scene.
         let transform = base_transform * inverse_transform;
 
         // One possible approach to calculating the positions would be to apply the above

@@ -164,7 +164,7 @@ impl FilterLayerPlacement {
             .intersect(RectU16::new(0, 0, viewport.width(), viewport.height()))
             .snap_to_tile_coordinates();
 
-        // Remember that in `RenderContext`, we eagerly shift everything drawn by `source_shift`
+        // Remember that in `Scene`, we eagerly shift everything drawn by `source_shift`
         // to conservatively ensure that everything that might be needed for the filter is in the
         // viewport area. Therefore, when compositing the filter layer back, we need to undo that
         // shift.
@@ -256,7 +256,7 @@ impl FilterData {
             );
 
             // TODO: We technically shouldn't need to snap here. `source_padding` is only
-            // used to shift the contents when rendering into the render context, and the
+            // used to shift the contents when rendering into the scene, and the
             // final pixmap bbox (which is derived from `filter_expansion` will be snapped
             // separately. However, not snapping here causes larger mismatches with Vello GPU
             // since the size of the final pixmap determines in which way we decimate for the

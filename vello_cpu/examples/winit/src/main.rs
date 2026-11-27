@@ -16,7 +16,7 @@ use std::time::Instant;
 use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::ImageSource;
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{RenderContext, RenderSettings, ResetOptions};
+use vello_cpu::{RenderSettings, ResetOptions, Scene};
 use vello_example_scenes::image::ImageScene;
 use vello_example_scenes::{AnyScene, Capabilities, get_example_scenes};
 use winit::{
@@ -32,10 +32,10 @@ const ROTATION_STEP: f64 = 0.1;
 const SHEAR_STEP: f64 = 0.05;
 
 struct App {
-    scenes: Box<[AnyScene<RenderContext>]>,
+    scenes: Box<[AnyScene<Scene>]>,
     current_scene: usize,
     render_state: RenderState,
-    renderer: RenderContext,
+    renderer: Scene,
     resources: vello_cpu::Resources,
     pixmap: Pixmap,
     transform: Affine,
@@ -113,7 +113,7 @@ fn main() {
         scenes,
         current_scene: start_scene_index,
         render_state: RenderState::Suspended,
-        renderer: RenderContext::new_with(
+        renderer: Scene::new_with(
             width,
             height,
             RenderSettings {

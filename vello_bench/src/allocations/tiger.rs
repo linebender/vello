@@ -8,7 +8,7 @@ use crate::data::{DataItem, get_data_items};
 use vello_common::fearless_simd::Level;
 use vello_common::kurbo::Stroke;
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{RenderContext, RenderSettings, Resources};
+use vello_cpu::{RenderSettings, Resources, Scene};
 
 pub const HOT_SCENE_BUILD: AllocationBenchmark = AllocationBenchmark::new(
     "tiger/hot_scene_build",
@@ -30,7 +30,7 @@ pub const HOT_FULL_FRAME: AllocationBenchmark = AllocationBenchmark::new(
 
 fn measure_hot_scene_build(measured_frames: usize) -> AllocationStats {
     let item = tiger();
-    let mut context = new_context(item);
+    let mut context = new_scene(item);
 
     populate_scene(&mut context, item);
     context.flush();
@@ -48,7 +48,7 @@ fn measure_hot_scene_build(measured_frames: usize) -> AllocationStats {
 
 fn measure_hot_rasterize(measured_frames: usize) -> AllocationStats {
     let item = tiger();
-    let mut context = new_context(item);
+    let mut context = new_scene(item);
     populate_scene(&mut context, item);
     context.flush();
 
@@ -67,7 +67,7 @@ fn measure_hot_rasterize(measured_frames: usize) -> AllocationStats {
 
 fn measure_hot_full_frame(measured_frames: usize) -> AllocationStats {
     let item = tiger();
-    let mut context = new_context(item);
+    let mut context = new_scene(item);
     let mut resources = Resources::new();
     let mut target = Pixmap::new(item.width, item.height);
 
@@ -88,8 +88,8 @@ fn tiger() -> &'static DataItem {
         .expect("the benchmark data always contains the Ghostscript tiger")
 }
 
-fn new_context(item: &DataItem) -> RenderContext {
-    RenderContext::new_with(
+fn new_scene(item: &DataItem) -> Scene {
+    Scene::new_with(
         item.width,
         item.height,
         RenderSettings {
@@ -100,7 +100,7 @@ fn new_context(item: &DataItem) -> RenderContext {
 }
 
 fn render_frame(
-    context: &mut RenderContext,
+    context: &mut Scene,
     resources: &mut Resources,
     target: &mut Pixmap,
     item: &DataItem,
@@ -111,7 +111,7 @@ fn render_frame(
     context.render(target, resources);
 }
 
-fn populate_scene(context: &mut RenderContext, item: &DataItem) {
+fn populate_scene(context: &mut Scene, item: &DataItem) {
     for fill in &item.fills {
         context.set_transform(fill.transform);
         context.fill_path(&fill.path);

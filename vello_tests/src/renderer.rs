@@ -14,11 +14,10 @@ use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_common::reset::ResetOptions;
 use vello_cpu::{
-    Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources,
-    TargetInit as CpuTargetInit,
+    Level, RasterizerSettings, RenderMode, RenderSettings, Resources, TargetInit as CpuTargetInit,
 };
 use vello_gpu::{
-    ClearSettings, RectU16, RenderSettings as GpuRenderSettings, Resources as GpuResources, Scene,
+    ClearSettings, RectU16, RenderSettings as GpuRenderSettings, Resources as GpuResources,
     TargetInit as GpuTargetInit, TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -107,7 +106,7 @@ pub trait Renderer: Sized {
 }
 
 pub struct CpuRenderer {
-    ctx: RenderContext,
+    ctx: vello_cpu::Scene,
     resources: Resources,
     external_textures: HashMap<TextureId, Arc<Pixmap>>,
     next_external_texture_id: u64,
@@ -129,7 +128,7 @@ impl Renderer for CpuRenderer {
     ) -> Self {
         let settings = RenderSettings { level, num_threads };
         Self {
-            ctx: RenderContext::new_with(width, height, settings),
+            ctx: vello_cpu::Scene::new_with(width, height, settings),
             resources: Resources::new(),
             external_textures: HashMap::new(),
             next_external_texture_id: 1,
@@ -394,7 +393,7 @@ static WGPU_DEVICE_QUEUE: std::sync::LazyLock<(wgpu::Device, wgpu::Queue)> =
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 pub struct GpuRenderer {
-    scene: Scene,
+    scene: vello_gpu::Scene,
     resources: GpuResources,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -418,7 +417,7 @@ impl GpuRenderer {
         settings: GpuRenderSettings,
         use_depth_buffer: bool,
     ) -> Self {
-        let scene = Scene::new_with(width, height, settings.level());
+        let scene = vello_gpu::Scene::new_with(width, height, settings.level());
         #[cfg(not(target_arch = "wasm32"))]
         let (device, queue) = &*WGPU_DEVICE_QUEUE;
         #[cfg(not(target_arch = "wasm32"))]
@@ -887,7 +886,7 @@ impl Renderer for GpuRenderer {
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub struct GpuRenderer {
-    scene: Scene,
+    scene: vello_gpu::Scene,
     resources: GpuResources,
     renderer: vello_gpu::WebGlRenderer,
     gl: WebGl2RenderingContext,
@@ -1062,7 +1061,7 @@ impl Renderer for GpuRenderer {
                 },
                 ..vello_gpu::MemorySettings::default()
             });
-        let scene = Scene::new_with(width, height, settings.level());
+        let scene = vello_gpu::Scene::new_with(width, height, settings.level());
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
         let document = web_sys::window().unwrap().document().unwrap();

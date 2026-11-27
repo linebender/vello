@@ -16,7 +16,7 @@ use vello_common::peniko::{Fill, Gradient};
 use vello_cpu::color::palette::css::BLACK;
 use vello_cpu::peniko::LinearGradientPosition;
 use vello_cpu::{
-    Glyph, Level, Pixmap, RasterizerSettings, RenderContext, RenderMode, RenderSettings, TargetInit,
+    Glyph, Level, Pixmap, RasterizerSettings, RenderMode, RenderSettings, Scene, TargetInit,
 };
 use vello_dev_macros::vello_test;
 
@@ -429,7 +429,7 @@ fn filled_vertical_hairline_rect_2(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn oversized_star(ctx: &mut impl Renderer) {
-    // Create a star path that extends beyond the render context boundaries
+    // Create a star path that extends beyond the scene boundaries
     // Center it in the middle of the viewport
     let star_path = circular_star(Point::new(50., 50.), 10, 30., 90.);
 
@@ -530,7 +530,7 @@ fn implicit_subpaths(ctx: &mut impl Renderer) {
 /// Test compositing a single glyph to a specific region of a larger spritesheet pixmap using `vello_cpu`.
 ///
 /// This demonstrates the glyph caching workflow:
-/// 1. Create a small `RenderContext` sized for a single glyph
+/// 1. Create a small `Scene` sized for a single glyph
 /// 2. Render the glyph into that context
 /// 3. Render it with `TargetInit::SrcOver` and an offset into a larger spritesheet
 #[test]
@@ -554,8 +554,8 @@ fn render_src_over_with_offset() {
 
     // For simplicity, use a fixed glyph size
     let max_glyph_size: u16 = 55;
-    // Create a small `RenderContext` sized for the glyph
-    let mut glyph_renderer = RenderContext::new_with(max_glyph_size, max_glyph_size, settings);
+    // Create a small `Scene` sized for the glyph
+    let mut glyph_renderer = Scene::new_with(max_glyph_size, max_glyph_size, settings);
     let mut glyph_resources = vello_cpu::Resources::new();
 
     glyph_renderer.set_transform(Affine::translate((0.0, f64::from(font_size))));
@@ -590,8 +590,7 @@ fn render_src_over_with_offset() {
 
     // Now render the glyphs directly at the same positions to a reference pixmap
     // to verify that the glyphs are rendered correctly at the same positions.
-    let mut reference_renderer =
-        RenderContext::new_with(spritesheet_width, spritesheet_height, settings);
+    let mut reference_renderer = Scene::new_with(spritesheet_width, spritesheet_height, settings);
     let mut reference_resources = vello_cpu::Resources::new();
     reference_renderer.set_paint(BLACK);
 

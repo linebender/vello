@@ -10,8 +10,7 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Rect};
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::pixmap::Pixmap;
-use vello_cpu::RenderContext;
-use vello_gpu::{MemorySettings, RenderSettings, Scene, WebGlRenderer, WebGlRendererInitStatus};
+use vello_gpu::{MemorySettings, RenderSettings, WebGlRenderer, WebGlRendererInitStatus};
 use wasm_bindgen::{Clamped, JsCast, JsValue};
 use web_sys::{
     CanvasRenderingContext2d, ExtDisjointTimerQuery, HtmlCanvasElement, ImageData,
@@ -101,7 +100,7 @@ impl Backend {
 pub(crate) struct CpuBackend {
     canvas: HtmlCanvasElement,
     context_2d: CanvasRenderingContext2d,
-    ctx: RenderContext,
+    ctx: vello_cpu::Scene,
     resources: vello_cpu::Resources,
     pixmap: Pixmap,
 }
@@ -117,7 +116,7 @@ impl CpuBackend {
         let backend = Self {
             canvas,
             context_2d,
-            ctx: Self::render_context(width, height),
+            ctx: Self::cpu_scene(width, height),
             resources: vello_cpu::Resources::new(),
             pixmap: Pixmap::new(width, height),
         };
@@ -132,8 +131,8 @@ impl CpuBackend {
         Ok((backend, stats))
     }
 
-    fn render_context(width: u16, height: u16) -> RenderContext {
-        RenderContext::new_with(
+    fn cpu_scene(width: u16, height: u16) -> vello_cpu::Scene {
+        vello_cpu::Scene::new_with(
             width,
             height,
             vello_cpu::RenderSettings {
@@ -146,7 +145,7 @@ impl CpuBackend {
     fn resize(&mut self, width: u16, height: u16) {
         self.canvas.set_width(width.into());
         self.canvas.set_height(height.into());
-        self.ctx = Self::render_context(width, height);
+        self.ctx = Self::cpu_scene(width, height);
         self.pixmap.resize(width, height);
     }
 
@@ -179,7 +178,7 @@ impl CpuBackend {
 }
 
 struct CpuSink<'a> {
-    ctx: &'a mut RenderContext,
+    ctx: &'a mut vello_cpu::Scene,
     resources: &'a mut vello_cpu::Resources,
 }
 
@@ -211,7 +210,7 @@ pub(crate) struct GpuBackend {
     canvas: HtmlCanvasElement,
     renderer: WebGlRenderer,
     resources: vello_gpu::Resources,
-    scene: Scene,
+    scene: vello_gpu::Scene,
     timer: Option<GpuTimer>,
     last_gpu_ms: Option<f64>,
 }
@@ -249,7 +248,7 @@ impl GpuBackend {
             canvas,
             renderer,
             resources,
-            scene: Scene::new(width, height),
+            scene: vello_gpu::Scene::new(width, height),
             timer,
             last_gpu_ms: None,
         };
@@ -343,7 +342,7 @@ impl GpuBackend {
 }
 
 struct GpuSink<'a> {
-    scene: &'a mut Scene,
+    scene: &'a mut vello_gpu::Scene,
     resources: &'a mut vello_gpu::Resources,
 }
 

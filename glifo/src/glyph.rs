@@ -1501,7 +1501,7 @@ fn calculate_colr_transform(metrics: &ColrMetrics) -> Affine {
         // Overall, the whole pixmap is scaled by `scale_factor_x` and `scale_factor_y`. `scale_factor_x`
         // and `scale_factor_y` are composed by the scale necessary to adjust for the glyph size,
         // as well as the scale that has been applied to the whole glyph run. However, the scale
-        // of the whole glyph run will be applied later on in the render context. If
+        // of the whole glyph run will be applied later on in the scene. If
         // we didn't do anything, the scales would be applied twice (see https://github.com/linebender/vello/pull/1370).
         // Therefore, we apply another scale factor that unapplies the effect of the glyph run transform
         // and only retains the transform necessary to account for the size of the glyph.

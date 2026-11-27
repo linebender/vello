@@ -87,7 +87,7 @@ pub enum AtlasCommand {
 /// Records atlas draw commands for a single atlas page.
 ///
 /// The recorder exposes the same method API as the actual renderers
-/// (`RenderContext`, `Scene`). It also implements [`DrawSink`] so
+/// (`vello_cpu::Scene`, `vello_gpu::Scene`). It also implements [`DrawSink`] so
 /// that the COLR glyph painter can write into it directly.
 ///
 /// [`DrawSink`]: crate::DrawSink

@@ -8,7 +8,7 @@
 #[cfg(feature = "png")]
 use crate::Pixmap;
 #[cfg(feature = "png")]
-use crate::render::Resources;
+use crate::scene::Resources;
 use crate::text::GlyphAtlasResources;
 #[cfg(feature = "png")]
 use alloc::format;

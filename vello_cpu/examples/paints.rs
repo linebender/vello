@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::{io::Cursor, path::Path};
 use vello_cpu::{
-    Image, ImageSource, Pixmap, RenderContext, Resources,
+    Image, ImageSource, Pixmap, Resources, Scene,
     color::palette::css::{BLUE, CYAN, DEEP_PINK, MAGENTA, NAVY, ORANGE, PURPLE, WHITE, YELLOW},
     kurbo::{Affine, Point, Rect},
     peniko::{
@@ -19,7 +19,7 @@ fn main() {
     // Apart from drawing shapes using a single color, you can also draw them
     // using gradients and image patterns.
 
-    let mut ctx = RenderContext::new(500, 500);
+    let mut ctx = Scene::new(500, 500);
     let base_rect = Rect::new(25.0, 25.0, 225.0, 225.0);
 
     // All you need to is to construct the given gradient/pattern and activate
@@ -28,7 +28,7 @@ fn main() {
     ctx.set_paint(linear_gradient(&base_rect));
     ctx.fill_rect(&base_rect);
 
-    // Since we are applying a transform to the render context, the radial
+    // Since we are applying a transform to the scene, the radial
     // gradient we are about to apply will also be affected to that.
     ctx.set_transform(Affine::translate((250.0, 0.0)));
     ctx.set_paint(radial_gradient(&base_rect));
@@ -130,7 +130,7 @@ fn pattern() -> Image {
     }
 }
 
-fn save_pixmap(ctx: &RenderContext, filename: &str) {
+fn save_pixmap(ctx: &Scene, filename: &str) {
     let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render(&mut pixmap, &mut resources);

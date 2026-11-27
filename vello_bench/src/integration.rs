@@ -11,7 +11,7 @@ use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::ImageSampler;
 use vello_common::peniko::{Extend, ImageAlphaType, ImageQuality};
 use vello_common::pixmap::{PixelMetadata, Pixmap};
-use vello_cpu::{RenderContext, Resources};
+use vello_cpu::{Resources, Scene};
 
 /// Image scene rendering benchmark.
 pub fn images(c: &mut Criterion) {
@@ -34,7 +34,7 @@ pub fn images(c: &mut Criterion) {
     let image_count = VIEWPORT_WIDTH / 256;
 
     g.bench_function("overlapping", |b| {
-        let mut renderer = RenderContext::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+        let mut renderer = Scene::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
         let mut resources = Resources::default();
         let mut pixmap = Pixmap::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
 
