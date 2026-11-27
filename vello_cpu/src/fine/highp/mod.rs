@@ -16,7 +16,7 @@
 use crate::filter::context::ScratchBuffer;
 use crate::filter::filter_highp;
 use crate::fine::FineKernel;
-use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt};
+use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt, StripMask};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use fearless_simd_macros::simd;
@@ -199,43 +199,10 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         let alpha_iter = alphas.map(|a| bytemuck::cast_slice::<u8, [u8; 4]>(a).iter().copied());
 
         let mask_iter = mask.map(|m| {
-            let width = m.width();
-            let height = m.height();
+            let mask = StripMask::new(m, start_y);
 
             core::iter::from_fn(move || {
-                let samples = if start_x < width && start_y + 3 < height {
-                    // All in bounds, sample directly
-                    [
-                        m.sample(start_x, start_y),
-                        m.sample(start_x, start_y + 1),
-                        m.sample(start_x, start_y + 2),
-                        m.sample(start_x, start_y + 3),
-                    ]
-                } else {
-                    // Fallback: check each individually
-                    [
-                        if start_x < width && start_y < height {
-                            m.sample(start_x, start_y)
-                        } else {
-                            255
-                        },
-                        if start_x < width && start_y + 1 < height {
-                            m.sample(start_x, start_y + 1)
-                        } else {
-                            255
-                        },
-                        if start_x < width && start_y + 2 < height {
-                            m.sample(start_x, start_y + 2)
-                        } else {
-                            255
-                        },
-                        if start_x < width && start_y + 3 < height {
-                            m.sample(start_x, start_y + 3)
-                        } else {
-                            255
-                        },
-                    ]
-                };
+                let samples = mask.column(start_x);
 
                 start_x += 1;
 

@@ -17,6 +17,7 @@ This release has an [MSRV][] of 1.89.
 - `ResetOptions`, the options for `vello_cpu::RenderContext::reset_with` and `vello_gpu::Scene::reset_with`. (by [@LaurenzV][])
 - `PreparedFilter::chain`, which replaces `PreparedFilter::new`. (by [@LaurenzV][])
 - `AtlasPacking` and `Atlas::with_packing` to choose between guillotine and shelf ([etagere](https://github.com/nical/etagere)) rectangle packing. (by [@grebmeg][])
+- `Mask::with_offset` places a mask at a pixel of the render context, so that it can cover only part of it. `Mask::offset` and `Mask::data` return its offset and its values. ([#2068][] by [@yhay81][])
 
 ### Changed
 
@@ -323,6 +324,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@upsuper]: https://github.com/upsuper
 [@valadaptive]: https://github.com/valadaptive
 [@waywardmonkeys]: https://github.com/waywardmonkeys
+[@yhay81]: https://github.com/yhay81
 
 [#1159]: https://github.com/linebender/vello/pull/1159
 [#1203]: https://github.com/linebender/vello/pull/1203
@@ -422,6 +424,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#2028]: https://github.com/linebender/vello/pull/2028
 [#2039]: https://github.com/linebender/vello/pull/2039
 [#2061]: https://github.com/linebender/vello/pull/2061
+[#2068]: https://github.com/linebender/vello/pull/2068
 [#2087]: https://github.com/linebender/vello/pull/2087
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.4.0...HEAD
