@@ -6,6 +6,8 @@
 use vello_common::probe;
 use vello_gpu::{RenderTargetConfig, Renderer, WgpuProbeStatus};
 
+use crate::renderer::{lock_wgpu_tests, shared_wgpu_device_queue};
+
 #[test]
 fn wgpu_probe_succeeds_with_depth_buffer() {
     run_wgpu_probe(true);
@@ -17,13 +19,8 @@ fn wgpu_probe_succeeds_without_depth_buffer() {
 }
 
 fn run_wgpu_probe(use_depth_buffer: bool) {
-    let instance = wgpu::Instance::default();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .expect("Failed to find an appropriate adapter");
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-            .expect("Failed to create device");
+    let _gpu_guard = lock_wgpu_tests();
+    let (device, queue) = shared_wgpu_device_queue();
 
     let (width, height) = probe::canvas_size(probe::ALL_PROBE_ELEMENTS);
     let config = RenderTargetConfig {

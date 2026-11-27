@@ -13,8 +13,12 @@ use vello_gpu::{
     TextureBindings,
 };
 
+use crate::renderer::lock_wgpu_tests;
+
 #[test]
 fn renderer_recovers_after_gradient_overflow() {
+    // Needs its own device with a small texture size limit, so it can't use the shared one.
+    let _gpu_guard = lock_wgpu_tests();
     let instance = wgpu::Instance::default();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))

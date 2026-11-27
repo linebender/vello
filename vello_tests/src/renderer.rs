@@ -392,6 +392,22 @@ fn create_wgpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
 static WGPU_DEVICE_QUEUE: std::sync::LazyLock<(wgpu::Device, wgpu::Queue)> =
     std::sync::LazyLock::new(create_wgpu_device_queue);
 
+/// The device and queue shared by all GPU tests.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn shared_wgpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
+    let (device, queue) = &*WGPU_DEVICE_QUEUE;
+    (device.clone(), queue.clone())
+}
+
+/// Locks the mutex that makes GPU tests use the GPU one at a time.
+///
+/// Tests that drive wgpu directly instead of through [`GpuRenderer`] must hold the returned guard
+/// for as long as they use the GPU, including when they create their own device.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn lock_wgpu_tests() -> std::sync::MutexGuard<'static, ()> {
+    WGPU_TEST_MUTEX.lock().unwrap()
+}
+
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 pub struct GpuRenderer {
     scene: Scene,
