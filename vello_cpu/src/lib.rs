@@ -168,7 +168,7 @@ extern crate std;
 #[cfg(all(not(feature = "u8_pipeline"), not(feature = "f32_pipeline")))]
 compile_error!("vello_cpu must have at least one of the u8 or f32 pipelines enabled");
 
-mod render;
+mod scene;
 
 mod coarse;
 mod dispatch;
@@ -187,7 +187,7 @@ pub mod region;
 #[doc(hidden)]
 pub mod span;
 
-pub use render::{PixelFormat, RasterizerSettings, RenderSettings, Resources, Scene, TargetInit};
+pub use scene::{PixelFormat, RasterizerSettings, RenderSettings, Resources, Scene, TargetInit};
 // Note: The first one is not something that should be
 // exposed, but is currently needed by vello_tests.
 #[cfg(feature = "text")]

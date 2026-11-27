@@ -11,7 +11,7 @@
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
 //! any GPU upload step.
 
-use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
+use crate::scene::DEFAULT_GLYPH_ATLAS_SIZE;
 use crate::{
     Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderMode, RenderSettings,
     Resources, Scene, TargetInit, color, kurbo, peniko,
