@@ -25,6 +25,7 @@ This release has an [MSRV][] of 1.89.
 
 - A GPU hang on DX12 with FXC when rendering scenes with many paths. ([#1992][] by [@kong109][])
 - A potential division by zero in `clip_color` for gray colors in the `Color` and `Luminosity` blend modes. ([#2000][] by [@zlstringham][])
+- GPU hang on Intel Macs with AMD GPUs: the Metal compiler compiled a loop in `flatten` without an exit. ([#2022][] by [@Dragoy][])
 
 ## [0.11.0][] - 2026-10-02
 
@@ -363,6 +364,7 @@ This release has an [MSRV][] of 1.75.
 [@DasLixou]: https://github.com/DasLixou
 [@dfrg]: https://github.com/drfg
 [@DJMcNab]: https://github.com/DJMcNab
+[@Dragoy]: https://github.com/Dragoy
 [@gugutu]: https://github.com/gugutu
 [@jrmoulton]: https://github.com/jrmoulton
 [@Keavon]: https://github.com/Keavon
@@ -504,6 +506,7 @@ This release has an [MSRV][] of 1.75.
 [#1992]: https://github.com/linebender/vello/pull/1992
 [#1996]: https://github.com/linebender/vello/pull/1996
 [#2000]: https://github.com/linebender/vello/pull/2000
+[#2022]: https://github.com/linebender/vello/pull/2022
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.12.0...HEAD
 [0.12.0]: https://github.com/linebender/vello/compare/v0.11.0...v0.12.0
