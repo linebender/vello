@@ -307,7 +307,7 @@ the previous prototype, [piet-metal], and included work adapted from
 The decision to lay down `piet-gpu-hal` in favor of WebGPU is discussed in
 detail in the blog post [Requiem for piet-gpu-hal].
 
-A [vision](https://github.com/linebender/vello/tree/main/research/doc/vision.md)
+A [vision](https://github.com/linebender/vello/blob/main/research/doc/vision.md)
 document dated December 2020 explained the longer-term goals of the project, and
 how we might get there. Many of these items are out-of-date or completed, but it
 still may provide some useful background.
@@ -327,25 +327,25 @@ Vello takes inspiration from many other rendering projects, including:
 Licensed under either of
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](../../LICENSE-APACHE) or
-  <http://www.apache.org/licenses/LICENSE-2.0>)
+  <https://www.apache.org/licenses/LICENSE-2.0>)
 - MIT license ([LICENSE-MIT](../../LICENSE-MIT) or
-  <http://opensource.org/licenses/MIT>)
+  <https://opensource.org/license/mit>)
 
 at your option.
 
 [piet-metal]: https://github.com/linebender/piet-metal
 [`wgpu`]: https://wgpu.rs/
-[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[Rust code of conduct]: https://rust-lang.org/policies/code-of-conduct/
 [`custom-hal-archive-with-shaders`]:
-  https://github.com/linebender/piet-gpu/tree/custom-hal-archive-with-shaders
+  https://github.com/linebender/vello/tree/custom-hal-archive-with-shaders
 [`custom-hal-archive`]:
-  https://github.com/linebender/piet-gpu/tree/custom-hal-archive
+  https://github.com/linebender/vello/tree/custom-hal-archive
 [piet-dx12]: https://github.com/bzm3r/piet-dx12
 [GhostScript tiger]:
   https://commons.wikimedia.org/wiki/File:Ghostscript_Tiger.svg
 [winit]: https://github.com/rust-windowing/winit
-[Bevy]: https://bevyengine.org/
+[Bevy]: https://bevy.org/
 [Requiem for piet-gpu-hal]:
   https://raphlinus.github.io/rust/gpu/2023/01/07/requiem-piet-gpu-hal.html
 [the changelog]:
-  https://github.com/linebender/vello/tree/main/research/CHANGELOG.md
+  https://github.com/linebender/vello/blob/main/research/CHANGELOG.md

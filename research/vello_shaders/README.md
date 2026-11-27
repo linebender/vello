@@ -63,9 +63,9 @@ Contributions are welcome by pull request. The [Rust code of conduct] applies.
 Licensed under either of
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](../../LICENSE-APACHE) or
-  <http://www.apache.org/licenses/LICENSE-2.0>)
+  <https://www.apache.org/licenses/LICENSE-2.0>)
 - MIT license ([LICENSE-MIT](../../LICENSE-MIT) or
-  <http://opensource.org/licenses/MIT>)
+  <https://opensource.org/license/mit>)
 
 at your option.
 
@@ -74,11 +74,11 @@ In addition, all files in the
 and
 [`src/cpu`](https://github.com/linebender/vello/tree/main/research/vello_shaders/src/cpu)
 directories and subdirectories thereof are alternatively licensed under the
-Unlicense ([shader/UNLICENSE](shader/UNLICENSE) or <http://unlicense.org/>). For
+Unlicense ([shader/UNLICENSE](shader/UNLICENSE) or <https://unlicense.org/>). For
 clarity, these files are also licensed under either of the above licenses. The
 intent is for this research to be used in as broad a context as possible.
 
-[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[Rust code of conduct]: https://rust-lang.org/policies/code-of-conduct/
 [Vello]: ../vello_research
 [the changelog]:
-  https://github.com/linebender/vello/tree/main/research/CHANGELOG.md
+  https://github.com/linebender/vello/blob/main/research/CHANGELOG.md

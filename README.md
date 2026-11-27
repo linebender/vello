@@ -7,7 +7,7 @@
 [![Linebender Zulip](https://img.shields.io/badge/Linebender-%23vello-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/channel/197075-vello)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
-[![Build status](https://github.com/linebender/vello/workflows/CI/badge.svg)](https://github.com/linebender/vello/actions)
+[![Build status](https://github.com/linebender/vello/actions/workflows/ci.yml/badge.svg)](https://github.com/linebender/vello/actions)
 
 </div>
 
@@ -138,9 +138,9 @@ terms or conditions.
 Licensed under either of
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
-  <http://www.apache.org/licenses/LICENSE-2.0>)
+  <https://www.apache.org/licenses/LICENSE-2.0>)
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or
-  <http://opensource.org/licenses/MIT>)
+  <https://opensource.org/license/mit>)
 
 at your option.
 
@@ -149,7 +149,7 @@ In addition, all files in the
 [`research/vello_shaders/src/cpu`][vello-shaders-cpu-dir] directories and
 subdirectories thereof are alternatively licensed under the Unlicense
 ([research/vello_shaders/shader/UNLICENSE][shader-unlicense] or
-<http://unlicense.org/>). For clarity, these files are also licensed under
+<https://unlicense.org/>). For clarity, these files are also licensed under
 either of the above licenses. The intent is for this research to be used in as
 broad a context as possible.
 
@@ -157,7 +157,7 @@ The files in subdirectories of the [`assets`][assets] directory are licensed
 solely under their respective licenses, available in the `LICENSE` file in
 their directories.
 
-[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[Rust code of conduct]: https://rust-lang.org/policies/code-of-conduct/
 [assets]: https://github.com/linebender/vello/tree/main/assets
 [canvas]: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D
 [shader-unlicense]: https://github.com/linebender/vello/blob/main/research/vello_shaders/shader/UNLICENSE

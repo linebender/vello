@@ -55,13 +55,13 @@ Contributions are welcome by pull request. The [Rust code of conduct] applies.
 Licensed under either of
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](../../LICENSE-APACHE) or
-  <http://www.apache.org/licenses/LICENSE-2.0>)
+  <https://www.apache.org/licenses/LICENSE-2.0>)
 - MIT license ([LICENSE-MIT](../../LICENSE-MIT) or
-  <http://opensource.org/licenses/MIT>)
+  <https://opensource.org/license/mit>)
 
 at your option.
 
-[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[Rust code of conduct]: https://rust-lang.org/policies/code-of-conduct/
 [Vello]: ../vello_research
 [the changelog]:
-  https://github.com/linebender/vello/tree/main/research/CHANGELOG.md
+  https://github.com/linebender/vello/blob/main/research/CHANGELOG.md
