@@ -4,6 +4,8 @@
 //! Utility helper functions.
 
 use core::ops::Sub;
+#[cfg(not(feature = "std"))]
+use core_maths::CoreFloat as _;
 use peniko::kurbo::Affine;
 
 // From <https://github.com/linebender/tiny-skia/blob/68b198a7210a6bbf752b43d6bc4db62445730313/path/src/scalar.rs#L12>
@@ -84,9 +86,30 @@ impl AffineExt for Affine {
     }
 }
 
+/// Glyph origins often sit exactly on a rounding boundary, where a few ulps of
+/// float noise would move the glyph by a pixel. This bias, far above that noise
+/// and far below a subpixel bucket, moves the boundaries off those values.
+const PIXEL_DECISION_BIAS: f64 = 1e-6;
+
+/// The integer pixel of a glyph position. Pair with [`biased_fract`].
+#[inline]
+pub(crate) fn biased_floor(v: f64) -> f64 {
+    (v + PIXEL_DECISION_BIAS).floor()
+}
+
+/// The subpixel remainder left by [`biased_floor`], in `[0, 1]`.
+///
+/// Narrowing to `f32` can round the remainder up to exactly `1.0`, so consumers
+/// must clamp rather than wrap.
+#[inline]
+pub(crate) fn biased_fract(v: f64) -> f64 {
+    let v = v + PIXEL_DECISION_BIAS;
+    v - v.floor()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::AffineExt;
+    use super::{AffineExt, biased_floor, biased_fract};
     use peniko::kurbo::Affine;
 
     #[test]
@@ -141,5 +164,39 @@ mod tests {
         assert!(!flip_x.has_non_unit_skew_or_scale());
         assert!(!flip_y.has_non_unit_skew_or_scale());
         assert!(!flip_xy.has_non_unit_skew_or_scale());
+    }
+
+    /// Well above the noise between two computations of the same position, well
+    /// below the bias.
+    const NOISE: f64 = 1e-9;
+
+    #[test]
+    fn pixel_split_is_stable_at_integers() {
+        for k in [-1234.0, -3.0, 0.0, 7.0, 341.0, 4096.0] {
+            for v in [k - NOISE, k, k + NOISE] {
+                assert_eq!(biased_floor(v), k, "floor at {v}");
+                assert!(biased_fract(v) < 1e-5, "fract at {v}");
+            }
+        }
+    }
+
+    #[test]
+    fn pixel_split_reassembles_its_input() {
+        for v in [-3.75, -0.25, 0.0, 9.0, 9.75, 341.5] {
+            assert_eq!(biased_floor(v), v.floor(), "floor at {v}");
+            assert!(
+                (biased_floor(v) + biased_fract(v) - v).abs() < 2e-6,
+                "split at {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn biased_floor_rounds_halves_up() {
+        for k in [-12.5, -0.5, 0.5, 33.5, 2047.5] {
+            for v in [k - NOISE, k, k + NOISE] {
+                assert_eq!(biased_floor(v + 0.5), k + 0.5, "round at {v}");
+            }
+        }
     }
 }

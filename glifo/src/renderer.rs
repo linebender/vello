@@ -12,7 +12,7 @@ use crate::glyph::{
     OutlineCacheSession, PreparedGlyph,
 };
 use crate::interface::{DrawSink, GlyphRenderer};
-use crate::util::AffineExt;
+use crate::util::{AffineExt, biased_floor};
 use crate::{kurbo, peniko};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -525,9 +525,10 @@ fn render_outline_glyph_from_atlas(
     tint_color: AlphaColor<Srgb>,
 ) {
     let [_, _, _, _, tx, ty] = outline_transform.as_coeffs();
+    // Must split `tx` the same way the cache key's `biased_fract` did.
     let rect_transform = Affine::translate((
-        tx.floor() + atlas_slot.bearing_x as f64,
-        ty.floor() + atlas_slot.bearing_y as f64,
+        biased_floor(tx) + atlas_slot.bearing_x as f64,
+        biased_floor(ty) + atlas_slot.bearing_y as f64,
     ));
     let area = Rect::new(0.0, 0.0, atlas_slot.width as f64, atlas_slot.height as f64);
     render_from_atlas(
