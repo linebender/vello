@@ -10,8 +10,7 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::env;
-use std::num::NonZeroU32;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::ImageSource;
@@ -19,6 +18,8 @@ use vello_common::pixmap::Pixmap;
 use vello_cpu::{RenderContext, RenderSettings, ResetOptions};
 use vello_example_scenes::image::ImageScene;
 use vello_example_scenes::{AnyScene, Capabilities, get_example_scenes};
+use wgpu::CurrentSurfaceTexture;
+use wgpu::util::TextureBlitter;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, WindowEvent},
@@ -77,8 +78,8 @@ fn main() {
         let pixmap1 = ImageScene::read_flower_image();
         let pixmap2 = ImageScene::read_cowboy_image();
         let img_sources = vec![
-            ImageSource::Pixmap(std::sync::Arc::new(pixmap1)),
-            ImageSource::Pixmap(std::sync::Arc::new(pixmap2)),
+            ImageSource::Pixmap(Arc::new(pixmap1)),
+            ImageSource::Pixmap(Arc::new(pixmap2)),
         ];
         let capabilities = Capabilities::default();
         let scenes = if svg_paths.is_empty() {
@@ -98,8 +99,8 @@ fn main() {
             get_example_scenes(
                 Capabilities::default(),
                 vec![
-                    ImageSource::Pixmap(std::sync::Arc::new(pixmap1)),
-                    ImageSource::Pixmap(std::sync::Arc::new(pixmap2)),
+                    ImageSource::Pixmap(Arc::new(pixmap1)),
+                    ImageSource::Pixmap(Arc::new(pixmap2)),
                 ],
             ),
             0,
@@ -150,11 +151,131 @@ fn main() {
 }
 
 enum RenderState {
-    Active {
-        window: Rc<Window>,
-        surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
-    },
+    Active { window: Arc<Window>, gpu: Box<Gpu> },
     Suspended,
+}
+
+struct Gpu {
+    surface: wgpu::Surface<'static>,
+    config: wgpu::SurfaceConfiguration,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    blitter: TextureBlitter,
+    view_format: wgpu::TextureFormat,
+    texture: Option<wgpu::Texture>,
+}
+
+impl Gpu {
+    fn new(window: Arc<Window>) -> Self {
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        let size = window.inner_size();
+        let surface = instance
+            .create_surface(window)
+            .expect("Error creating surface");
+        let adapter = pollster::block_on(wgpu::util::initialize_adapter_from_env_or_default(
+            &instance,
+            Some(&surface),
+        ))
+        .expect("No compatible adapter");
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                .expect("Error creating device");
+
+        let format = surface.get_capabilities(&adapter).formats[0];
+        // The pixmap already holds sRGB-encoded values, so writing through an sRGB view would
+        // encode them twice.
+        let view_format = format.remove_srgb_suffix();
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width.max(1),
+            height: size.height.max(1),
+            present_mode: wgpu::PresentMode::AutoVsync,
+            color_space: wgpu::SurfaceColorSpace::Auto,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![view_format],
+        };
+        surface.configure(&device, &config);
+        let blitter = TextureBlitter::new(&device, view_format);
+
+        Self {
+            surface,
+            config,
+            device,
+            queue,
+            blitter,
+            view_format,
+            texture: None,
+        }
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
+    }
+
+    fn present(&mut self, window: &Window, pixmap: &Pixmap) {
+        let width = pixmap.width() as u32;
+        let height = pixmap.height() as u32;
+
+        if !matches!(&self.texture, Some(t) if t.width() == width && t.height() == height) {
+            self.texture = Some(self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Pixmap"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            }));
+        }
+        let texture = self.texture.as_ref().unwrap();
+
+        let frame = match self.surface.get_current_texture() {
+            CurrentSurfaceTexture::Success(frame) => frame,
+            CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Suboptimal(_) => {
+                self.surface.configure(&self.device, &self.config);
+                return;
+            }
+            CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => return,
+            CurrentSurfaceTexture::Lost => panic!("Surface was lost"),
+            CurrentSurfaceTexture::Validation => panic!("Validation error getting surface"),
+        };
+
+        self.queue.write_texture(
+            texture.as_image_copy(),
+            pixmap.data_as_u8_slice(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: None,
+            },
+            texture.size(),
+        );
+
+        let source = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let target = frame.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(self.view_format),
+            ..Default::default()
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        self.blitter
+            .copy(&self.device, &mut encoder, &source, &target);
+        self.queue.submit([encoder.finish()]);
+
+        window.pre_present_notify();
+        self.queue.present(frame);
+    }
 }
 
 impl ApplicationHandler for App {
@@ -177,12 +298,10 @@ impl ApplicationHandler for App {
             .with_visible(true)
             .with_active(true);
 
-        let window = Rc::new(event_loop.create_window(window_attrs).unwrap());
+        let window = Arc::new(event_loop.create_window(window_attrs).unwrap());
+        let gpu = Box::new(Gpu::new(window.clone()));
 
-        let context = softbuffer::Context::new(window.clone()).unwrap();
-        let surface = softbuffer::Surface::new(&context, window.clone()).unwrap();
-
-        self.render_state = RenderState::Active { window, surface };
+        self.render_state = RenderState::Active { window, gpu };
     }
 
     fn window_event(
@@ -191,7 +310,7 @@ impl ApplicationHandler for App {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        let RenderState::Active { window, surface } = &mut self.render_state else {
+        let RenderState::Active { window, gpu } = &mut self.render_state else {
             return;
         };
 
@@ -205,12 +324,7 @@ impl ApplicationHandler for App {
                 let width = size.width.max(1);
                 let height = size.height.max(1);
 
-                surface
-                    .resize(
-                        NonZeroU32::new(width).unwrap(),
-                        NonZeroU32::new(height).unwrap(),
-                    )
-                    .unwrap();
+                gpu.resize(width, height);
 
                 self.pixmap.resize(width as u16, height as u16);
                 self.renderer.reset_with(ResetOptions {
@@ -461,18 +575,7 @@ impl ApplicationHandler for App {
                 self.renderer.flush();
                 self.renderer.render(&mut self.pixmap, &mut self.resources);
 
-                // Copy pixmap to window surface
-                let mut buffer = surface.buffer_mut().unwrap();
-                let pixmap_data = self.pixmap.data();
-
-                // Convert RGBA to BGRA/XRGB format expected by softbuffer
-                for (buffer_pixel, pixel) in buffer.iter_mut().zip(pixmap_data.iter()) {
-                    // softbuffer expects 0RGB format (little-endian: B, G, R, 0)
-                    // Our pixmap is premultiplied RGBA
-                    *buffer_pixel = u32::from_le_bytes([pixel.b, pixel.g, pixel.r, 0]);
-                }
-
-                buffer.present().unwrap();
+                gpu.present(window, &self.pixmap);
 
                 // Request continuous redraw for FPS measurement
                 window.request_redraw();
