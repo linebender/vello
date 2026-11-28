@@ -187,6 +187,8 @@ pub mod region;
 #[doc(hidden)]
 pub mod span;
 
+#[cfg(feature = "multithreading")]
+pub use render::RasterWorkers;
 pub use render::{
     PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources, TargetInit,
 };
